@@ -12,9 +12,9 @@ def validate_session(value, ident=None):
         if not ok: raise SessionError('Session data is invalid or uses an unsupported version. The stored record has been preserved.')
     require(isinstance(value,dict) and not value.get('_unavailable'))
     data=copy.deepcopy(value)
-    require(type(data.get('version',1)) is int and 1<=data.get('version',1)<=3)
+    require(type(data.get('version',1)) is int and 1<=data.get('version',1)<=4)
     require(isinstance(data.get('id'),str) and bool(data['id']) and (ident is None or data['id']==ident))
-    require(data.get('mode') in ('chat','decision'))
+    require(data.get('mode') in ('chat','decision','code'))
     require(isinstance(data.get('connection'),dict))
     for key in ('url','model','protocol','reasoning','api_key','credential_id'):
         if key in data['connection']: require(isinstance(data['connection'][key],str))
@@ -31,6 +31,12 @@ def validate_session(value, ident=None):
     options=data['research_options']
     if 'enabled' in options: require(type(options['enabled']) is bool)
     if 'policy' in options: require(options['policy'] in (None,'Provider first','Agentnik first','Provider only','Agentnik only'))
+    if data['mode']=='code':
+        require(data.get('version')==4)
+        for field in ('project_id','project_name','path_snapshot'): require(isinstance(data.get(field),str) and bool(data[field]))
+        require(not data['messages'] and not data['runs'] and 'research_pending' not in data)
+        return data
+    require(data.get('version',1)<=3)
     def form(value):
         require(isinstance(value,dict))
         require(isinstance(value.get('state',''),str))

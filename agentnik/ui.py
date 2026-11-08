@@ -24,6 +24,8 @@ from . import core, research, routing
 from .citations import cited_markdown
 from .research_ui import WebSettings, ResearchDetails
 from .storage import Store
+from .repositories import RepositoryRegistry
+from .code_ui import RepositoryPicker, CodeTab
 
 class Signals(QObject):
     progress = Signal(object)
@@ -766,11 +768,11 @@ class SessionTab(QWidget):
 
 class Window(QMainWindow):
     def __init__(self,store):
-        super().__init__(); self.store = store; self.local = {}; self.connections = {}; self.setWindowTitle('Agentnik'); self.resize(1320,850)
+        super().__init__(); self.store = store; self.repositories=RepositoryRegistry(store); self.local = {}; self.connections = {}; self.setWindowTitle('Agentnik'); self.resize(1320,850)
         self._system_palette = QPalette(QApplication.palette())
         toolbar = self.addToolBar('Agentnik'); toolbar.setMovable(False)
         self.brand = QLabel(); self.brand.setContentsMargins(2,0,12,0); toolbar.addWidget(self.brand)
-        for text, fn in [('☰ History',self.toggle_history),('☆ Prompts',self.toggle_prompts),('＋ Chat',lambda:self.new_session('chat')),('＋ Decision',lambda:self.new_session('decision')),('Connections',self.manage_connections)]:
+        for text, fn in [('☰ History',self.toggle_history),('☆ Prompts',self.toggle_prompts),('＋ Chat',lambda:self.new_session('chat')),('＋ Decision',lambda:self.new_session('decision')),('＋ Code',self.new_code),('Repositories',self.manage_repositories),('Connections',self.manage_connections)]:
             action = QAction(text,self); action.triggered.connect(fn); toolbar.addAction(action)
         toolbar.addSeparator(); toolbar.addWidget(QLabel('Theme: ')); self.theme = QComboBox(); self.theme.addItems(['System','Light','Dark']); toolbar.addWidget(self.theme); self.theme.setCurrentText(store.config['settings'].get('theme','System')); self.theme.currentTextChanged.connect(self.apply_theme)
         self.font_smaller = QPushButton('A−'); self.font_smaller.setAccessibleName('Decrease font size'); self.font_smaller.setToolTip('Decrease font size'); self.font_smaller.clicked.connect(lambda:self.adjust_font_size(-1)); toolbar.addWidget(self.font_smaller)
@@ -859,6 +861,13 @@ class Window(QMainWindow):
             widget = self.tabs.widget(i)
             if isinstance(widget,SessionTab): widget.refresh_connections()
     def discovered(self,found): self.local = found; self.reload_connections(); self.stats()
+    def manage_repositories(self): RepositoryPicker(self,self.repositories,select=False).exec()
+    def new_code(self):
+        picker=RepositoryPicker(self,self.repositories)
+        if picker.exec()!=QDialog.DialogCode.Accepted or not picker.selected_id: return
+        try:
+            session=self.repositories.session(picker.selected_id);self.store.save(session);self.open_session(session);self.refresh_history()
+        except (OSError,ValueError) as exc: error(self,exc)
     def manage_connections(self): Connections(self).exec()
     def toggle_history(self):
         self.sidebar.setVisible(not self.sidebar.isVisible()); self.store.config['settings']['history_visible'] = not self.sidebar.isHidden(); self.store.flush()
@@ -911,8 +920,8 @@ class Window(QMainWindow):
         if session.get('_unavailable'): return error(self,'This saved session cannot be opened with the current version. Its original data is preserved in history.sqlite3. Repair or restore the record, or use a compatible Agentnik version.')
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
-            if isinstance(tab,SessionTab) and tab.session['id'] == session['id']: self.tabs.setCurrentIndex(i); return
-        tab = SessionTab(self,session); tab.updated.connect(self.session_updated)
+            if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id'] == session['id']: self.tabs.setCurrentIndex(i); return
+        tab = CodeTab(self,session) if session['mode']=='code' else SessionTab(self,session); tab.updated.connect(self.session_updated)
         if hasattr(self,'empty') and self.tabs.indexOf(self.empty) >= 0: self.tabs.removeTab(self.tabs.indexOf(self.empty))
         self.tabs.setCurrentIndex(self.tabs.addTab(tab,session['title'])); self.stats()
     def open_item(self,item):
@@ -924,17 +933,17 @@ class Window(QMainWindow):
         for s in self.store.list_sessions():
             if needle not in (s['title']+' '+s['connection_name']).lower(): continue
             stamp = datetime.datetime.fromtimestamp(s['updated']).strftime('%b %d · %H:%M')
-            item = QListWidgetItem(('◇ ' if s['mode']=='decision' else '○ ')+s['title']+'\n'+s['connection_name']+'\n'+stamp); item.setData(Qt.ItemDataRole.UserRole,s['id']); self.history.addItem(item)
+            item = QListWidgetItem(('⌘ ' if s['mode']=='code' else '◇ ' if s['mode']=='decision' else '○ ')+s['title']+'\n'+s['connection_name']+'\n'+stamp); item.setData(Qt.ItemDataRole.UserRole,s['id']); self.history.addItem(item)
             if s['id']==selected: self.history.setCurrentItem(item)
     def session_updated(self):
         self.refresh_history()
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
-            if isinstance(tab,SessionTab): self.tabs.setTabText(i,tab.session['title'])
+            if isinstance(tab,(SessionTab,CodeTab)): self.tabs.setTabText(i,tab.session['title'])
         self.stats()
     def close_tab(self,index):
         tab = self.tabs.widget(index)
-        if isinstance(tab,SessionTab):
+        if isinstance(tab,(SessionTab,CodeTab)):
             if tab.job: return error(self,'Cancel the running request and wait for it to finish before closing this tab.')
             tab.save_draft()
             tab._closed = True
@@ -949,16 +958,16 @@ class Window(QMainWindow):
             session['title'] = name.strip()
             for i in range(self.tabs.count()):
                 tab = self.tabs.widget(i)
-                if isinstance(tab,SessionTab) and tab.session['id']==session['id']: tab.session['title']=name.strip()
+                if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id']==session['id']: tab.session['title']=name.strip()
             self.store.save(session); self.session_updated()
     def delete_ids(self,ids):
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
-            if isinstance(tab,SessionTab) and tab.session['id'] in ids and tab.job:
+            if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id'] in ids and tab.job:
                 return error(self,'Cancel running requests before deleting their sessions.')
         for i in reversed(range(self.tabs.count())):
             tab = self.tabs.widget(i)
-            if isinstance(tab,SessionTab) and tab.session['id'] in ids: tab._closed = True; self.tabs.removeTab(i); tab.deleteLater()
+            if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id'] in ids: tab._closed = True; self.tabs.removeTab(i); tab.deleteLater()
         self.store.delete(ids); self.refresh_history(); self.stats()
     def delete(self):
         item = self.history.currentItem()
@@ -969,6 +978,7 @@ class Window(QMainWindow):
     def stats(self,*_):
         self.refresh_prompts()
         tab = self.tabs.currentWidget()
+        if isinstance(tab,CodeTab): self.statusBar().showMessage('Code · '+tab.session['project_name']+' · Backend not connected'); return
         if not isinstance(tab,SessionTab): self.statusBar().showMessage('Ready · New chat: Ctrl+N · Toggle history: Ctrl+B'); return
         s = tab.session; measurements = [m['metrics'] for m in s['messages'] if 'metrics' in m] if s['mode']=='chat' else [r['result']['metrics'] for r in s['runs']]
         total_in = sum(m.get('input_tokens',0) for m in measurements); total_out = sum(m.get('output_tokens',0) for m in measurements)
@@ -982,7 +992,7 @@ class Window(QMainWindow):
         if running and not confirm(self,'Requests are running. Close Agentnik and stop receiving responses?'): event.ignore(); return
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
-            if isinstance(tab,SessionTab): tab.cancel(); tab.save_draft(); tab._closed = True
+            if isinstance(tab,(SessionTab,CodeTab)): tab.cancel(); tab.save_draft(); tab._closed = True
         event.accept()
 
 def main():

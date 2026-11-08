@@ -53,7 +53,7 @@ See [DEVELOPMENT_VALIDATION.md](DEVELOPMENT_VALIDATION.md) for the opt-in live c
 
 Milestones B and C provide a bounded research preview with native Ollama and Responses managed tools, OpenAI Responses hosted search, all four route policies, visible fallback, sources, persistence, and shared accounting. Scoped live LiteLLM checks passed streamed chat and tool continuation for selected ChatGPT/Ollama Cloud aliases, plus real managed search and page retrieval using `chatgpt/gpt-6-luna`; see [live results](MILESTONE_D_LIVE_RESULTS.md). Other models/routes remain unverified. Milestone D now includes Chat Completions and Messages managed adapters; live compatibility, broader platform checks, and distribution readiness remain outstanding; see `AGENTNIK_PLAN.md`.
 
-Future Coding Agent work will add a saved **Repositories** list for local repositories or project folders. **＋ Code** will ask which project to use, then open an independent CLI-style coding pane. This workflow is planned in `AGENTNIK_PLAN.md`; it is not available yet.
+Post-v0.2.0 development now includes **Repositories** for local Git repositories or ordinary project folders. Add, rename, locate, or remove entries without deleting files. **＋ Code** opens a searchable project picker and an independent passive Code pane with a saved task draft and visible working-directory snapshot. Coding execution is not connected yet; Run is disabled. Removing or relocating a registry entry preserves existing history and its original path. These changes are newer than the v0.2.0 archive.
 
 ## Conversations
 

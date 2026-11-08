@@ -1,6 +1,6 @@
 # Agentnik implementation plan
 
-Reviewed: 2026-11-08. This roadmap describes the current development tree and the remaining acceptance gates. Detailed historical evidence is in [VALIDATION.md](VALIDATION.md); installation and delivered behavior are in [README.md](README.md).
+Reviewed after the v0.2.0 release: 2026-11-08. This roadmap describes the current development tree and the remaining acceptance gates. Detailed historical evidence is in [VALIDATION.md](VALIDATION.md); installation and delivered behavior are in [README.md](README.md).
 
 ## Objective and preserved contracts
 
@@ -18,15 +18,32 @@ Agentnik is an independent Python/Qt desktop application for chat, Ollama System
 | Milestone | Current state | Remaining qualification |
 | --- | --- | --- |
 | A — Independent baseline | Established: standalone repository, identity/storage, red branding, baseline functionality and packaged assets | Preserve these contracts in every later slice |
-| B — Managed research | Implemented preview: native Ollama tool loop, Ollama search, direct public page fetch, sources/activity, persistence, cancellation | Offline evidence; live research compatibility unverified |
+| B — Managed research | Implemented preview: native Ollama tool loop, Ollama search, direct public page fetch, sources/activity, persistence, cancellation | Scoped live managed search/fetch passed through LiteLLM Responses; other combinations remain unverified |
 | C — Hosted research and routing | Implemented preview: managed Responses, official OpenAI Responses hosted search, four policies, bounded fallback/accounting | Offline evidence; live research compatibility unverified |
-| D — Hardening and release readiness | In progress: development tree adds Chat Completions/Messages managed adapters and a readiness-based frozen smoke script | D0 local hardening, D1 controlled compatibility evidence, D2 distribution/platform gates below |
-| E — Coding Agent | Planned | Begin with passive repository registry/picker; execution needs a separate boundary/backend decision |
+| D — Hardening and release readiness | D0 complete; D1 harness delivered; isolated Windows v0.2.0 archive built and tagged | Native/clean-machine, additional live protocols, licensing and macOS/Linux gates remain open |
+| E — Coding Agent | E1 passive registry/picker/panes implemented after v0.2.0 | E2 backend and execution boundaries remain undecided; no commands/inference in E1 |
 | F — MCP servers and Skills | Long-term planned | Optional extensions with explicit configuration, activation, permissions, and shared tool approvals |
 
-The current offline baseline is **90 passing tests**, including offscreen Qt and mocked protocol/transport checks. This establishes contract coverage, not real provider compatibility. Existing screenshots use simulated responses. User testing has reported successful Windows use; that is useful feedback, not a completed native workflow matrix.
+The release baseline is **144 passing offline tests**, including protocol/transport mocks and offscreen Qt integration. The annotated **v0.2.0** tag points to **efffd07** and was pushed with the release commits. The unsigned Windows x64 archive was built from that clean revision in an isolated virtual environment, passed real Qt-window/temporary-database startup and graceful exit, and passed archive/checksum checks. It includes release notes, documentation/images, dependency notices and a build manifest. The archive is local under `dist/build-v0.2.0/`; pushing the Git tag did not upload the binary as a GitHub Release asset. v0.1.0 remains unchanged.
 
-The **v0.1.0** tag and Windows onedir archive are an earlier source checkpoint. Its frozen executable passed actual Qt-window initialization, temporary SQLite creation, and graceful exit; it is unsigned. The current D development build passed a separate Windows startup smoke check. Neither proves live TLS/provider behavior, credential-store integration, complete native workflows, or macOS/Linux operation. Keep the historical tag/archive unchanged and use distinct development output directories. Current D changes remain development work until reviewed and committed; do not describe them as present in v0.1.0.
+| Evidence | Confirmed scope | Still open |
+| --- | --- | --- |
+| Live chat | LiteLLM ChatGPT `chatgpt/gpt-6-luna` Responses; Ollama Cloud `ollama-cloud/gpt-oss:20b` Chat Completions; one Gemma gateway alias | Other aliases/accounts and direct-provider equivalence |
+| Live tool continuation | ChatGPT Responses and Ollama Cloud Chat Completions using local fixtures | Successful live Messages and broader reasoning/multi-call variants |
+| Real managed research | ChatGPT Responses through LiteLLM with separate Ollama search credentials and direct public page retrieval | Other model/protocol combinations and hosted search |
+| Native distribution | v0.2.0 Windows build-host startup/database/clean exit | Clean-machine installation, complete interactive workflows, credential/TLS behavior, macOS/Linux |
+| Source checks | 144 offline tests, compile and whitespace checks | These do not replace live/provider/platform evidence |
+
+Anthropic aliases are advertised by the gateway but unavailable to the user's Mantle account. Do not keep probing them. Prioritize ChatGPT 6+ with DeepSeek or Kimi as additional targets when live checks are explicitly authorized. Do not scan all 115 advertised aliases or infer capability from listing success. Research remains a preview even though the Windows release is tagged.
+
+### Next delivery decisions
+
+1. **E1 implemented in the development tree:** repository/folder registry, manager and searchable + Code picker, then a passive project-bound Code pane. Cancelling launches nothing; selecting a project starts no command or inference. Show the backend-not-connected state clearly. This passive feature slice is complete with 148 offline tests passing; it is not included in the v0.2.0 archive.
+2. **Run E2 as an explicit integration decision:** compare an existing CLI integration with an Agentnik-owned loop against structured events, cancellation/child cleanup, authentication, platform support and reviewable edits. Use fake backends before real execution. Decide the integration contract before promising terminal behavior or enabling commands.
+3. **Keep D evidence work parallel in priority, not automatic in execution:** the manual checklist and opt-in harness can qualify individual routes/platforms as access becomes available. Windows preview improvements and E1 need not wait for unavailable Anthropic/macOS/Linux environments. Do not mark all of D complete or call v0.2.0 cross-platform validated.
+4. **Keep MCP/Skills as F:** use the execution/approval contracts established in E2. Preserve the shared tool interface now, but avoid building an extension framework before a working coding integration demonstrates what it needs.
+
+Earlier D0 subsections below preserve checkpoint counts and rationale; this section is the current status, and VALIDATION.md is the historical evidence record.
 
 ## 2. Delivered architecture and support boundaries
 
@@ -62,7 +79,18 @@ Default limits currently include four tool rounds, eight tool calls, five search
 - **Small asset defects affect runtime quality.** Empty SVG paths caused Qt warnings. Retain parser-warning coverage and inspect both themes. Editing/resending a historical prompt restores a draft and appends a new turn on Send; it does not rewrite history.
 - **Build and release are distinct.** A wheel, source test suite, local frozen startup, and portable desktop release establish different evidence. The first release archive included documentation/license through manual assembly; automate that step before repeating releases.
 
-## 4. D0 — Next work: local hardening
+### Additional lessons from v0.2.0
+
+- Discovery is availability advertising, not account entitlement: explicit upstream rejections explain why some listed models cannot be tested. Capability evidence needs endpoint, protocol, alias and credential context; opaque scopes prevent one account's result from becoming another account's claim.
+- Real service behavior can differ from headers. Ollama returned valid JSON labeled as HTML; the compatibility exception is confined to its fixed search POST and still requires valid JSON/results. Do not generalize this into permissive content sniffing.
+- Partial evidence and executable continuation serve different purposes. Preserve interrupted work for inspection, but never replay incomplete tool exchanges. Size limits cover retained metadata separately from wire/model context, and reduction must be visible.
+- Cancellation bounds client scheduling, not remote computation. Retain worker admission slots until workers actually exit; nested waits need nonblocking capacity handling to avoid deadlock. A global research limit does not also cap ordinary chat/discovery jobs.
+- Release validation must exercise the entire assembly path. v0.2.0 exposed variable shadowing after image copying that broke manifest serialization despite successful freezing/startup. The new assembly regression covers source metadata, images and archive creation together.
+- Keep startup checks independent of shell execution policy. The Python Windows helper checks the actual process-owned Qt window and database under a deadline, without changing PowerShell policy. Wait for readiness; input-idle alone is inadequate.
+- Artifact provenance matters: build clean committed sources, check the final manifest matches the intended tag/version, verify ZIP/checksum, then tag/push. A local archive, pushed tag and uploaded GitHub Release are separate deliverables. Do not retrofit or overwrite older release artifacts.
+- Favor small modules and explicit storage contracts as the UI grows. The new session, retention and research-settings modules isolate policy from presentation; continue that separation for repository management and code panes.
+
+## 4. D0 — Completed local hardening
 
 Complete these slices in order, with focused regression tests and corresponding validation notes. Findings below identify review targets; an untested edge case is not a claim of a demonstrated exploit.
 
@@ -148,6 +176,10 @@ After D0, this is the first feature slice, even if external D1/D2 evidence is aw
 - **＋ Code** opens a searchable repository picker with Add folder. Cancelling starts no session or process. Selecting a project opens an independent Code pane with the repository/working directory visible and a clear backend-not-connected state until E2 is implemented.
 - Use temporary ordinary folders/Git repositories to test persistence, duplicates, unavailable paths, cancellation, independent tabs, and reopen without execution.
 
+E1 implementation guidance: put path/registry operations behind a dedicated store-facing module and keep picker/Code presentation separate from the already large chat UI. Persist stable project IDs; bind Code history to the ID plus a path snapshot, and handle relocation explicitly. Decide the new session schema/version before writing Code records so older applications preserve them as unavailable instead of misreading them as chat. Use temporary project directories and offscreen Qt to verify add/rename/remove/relocate, aliases/missing paths, cancellation, persistence and independent panes. No subprocess/backend is part of E1 acceptance.
+
+E1 evidence: registry data lives in its own SQLite table with stable IDs; ordinary folders and Git folders are accepted, aliases are resolved for duplicates, and missing folders can be renamed/relocated. Code sessions use schema version 4 with project ID/name/path snapshots and saved drafts. Older chat/decision schemas remain supported; older applications preserve Code records as unavailable. Offscreen Qt covers picker cancellation/search, independent light/dark panes, remove/relocate/reopen and no command/model execution.
+
 ### E2: Decide and enforce the execution contract
 
 Choose deliberately between integrating an existing coding CLI and implementing an Agentnik-owned coding loop. Evaluate process/session APIs, structured output, authentication, cancellation and child cleanup, licensing/distribution, platform support, and how edits/diffs are reviewed. Do not assume terminal emulation alone provides a reliable integration.
@@ -205,4 +237,4 @@ Defer additional hosted/search providers until an adapter and evidence justify t
 
 For each slice: inspect the relevant implementation, preserve user data, add tests for meaningful behavioral risks, run relevant offline/Qt checks, and update evidence without erasing historical limitations. Do not substitute test counts, documentation, or a startup screenshot for compatibility evidence.
 
-Immediate order (D0 and D1 tooling complete; Windows D2 automation/startup verified): **E1 registry/picker**, alongside remaining D1 provider and D2 platform/release evidence as authorized and available. Authorized live/provider and available platform checks proceed as their prerequisites become available; coding execution remains gated by E2.
+Immediate order (E1 passive workspace implemented after v0.2.0): **E2 backend/approval contract and fake-backend integration**, alongside remaining D1 provider and D2 platform/release evidence as authorized and available. Authorized live/provider and available platform checks proceed as their prerequisites become available; coding execution remains gated by E2.
