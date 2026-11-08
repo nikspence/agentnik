@@ -42,7 +42,7 @@ class Accumulator:
     def __init__(self,runtime,state,emit,hosted=False,on_event=None):
         self.runtime=runtime; self.state=state; self.emit=emit; self.hosted=hosted
         self.on_event=on_event or (lambda *_:None)
-        self.items={}; self.parts={}; self.annotations={}; self.thoughts={}; self.search_ids=set(); self.search_stages=set(); self.complete=False
+        self.items={}; self.parts={}; self.annotations={}; self.thoughts={}; self.search_ids=set(); self.search_stages=set(); self.complete=False; self.closed_items=set(); self.closed_arguments=set()
         state.update(text='',thinking='',metrics={},output=[],annotations=[],provider_usage={},response_id='',search_activity=False)
 
     def index(self,data):
@@ -64,6 +64,11 @@ class Accumulator:
         if not isinstance(item,dict) or item.get('type') not in ('message','reasoning','function_call','web_search_call'):
             raise ResearchError('Unexpected Responses output item')
         if len(json.dumps(item).encode())>self.runtime.limits.model_bytes: raise LimitError('Responses item byte limit reached')
+        previous=self.items.get(index)
+        if previous:
+            for field in ('type','id','call_id','name'):
+                if field in previous and field in item and previous[field]!=item[field]:
+                    raise ResearchError('Conflicting Responses item identity')
         self.items[index]=copy.deepcopy(item)
         kind=item['type']
         if kind=='message':
@@ -93,18 +98,27 @@ class Accumulator:
                 if not isinstance(annotation,dict) or annotation.get('type')!='url_citation': continue
                 entry=copy.deepcopy(annotation)
                 entry.update(output_index=key[0],content_index=key[1])
-                for field in ('start_index','end_index'):
-                    if type(entry.get(field)) is int: entry[field]+=offset
+                start,end=entry.get('start_index'),entry.get('end_index')
+                if type(start) is int and type(end) is int and 0<=start<=end<=len(self.parts[key]):
+                    entry['start_index']=start+offset; entry['end_index']=end+offset
+                else:
+                    # Keep the invalid annotation count, without allowing its span
+                    # to point into a different content block after concatenation.
+                    entry['start_index']=entry['end_index']=None
                 annotated.append(entry)
             offset+=len(self.parts[key])+2
         state['annotations']=annotated
         self.emit({'text':state['text'],'thinking':state['thinking']})
 
     def feed(self,data):
+        if self.complete: raise ResearchError('Responses event after completion')
         if not isinstance(data,dict): raise ResearchError('Malformed Responses event')
         typ=data.get('type','')
         response=data.get('response')
         if not typ and 'output' in data: response=data
+        terminal=typ=='response.completed' or (not typ and isinstance(response,dict))
+        if terminal and (not isinstance(response,dict) or not isinstance(response.get('output'),list)):
+            raise ResearchError('Completed Responses object missing output')
         if isinstance(response,dict):
             self.state['response_id']=response.get('id',self.state['response_id'])
             if isinstance(response.get('usage'),dict):
@@ -113,11 +127,20 @@ class Accumulator:
             if 'output' in response:
                 output=response['output']
                 if not isinstance(output,list) or len(output)>64: raise LimitError('Responses output item limit reached')
-                if output or not self.parts:
+                if terminal or output or not self.parts:
+                    previous_items=self.items
                     self.items={}; self.parts={}; self.annotations={}; self.thoughts={}
-                    for index,item in enumerate(output): self.ingest_item(index,item)
+                    for index,item in enumerate(output):
+                        if index in previous_items:
+                            self.items[index]=previous_items[index]
+                        self.ingest_item(index,item)
+        if typ=='response.output_item.added' and self.index(data) in self.items:
+            raise ResearchError('Duplicate Responses output item')
         if typ in ('response.output_item.added','response.output_item.done'):
-            self.ingest_item(self.index(data),data.get('item'))
+            index=self.index(data)
+            if index in self.closed_items: raise ResearchError('Responses item after closure')
+            self.ingest_item(index,data.get('item'))
+            if typ.endswith('.done'): self.closed_items.add(index)
         elif typ in ('response.output_text.delta','response.output_text.done'):
             key=self.index(data),data.get('content_index',0)
             if type(key[1]) is not int or not 0<=key[1]<64: raise ResearchError('Malformed content index')
@@ -132,6 +155,9 @@ class Accumulator:
             entries.append(copy.deepcopy(data.get('annotation')))
         elif typ in ('response.function_call_arguments.delta','response.function_call_arguments.done'):
             index=self.index(data); item=self.items.get(index)
+            if index in self.closed_items or index in self.closed_arguments: raise ResearchError('Arguments after closure')
+            if item and data.get('item_id',item.get('id'))!=item.get('id'): raise ResearchError('Conflicting argument item ID')
+            if typ.endswith('.done'): self.closed_arguments.add(index)
             if not item or item.get('type')!='function_call': raise ResearchError('Arguments arrived without a function call')
             chunk=data.get('delta' if typ.endswith('delta') else 'arguments','')
             if not isinstance(chunk,str): raise ResearchError('Malformed function arguments')
@@ -164,6 +190,7 @@ def request(c,body,runtime,emit,state,hosted=False,on_event=None):
     for item in state['output']:
         if item.get('type')=='function_call':
             if hosted: raise ResearchError('Unregistered function call in hosted search output')
+            if item.get('status') not in (None,'completed'): raise ResearchError('Incomplete Responses function call')
             ident=item.get('call_id'); args=item.get('arguments'); name=item.get('name')
             if not all(isinstance(v,str) and v for v in (ident,args,name)) or len(ident)>200 or len(name)>100:
                 raise ResearchError('Malformed Responses function call')

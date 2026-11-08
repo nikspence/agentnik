@@ -87,3 +87,12 @@ All 91 offline tests and compile checks passed. Regression coverage accepts misl
 All 94 offline tests pass, including three additional protocol test groups with hostile event-order/fragment subcases and valid fragmented multi-call continuation. Messages now requires a coherent start, sequential closed content blocks, terminal message deltas, and a final stop. Duplicate/premature/late lifecycle events are rejected before tool dispatch. Non-streamed Messages and signed/redacted thinking remain covered. Chat Completions requires streamed tool indexes, rejects duplicate indexes within an event, validates fragment types, and rejects choice data after a finish reason while still accepting the usage-only tail. Valid fragmented names/arguments and multiple correlated results remain supported. No new runtime dependencies were introduced; compile checks passed.
 
 This slice used mocks/offscreen Qt only and made no live inference requests. No GUI changes were made. Responses annotation/continuation edge cases and partial-record persistence review remain open within D0.1.
+
+
+## D0.1 Responses and partial-history completion
+
+All 99 offline tests pass, including new regression groups for incomplete/missing terminal Responses output, identity conflicts, argument fragments after closure, truncated streams without tool dispatch, empty final output replacing stale partial items, opaque reasoning retention, and citations bounded to their originating content block. Valid citations in subsequent blocks receive the correct concatenated offsets; malformed spans are counted as unverified instead of spilling into another block.
+
+Managed and hosted results now record explicit continuation eligibility. Ordinary and native Ollama history builders exclude failed or unfinished research even if an imported message lacks an outer failure status. A temporary SQLite save/reopen check proves partial text and structured audit evidence remain stored without entering subsequent model requests. Legacy successful records without the new field remain compatible. No data migration or destructive cleanup was performed.
+
+Compile and whitespace checks passed. This development slice made no live requests and changed no GUI layout. D0.1 local hardening is complete; D0.2 accounting/state recovery is next. Live Messages compatibility and platform/release gates remain outstanding.

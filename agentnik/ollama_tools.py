@@ -14,7 +14,7 @@ from .tools import LimitError, ResearchError, ToolCall, UncertainError
 def history_messages(messages):
     history=[]; tool_bytes=0
     for m in messages:
-        if m.get('status','ok')!='ok': continue
+        if not core.history_eligible(m): continue
         exchanges=m.get('research',{}).get('exchanges') if m['role']=='assistant' else None
         if exchanges:
             tool_bytes+=len(json.dumps(exchanges).encode())

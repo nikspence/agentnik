@@ -111,6 +111,7 @@ def run_hosted(c,messages,key,emit,cancel,limits=None,run_id=None,runtime=None):
         state['status']='cancelled' if isinstance(exc,InterruptedError) else 'limited' if isinstance(exc,LimitError) else 'failed'
         route.status=state['status']; result.update(status='failed',error=str(exc)[:1000])
         state['events'].append(asdict(ResearchEvent(runtime.run_id,state['status'],result['error'])))
+    state['continuation_eligible']=result['status']=='ok'
     route.ended_at=utc_now(); state['attempts']=[asdict(route)]
     value=snapshot()
     if owned: runtime.closed=True

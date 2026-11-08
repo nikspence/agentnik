@@ -183,6 +183,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
         route.status=state['status']
         # Preserve partial evidence and output; never replay a failed/uncertain submission.
         state['events'].append(asdict(ResearchEvent(runtime.run_id,state['status'],result['error'])))
+    state['continuation_eligible']=result['status']=='ok'
     route.ended_at=utc_now(); state['attempts']=[asdict(route)]
     references=set(re.findall(r'\[(S\d+)\]',result['text']))
     current={s['id'] for s in state['sources']}

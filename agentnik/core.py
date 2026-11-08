@@ -163,11 +163,18 @@ def image_block(path, protocol, role='user'):
     if protocol == 'responses': return {'type':'input_image', 'image_url':f'data:{mime};base64,{data}'}
     return {'type':'image_url', 'image_url':{'url':f'data:{mime};base64,{data}'}}
 
+def history_eligible(message):
+    research=message.get('research',{})
+    return (message.get('status','ok')=='ok'
+            and research.get('status') in (None,'completed')
+            and research.get('continuation_eligible',True) is True)
+
+
 def chat_body(c, messages):
     protocol = c.get('protocol', 'chat')
     history = []; response_context_bytes=0
     for m in messages:
-        if m.get('status', 'ok') != 'ok': continue
+        if not history_eligible(m): continue
         if protocol=='responses' and m['role']=='assistant' and m.get('research',{}).get('response_items'):
             import copy
             saved=m['research']['response_items']
