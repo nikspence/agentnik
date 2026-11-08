@@ -16,6 +16,17 @@ def call(name,args,ident='call-1'):
     return {'id':ident,'type':'function','function':{'name':name,'arguments':json.dumps(args)}}
 
 class ProjectBoundaries(unittest.TestCase):
+    def test_conflict_does_not_count_as_a_fresh_model_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'code.py';path.write_bytes(b'original\n');files=ProjectFiles(directory)
+            files.read('code.py');proposal=files.proposal('code.py','new\n');path.write_bytes(b'user change\n')
+            with self.assertRaises(ValueError):files.apply(proposal)
+            with self.assertRaises(ValueError):files.proposal('code.py','new\n')
+            with self.assertRaises(ValueError):files.proposal('code.py','new\n')
+            self.assertEqual(files.read('code.py'),'user change\n')
+            files.apply(files.proposal('code.py','reviewed\n'))
+            self.assertEqual(path.read_bytes(),b'reviewed\n')
+
     def test_read_before_edit_conflict_detection_and_approved_write(self):
         with tempfile.TemporaryDirectory() as directory:
             p=Path(directory)/'code.py';p.write_text('original\n');files=ProjectFiles(directory)
@@ -36,6 +47,23 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_multiple_files_require_independent_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory,'a.txt').write_bytes(b'old a\n');Path(directory,'b.txt').write_bytes(b'old b\n')
+            calls=[call('read_file',{'path':'a.txt'},'read-a'),call('read_file',{'path':'b.txt'},'read-b')]
+            edits=[call('write_file',{'path':'a.txt','content':'new a\n'},'edit-a'),call('write_file',{'path':'b.txt','content':'new b\n'},'edit-b')]
+            replies=[Wire(chat(calls=calls,finish='tool_calls'),False),Wire(chat(calls=edits,finish='tool_calls'),False),Wire(chat('Finished'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Update both');events=[];reviewed=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='edit_proposal':
+                    reviewed.append(event['proposal']['path']);run.decide(event['fingerprint'],len(reviewed)==1)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual(reviewed,['a.txt','b.txt'])
+            self.assertEqual(Path(directory,'a.txt').read_bytes(),b'new a\n')
+            self.assertEqual(Path(directory,'b.txt').read_bytes(),b'old b\n')
+            self.assertEqual(events[-1]['status'],'completed')
+
     def test_usage_is_attributed_to_roles_and_missing_counts_are_visible(self):
         from types import SimpleNamespace
         with tempfile.TemporaryDirectory() as directory:

@@ -56,12 +56,14 @@ class ProjectFiles:
         if target.exists() and target.is_file() and target.stat().st_nlink>1:raise ValueError('Hard-linked files are unavailable')
         return target
 
-    def read(self,relative):
+    def read(self,relative,remember=True):
         path=self.path(relative)
         if not path.is_file() or path.stat().st_size>32000:raise ValueError('Read requires a regular file of at most 32 KB')
         raw=path.read_bytes()
         if len(raw)>32000 or b'\x00' in raw:raise ValueError('File is oversized or binary')
-        text=raw.decode('utf-8');self.observed[str(path)]=hashlib.sha256(raw).hexdigest();return text
+        text=raw.decode('utf-8')
+        if remember:self.observed[str(path)]=hashlib.sha256(raw).hexdigest()
+        return text
 
     def listing(self,relative):
         directory=self.path(relative)
@@ -82,8 +84,8 @@ class ProjectFiles:
         if path.exists():
             base=self.observed.get(str(path))
             if base is None:raise ValueError('Read this file before editing')
-            before=self.read(relative)
-            if self.observed[str(path)]!=base:raise ValueError('File changed since read; inspect it again')
+            before=self.read(relative,remember=False)
+            if hashlib.sha256(before.encode('utf-8')).hexdigest()!=base:raise ValueError('File changed since read; inspect it again')
         if before==content and path.exists():raise ValueError('No file change proposed')
         diff=''.join(difflib.unified_diff(before.splitlines(keepends=True),content.splitlines(keepends=True),fromfile='a/'+relative,tofile='b/'+relative))
         diff=''.join(line if line.endswith('\n') else line+'\n\\ No newline at end of file\n' for line in diff.splitlines(keepends=True))
@@ -97,8 +99,8 @@ class ProjectFiles:
         if proposal['base'] is None:
             if path.exists():raise ValueError('File appeared after review; edit not applied')
         else:
-            self.read(proposal['path'])
-            if self.observed[str(path)]!=proposal['base']:raise ValueError('File changed after review; edit not applied')
+            current=self.read(proposal['path'],remember=False)
+            if hashlib.sha256(current.encode('utf-8')).hexdigest()!=proposal['base']:raise ValueError('File changed after review; edit not applied')
         mode=stat.S_IMODE(path.stat().st_mode) if path.exists() else None
         temporary=None
         try:
