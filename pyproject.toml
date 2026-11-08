@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentnik"
+version = "0.1.0"
+authors = [{name = "Nikolaus Spence"}]
+description = "Cross-platform LLM chat and System One decision desktop client"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+dependencies = ["PySide6>=6.8,<7", "keyring>=25,<26"]
+
+[project.gui-scripts]
+agentnik = "agentnik.ui:main"
+
+[tool.setuptools.packages.find]
+include = ["agentnik*"]
+
+[tool.setuptools.package-data]
+agentnik = ["assets/*.svg", "assets/*.png", "assets/*.ico"]
