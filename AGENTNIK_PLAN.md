@@ -148,6 +148,12 @@ Acceptance: test registry persistence, ordinary folders and Git repositories, du
 
 This is future scope, not an implemented capability. Continue milestones B through D first; build the repository registry and picker as the first slice of the Coding Agent milestone before connecting an execution backend.
 
+## Implementation status
+
+Milestone A is established. Milestone B has a native Ollama managed research preview: typed/bounded tool execution, structured streamed continuation, Ollama search with a separate credential, direct public page retrieval, per-chat opt-in, activity/source views, versioned persistence, cancellation/late-result handling, and usage aggregation. The initial managed backend intentionally uses direct page retrieval instead of Ollama service-backed fetch, whose internal navigation cannot be constrained here. Search-service navigation remains an explicitly disclosed external-service limitation.
+
+Ordinary verification is offline. Hosted search, route policies/fallback, remaining protocol adapters, live compatibility checks, and release readiness remain outstanding. The complete first browsing release still requires both routes and tested routing behavior.
+
 ## Milestones and scope
 
 - **A — Independent baseline:** clean repository, Agentnik identity, MIT ownership, isolated storage, inherited behavior verified.

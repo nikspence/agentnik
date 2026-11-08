@@ -6,6 +6,10 @@ Agentnik is a cross-platform Python desktop client for chat and Ollama System On
 
 - `agentnik/core.py`: endpoint discovery, request formats, streaming, and decision validation.
 - `agentnik/storage.py`: local SQLite session history, attachments, connection settings, and credential-store integration.
+- `agentnik/tools.py`, `agentnik/research.py`: bounded tool contracts and managed research orchestration.
+- `agentnik/ollama_tools.py`: native Ollama structured tool streaming and continuation.
+- `agentnik/web.py`: dedicated public-address transport and Ollama search adapter.
+- `agentnik/research_ui.py`: per-chat research settings, activity, and source rendering.
 - `agentnik/ui.py`: PySide6 interface, background jobs, chat, and decision forms.
 - `assets/`: the reusable robot SVG and current screenshots. `agentnik/assets/` contains packaged logo and icon variants; `tools/build_branding.py` rebuilds those assets.
 - `tests/`: standard-library unit tests and offscreen Qt integration tests. `tools/live_smoke.py` performs optional real endpoint checks.
@@ -34,4 +38,4 @@ Tests set Qt to use its offscreen platform; PySide6 and keyring must be installe
 
 ## Roadmap
 
-Read `AGENTNIK_PLAN.md` before research work. Establish and validate milestone A before adding web tools. Web research is planned, not implemented. Do not issue live inference requests during ordinary validation.
+Read `AGENTNIK_PLAN.md` before research work. Establish and validate milestone A before adding web tools. Milestone B has an experimental native Ollama managed research path. Hosted search, route policies/fallback, and other research protocol adapters remain planned. Preserve the explicit preview status and distinguish offline tests from live compatibility. Do not issue live inference requests during ordinary validation.

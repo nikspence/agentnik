@@ -3,7 +3,7 @@
 ![Agentnik logo](agentnik/assets/agentnik-light.svg#gh-light-mode-only)
 ![Agentnik logo](agentnik/assets/agentnik-dark.svg#gh-dark-mode-only)
 
-A Python/Qt desktop client for LLM conversations and Ollama System One decisions. The initial desktop targets are Windows, macOS, and Linux.
+A Python/Qt desktop client for LLM conversations, Ollama System One decisions, and experimental managed web research. The initial desktop targets are Windows, macOS, and Linux.
 
 ## Screenshots
 
@@ -47,7 +47,7 @@ Optional key files can be supplied with `--litellm-key-file PATH` and `--ollama-
 
 ## Project status
 
-Milestone A establishes the independent Agentnik baseline. Chat, structured decisions, saved prompts, attachments, history, themes, and connection management are implemented. Bounded web research is planned in `AGENTNIK_PLAN.md`; web tools, citations, and route fallback are not implemented yet.
+Milestone A establishes the independent Agentnik baseline. Milestone B now has a managed research preview for native Ollama chat, with bounded tools, sources, activity, persistence, and cancellation. Hosted search, the four route policies, fallback, and the remaining research protocol adapters are still planned in `AGENTNIK_PLAN.md`. This preview is not the first complete browsing release, which requires both routes. Live research compatibility remains unverified.
 
 Future Coding Agent work will add a saved **Repositories** list for local repositories or project folders. **＋ Code** will ask which project to use, then open an independent CLI-style coding pane. This workflow is planned in `AGENTNIK_PLAN.md`; it is not available yet.
 
@@ -55,7 +55,7 @@ Future Coding Agent work will add a saved **Repositories** list for local reposi
 
 Use **＋ Chat** or **＋ Decision** to select a connection and open a session. Tabs are independent, including tabs that use the same connection. Changing the connection selector opens a new session. Models load automatically when a tab opens; use the refresh icon to reload them. A manually entered model works even when listing models is unavailable. New manually created connections default to Responses; discovered and saved connections retain their configured protocol.
 
-Chat supports OpenAI-compatible Chat Completions, Responses, and Anthropic Messages. Streaming is enabled by default and can be turned off for endpoints that do not support it. Reasoning effort is optional and must be supported by the selected model. Unsupported parameters produce a visible endpoint error rather than a silent retry that might duplicate a billed request. Tool execution is not part of this release.
+Chat supports OpenAI-compatible Chat Completions, Responses, and Anthropic Messages. Streaming is enabled by default and can be turned off for endpoints that do not support it. Reasoning effort is optional and must be supported by the selected model. Unsupported parameters produce a visible endpoint error rather than a silent retry that might duplicate a billed request. Managed web tools are opt-in and currently available only through the native Ollama chat adapter; ordinary chat does not execute tools.
 
 Chat uses rounded message cards: your prompts sit to the right and assistant replies to the left. Each card grows to hold the complete message, with one outer scrollbar for the conversation. Assistant Markdown renders during streaming as well as after completion, including wrapped code blocks. **Show thinking / Hide thinking** expands reasoning inline in the same card; streamed reasoning is initially visible and respects your toggle choice.
 
@@ -66,6 +66,41 @@ The toolbar, welcome screen, and window icon use the robot mark recolored to mat
 Select several images with **Attach images**, drop files onto the attachment area or composer, or paste an image into the composer. The attachment tray previews images in request order. Double-click a thumbnail to open its stored copy. PNG, JPEG, WebP, and GIF are accepted by the app; actual model/provider format support varies. **Ctrl+Enter** sends the prompt. The draft and attachments remain available if the request fails or is cancelled.
 
 **Cancel** immediately stops accepting results for that request and releases the tab. Cancellation does not guarantee that the server stops computing or billing; a blocked transport worker can remain alive until its network timeout. Other tabs stay usable.
+
+## Managed web research preview
+
+1. Open a chat using native Ollama (the detected port 11434 route, or direct Ollama.com chat), and select a model.
+2. Open **Web settings…**, enter a separate Ollama search API key, and enable tool requests for this endpoint/model. Keys use the **Agentnik Web** credential-store service; explicit plaintext storage is available as a fallback. Alternatively set `OLLAMA_WEB_API_KEY`. Inference `OLLAMA_API_KEY` is not reused for search. Removing a saved key does not unset an environment key.
+3. Turn on **Web access · Agentnik managed (preview)** for that chat and send your request. New chats start with web access off. The toggle is saved independently per chat.
+
+Enabling tools records **configured**, not **verified**. Capability is scoped to endpoint, protocol, and model; actual structured tool calls can establish verification. Only a specific native HTTP 400 unsupported-tools rejection records **unsupported**. No background inference probes run. Authentication errors and unrelated failures do not prove tool incompatibility. No endpoint/model has been verified with live research requests for this preview.
+
+Queries go to [Ollama's search API](https://docs.ollama.com/capabilities/web-search), even when inference runs locally. Agentnik sends only the generated query and result limit to that service, not the full conversation or image attachments. Model-generated queries can still contain prompt-derived information. Provider and search credentials are blocked from generated tool arguments. Search service internals are outside Agentnik's navigation controls; this limitation is disclosed in settings.
+
+Page reads use a separate direct transport. Agentnik checks HTTP(S) destinations, DNS addresses and every redirect; connects to a vetted IP while preserving TLS hostname verification; and blocks credentials in URLs, private/local/reserved destinations, IPv6 transition addresses, and ports other than 80/443. It sends no provider keys, cookies, proxies, or search key to pages. It accepts HTML/plain text, extracts inert readable text, and rejects compressed and unsupported content. Service-backed fetch is not enabled because Agentnik cannot enforce its internal redirects. Some sites will consequently be unavailable.
+
+Default bounds per turn:
+
+| Bound | Limit |
+| --- | --- |
+| Tool rounds / calls | 4 / 8, with at most 5 model requests |
+| Search results per call | 5 |
+| Web response / total retrieved bytes | 1 MB / 3 MB |
+| Search excerpt / page excerpt | 3 KB / 8 KB |
+| New assistant/tool continuation context | 32 KB |
+| Model response / tool arguments | 512 KB / 4 KB |
+| Request / total turn duration | 45 s / 180 s |
+| Page redirects | 3 |
+
+The collapsible **Research** view records activity, source links, retrieval timestamps, saved excerpts, and truncation. `[S1]`-style source IDs are validated against recorded sources; unknown IDs are marked unverified. Source links are clickable in the view. An identified source does not itself verify claim support. IDs stay unique across turns; cited saved evidence retains its original timestamp. Retained source counts and tool history are bounded; open a new chat when saved tool context reaches 128 KB.
+
+Reported tokens are aggregated across model requests; the last model input count is shown separately for context usage. Missing usage is labeled **Known usage only**. Total elapsed time includes tools; generation rate is shown only when reported counts and timings support it. Failed attempts retain any reported usage. There are no fabricated costs.
+
+Cancellation, limits, or failures preserve partial output and evidence while retaining the draft. Late worker results are rejected. Reopening interrupted history never starts commands or requests. Cancellation stops accepting work; remote processing and billing may continue. There is no automatic retry, route fallback, or model switch in this preview. Chat Completions, Responses, and Messages keep their ordinary chat support but do not yet support managed research. System One remains separate.
+
+![Managed research in the dark theme](assets/agentnik-research-dark.png)
+
+This screenshot uses simulated model and source responses, not live endpoint evidence. Rebuild both theme screenshots offline with `python tools/capture_research.py`.
 
 ## System One query builder
 
@@ -80,6 +115,8 @@ All questions are sent in one `/v1/systemone` request. Images are encoded as bar
 Every completed run is preserved with its submitted form and raw response. **Restore query to form** makes an older query editable without deleting newer runs. Returned probabilities appear as horizontal bars. Multiple-choice results also offer a button to switch to a pie chart when the returned values form a probability distribution. Scoring levels use the model's returned legend when available. Confidence is shown separately from probability.
 
 ## Prompts
+
+Click the **✎** icon on a previous chat prompt to copy its text and images into the composer for editing and resending. Earlier messages remain unchanged; sending adds a new turn to the current conversation. Replacing a different, nonempty draft asks for confirmation. Editing does not send a request or save a favorite.
 
 Use **☆ Save prompt** beside the composer or decision form to save the current draft. Star a past chat message or decision run to save its submitted prompt. The collapsible **Prompts** panel lists saved prompts for the active tab's type; search covers chat text or decision state, questions, and choice descriptions. Select a prompt and choose **Copy to tab**, or double-click it, to restore it to the active tab. If that tab already has a different draft, Agentnik asks before replacing it. Copying does not send a request or change the tab's connection or model.
 

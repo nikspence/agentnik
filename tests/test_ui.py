@@ -95,6 +95,63 @@ class Desktop(unittest.TestCase):
             finally:
                 w.close(); self.app.processEvents(); store.db.close()
 
+    def test_edit_and_resend_restores_images_and_appends_a_new_turn(self):
+        import copy
+        from PySide6.QtWidgets import QPushButton
+        from agentnik.storage import Store
+        from agentnik.ui import Window, MessageBubble
+        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]), patch('agentnik.core.run_request') as request:
+            store=Store(root); w=Window(store)
+            try:
+                c={'url':'https://example.com/v1','protocol':'chat','model':'test'}
+                image=store.attach(data=b'image')
+                session=store.new_session('chat','test',c)
+                session['messages']=[{'role':'user','text':'Original prompt','images':[image]},{'role':'assistant','text':'Original answer'}]
+                original=copy.deepcopy(session['messages'])
+                w.connections={'test':c}; w.open_session(session); tab=w.tabs.currentWidget(); w.show(); self.app.processEvents()
+                edit=next(b for b in tab.findChildren(MessageBubble)[0].findChildren(QPushButton) if b.accessibleName()=='Edit and resend prompt')
+                edit.click()
+                self.assertEqual(tab.composer.toPlainText(),'Original prompt'); self.assertEqual(tab.attachments.paths,[image])
+                self.assertEqual(tab.session['messages'],original); request.assert_not_called(); self.assertEqual(store.list_prompts(),[])
+                persisted=store.list_sessions()[0]
+                self.assertEqual(persisted['draft'],'Original prompt'); self.assertEqual(persisted['draft_images'],[image])
+                tab.composer.setPlainText('A different draft')
+                with patch('agentnik.ui.confirm',return_value=False) as confirmation:
+                    edit.click(); confirmation.assert_called_once()
+                self.assertEqual(tab.composer.toPlainText(),'A different draft')
+                with patch('agentnik.ui.confirm',return_value=True): edit.click()
+                tab.composer.setPlainText('Edited prompt')
+                request.return_value={'text':'New answer','thinking':'','metrics':{},'raw':{}}
+                tab.submit()
+                deadline=time.monotonic()+3
+                while tab.job and time.monotonic()<deadline: self.app.processEvents(); time.sleep(.01)
+                self.assertIsNone(tab.job); request.assert_called_once()
+                wire=request.call_args.args[2]['messages']
+                self.assertEqual([m['role'] for m in wire],['user','assistant','user'])
+                self.assertEqual(wire[2]['content'][0]['text'],'Edited prompt')
+                self.assertEqual(tab.session['messages'][:2],original)
+                self.assertEqual(tab.session['messages'][2]['text'],'Edited prompt')
+                self.assertEqual(tab.session['messages'][2]['images'],[image])
+                self.assertEqual(len(tab.session['messages']),4)
+            finally: w.close(); self.app.processEvents(); store.db.close()
+
+    def test_edit_prompt_is_blocked_while_request_is_running(self):
+        from PySide6.QtWidgets import QPushButton
+        from agentnik.storage import Store
+        from agentnik.ui import Window, MessageBubble
+        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]):
+            store=Store(root); w=Window(store)
+            try:
+                session=store.new_session('chat','test',{'url':'https://example.com/v1','model':'test'})
+                session['messages']=[{'role':'user','text':'Earlier prompt'}]
+                w.open_session(session); tab=w.tabs.currentWidget(); w.show(); self.app.processEvents()
+                tab.composer.setPlainText('Keep the current draft'); tab.job=object()
+                edit=next(b for b in tab.findChildren(MessageBubble)[0].findChildren(QPushButton) if b.accessibleName()=='Edit and resend prompt')
+                with patch('agentnik.ui.error') as warning:
+                    edit.click(); warning.assert_called_once()
+                self.assertEqual(tab.composer.toPlainText(),'Keep the current draft')
+            finally: tab.job=None; w.close(); self.app.processEvents(); store.db.close()
+
     def test_branding_assets_and_font_limits(self):
         from PySide6.QtGui import QImage, QPalette
         from agentnik.storage import Store
@@ -104,6 +161,19 @@ class Desktop(unittest.TestCase):
             image=QImage(str(assets/name)); self.assertFalse(image.isNull()); self.assertTrue(image.hasAlphaChannel()); self.assertEqual(image.pixelColor(0,0).alpha(),0)
             svg=(assets/name).with_suffix('.svg').read_text('utf-8')
             self.assertIn('<path',svg); self.assertNotIn('<image',svg)
+        # Qt accepts an SVG as valid even when individual paths are truncated.
+        from PySide6.QtCore import qInstallMessageHandler
+        from PySide6.QtSvg import QSvgRenderer
+        warnings=[]
+        def capture(kind,context,message):
+            if context.category.startswith('qt.svg'): warnings.append(message)
+        previous=qInstallMessageHandler(capture)
+        try:
+            for svg in [assets.parents[1]/'assets'/'robot.svg',*assets.glob('*.svg')]:
+                renderer=QSvgRenderer(str(svg))
+                self.assertTrue(renderer.isValid(),str(svg))
+        finally: qInstallMessageHandler(previous)
+        self.assertEqual(warnings,[])
         with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}):
             store=Store(root); w=Window(store)
             try:

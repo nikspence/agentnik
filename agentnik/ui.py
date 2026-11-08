@@ -9,6 +9,7 @@ import uuid
 import argparse
 import datetime
 import math
+import time
 
 from PySide6.QtCore import Qt, Signal, QObject, QTimer, QByteArray, QBuffer, QIODevice, QEvent
 from PySide6.QtGui import QAction, QColor, QPainter, QPixmap, QIcon, QDesktopServices, QPalette, QShortcut, QKeySequence, QTextCursor
@@ -19,7 +20,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QScrollArea, QFrame, QFileDialog, QMessageBox, QInputDialog, QTableWidget, QTableWidgetItem,
     QHeaderView, QProgressBar, QStackedWidget, QAbstractItemView, QSizePolicy)
 
-from . import core
+from . import core, research
+from .research_ui import WebSettings, ResearchDetails
 from .storage import Store
 
 class Signals(QObject):
@@ -70,6 +72,9 @@ def metrics_text(m):
         total_rate = core.total_token_rate(m)
         parts.append('Overall '+number(total_rate, ' tok/s')+' (input + output / elapsed)')
     parts.extend(['Thinking '+number(m.get('thinking_seconds_estimate'), ' s (arrival estimate)'), 'Total '+number(m.get('total_seconds'), ' s')])
+    if 'model_requests' in m:
+        parts.extend([str(m['model_requests'])+' model request(s)', 'Tools '+number(m.get('tool_seconds'),' s')])
+        if not m.get('usage_complete',False): parts.append('Known usage only')
     return ' · '.join(parts)
 
 class MessageText(QTextBrowser):
@@ -389,6 +394,15 @@ class SessionTab(QWidget):
     def __init__(self, window, session):
         super().__init__(); self.window = window; self.store = window.store; self.session = session; self.job = None; self.loading = True; self._closed = False
         self.credentials = {}; self.questions = []; self.partial = None
+        interrupted = session.pop('research_pending',None)
+        if interrupted:
+            value = interrupted['result']; value['status'] = 'failed'
+            value['research']['status'] = 'interrupted'
+            value['research'].setdefault('events',[]).append({'kind':'interrupted','detail':'Application closed during research; restart explicitly.'})
+            session['messages'].extend([dict(interrupted['user'],status='failed'),dict(role='assistant',**value)])
+            self.store.save(session)
+        self.research_running = False
+
         layout = QVBoxLayout(self); layout.setContentsMargins(18,12,18,12)
         top = QHBoxLayout(); layout.addLayout(top)
         self.connection = QComboBox(); top.addWidget(self.connection,2)
@@ -398,7 +412,16 @@ class SessionTab(QWidget):
         if session['mode'] == 'chat': top.addWidget(self.reasoning)
         self.stream = QCheckBox('Stream'); self.stream.setChecked(session['connection'].get('stream',True))
         if session['mode'] == 'chat': top.addWidget(self.stream)
-        self.info = QLabel(''); self.info.setWordWrap(True); layout.addWidget(self.info)
+        self.info = QLabel(''); self.info.setTextFormat(Qt.TextFormat.PlainText); self.info.setWordWrap(True); layout.addWidget(self.info)
+        if session['mode'] == 'chat':
+            web_row = QHBoxLayout(); layout.addLayout(web_row)
+            self.web_access = QCheckBox('Web access · Agentnik managed (preview)')
+            self.web_access.setChecked(session.get('research_options',{}).get('enabled',False))
+            self.web_access.setToolTip('Search queries go to Ollama.com; page reads go directly to public websites.')
+            web_row.addWidget(self.web_access)
+            self.web_settings = button('Web settings…',self.configure_web,web_row); web_row.addStretch()
+            self.web_access.toggled.connect(self.save_draft)
+
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True); self.results_widget = QWidget(); self.results = QVBoxLayout(self.results_widget); self.results.addStretch(); self.scroll.setWidget(self.results_widget)
         self.results.setSpacing(10)
         self._follow_stream = True
@@ -438,6 +461,35 @@ class SessionTab(QWidget):
         self.connection.currentIndexChanged.connect(self.change_connection)
         self.model.currentTextChanged.connect(self.save_draft); self.reasoning.textChanged.connect(self.save_draft); self.stream.toggled.connect(self.save_draft)
         self.loading = False; self.render(); self.update_current_star(); QTimer.singleShot(0,self.load_models)
+    def configure_web(self):
+        c = self.active_connection()
+        if not core.native_ollama(c): return error(self,'Managed research currently requires native Ollama chat.')
+        if not c.get('model'): return error(self,'Select a model before configuring its tool capability.')
+        dlg = WebSettings(self,c)
+        while dlg.exec() == QDialog.DialogCode.Accepted:
+            try:
+                self.store.save_web_key(dlg.key.text().strip(),dlg.plain.isChecked(),dlg.remove.isChecked())
+                previous = research.capability(self.store.config,c)
+                state = previous.state if dlg.allow.isChecked() and previous.state=='verified' else 'configured' if dlg.allow.isChecked() else 'unknown'
+                research.set_capability(self.store.config,c,state,'Enabled by user; no live verification' if state=='configured' else previous.evidence if state=='verified' else '')
+                self.store.flush(); self.info.setText('Web configuration saved. Tool capability: '+state); return
+            except Exception as exc: error(self,exc)
+
+    def complete_research(self,result):
+        self.request_token = None; self.job = None; self.busy(False); self.partial = None; self.research_running = False
+        self.session.pop('research_pending',None)
+        ok = result.get('status')=='ok'
+        user = dict(self.pending,status='ok' if ok else 'failed')
+        self.session['messages'].extend([user,dict(role='assistant',**result)])
+        if self.session['title']=='New chat': self.session['title']=(self.pending['text'] or 'Web research')[:60]
+        capability_state = result['research'].get('capability_state')
+        if capability_state in ('verified','unsupported'):
+            research.set_capability(self.store.config,self.research_connection,capability_state,'Structured native tool calls observed at user request' if capability_state=='verified' else 'Native endpoint explicitly rejected tools with HTTP 400')
+            self.store.flush()
+        if ok: self.composer.clear(); self.attachments.set_paths([])
+        self.info.setText('Research completed' if ok else result.get('error','Research stopped')+' · Partial work saved; restart explicitly.')
+        self.save_draft(); self.render(); self.updated.emit()
+
     def add_question(self,data=None):
         q = QuestionEditor(data if isinstance(data,dict) else {'name':f'question_{len(self.questions)+1}','instructions':'','type':'noul','choices':[]})
         self.questions.append(q); self.question_layout.addWidget(q); q.changed.connect(self.save_draft); q.removed.connect(self.remove_question); self.save_draft()
@@ -506,7 +558,8 @@ class SessionTab(QWidget):
     def save_draft(self,*_):
         if self.loading: return
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
-        if self.session['mode'] == 'chat': self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths))
+        if self.session['mode'] == 'chat':
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),research_options={'enabled':self.web_access.isChecked(),'route':'managed'})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -517,7 +570,8 @@ class SessionTab(QWidget):
     def busy(self, value):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
-        if self.session['mode'] == 'chat': self.composer.setReadOnly(value)
+        if self.session['mode'] == 'chat':
+            self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value)
     def submit(self):
         if self.job: return
         try:
@@ -534,9 +588,26 @@ class SessionTab(QWidget):
                 self.pending = user
             else:
                 form = copy.deepcopy(self.form_value()); body = core.decision_body(c,form); self.pending = form
-            self.partial = {'text':'','thinking':''}; self.busy(True); self.info.setText('Running…'); self.render()
+            self.research_running = mode=='chat' and self.web_access.isChecked()
+            key = ''
+            if self.research_running:
+                if not core.native_ollama(c): raise ValueError('Managed research currently requires native Ollama chat.')
+                if research.capability(self.store.config,c).state not in ('configured','verified'):
+                    raise ValueError('Enable tool requests for this endpoint/model in Web settings first. No inference probe is run automatically.')
+                key = self.store.web_key()
+                if not key: raise ValueError('Configure a separate search API key in Web settings first.')
+            self.partial = {'text':'','thinking':''}
+            self.busy(True); self.info.setText('Running…'); self.render()
             token = uuid.uuid4().hex; self.request_token = token
-            self.job = Job(lambda emit,cancel:core.run_request(c,mode,body,emit,cancel),
+            if self.research_running:
+                self.partial['research'] = {'version':1,'run_id':token,'status':'running','sources':[],'events':[],'exchanges':[]}
+                self.session['research_pending'] = {'user':self.pending,'result':dict(self.partial,metrics={})}
+                self.store.save(self.session)
+            research_enabled = self.research_running
+            request_messages = copy.deepcopy(self.session['messages']+[self.pending]) if research_enabled else []
+            self.research_connection = c
+            self.last_research_save = 0
+            self.job = Job(lambda emit,cancel:research.run(c,request_messages,key,emit,cancel,run_id=token) if research_enabled else core.run_request(c,mode,body,emit,cancel),
                            lambda value:self.finished(value) if self.request_token == token else None,
                            lambda message:self.failed(message) if self.request_token == token else None,
                            lambda value:self.progress(value) if self.request_token == token else None)
@@ -544,9 +615,20 @@ class SessionTab(QWidget):
     def progress(self,value):
         if self.job and not self.job.cancel.is_set():
             self.partial = value
+            if self.research_running and 'research' in value:
+                self.session['research_pending'] = {'user':self.pending,'result':value}
+                # Save bounded activity snapshots, including partial output, for interrupted sessions.
+                signature = (len(value['research'].get('events',[])),len(value['research'].get('sources',[])))
+                if signature != getattr(self,'last_research_signature',None) or time.monotonic()-self.last_research_save > .4:
+                    self.store.save(self.session); self.last_research_save = time.monotonic(); self.last_research_signature = signature
+                if hasattr(self,'live_bubble'):
+                    if not hasattr(self.live_bubble,'research_details'):
+                        self.live_bubble.research_details = ResearchDetails(); self.live_bubble.layout().addWidget(self.live_bubble.research_details)
+                    self.live_bubble.research_details.set_data(value['research'])
             if hasattr(self,'live_bubble'): self.live_bubble.set_stream(value['text'],value['thinking'])
             self.follow_stream()
     def finished(self,result):
+        if self.research_running: return self.complete_research(result)
         if self.job and self.job.cancel.is_set(): return self.failed('Request cancelled')
         self.job = None; self.busy(False); self.partial = None
         if self.session['mode'] == 'chat':
@@ -559,6 +641,13 @@ class SessionTab(QWidget):
             if self.session['title'] == 'New decision': self.session['title'] = str(self.pending['state'])[:60]
         self.info.setText('Completed'); self.save_draft(); self.render(); self.updated.emit()
     def failed(self,message):
+        if self.research_running:
+            value = copy.deepcopy(self.partial or {'text':'','thinking':''})
+            value.setdefault('research',{'version':1,'sources':[],'events':[],'exchanges':[]})
+            value['research']['status'] = 'cancelled' if self.job and self.job.cancel.is_set() else 'failed'
+            value['research'].setdefault('events',[]).append({'kind':value['research']['status'],'detail':message})
+            value.update(status='failed',error=message,metrics=value.get('metrics',{}))
+            return self.complete_research(value)
         cancelled = self.job and self.job.cancel.is_set(); self.job = None; self.busy(False); self.partial = None
         self.info.setText('Cancelled. The server may still finish processing.' if cancelled else message)
         if not cancelled and ('401' in message or '403' in message):
@@ -585,10 +674,15 @@ class SessionTab(QWidget):
         line.setContentsMargins(64 if message['role']=='user' else 4,0,4 if message['role']=='user' else 64,0)
         bubble = MessageBubble(message,live); line.addWidget(bubble); self.results.addWidget(row)
         if message['role'] == 'user':
+            edit = QPushButton('✎'); edit.setAccessibleName('Edit and resend prompt'); edit.setToolTip('Edit this prompt and its images in the composer, then send again')
+            bubble.header.addWidget(edit)
+            edit.clicked.connect(lambda checked=False,m=message:self.copy_prompt(m))
             saved = bool(self.store.prompt_id('chat',message))
             star = QPushButton('★' if saved else '☆'); star.setAccessibleName('Remove saved prompt' if saved else 'Save prompt'); star.setToolTip('Remove from Prompts' if saved else 'Save to Prompts')
             bubble.header.addWidget(star)
             star.clicked.connect(lambda checked=False,m=message:self.window.toggle_prompt('chat',m)); self.prompt_stars.append((star,'chat',message,True))
+        if message.get('research'):
+            bubble.research_details = ResearchDetails(message['research']); bubble.layout().addWidget(bubble.research_details)
         if not live and message['role'] == 'assistant':
             def remember_thinking(visible):
                 message['thinking_visible'] = visible; self.store.save(self.session)
@@ -830,8 +924,8 @@ class Window(QMainWindow):
         if not isinstance(tab,SessionTab): self.statusBar().showMessage('Ready · New chat: Ctrl+N · Toggle history: Ctrl+B'); return
         s = tab.session; measurements = [m['metrics'] for m in s['messages'] if 'metrics' in m] if s['mode']=='chat' else [r['result']['metrics'] for r in s['runs']]
         total_in = sum(m.get('input_tokens',0) for m in measurements); total_out = sum(m.get('output_tokens',0) for m in measurements)
-        unknown = any('input_tokens' not in m or 'output_tokens' not in m for m in measurements)
-        last = measurements[-1] if measurements else {}; context = last.get('input_tokens'); limit = last.get('context_limit') or s['connection'].get('context_limit')
+        unknown = any('input_tokens' not in m or 'output_tokens' not in m or m.get('usage_complete') is False for m in measurements)
+        last = measurements[-1] if measurements else {}; context = last.get('last_input_tokens',last.get('input_tokens')); limit = last.get('context_limit') or s['connection'].get('context_limit')
         text = f'Context (last input): {number(context)} / {number(limit or None)}'
         if context is not None and limit: text += f' ({context/limit:.1%})'
         self.statusBar().showMessage(text+f' tokens   ·   Total in: {number(total_in)}   ·   Total out: {number(total_out)}'+(' (known usage only)' if unknown else '')+'   ·   '+s['connection_name'])

@@ -69,8 +69,35 @@ class Store:
             try: keyring.delete_password('Agentnik', c['credential_id'])
             except Exception: pass
 
+    def web_key(self):
+        backend = next((b for b in self.config.get('web_backends',[]) if b.get('id')=='ollama-search'),{})
+        if backend.get('credential_id'):
+            import keyring
+            try: return keyring.get_password('Agentnik Web',backend['credential_id']) or ''
+            except Exception: return ''
+        return backend.get('api_key') or os.getenv('OLLAMA_WEB_API_KEY','')
+
+    def save_web_key(self, key='', plaintext=False, remove=False):
+        import keyring
+        backends = self.config.setdefault('web_backends',[])
+        old = next((b for b in backends if b.get('id')=='ollama-search'),{})
+        if not key and not remove: return
+        saved = {'id':'ollama-search','kind':'ollama'}
+        if key and not remove:
+            if plaintext: saved['api_key'] = key
+            else:
+                ident = str(uuid.uuid4())
+                keyring.set_password('Agentnik Web',ident,key)
+                saved['credential_id'] = ident
+        self.config['web_backends'] = [b for b in backends if b.get('id')!='ollama-search']
+        if not remove: self.config['web_backends'].append(saved)
+        self.flush()
+        if old.get('credential_id'):
+            try: keyring.delete_password('Agentnik Web',old['credential_id'])
+            except Exception: pass
+
     def new_session(self, mode, name, c):
-        return dict(id=str(uuid.uuid4()), title='New decision' if mode == 'decision' else 'New chat', mode=mode,
+        return dict(version=2, research_options={'enabled':False,'route':'managed'}, id=str(uuid.uuid4()), title='New decision' if mode == 'decision' else 'New chat', mode=mode,
                     connection_name=name, connection=safe_connection(c), messages=[], runs=[],
                     form={'state':'', 'json_state':False, 'questions':[], 'images':[]}, draft='', draft_images=[])
 

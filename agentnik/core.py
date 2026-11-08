@@ -132,7 +132,8 @@ def chat_body(c, messages):
     body = {'model':c['model'], 'input' if protocol == 'responses' else 'messages':history, 'stream':c.get('stream', True)}
     reasoning = c.get('reasoning')
     if native_ollama(c):
-        body['messages'] = [{'role':m['role'], 'content':m['text'], **({'images':[base64.b64encode(Path(p).read_bytes()).decode() for p in m['images']]} if m.get('images') else {})} for m in messages if m.get('status','ok')=='ok']
+        from .ollama_tools import history_messages
+        body['messages'] = history_messages(messages)
         if reasoning: body['think'] = False if reasoning.lower() == 'off' else reasoning
         if c.get('context_limit'): body['options'] = {'num_ctx':c['context_limit']}
         return body

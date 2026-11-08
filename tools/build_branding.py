@@ -44,6 +44,11 @@ def build():
     OUT.mkdir(exist_ok=True)
     ET.register_namespace('', 'http://www.w3.org/2000/svg')
     robot=ET.parse(ROOT/'assets/robot.svg').getroot()
+    # Cropping/tracing can leave empty color regions. Qt warns on every d="".
+    for parent in robot.iter():
+        for child in list(parent):
+            if child.tag == '{http://www.w3.org/2000/svg}path' and not child.get('d','').strip():
+                parent.remove(child)
     # Use the robot geometry and red palette from the reusable icon source.
     content=''.join(ET.tostring(child,encoding='unicode') for child in robot if not child.tag.endswith('title'))
     icon=OUT/'agentnik-icon.svg'
