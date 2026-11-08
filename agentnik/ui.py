@@ -506,6 +506,8 @@ class SessionTab(QWidget):
         route_label='Provider hosted' if result['research'].get('route')=='hosted' else 'Agentnik managed'
         switched=any(e.get('kind')=='route_switch' for e in result['research'].get('events',[]))
         self.info.setText(('Research completed · '+route_label+(' · Route switched; see Research activity' if switched else '')) if ok else result.get('error','Research stopped')+' · Partial work saved; restart explicitly.')
+        if result['research'].get('retention',{}).get('truncated'):
+            self.info.setText(self.info.text()+' · Saved research detail limited; start a new chat to continue research.')
         self.save_draft(); self.render(); self.updated.emit()
 
     def add_question(self,data=None):
@@ -882,6 +884,7 @@ class Window(QMainWindow):
             if not ok: return
         session = self.store.new_session(mode,name,self.connections[name]); self.store.save(session); self.open_session(session); self.refresh_history()
     def open_session(self,session):
+        if session.get('_unavailable'): return error(self,'This saved session cannot be opened with the current version. Its original data is preserved in history.sqlite3. Repair or restore the record, or use a compatible Agentnik version.')
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
             if isinstance(tab,SessionTab) and tab.session['id'] == session['id']: self.tabs.setCurrentIndex(i); return
@@ -916,6 +919,7 @@ class Window(QMainWindow):
         item = self.history.currentItem()
         if not item: return
         session = next(s for s in self.store.list_sessions() if s['id']==item.data(Qt.ItemDataRole.UserRole))
+        if session.get('_unavailable'): return error(self,'This session cannot be renamed until its stored data is repaired. The original record is preserved.')
         name,ok = QInputDialog.getText(self,'Rename session','Title:',text=session['title'])
         if ok and name.strip():
             session['title'] = name.strip()

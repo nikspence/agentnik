@@ -5,6 +5,7 @@ import time
 from . import core,research,hosted
 from .tools import AccessError,LimitError,ResearchEvent,Runtime,utc_now
 from .web import OrderedSearch
+from .retention import retain_result
 
 POLICIES=('Provider first','Agentnik first','Provider only','Agentnik only')
 ACCESS_POLICIES=('public_fetch','strict_public')
@@ -75,7 +76,7 @@ def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=N
         state['attempts']=copy.deepcopy(attempts)+state.get('attempts',[])
         state['events']=copy.deepcopy(events)+state.get('events',[])
         out['metrics']=aggregate(completed+[value],runtime)
-        return research.scrub(out,secrets)
+        return retain_result(research.scrub(out,secrets),runtime.limits.record_bytes)
     def notice(kind,detail):
         runtime.check(); events.append(asdict(ResearchEvent(runtime.run_id,kind,detail[:500])))
         value=empty(); value['research']['status']='running'; emit(merged(value))

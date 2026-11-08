@@ -9,6 +9,7 @@ from .failures import classify
 from .research import scrub
 from .tools import AccessError,LimitError,ResearchError,ResearchEvent,RouteAttempt,Runtime,utc_now
 from .web import public_url
+from .retention import retain_result
 
 
 def supported_endpoint(c):
@@ -76,7 +77,7 @@ def run_hosted(c,messages,key,emit,cancel,limits=None,run_id=None,runtime=None):
         if clean['text']!=value['text']:
             clean['research']['unverified_annotations']=len(clean['research'].get('annotations',[]))
             clean['research']['annotations']=[]; clean['research']['citations']=[]
-        return clean
+        return retain_result(clean,runtime.limits.record_bytes)
     def event(kind,detail):
         runtime.check()
         if len(state['events'])>=100: raise LimitError('Hosted event retention limit reached')

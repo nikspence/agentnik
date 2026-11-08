@@ -7,6 +7,7 @@ import sqlite3
 import sys
 import time
 import uuid
+from .sessions import SessionError, validate_session
 
 def default_home():
     if os.getenv('AGENTNIK_HOME'): return Path(os.environ['AGENTNIK_HOME'])
@@ -146,12 +147,20 @@ class Store:
                     form={'state':'', 'json_state':False, 'questions':[], 'images':[]}, draft='', draft_images=[])
 
     def save(self, session):
-        data = dict(session); data['connection'] = safe_connection(data['connection'])
+        data = validate_session(session); data['connection'] = safe_connection(data['connection'])
         self.db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)', (data['id'], time.time(), json.dumps(data)))
         self.db.commit()
 
     def list_sessions(self):
-        return [dict(json.loads(payload), updated=updated) for updated,payload in self.db.execute('SELECT updated, payload FROM sessions ORDER BY updated DESC')]
+        result=[]
+        for ident,updated,payload in self.db.execute('SELECT id, updated, payload FROM sessions ORDER BY updated DESC'):
+            try:
+                session=validate_session(json.loads(payload),ident)
+            except (ValueError,TypeError,RecursionError):
+                session={'id':ident,'title':'Unavailable saved session','connection_name':'Stored data preserved; repair or use a compatible Agentnik version',
+                         'mode':'chat','_unavailable':True}
+            result.append(dict(session,updated=updated))
+        return result
 
     @staticmethod
     def prompt_json(mode, payload):
@@ -194,7 +203,10 @@ class Store:
                 for x in value: walk(x)
             elif isinstance(value, dict):
                 for x in value.values(): walk(x)
-        for session in self.list_sessions(): walk(session)
+        sessions=self.list_sessions()
+        # Unreadable records may still reference shared images. Retain them.
+        if any(s.get('_unavailable') for s in sessions): return
+        for session in sessions: walk(session)
         for prompt in self.list_prompts(): walk(prompt)
         for p in self.attachments.iterdir():
             if str(p) not in used and p.is_file(): p.unlink()

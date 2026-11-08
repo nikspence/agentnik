@@ -155,9 +155,13 @@ Saved chat prompts include text and images. Saved decision prompts include the s
 
 The collapsible sidebar contains persistent chat and decision sessions. It supports search, rename, delete, and **Clear all** with confirmation. Closing a tab keeps its history. Deleting history closes the affected tabs and removes images that are no longer referenced by another saved session. Saved connections remain available. **Ctrl+B** toggles history; **Ctrl+N** opens a new chat.
 
+Malformed or newer-version session records appear as **Unavailable saved session**. Their original database payload is preserved; restore/repair the record or use a compatible Agentnik version to reopen it. Other valid sessions remain usable. Attachment cleanup retains files while unreadable records might reference them. Explicitly confirmed history deletion still removes selected records.
+
 Images are copied into application storage and shared by content hash. History stays usable when original image files move. Drafts and decision form edits are saved automatically. Session export produces JSON containing messages, submitted forms, results, and local attachment paths; it does not bundle image files or credentials.
 
 The bottom status bar shows the active session's latest reported input-context token count, effective context limit when known, and cumulative reported input/output tokens. Local Ollama's loaded-model metadata is queried for its effective context length after a chat response. Other connections can supply a limit in the connection editor; unknown limits display **—**. This is not a tokenizer estimate or a claim that the model's entire advertised window is configured on the server. For native Ollama chat, a configured limit is also sent as `options.num_ctx`.
+
+New research metadata has a separate 256 KB retention limit. If exceeded, the answer remains available while continuation data and other detail are reduced; the activity/completion view reports the limit. Incomplete continuation is disabled, so start a new chat for further research. Existing saved history is not rewritten. This budget is separate from tool-context and response-size limits.
 
 Reported cache/read-write and reasoning token details are retained as numeric usage records when provided. Cumulative streaming counts are updated per request, then summed across requests. Messages input totals include its separately reported cached tokens; cache/reasoning details already included in other protocol totals are not counted twice. Missing values remain unknown and no cost is inferred.
 

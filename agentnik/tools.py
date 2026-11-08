@@ -36,6 +36,7 @@ class Limits:
     results: int = 5
     response_bytes: int = 1_000_000
     retrieved_bytes: int = 3_000_000
+    record_bytes: int = 256_000
     context_bytes: int = 32_000
     argument_bytes: int = 4096
     model_bytes: int = 512_000
@@ -47,6 +48,7 @@ class Limits:
     backoff_seconds: float = 5
 
     def __post_init__(self):
+        if type(self.record_bytes) is not int or self.record_bytes<2048: raise ValueError('record_bytes must be at least 2048')
         for name, value in asdict(self).items():
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0 or (isinstance(value,float) and not math.isfinite(value)):
                 raise ValueError(f'{name} must be positive')
