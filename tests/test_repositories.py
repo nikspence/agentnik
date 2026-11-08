@@ -44,6 +44,28 @@ class Registry(unittest.TestCase):
 
 
 class WorkspaceUI(unittest.TestCase):
+    def test_repository_picker_uses_qt_translation_without_translating_data(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QTranslator
+        from PySide6.QtWidgets import QApplication,QPushButton
+        from agentnik.code_ui import RepositoryPicker
+        app=QApplication.instance() or QApplication([])
+        class Translator(QTranslator):
+            def isEmpty(self):return False
+            def translate(self,context,source,disambiguation=None,n=-1):
+                return {'Choose repository':'Translated title','Add folder':'Translated add'}.get(source) if context=='RepositoryPicker' else None
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');registry=RepositoryRegistry(store)
+            registry.put(project,'Original project');translator=Translator();app.installTranslator(translator)
+            try:
+                picker=RepositoryPicker(None,registry)
+                self.assertEqual(picker.windowTitle(),'Translated title')
+                self.assertIn('Translated add',[b.text() for b in picker.findChildren(QPushButton)])
+                self.assertIn('Original project',picker.items.item(0).text())
+                self.assertEqual(picker.search.placeholderText(),'Search project names and paths')
+                picker.close()
+            finally:app.removeTranslator(translator);store.db.close()
+
     def test_picker_cancel_independent_drafts_and_reopen_do_not_execute(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication,QDialog

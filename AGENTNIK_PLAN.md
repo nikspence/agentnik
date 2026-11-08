@@ -222,6 +222,8 @@ Localize the desktop interface across chat, decisions, research, repository and 
 
 ### L1: Translation foundation
 
+Started: the repository picker uses Qt's `tr()` for its application-owned labels and dialog framing. Qt's `pyside6-lupdate` extracted 16 source strings in the `RepositoryPicker` context, and an offscreen test checked a translator, English fallback, and unchanged project names. This is an extraction pilot; catalogs, language selection, remaining UI strings, translated backend errors, and release packaging are not yet implemented.
+
 - Choose a maintainable Python/Qt catalog and extraction workflow after a short implementation spike. Centralize application-owned display strings, including dynamically assembled status, tool, validation, and safety-badge text. Keep stable internal IDs, protocol fields, model aliases, file paths, and persisted session data independent of translated labels.
 - Add an explicit language setting with a **System default** option, locale-code persistence, and English fallback for missing translations. Define startup loading, runtime switch behavior (immediate update or clearly marked restart), and packaged catalog lookup on Windows, macOS, and Linux. A missing or corrupt catalog must leave the application usable in English without losing settings or history.
 - Use named placeholders and locale-aware numbers, dates, times, and plural forms where displayed. Keep user prompts, model output, repository content, tool payloads, citations, and imported data in their original language. Translate application framing around those values without treating untrusted text as a format string.

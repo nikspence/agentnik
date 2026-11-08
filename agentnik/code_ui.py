@@ -14,13 +14,13 @@ from . import core
 class RepositoryPicker(QDialog):
     def __init__(self,parent,registry,select=True):
         super().__init__(parent);self.registry=registry;self.selected_id=None;self.select=select
-        self.setWindowTitle('Choose repository' if select else 'Repositories');self.resize(680,400)
-        layout=QVBoxLayout(self);self.search=QLineEdit();self.search.setPlaceholderText('Search project names and paths');layout.addWidget(self.search)
+        self.setWindowTitle(self.tr('Choose repository') if select else self.tr('Repositories'));self.resize(680,400)
+        layout=QVBoxLayout(self);self.search=QLineEdit();self.search.setPlaceholderText(self.tr('Search project names and paths'));layout.addWidget(self.search)
         self.items=QListWidget();layout.addWidget(self.items);self.search.textChanged.connect(self.refresh)
         actions=QHBoxLayout();layout.addLayout(actions)
-        for label,fn in [('Add folder',self.add),('Rename',self.rename),('Locate folder',self.locate),('Remove from list',self.remove)]:
+        for label,fn in [(self.tr('Add folder'),self.add),(self.tr('Rename'),self.rename),(self.tr('Locate folder'),self.locate),(self.tr('Remove from list'),self.remove)]:
             button=QPushButton(label);button.clicked.connect(fn);actions.addWidget(button)
-        self.hint=QLabel('Git is optional. Removing an entry never deletes files. Add a folder to begin.');self.hint.setWordWrap(True);layout.addWidget(self.hint)
+        self.hint=QLabel(self.tr('Git is optional. Removing an entry never deletes files. Add a folder to begin.'));self.hint.setWordWrap(True);layout.addWidget(self.hint)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Open|QDialogButtonBox.StandardButton.Cancel if select else QDialogButtonBox.StandardButton.Close)
         buttons.accepted.connect(self.choose);buttons.rejected.connect(self.reject);layout.addWidget(buttons)
         if select:self.items.itemDoubleClicked.connect(lambda *_:self.choose())
@@ -33,40 +33,40 @@ class RepositoryPicker(QDialog):
         old=self.selected();self.items.clear();needle=self.search.text().casefold()
         for row in self.registry.list():
             if needle not in (row['name']+' '+row['path']).casefold():continue
-            item=QListWidgetItem(row['name']+(' · missing/unavailable' if not row['available'] else '')+'\n'+row['path']);item.setData(Qt.ItemDataRole.UserRole,row['id']);self.items.addItem(item)
+            item=QListWidgetItem(row['name']+(' · '+self.tr('missing/unavailable') if not row['available'] else '')+'\n'+row['path']);item.setData(Qt.ItemDataRole.UserRole,row['id']);self.items.addItem(item)
             if old and row['id']==old['id']:self.items.setCurrentItem(item)
         if self.items.currentRow()<0 and self.items.count():self.items.setCurrentRow(0)
 
     def attempt(self,fn):
         try:fn();self.refresh()
-        except (OSError,ValueError) as exc:QMessageBox.warning(self,'Repositories',str(exc))
+        except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Repositories'),str(exc))
 
     def add(self):
-        path=QFileDialog.getExistingDirectory(self,'Add project folder')
+        path=QFileDialog.getExistingDirectory(self,self.tr('Add project folder'))
         if path:self.attempt(lambda:self.registry.put(path))
 
     def rename(self):
         row=self.selected()
         if not row:return
-        name,ok=QInputDialog.getText(self,'Rename project','Name:',text=row['name'])
+        name,ok=QInputDialog.getText(self,self.tr('Rename project'),self.tr('Name:'),text=row['name'])
         if ok:self.attempt(lambda:self.registry.rename(row['id'],name))
 
     def locate(self):
         row=self.selected()
         if not row:return
-        path=QFileDialog.getExistingDirectory(self,'Locate project folder')
+        path=QFileDialog.getExistingDirectory(self,self.tr('Locate project folder'))
         if path:self.attempt(lambda:self.registry.put(path,row['name'],row['id']))
 
     def remove(self):
         row=self.selected()
-        if row and QMessageBox.question(self,'Remove project','Remove this entry from the list? Its files and history will remain.')==QMessageBox.StandardButton.Yes:
+        if row and QMessageBox.question(self,self.tr('Remove project'),self.tr('Remove this entry from the list? Its files and history will remain.'))==QMessageBox.StandardButton.Yes:
             self.attempt(lambda:self.registry.remove(row['id']))
 
     def choose(self):
         row=self.selected()
         if not row:return
         try:self.registry.directory(row['path'])
-        except (OSError,ValueError) as exc:QMessageBox.warning(self,'Unavailable project',str(exc));return
+        except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Unavailable project'),str(exc));return
         self.selected_id=row['id'];self.accept()
 
 

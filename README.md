@@ -61,6 +61,8 @@ Agentnik now owns its coding loop using your existing connections and models, wi
 
 The separate **Try simulated workflow (no execution)** option remains available. The coding backend has offline protocol/Qt/file-operation coverage; live coding model compatibility is not yet established. These changes are newer than the v0.2.0 archive. Follow the [coding guide](CODING_GUIDE.md) to set up a project, select models and review edits; see [the coding backend plan](CODING_BACKEND_PLAN.md) for implementation boundaries and remaining execution gates.
 
+Localization is in preparation. The repository picker is the first Qt translation extraction pilot; language catalogs and a language selector are not yet available. See [the localization milestone](AGENTNIK_PLAN.md#8-l--interface-localization).
+
 ## Conversations
 
 Use **＋ Chat** or **＋ Decision** to select a connection and open a session. Tabs are independent, including tabs that use the same connection. Changing the connection selector opens a new session. Models load automatically when a tab opens; use the refresh icon to reload them. A manually entered model works even when listing models is unavailable. New manually created connections default to Responses; discovered and saved connections retain their configured protocol.
