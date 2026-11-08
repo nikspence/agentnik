@@ -35,6 +35,10 @@ def validate_session(value, ident=None):
         require(data.get('version')==4)
         for field in ('project_id','project_name','path_snapshot'): require(isinstance(data.get(field),str) and bool(data[field]))
         require(not data['messages'] and not data['runs'] and 'research_pending' not in data)
+        activity=data.get('code_activity',[])
+        require(isinstance(activity,list) and len(activity)<=32)
+        require(all(isinstance(e,dict) and isinstance(e.get('kind'),str) and isinstance(e.get('text'),str) and len(e['text'])<=2048 for e in activity))
+        require(data.get('code_state','idle') in ('idle','running','awaiting_approval','completed','cancelled','rejected','timed_out','interrupted'))
         return data
     require(data.get('version',1)<=3)
     def form(value):

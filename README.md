@@ -55,6 +55,8 @@ Milestones B and C provide a bounded research preview with native Ollama and Res
 
 Post-v0.2.0 development now includes **Repositories** for local Git repositories or ordinary project folders. Add, rename, locate, or remove entries without deleting files. **＋ Code** opens a searchable project picker and an independent passive Code pane with a saved task draft and visible working-directory snapshot. Coding execution is not connected yet; Run is disabled. Removing or relocating a registry entry preserves existing history and its original path. These changes are newer than the v0.2.0 archive.
 
+The development Code pane also offers **Try simulated workflow (no execution)**. It demonstrates exact-command approval/rejection, cancellation, plain-text activity and a simulated diff. Run remains disabled for real coding. Simulation drafts/activity persist, and interrupted work never restarts on reopen. No command, file edit, model request or System One check is performed. See [the backend contract](CODING_BACKEND_PLAN.md) for the real-integration gates.
+
 ## Conversations
 
 Use **＋ Chat** or **＋ Decision** to select a connection and open a session. Tabs are independent, including tabs that use the same connection. Changing the connection selector opens a new session. Models load automatically when a tab opens; use the refresh icon to reload them. A manually entered model works even when listing models is unavailable. New manually created connections default to Responses; discovered and saved connections retain their configured protocol.
