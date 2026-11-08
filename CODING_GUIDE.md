@@ -21,7 +21,7 @@ Each real edit requires approval. Existing files must first be read by the codin
 
 When a task changes several files, each proposed file is reviewed independently. Approving one does not approve the others; a rejected or conflicting edit does not undo earlier approved edits. After a conflict, the agent must explicitly read the current file before proposing another edit to it.
 
-The current tools list directories, read UTF-8 files, and propose complete file content. Reads and writes are limited to 32 KB per file. The agent cannot create directories, delete files, run shell commands, make network calls through coding tools, commit, or push. It rejects traversal, links, and several common credential paths, but these checks are not an operating system sandbox or a guarantee against all external filesystem races.
+The current tools list directories, read or search individual UTF-8 files, and propose complete file content. Search returns bounded literal matches with line numbers; it does not replace a full file read before editing. Reads and writes are limited to 32 KB per file. The agent cannot create directories, delete files, run shell commands, make network calls through coding tools, commit, or push. It rejects traversal, links, and several common credential paths, but these checks are not an operating system sandbox or a guarantee against all external filesystem races.
 
 Each run has shared request, tool, context, and time limits. Cancellation stops further scheduling and invalidates pending approval; edits already applied remain in the project. Remote inference may continue or incur charges after cancellation. Each new run starts a fresh model conversation, so include the relevant task context again.
 

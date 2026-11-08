@@ -16,6 +16,17 @@ def call(name,args,ident='call-1'):
     return {'id':ident,'type':'function','function':{'name':name,'arguments':json.dumps(args)}}
 
 class ProjectBoundaries(unittest.TestCase):
+    def test_search_is_bounded_and_does_not_authorize_edit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'code.py';path.write_text('\n'.join('needle '+str(n) for n in range(50)),encoding='utf-8')
+            files=ProjectFiles(directory);result=files.search('code.py','needle')
+            self.assertEqual(result['matches'][0],{'line':1,'text':'needle 0'})
+            self.assertEqual(len(result['matches']),40);self.assertTrue(result['truncated'])
+            with self.assertRaises(ValueError):files.proposal('code.py','changed')
+            for query in ('','x\ny','a'*257):
+                with self.assertRaises(ValueError):files.search('code.py',query)
+            with self.assertRaises(ValueError):files.search('../outside','needle')
+
     def test_conflict_does_not_count_as_a_fresh_model_read(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'code.py';path.write_bytes(b'original\n');files=ProjectFiles(directory)
@@ -47,6 +58,17 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_model_can_search_without_exposing_connection_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory,'a.txt').write_text('first\nneedle private-key\n',encoding='utf-8')
+            run=CodingRun(dict(C,stream=False,api_key='private-key'),directory,'Find needle');bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('search_file',{'path':'a.txt','query':'needle'})],finish='tool_calls'),False),Wire(chat('Found'),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed')
+            self.assertIn('search_file',json.dumps(bodies[0]['tools']))
+            self.assertIn('[redacted]',json.dumps(bodies[1]));self.assertNotIn('private-key',json.dumps(bodies[1]))
+
     def test_heavy_only_does_not_offer_or_accept_delegation(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Analyze');events=[];bodies=[]

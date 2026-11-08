@@ -27,6 +27,7 @@ class CodeTool:
 TOOLS=[CodeTool('delegate_light','Delegate routine bounded analysis to the user-selected light model. Include necessary context in task; delegate cannot access files or tools.',('task',)),
        CodeTool('list_files','List a project directory. Only project-relative paths.',('path',)),
        CodeTool('read_file','Read a UTF-8 project file before proposing an edit.',('path',)),
+       CodeTool('search_file','Find literal text in a UTF-8 project file. Search does not replace the required full read before editing.',('path','query')),
        CodeTool('write_file','Propose full UTF-8 content for one file. Existing files must be read first. User approval is mandatory.',('path','content'))]
 INSTRUCTIONS=('You are Agentnik, a coding agent. Work only through the provided repository tools. '
               'Read files before editing. Preserve unrelated user changes. write_file requires explicit user approval; '
@@ -75,6 +76,18 @@ class ProjectFiles:
             except ValueError:continue
             entries.append(item.name+('/' if item.is_dir() else ''))
         return sorted(entries)
+
+    def search(self,relative,query):
+        if not isinstance(query,str) or not query or len(query.encode('utf-8'))>256 or '\n' in query or '\r' in query:
+            raise ValueError('Search requires a single-line query of at most 256 bytes')
+        lines=self.read(relative,remember=False).splitlines();matches=[];size=0;truncated=False
+        for number,line in enumerate(lines,1):
+            if query not in line:continue
+            start=max(0,line.find(query)-100);entry={'line':number,'text':line[start:start+500]};length=len(json.dumps(entry,ensure_ascii=False).encode('utf-8'))
+            if len(matches)>=40 or size+length>8000:truncated=True;break
+            matches.append(entry);size+=length
+            if start or len(line)>start+500:truncated=True
+        return {'matches':matches,'truncated':truncated}
 
     def proposal(self,relative,content):
         if not isinstance(content,str) or len(content.encode())>32000 or '\x00' in content:raise ValueError('Edit exceeds UTF-8 file budget')
@@ -222,6 +235,7 @@ class CodingRun:
                                 result={'analysis':light_state.get('text','')[:16000],'model':light['model']}
                         elif call.name=='list_files':result={'entries':files.listing(args['path'])}
                         elif call.name=='read_file':result={'text':files.read(args['path'])}
+                        elif call.name=='search_file':result=files.search(args['path'],args['query'])
                         else:
                             proposal=files.proposal(args['path'],args['content'])
                             allowed=self.review(proposal,lambda e:event(e.pop('kind'),**e),runtime)
