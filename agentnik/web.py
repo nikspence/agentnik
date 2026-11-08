@@ -58,16 +58,33 @@ class PinnedConnection(http.client.HTTPConnection):
         super().__init__(self.destination.hostname,self.destination.port or (443 if self.destination.scheme=='https' else 80),timeout=timeout)
 
     def connect(self):
-        # Connect only to a vetted address; never resolve the hostname a second time.
-        family,kind,proto,canon,address=self.addresses[0]
-        sock=socket.socket(family,kind,proto); sock.settimeout(self.timeout)
-        try:
-            sock.connect(address)
-            if self.destination.scheme=='https':
-                sock=ssl.create_default_context().wrap_socket(sock,server_hostname=self.destination.hostname)
-            self.sock=sock
-        except Exception:
-            sock.close(); raise
+        # Retry only TCP connection establishment, before any HTTP submission.
+        # TLS failures are terminal; no second DNS lookup or request replay.
+        deadline=time.monotonic()+self.timeout
+        seen=set(); last_error=None
+        for family,kind,proto,canon,address in self.addresses:
+            identity=(family,kind,proto,address)
+            if identity in seen: continue
+            if len(seen)>=8: break
+            seen.add(identity)
+            remaining=deadline-time.monotonic()
+            if remaining<=0: raise TimeoutError('Public connection deadline reached')
+            sock=socket.socket(family,kind,proto); sock.settimeout(remaining)
+            try: sock.connect(address)
+            except OSError as exc:
+                sock.close(); last_error=exc; continue
+            try:
+                remaining=deadline-time.monotonic()
+                if remaining<=0: raise TimeoutError('Public connection deadline reached')
+                sock.settimeout(remaining)
+                if self.destination.scheme=='https':
+                    sock=ssl.create_default_context().wrap_socket(sock,server_hostname=self.destination.hostname)
+                self.sock=sock; return
+            except Exception:
+                sock.close(); raise
+        if last_error is not None: raise last_error
+        raise OSError('No approved public address available')
+
 
 
 def read_bounded(response,connection,runtime):

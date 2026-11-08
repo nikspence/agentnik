@@ -92,11 +92,13 @@ D0.2 progress: sanitized per-request usage snapshots now preserve cache and reas
 
 Test rapid cancel/restart and simultaneous tabs with stalled DNS, web, and model workers. Add an aggregate concurrency/resource bound if existing per-turn deadlines allow abandoned workers to accumulate; reject late results without compromising responsiveness. Keep remote-stop limitations explicit.
 
-The pinned transport currently tries the first approved address. Consider bounded failover among already validated public addresses under the same deadline and TLS hostname; never re-resolve through an unvalidated path. Retain redirect, content-type, compression, and byte restrictions. Richer extraction/charset support is optional follow-up, not a reason to relax transport controls.
+The pinned transport now attempts up to eight distinct approved addresses for TCP connection establishment under one deadline and the original TLS hostname. No second DNS lookup is performed. TLS failures are terminal; HTTP submissions are not replayed for address failover. Retain redirect, content-type, compression, and byte restrictions. Richer extraction/charset support is optional follow-up, not a reason to relax transport controls.
 
 Check that research completion preserves the user's thinking expansion choice just as ordinary chat does. Exercise cancellation, draft retention, edit/resend, source links, independent tabs, interrupted reopen, and light/dark presentation. Expand discovery regressions for saved-profile independence and environment/probe precedence.
 
 Acceptance: bounded worker behavior under repeated cancellation, no late history/UI mutations, no outbound requests for strict-policy research, and offscreen Qt regression coverage. Record any native checks separately.
+
+D0.3 local checks are complete: research Runtime waits share a 16-worker process-wide limit, including nested DNS/backend waits and cancelled operations that have not yet returned. Saturated work fails without spawning another worker; slots are released only on actual worker exit, including exception/start-failure paths. TCP failover is bounded to approved addresses and stops on TLS errors. Research completion retains thinking visibility across save/reopen. The 131-test offline suite covers repeated cancellation/restart, nested waits/timeouts, two-tab isolation and late results, both themes, saved-profile/discovery precedence, plus existing strict-policy, citation, prompt, and interrupted-history checks. No live/native platform compatibility claim is added. D0 local hardening is complete; next are D1 explicit compatibility tooling and D2 release automation/platform evidence.
 
 **D0 exit:** all applicable offline tests and compile checks pass; focused Qt checks cover changed interaction; newly found issues are fixed or explicitly scoped with rationale. Update README/VALIDATION to describe delivered behavior. This is the next implementation target, not another new feature family.
 
@@ -197,4 +199,4 @@ Defer additional hosted/search providers until an adapter and evidence justify t
 
 For each slice: inspect the relevant implementation, preserve user data, add tests for meaningful behavioral risks, run relevant offline/Qt checks, and update evidence without erasing historical limitations. Do not substitute test counts, documentation, or a startup screenshot for compatibility evidence.
 
-Immediate order (D0.1/D0.2 local hardening complete): **D0.3 lifecycle/Qt → D1 harness and D2 release automation → E1 registry/picker**. Authorized live/provider and available platform checks proceed as their prerequisites become available; coding execution remains gated by E2.
+Immediate order (D0 local hardening complete): **D1 harness and D2 release automation → E1 registry/picker**. Authorized live/provider and available platform checks proceed as their prerequisites become available; coding execution remains gated by E2.

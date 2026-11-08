@@ -135,6 +135,11 @@ class Capability:
             raise ValueError('Invalid capability state')
 
 
+# Includes nested DNS/backend waits, across every chat and cancelled run.
+MAX_RESEARCH_WORKERS = 16
+_WORKER_SLOTS = threading.BoundedSemaphore(MAX_RESEARCH_WORKERS)
+
+
 class Runtime:
     def __init__(self, cancel=None, limits=None, run_id=None):
         self.cancel = cancel if cancel is not None else threading.Event()
@@ -158,14 +163,22 @@ class Runtime:
 
     def wait(self, fn):
         """Bound caller latency; late daemon-worker results are discarded, not replayed."""
-        self.check(); output=queue.Queue(maxsize=1)
+        self.check(); deadline=time.monotonic()+self.timeout()
+        if not _WORKER_SLOTS.acquire(blocking=False):
+            raise LimitError('Research worker capacity reached; outstanding operations must finish before starting more work.')
+        slots=_WORKER_SLOTS
+        output=queue.Queue(maxsize=1)
         def work():
             try:
                 self.check()
                 output.put((True,fn()))
             except Exception as exc: output.put((False,exc))
-        threading.Thread(target=work,daemon=True).start()
-        deadline=time.monotonic()+self.timeout()
+            finally: slots.release()
+        try:
+            self.check()
+            threading.Thread(target=work,daemon=True,name='AgentnikResearchWorker').start()
+        except BaseException:
+            slots.release(); raise
         while True:
             self.check()
             left=deadline-time.monotonic()

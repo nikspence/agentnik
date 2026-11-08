@@ -489,6 +489,8 @@ class SessionTab(QWidget):
             except Exception as exc: error(self,exc)
 
     def complete_research(self,result):
+        if hasattr(self,'live_bubble'):
+            result=dict(result,thinking_visible=self.live_bubble.thinking_toggle.isChecked())
         self.request_token = None; self.job = None; self.busy(False); self.partial = None; self.research_running = False
         self.session.pop('research_pending',None)
         ok = result.get('status')=='ok'
