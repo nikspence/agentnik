@@ -11,6 +11,8 @@ Agentnik's Code pane uses your configured model connections to inspect a selecte
 
 The Heavy model plans, reads project files, and proposes edits. It may delegate bounded analysis to the configured Light model, which has no repository tools. Project contents read by Heavy can be sent to its endpoint, and delegated context can be sent to the Light endpoint. Choose services appropriate for the contents of your project.
 
+Turn off **Allow Light model delegation** to run with Heavy alone while keeping the Light assignment for later. The setting is saved per Code pane and cannot be changed during a run.
+
 For a practice run, **Try simulated workflow (no execution)** exercises the approval interface without inference or file changes. Simulation approval does not authorize a real edit.
 
 ## Review and limits

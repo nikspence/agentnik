@@ -183,10 +183,11 @@ class CodingRun:
             emit(dict(run_id=self.run_id,kind=kind,**scrub(data)))
         try:
             files=ProjectFiles(self.root);c=self.connection;native=core.native_ollama(c);protocol=c.get('protocol','chat')
+            available_tools=[tool for tool in TOOLS if self.light or tool.name!='delegate_light']
             body=core.chat_body(c,[{'role':'user','text':self.prompt}])
-            if protocol=='responses':body.update(instructions=INSTRUCTIONS,store=False,include=['reasoning.encrypted_content'],tools=responses_tools.wire_tools(TOOLS))
-            elif protocol=='messages':body.update(system=INSTRUCTIONS,tools=compat_tools.wire_tools(TOOLS,protocol))
-            else:body['messages'].insert(0,{'role':'system','content':INSTRUCTIONS});body['tools']=[t.wire() for t in TOOLS]
+            if protocol=='responses':body.update(instructions=INSTRUCTIONS,store=False,include=['reasoning.encrypted_content'],tools=responses_tools.wire_tools(available_tools))
+            elif protocol=='messages':body.update(system=INSTRUCTIONS,tools=compat_tools.wire_tools(available_tools,protocol))
+            else:body['messages'].insert(0,{'role':'system','content':INSTRUCTIONS});body['tools']=[t.wire() for t in available_tools]
             adapter=responses_tools if protocol=='responses' else ollama_tools if native else compat_tools
             for _ in range(9):
                 runtime.charge('requests',1,runtime.limits.requests);state={}
@@ -200,7 +201,7 @@ class CodingRun:
                 validated=[]
                 for call in calls:
                     args=json.loads(call.arguments) if isinstance(call.arguments,str) else call.arguments
-                    definition=next((d for d in TOOLS if d.name==call.name),None)
+                    definition=next((d for d in available_tools if d.name==call.name),None)
                     if definition is None or not isinstance(args,dict) or set(args)!=set(definition.fields) or not all(isinstance(v,str) for v in args.values()):raise ValueError('Invalid coding tool call')
                     if any(secret and secret in json.dumps(args) for secret in secrets):raise ValueError('Credential transmission blocked')
                     runtime.charge('calls',1,runtime.limits.calls);validated.append((call,args))

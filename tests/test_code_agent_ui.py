@@ -31,6 +31,7 @@ class CodingWorkspace(unittest.TestCase):
                 tab=window.tabs.currentWidget();app.processEvents()
                 for role,model in [('heavy','my-heavy-coder'),('light','my-light-coder')]:
                     combo,field=tab.roles[role];combo.setCurrentIndex(combo.findData('Gateway'));field.setText(model)
+                tab.light_enabled.setChecked(False)
                 tab.composer.setPlainText('Create a test file')
                 replies=[Wire(chat(calls=[call('write_file',{'path':'test.txt','content':'approved content'})],finish='tool_calls'),False),Wire(chat('Created test.txt'),False)]
                 with patch.object(core,'open_request',side_effect=replies) as endpoint,patch('subprocess.Popen') as process:
@@ -42,7 +43,7 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertNotIn('private-model-key',json.dumps(saved))
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents()
                 reopened=window.tabs.currentWidget();self.assertEqual(reopened.roles['heavy'][1].text(),'my-heavy-coder')
-                self.assertEqual(reopened.roles['light'][1].text(),'my-light-coder');self.assertIsNone(reopened.job)
+                self.assertEqual(reopened.roles['light'][1].text(),'my-light-coder');self.assertFalse(reopened.light_enabled.isChecked());self.assertIsNone(reopened.job)
             finally:window.close();app.processEvents();store.db.close()
 
 if __name__=='__main__':unittest.main()

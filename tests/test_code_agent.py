@@ -47,6 +47,15 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_heavy_only_does_not_offer_or_accept_delegation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Analyze');events=[];bodies=[]
+            reply=Wire(chat(calls=[call('delegate_light',{'task':'Analyze'})],finish='tool_calls'),False)
+            def send(c,url,body,timeout):bodies.append(body);return reply
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertNotIn('delegate_light',json.dumps(bodies[0]['tools']))
+            self.assertEqual(events[-1]['status'],'failed')
+
     def test_multiple_files_require_independent_approval(self):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory,'a.txt').write_bytes(b'old a\n');Path(directory,'b.txt').write_bytes(b'old b\n')

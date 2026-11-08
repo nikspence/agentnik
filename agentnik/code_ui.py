@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import threading
 from PySide6.QtCore import Qt,Signal,QObject
-from PySide6.QtWidgets import QWidget,QDialog,QVBoxLayout,QHBoxLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox
+from PySide6.QtWidgets import QWidget,QDialog,QVBoxLayout,QHBoxLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox
 from .repositories import RepositoryRegistry
 from .coding import SimulationRun,plain
 from .code_agent import CodingRun
@@ -107,6 +107,8 @@ class CodeTab(QWidget):
             choose=QPushButton('Choose model…');choose.clicked.connect(lambda _,r=role:self.choose_model(r));row.addWidget(choose)
             connection.currentIndexChanged.connect(lambda _,r=role:self.role_changed(r))
             model.editingFinished.connect(self.save_models)
+        self.light_enabled=QCheckBox('Allow Light model delegation');self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);layout.addWidget(self.light_enabled)
+        self.light_enabled.toggled.connect(self.save_light_enabled)
         self.send=QPushButton('Run coding task');self.send.clicked.connect(self.start_coding);layout.addWidget(self.send)
         self.simulate=QPushButton('Try simulated workflow (no execution)');self.simulate.clicked.connect(self.start_simulation);layout.addWidget(self.simulate)
         self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText('Command approval preview');layout.addWidget(self.approval)
@@ -142,6 +144,9 @@ class CodeTab(QWidget):
         self.session['coding_models']={role:{'connection':widgets[0].currentData(),'model':widgets[1].text().strip()} for role,widgets in self.roles.items()}
         self.store.save(self.session)
 
+    def save_light_enabled(self,enabled):
+        self.session['coding_light_enabled']=enabled;self.store.save(self.session)
+
     def role_connection(self,role):
         name=self.roles[role][0].currentData()
         if not name:return None
@@ -152,7 +157,7 @@ class CodeTab(QWidget):
     def start_coding(self):
         if self.job or self._closed:return
         try:
-            self.save_models();heavy=self.role_connection('heavy');light=self.role_connection('light')
+            self.save_models();heavy=self.role_connection('heavy');light=self.role_connection('light') if self.light_enabled.isChecked() else None
             if not heavy or not self.composer.toPlainText().strip():raise ValueError('Choose a heavy model and enter a coding task')
             run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light)
         except ValueError as exc:QMessageBox.warning(self,'Coding settings',str(exc));return
@@ -161,6 +166,7 @@ class CodeTab(QWidget):
     def launch(self,run,notice):
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
+        self.light_enabled.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
         signals=self.events
@@ -209,6 +215,7 @@ class CodeTab(QWidget):
         self.run_id=None;self.job=None;self.pending_fingerprint=None
         for button in (self.approve,self.reject,self.cancel_button):button.setEnabled(False)
         self.simulate.setEnabled(True);self.send.setEnabled(True)
+        self.light_enabled.setEnabled(True)
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 
     def cancel(self):
