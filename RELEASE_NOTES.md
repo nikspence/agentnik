@@ -1,4 +1,18 @@
-# Agentnik v0.2.0
+# Agentnik v0.3.0
+
+Windows x64 onedir release. Extract the whole ZIP and launch `Agentnik/Agentnik.exe`, keeping `_internal` alongside it. Verify the SHA-256 sidecar. This build is unsigned.
+
+## Changes since v0.2.0
+
+- Manage local repository or ordinary folder entries, and open independent Code panes with saved working-directory snapshots.
+- Run Agentnik's own coding workflow with existing connections and independently selected Heavy and optional Light models. Review and approve each proposed file edit. Shell commands, deletion, directory creation, commits, and pushes are unavailable.
+- Added a coding guide and a roadmap for interface localization. Localization, MCP, Skills, and System One safety recommendations remain planned.
+
+Coding has offline protocol, file-operation, and Qt coverage; live coding compatibility has not been established. File contents and delegated context may be sent to the selected model endpoints. See CODING_GUIDE.md for limitations and privacy details.
+
+The Windows build-host startup check does not establish clean-machine, full interactive, credential, TLS, macOS, or Linux compatibility. Signing and a full bundled-library license audit remain pending. See VALIDATION.md and BUILD-MANIFEST.json for evidence.
+
+## Earlier release: v0.2.0
 
 Windows x64 onedir release. Extract the whole ZIP, then launch `Agentnik/Agentnik.exe`; its `_internal` directory must stay beside it. Python is included. Verify the archive against its `.sha256` sidecar. The build is unsigned.
 
@@ -19,4 +33,4 @@ Scoped live LiteLLM evidence includes ChatGPT `chatgpt/gpt-6-luna` and Ollama Cl
 
 See VALIDATION.md and MILESTONE_D_LIVE_RESULTS.md for evidence. BUILD-MANIFEST.json records this artifact's source revision, environment, dependencies and startup result. Startup success does not establish every dialog, clipboard, credential-store or TLS/provider workflow. Clean-machine and macOS/Linux validation, signing, and a full bundled-library license audit remain pending; installed dependency notices and Python's license are included.
 
-No API keys, personal history, or runtime settings are included. Existing Agentnik data remains in its normal independent application data directory. Repositories/Coding Agent, MCP servers, Skills, and the optional System One command safety recommendation remain planned features.
+No API keys, personal history, or runtime settings were included in v0.2.0. Existing Agentnik data remains in its normal independent application data directory.
