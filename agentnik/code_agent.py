@@ -28,6 +28,7 @@ TOOLS=[CodeTool('delegate_light','Delegate routine bounded analysis to the user-
        CodeTool('list_files','List a project directory. Only project-relative paths.',('path',)),
        CodeTool('read_file','Read a UTF-8 project file before proposing an edit.',('path',)),
        CodeTool('search_file','Find literal text in a UTF-8 project file. Search does not replace the required full read before editing.',('path','query')),
+       CodeTool('search_project','Search bounded project files under a relative directory for literal text. Results may be incomplete; read files before editing.',('path','query')),
        CodeTool('write_file','Propose full UTF-8 content for one file. Existing files must be read first. User approval is mandatory.',('path','content'))]
 INSTRUCTIONS=('You are Agentnik, a coding agent. Work only through the provided repository tools. '
               'Read files before editing. Preserve unrelated user changes. write_file requires explicit user approval; '
@@ -88,6 +89,43 @@ class ProjectFiles:
             matches.append(entry);size+=length
             if start or len(line)>start+500:truncated=True
         return {'matches':matches,'truncated':truncated}
+
+    def search_project(self,relative,query,check=lambda:None):
+        if not isinstance(query,str) or not query or len(query.encode('utf-8'))>256 or '\n' in query or '\r' in query:
+            raise ValueError('Search requires a single-line query of at most 256 bytes')
+        root=self.path(relative)
+        if not root.is_dir():raise ValueError('Directory is unavailable')
+        pending=[(root,0)];entries=0;scanned=0;total_bytes=0;matches=[];result_bytes=0;incomplete=False;stop=False
+        while pending:
+            check();directory,depth=pending.pop()
+            try:
+                with os.scandir(directory) as iterator:
+                    for entry in iterator:
+                        check();entries+=1
+                        if entries>500:incomplete=True;break
+                        name=str(Path(entry.path).relative_to(self.root))
+                        try:
+                            path=self.path(name)
+                            if entry.is_dir(follow_symlinks=False):
+                                if depth>=7:incomplete=True
+                                else:pending.append((path,depth+1))
+                            elif entry.is_file(follow_symlinks=False):
+                                size=entry.stat(follow_symlinks=False).st_size
+                                if size>32000:incomplete=True;continue
+                                if total_bytes+size>512000:incomplete=True;pending.clear();break
+                                total_bytes+=size;scanned+=1
+                                found=self.search(name,query)
+                                if found['truncated']:incomplete=True
+                                for match in found['matches']:
+                                    item={'path':name,**match};item_bytes=len(json.dumps(item,ensure_ascii=False).encode('utf-8'))
+                                    if len(matches)>=40 or result_bytes+item_bytes>8000:
+                                        incomplete=True;stop=True;pending.clear();break
+                                    matches.append(item);result_bytes+=item_bytes
+                                if stop or len(matches)>=40 or result_bytes>=8000:incomplete=True;pending.clear();break
+                        except (OSError,ValueError,UnicodeError):incomplete=True
+                    if entries>500:pending.clear()
+            except OSError:incomplete=True
+        return {'matches':matches,'files_scanned':scanned,'incomplete':incomplete}
 
     def proposal(self,relative,content):
         if not isinstance(content,str) or len(content.encode())>32000 or '\x00' in content:raise ValueError('Edit exceeds UTF-8 file budget')
@@ -236,6 +274,7 @@ class CodingRun:
                         elif call.name=='list_files':result={'entries':files.listing(args['path'])}
                         elif call.name=='read_file':result={'text':files.read(args['path'])}
                         elif call.name=='search_file':result=files.search(args['path'],args['query'])
+                        elif call.name=='search_project':result=files.search_project(args['path'],args['query'],runtime.check)
                         else:
                             proposal=files.proposal(args['path'],args['content'])
                             allowed=self.review(proposal,lambda e:event(e.pop('kind'),**e),runtime)

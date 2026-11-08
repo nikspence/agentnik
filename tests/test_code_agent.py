@@ -16,6 +16,23 @@ def call(name,args,ident='call-1'):
     return {'id':ident,'type':'function','function':{'name':name,'arguments':json.dumps(args)}}
 
 class ProjectBoundaries(unittest.TestCase):
+    def test_project_search_is_bounded_and_respects_file_boundaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'src').mkdir();(root/'src'/'code.py').write_text('needle here\n',encoding='utf-8')
+            (root/'.env').write_text('needle secret',encoding='utf-8');(root/'binary').write_bytes(b'needle\x00')
+            files=ProjectFiles(directory);result=files.search_project('.','needle')
+            self.assertEqual(len(result['matches']),1);self.assertEqual(result['matches'][0]['path'],str(Path('src')/'code.py'))
+            self.assertTrue(result['incomplete'])
+            with self.assertRaises(ValueError):files.proposal(str(Path('src')/'code.py'),'changed')
+            with self.assertRaises(ValueError):files.search_project('..','needle')
+            with self.assertRaises(ValueError):files.search_project('.','')
+
+    def test_project_search_stops_at_match_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory,'many.txt').write_text('\n'.join('needle '+str(n) for n in range(50)),encoding='utf-8')
+            result=ProjectFiles(directory).search_project('.','needle')
+            self.assertEqual(len(result['matches']),40);self.assertTrue(result['incomplete'])
+
     def test_search_is_bounded_and_does_not_authorize_edit(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'code.py';path.write_text('\n'.join('needle '+str(n) for n in range(50)),encoding='utf-8')
@@ -58,6 +75,16 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_project_search_returns_redacted_results_to_model(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory,'a.txt').write_text('needle private-key',encoding='utf-8')
+            run=CodingRun(dict(C,stream=False,api_key='private-key'),directory,'Find needle');bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('search_project',{'path':'.','query':'needle'})],finish='tool_calls'),False),Wire(chat('Found'),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed')
+            self.assertIn('[redacted]',json.dumps(bodies[1]));self.assertNotIn('private-key',json.dumps(bodies[1]))
+
     def test_model_can_search_without_exposing_connection_key(self):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory,'a.txt').write_text('first\nneedle private-key\n',encoding='utf-8')

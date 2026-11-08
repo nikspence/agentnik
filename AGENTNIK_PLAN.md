@@ -192,7 +192,7 @@ Post-v0.3.0: completed and failed coding runs report Heavy and Light request cou
 
 Multi-file hardening: offline coverage exercises separate approvals within one tool batch, including an approved edit followed by a rejected one. Conflict checks do not update the model's recorded file read; a new explicit read is required before another proposal. Longer workflows and live coding qualification remain open.
 
-File navigation: the coding agent can search an individual bounded UTF-8 file for literal text and receive line numbers with explicit truncation. A search is not a full read and does not authorize edits. Repository-wide search and live model qualification remain open.
+File navigation: the coding agent can search a bounded UTF-8 file or project subtree for literal text and receive line numbers with explicit incompleteness. Search is not a full read and does not authorize edits. Live model qualification remains open.
 
 Routing control: each Code pane can disable Light delegation while retaining its saved model assignment. A Heavy-only run does not advertise or accept the delegation tool. The choice persists per session and is fixed during a run.
 
