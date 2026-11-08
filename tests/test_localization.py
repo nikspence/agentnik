@@ -73,6 +73,23 @@ class Localization(unittest.TestCase):
                 finally:window.close();self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 
+    def test_korean_coding_approval_preserves_paths_and_diff(self):
+        from agentnik.ui import Window
+        from agentnik.code_agent import CodingRun
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+                root=Path(tmp);folder=root/'project';folder.mkdir();store=Store(root/'data');window=Window(store)
+                try:
+                    ident=window.repositories.put(folder);session=window.repositories.session(ident);store.save(session);window.open_session(session)
+                    tab=window.tabs.currentWidget();self.assertEqual(tab.send.text(),'코딩 작업 실행');self.assertEqual(tab.approve.text(),'제안된 단계 승인')
+                    run=CodingRun({'model':'test'},str(folder),'task');tab.job=run;tab.run_id=run.run_id
+                    tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':{'cwd':str(folder),'path':'src/file.py','diff':'+exact text'}})
+                    text=tab.approval.toPlainText();self.assertIn('확인되지 않음',text);self.assertIn(str(folder),text);self.assertIn('src/file.py',text)
+                    self.assertEqual(tab.diff.toPlainText(),'+exact text');tab.cancel()
+                finally:window.close();self.app.processEvents();store.db.close()
+        finally:self.app.removeTranslator(translator)
+
     def test_language_setting_persists_and_does_not_change_history(self):
         from agentnik.ui import Window
         with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):

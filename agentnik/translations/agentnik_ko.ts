@@ -19,6 +19,122 @@
         </message>
     </context>
     <context>
+        <name>CodeTab</name>
+        <message>
+            <location filename="../code_ui.py" line="89" />
+            <source>Working directory snapshot: {path}</source>
+            <translation>작업 디렉터리 스냅샷: {path}</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="91" />
+            <source>Agentnik coding uses your selected models. File reads are sent to the selected endpoint. Edits require approval; shell execution is unavailable. A configured light model may receive delegated context at its own endpoint.</source>
+            <translation>Agentnik 코딩은 선택한 모델을 사용합니다. 읽은 파일은 선택한 엔드포인트로 전송됩니다. 수정하려면 승인이 필요하며 셸 실행은 사용할 수 없습니다. 설정된 경량 모델의 엔드포인트로 위임된 컨텍스트가 전송될 수 있습니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="92" />
+            <source>The saved folder is missing or unavailable.</source>
+            <translation>저장된 폴더가 없거나 사용할 수 없습니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="93" />
+            <source>This project was removed from the registry; its history is retained.</source>
+            <translation>이 프로젝트는 목록에서 제거되었지만 기록은 유지됩니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="94" />
+            <source>The registered folder moved. This session retains its original path; open a new Code pane to use the relocated folder.</source>
+            <translation>등록된 폴더가 이동했습니다. 이 세션은 원래 경로를 유지합니다. 이동한 폴더를 사용하려면 새 코드 창을 여세요.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="97" />
+            <source>Describe the coding task; repository files may be sent to the selected models</source>
+            <translation>코딩 작업을 설명하세요. 저장소 파일이 선택한 모델로 전송될 수 있습니다</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="101" />
+            <source>Send previous task and answer with next run (up to 2,048 characters each)</source>
+            <translation>다음 실행에 이전 작업과 응답 보내기 (각 최대 2,048자)</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="105" />
+            <source>Heavy model</source>
+            <translation>고성능 모델</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="105" />
+            <source>Light model</source>
+            <translation>경량 모델</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="106" />
+            <source>Not configured</source>
+            <translation>설정되지 않음</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="108" />
+            <source>Model alias (any supported coding model)</source>
+            <translation>모델 별칭 (지원되는 코딩 모델)</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="114" />
+            <source>Choose model…</source>
+            <translation>모델 선택…</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="117" />
+            <source>Allow Light model delegation</source>
+            <translation>경량 모델에 작업 위임 허용</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="119" />
+            <source>Run coding task</source>
+            <translation>코딩 작업 실행</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="120" />
+            <source>Try simulated workflow (no execution)</source>
+            <translation>시뮬레이션 체험 (실행 없음)</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="121" />
+            <source>Command approval preview</source>
+            <translation>명령 승인 미리보기</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="123" />
+            <source>Approve proposed step</source>
+            <translation>제안된 단계 승인</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="123" />
+            <source>Reject proposed step</source>
+            <translation>제안된 단계 거부</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="123" />
+            <source>Cancel run</source>
+            <translation>실행 취소</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="126" />
+            <source>Review the complete proposed file diff before approving</source>
+            <translation>승인하기 전에 제안된 파일 변경 내용 전체를 검토하세요</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="205" />
+            <source>FILE EDIT
+Project: {project}
+Path: {path}
+Review the full diff below.
+Safety recommendation: Not checked; no System One request was made.</source>
+            <translation>파일 수정
+프로젝트: {project}
+경로: {path}
+아래의 전체 변경 내용을 검토하세요.
+안전 권고: 확인되지 않음. System One 요청이 수행되지 않았습니다.</translation>
+        </message>
+    </context>
+    <context>
         <name>MessageBubble</name>
         <message>
             <location filename="../ui.py" line="135" />

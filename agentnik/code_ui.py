@@ -86,44 +86,44 @@ class CodeTab(QWidget):
             self.store.save(session)
         layout=QVBoxLayout(self)
         title=QLabel(session['project_name']);title.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(title)
-        path=QLabel('Working directory snapshot: '+session['path_snapshot']);path.setTextFormat(Qt.TextFormat.PlainText);path.setWordWrap(True);layout.addWidget(path)
+        path=QLabel(self.tr('Working directory snapshot: {path}').format(path=session['path_snapshot']));path.setTextFormat(Qt.TextFormat.PlainText);path.setWordWrap(True);layout.addWidget(path)
         current=window.repositories.get(session['project_id'])
-        note='Agentnik coding uses your selected models. File reads are sent to the selected endpoint. Edits require approval; shell execution is unavailable. A configured light model may receive delegated context at its own endpoint.'
-        if not Path(session['path_snapshot']).is_dir():note+=' The saved folder is missing or unavailable.'
-        if current is None:note+=' This project was removed from the registry; its history is retained.'
-        elif current['path']!=session['path_snapshot']:note+=' The registered folder moved. This session retains its original path; open a new Code pane to use the relocated folder.'
+        note=self.tr('Agentnik coding uses your selected models. File reads are sent to the selected endpoint. Edits require approval; shell execution is unavailable. A configured light model may receive delegated context at its own endpoint.')
+        if not Path(session['path_snapshot']).is_dir():note+=' '+self.tr('The saved folder is missing or unavailable.')
+        if current is None:note+=' '+self.tr('This project was removed from the registry; its history is retained.')
+        elif current['path']!=session['path_snapshot']:note+=' '+self.tr('The registered folder moved. This session retains its original path; open a new Code pane to use the relocated folder.')
         info=QLabel(note);info.setWordWrap(True);layout.addWidget(info)
         self.activity=QPlainTextEdit('\n'.join(plain(e.get('text',e.get('kind',''))) for e in session.get('code_activity',[])) or 'No commands have been run.');self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
-        self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText('Describe the coding task; repository files may be sent to the selected models');layout.addWidget(self.composer)
+        self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));layout.addWidget(self.composer)
         context=session.get('coding_context')
         self.context_view=QPlainTextEdit(('Previous task:\n'+context['task']+'\n\nPrevious answer:\n'+context['answer']) if context else 'No completed coding task available.')
         self.context_view.setReadOnly(True);self.context_view.setMaximumHeight(110);layout.addWidget(self.context_view)
-        self.use_context=QCheckBox('Send previous task and answer with next run (up to 2,048 characters each)');self.use_context.setEnabled(bool(context));layout.addWidget(self.use_context)
+        self.use_context=QCheckBox(self.tr('Send previous task and answer with next run (up to 2,048 characters each)'));self.use_context.setEnabled(bool(context));layout.addWidget(self.use_context)
         self.roles={}
         bindings=session.get('coding_models',{})
         for role in ('heavy','light'):
-            row=QHBoxLayout();layout.addLayout(row);row.addWidget(QLabel(role.title()+' model'))
-            connection=QComboBox();connection.addItem('Not configured','');
+            row=QHBoxLayout();layout.addLayout(row);row.addWidget(QLabel(self.tr('Heavy model') if role=='heavy' else self.tr('Light model')))
+            connection=QComboBox();connection.addItem(self.tr('Not configured'),'');
             for name in window.connections:connection.addItem(name,name)
-            model=QLineEdit();model.setPlaceholderText('Model alias (any supported coding model)')
+            model=QLineEdit();model.setPlaceholderText(self.tr('Model alias (any supported coding model)'))
             saved=bindings.get(role,{})
             missing=saved.get('connection','')
             if missing and connection.findData(missing)<0:connection.addItem(missing+' (unavailable)',missing)
             connection.setCurrentIndex(max(0,connection.findData(saved.get('connection',''))));model.setText(saved.get('model',''))
             row.addWidget(connection);row.addWidget(model,1);self.roles[role]=(connection,model)
-            choose=QPushButton('Choose model…');choose.clicked.connect(lambda _,r=role:self.choose_model(r));row.addWidget(choose)
+            choose=QPushButton(self.tr('Choose model…'));choose.clicked.connect(lambda _,r=role:self.choose_model(r));row.addWidget(choose)
             connection.currentIndexChanged.connect(lambda _,r=role:self.role_changed(r))
             model.editingFinished.connect(self.save_models)
-        self.light_enabled=QCheckBox('Allow Light model delegation');self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);layout.addWidget(self.light_enabled)
+        self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);layout.addWidget(self.light_enabled)
         self.light_enabled.toggled.connect(self.save_light_enabled)
-        self.send=QPushButton('Run coding task');self.send.clicked.connect(self.start_coding);layout.addWidget(self.send)
-        self.simulate=QPushButton('Try simulated workflow (no execution)');self.simulate.clicked.connect(self.start_simulation);layout.addWidget(self.simulate)
-        self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText('Command approval preview');layout.addWidget(self.approval)
+        self.send=QPushButton(self.tr('Run coding task'));self.send.clicked.connect(self.start_coding);layout.addWidget(self.send)
+        self.simulate=QPushButton(self.tr('Try simulated workflow (no execution)'));self.simulate.clicked.connect(self.start_simulation);layout.addWidget(self.simulate)
+        self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText(self.tr('Command approval preview'));layout.addWidget(self.approval)
         actions=QHBoxLayout();layout.addLayout(actions)
-        self.approve=QPushButton('Approve proposed step');self.reject=QPushButton('Reject proposed step');self.cancel_button=QPushButton('Cancel run')
+        self.approve=QPushButton(self.tr('Approve proposed step'));self.reject=QPushButton(self.tr('Reject proposed step'));self.cancel_button=QPushButton(self.tr('Cancel run'))
         for button in (self.approve,self.reject,self.cancel_button):actions.addWidget(button);button.setEnabled(False)
         self.approve.clicked.connect(lambda:self.decide(True));self.reject.clicked.connect(lambda:self.decide(False));self.cancel_button.clicked.connect(self.cancel)
-        self.diff=QPlainTextEdit();self.diff.setReadOnly(True);self.diff.setPlaceholderText('Review the complete proposed file diff before approving');layout.addWidget(self.diff)
+        self.diff=QPlainTextEdit();self.diff.setReadOnly(True);self.diff.setPlaceholderText(self.tr('Review the complete proposed file diff before approving'));layout.addWidget(self.diff)
         self.composer.textChanged.connect(self.save_draft)
 
     def choose_model(self,role):
@@ -202,7 +202,7 @@ class CodeTab(QWidget):
         if kind=='edit_proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
             proposal=event['proposal'];self.diff.setPlainText(proposal['diff'])
-            self.approval.setPlainText('FILE EDIT\nProject: '+proposal['cwd']+'\nPath: '+proposal['path']+'\nReview the full diff below.\nSafety recommendation: Not checked; no System One request was made.')
+            self.approval.setPlainText(self.tr('FILE EDIT\nProject: {project}\nPath: {path}\nReview the full diff below.\nSafety recommendation: Not checked; no System One request was made.').format(project=proposal['cwd'],path=proposal['path']))
             self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval for file edit: '+proposal['path'])
         elif kind=='proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
