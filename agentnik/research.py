@@ -60,7 +60,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
         value=copy.deepcopy(result)
         if state['status']=='running':
             current=dict(metrics)
-            for field in ('input_tokens','output_tokens'):
+            for field in core.TOKEN_METRICS:
                 if field in active.get('metrics',{}): current[field]=current.get(field,0)+active['metrics'][field]
             current.update(total_seconds=time.monotonic()-attempt_started,model_requests=requested,usage_complete=False)
             value['metrics']=current
@@ -74,7 +74,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
         reported=active.get('metrics',{})
         last_input=reported.get('input_tokens')
         if not all(k in reported for k in ('input_tokens','output_tokens')): all_usage=False
-        for field in ('input_tokens','output_tokens'):
+        for field in core.TOKEN_METRICS:
             if field in reported: metrics[field]=metrics.get(field,0)+reported[field]
         if not reported.get('generation_seconds') or 'output_tokens' not in reported: all_generation_timed=False
         if reported.get('generation_seconds') and 'output_tokens' in reported:

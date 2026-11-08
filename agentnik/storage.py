@@ -17,17 +17,54 @@ def default_home():
 def safe_connection(c):
     return {k:v for k,v in c.items() if k not in ('api_key', 'credential_id')}
 
+class ConfigurationError(ValueError):
+    """Unreadable settings are preserved for repair, never silently replaced."""
+
+
+def load_config(path):
+    if not path.exists(): return {'version':1,'connections':{},'settings':{}}
+    try:
+        if path.stat().st_size>4_000_000: raise ValueError()
+        config=json.loads(path.read_text(encoding='utf-8-sig'))
+        if not isinstance(config,dict): raise ValueError()
+        if type(config.get('version',1)) is not int or config.get('version',1)!=1: raise ValueError()
+        from .core import validate_connections
+        validate_connections({'connections':config.get('connections',{})})
+        for entry in config.get('connections',{}).values():
+            if 'credential_id' in entry and not isinstance(entry['credential_id'],str): raise ValueError()
+        settings=config.get('settings',{})
+        if not isinstance(settings,dict): raise ValueError()
+        if 'theme' in settings and settings['theme'] not in ('System','Light','Dark'): raise ValueError()
+        for field in ('font_size','composer_height'):
+            if field in settings and (type(settings[field]) is not int or settings[field]<=0): raise ValueError()
+        for field in ('prompts_visible','history_visible'):
+            if field in settings and type(settings[field]) is not bool: raise ValueError()
+        backends=config.get('web_backends',[])
+        if not isinstance(backends,list) or len(backends)>5: raise ValueError()
+        ids=set()
+        for entry in backends:
+            if not isinstance(entry,dict) or not isinstance(entry.get('id'),str) or not entry['id'] or entry['id'] in ids: raise ValueError()
+            ids.add(entry['id'])
+            for field in ('kind','name','credential_id','api_key'):
+                if field in entry and not isinstance(entry[field],str): raise ValueError()
+        for field in ('research_capabilities','research_defaults'):
+            if field in config and not isinstance(config[field],dict): raise ValueError()
+        config.setdefault('connections',{}); config.setdefault('settings',{})
+        return config
+    except (ValueError,TypeError,AttributeError,OSError,RecursionError):
+        raise ConfigurationError(f'Cannot load connection settings from {path}. The original file has been preserved. Restore a known-good copy or repair the JSON and supported settings/version, then restart Agentnik.') from None
+
+
 class Store:
     def __init__(self, root=None):
         self.root = Path(root) if root else default_home()
         self.root.mkdir(parents=True, exist_ok=True)
+        self.config_path = self.root/'connections.json'
+        self.config = load_config(self.config_path)
         self.attachments = self.root/'attachments'; self.attachments.mkdir(exist_ok=True)
         self.db = sqlite3.connect(self.root/'history.sqlite3')
         self.db.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, updated REAL, payload TEXT)')
         self.db.execute('CREATE TABLE IF NOT EXISTS prompts (id TEXT PRIMARY KEY, mode TEXT NOT NULL, created REAL NOT NULL, payload TEXT NOT NULL, UNIQUE(mode, payload))')
-        self.config_path = self.root/'connections.json'
-        self.config = json.loads(self.config_path.read_text('utf-8')) if self.config_path.exists() else {'connections':{}, 'settings':{}}
-        self.config.setdefault('settings', {})
 
     def flush(self):
         temp = self.config_path.with_suffix('.tmp')

@@ -86,6 +86,8 @@ Set an explicit total retained research-record limit covering sources, activity,
 
 Acceptance: cumulative/cache/missing usage fixtures reconcile without double-counting; malformed settings produce recoverable errors; bounded persistence survives save/reopen and excludes credentials.
 
+D0.2 progress: sanitized per-request usage snapshots now preserve cache and reasoning counters, update cumulative deltas without summing them, and aggregate once across model requests/route attempts. Messages total input includes its separately reported uncached/cache-read/cache-write tokens; detail counters already included in other protocol totals are not added again. Saved configuration loading now validates supported versions, connection/settings/backend shapes and duplicate backend IDs before opening the history database. Invalid files are preserved and produce an actionable repair/restart message; legacy valid configuration and credential references remain compatible. The offline suite has 106 passing tests. Remaining D0.2 work: versioned session validation/recovery, deeper research-setting validation and capability invalidation, plus explicit retained research-record limits. No live compatibility evidence was added by this slice.
+
 ### D0.3 Worker, transport, and Qt lifecycle
 
 Test rapid cancel/restart and simultaneous tabs with stalled DNS, web, and model workers. Add an aggregate concurrency/resource bound if existing per-turn deadlines allow abandoned workers to accumulate; reject late results without compromising responsiveness. Keep remote-stop limitations explicit.

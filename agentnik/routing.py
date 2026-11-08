@@ -44,7 +44,7 @@ def aggregate(values,runtime):
     for value in values:
         m=value.get('metrics',{}); n=m.get('model_requests',0); requests+=n
         if n and not m.get('usage_complete',False): complete=False
-        for field in ('input_tokens','output_tokens','tool_seconds','model_seconds'):
+        for field in (*core.TOKEN_METRICS,'tool_seconds','model_seconds'):
             if field in m: metrics[field]=metrics.get(field,0)+m[field]
         if n: last=m.get('last_input_tokens')
         if n:

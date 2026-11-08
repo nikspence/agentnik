@@ -122,8 +122,8 @@ class Accumulator:
         if isinstance(response,dict):
             self.state['response_id']=response.get('id',self.state['response_id'])
             if isinstance(response.get('usage'),dict):
-                self.state['provider_usage']=copy.deepcopy(response['usage'])
-                self.state['metrics'].update({k:v for k,v in core.usage_metrics(response).items() if type(v) in (int,float) and math.isfinite(v) and v>=0})
+                self.state['provider_usage']=core.merge_usage(self.state['provider_usage'],response['usage'])
+                self.state['metrics'].update({k:v for k,v in core.usage_metrics(dict(response,usage=self.state['provider_usage'])).items() if type(v) in (int,float) and math.isfinite(v) and v>=0})
             if 'output' in response:
                 output=response['output']
                 if not isinstance(output,list) or len(output)>64: raise LimitError('Responses output item limit reached')

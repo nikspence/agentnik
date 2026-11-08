@@ -159,6 +159,8 @@ Images are copied into application storage and shared by content hash. History s
 
 The bottom status bar shows the active session's latest reported input-context token count, effective context limit when known, and cumulative reported input/output tokens. Local Ollama's loaded-model metadata is queried for its effective context length after a chat response. Other connections can supply a limit in the connection editor; unknown limits display **—**. This is not a tokenizer estimate or a claim that the model's entire advertised window is configured on the server. For native Ollama chat, a configured limit is also sent as `options.num_ctx`.
 
+Reported cache/read-write and reasoning token details are retained as numeric usage records when provided. Cumulative streaming counts are updated per request, then summed across requests. Messages input totals include its separately reported cached tokens; cache/reasoning details already included in other protocol totals are not counted twice. Missing values remain unknown and no cost is inferred.
+
 Each response/run shows prompt and generated token counts, total elapsed time, prompt-processing rate, generation rate, and thinking time when meaningful. Local Ollama and direct Ollama Cloud chat use `/api/chat` to obtain native timing/count fields. When a stage rate is unavailable, **Overall tok/s** shows `(input tokens + output tokens) / elapsed seconds`, provided both counts and a positive elapsed time are known. This includes the full request time and is labeled separately from generation speed; unavailable measurements display **—**. The fallback also works for previously saved responses. Thinking time is explicitly labeled as an estimate based on streamed reasoning arrival; hidden reasoning and non-streaming responses do not expose reliable thinking duration. Zero generated tokens is a valid System One result.
 
 ## Connections and discovery
@@ -187,6 +189,8 @@ Default local data directories:
 - Linux: `$XDG_DATA_HOME/agentnik`, or `~/.local/share/agentnik`
 
 `--data-dir PATH` or `AGENTNIK_HOME` overrides the directory. Connections use JSON; session history uses Python's built-in SQLite. Light/dark/system theme and sidebar visibility are remembered.
+
+If saved connection settings are malformed or use an unsupported version, startup reports how to repair them and preserves the original file. Restore a known-good `connections.json` or repair its JSON/settings, then restart. Agentnik does not silently replace the file or remove credential references.
 
 ## Validation
 

@@ -2,6 +2,7 @@
 import base64
 import json
 import mimetypes
+import math
 import os
 import re
 import socket
@@ -239,20 +240,56 @@ def decision_body(c, form):
         body['images'] = [base64.b64encode(Path(p).read_bytes()).decode() for p in form['images']]
     return body
 
+TOKEN_METRICS = ('input_tokens','output_tokens','cached_input_tokens','cache_creation_input_tokens','reasoning_output_tokens')
+
+
+def usage_snapshot(value):
+    """Retain only known numeric counters; never persist arbitrary provider strings."""
+    if not isinstance(value,dict): return {}
+    scalar=('input_tokens','output_tokens','prompt_tokens','completion_tokens',
+            'cache_read_input_tokens','cache_creation_input_tokens')
+    nested={'input_tokens_details':('cached_tokens',), 'prompt_tokens_details':('cached_tokens',),
+            'output_tokens_details':('reasoning_tokens',), 'completion_tokens_details':('reasoning_tokens',)}
+    result={k:v for k,v in value.items() if k in scalar and type(v) in (int,float) and 0<=v<=2**63-1 and math.isfinite(v)}
+    for name,fields in nested.items():
+        if isinstance(value.get(name),dict):
+            detail={k:v for k,v in value[name].items() if k in fields and type(v) in (int,float) and 0<=v<=2**63-1 and math.isfinite(v)}
+            if detail: result[name]=detail
+    return result
+
+
+def merge_usage(previous, incoming):
+    merged=usage_snapshot(previous)
+    for key,value in usage_snapshot(incoming).items():
+        if isinstance(value,dict): merged.setdefault(key,{}).update(value)
+        else: merged[key]=value
+    return merged
+
+
 def usage_metrics(data):
-    u = data.get('usage', {}) or {}
+    u = usage_snapshot(data.get('usage'))
     result = {}
     for dest, candidates in [('input_tokens', ('input_tokens', 'prompt_tokens')), ('output_tokens', ('output_tokens', 'completion_tokens'))]:
         for key in candidates:
-            if isinstance(u.get(key), (int, float)): result[dest] = u[key]; break
+            if key in u: result[dest] = u[key]; break
+    # Messages reports uncached input separately from cache read/write tokens.
+    # OpenAI detail counters are already included in input/output totals.
+    if 'input_tokens' in u and any(k in u for k in ('cache_read_input_tokens','cache_creation_input_tokens')):
+        result['input_tokens']=u['input_tokens']+u.get('cache_read_input_tokens',0)+u.get('cache_creation_input_tokens',0)
+    for source,dest in [('cache_read_input_tokens','cached_input_tokens'),('cache_creation_input_tokens','cache_creation_input_tokens')]:
+        if source in u: result[dest]=u[source]
+    for source,dest,field in [('input_tokens_details','cached_input_tokens','cached_tokens'),('prompt_tokens_details','cached_input_tokens','cached_tokens'),
+                              ('output_tokens_details','reasoning_output_tokens','reasoning_tokens'),('completion_tokens_details','reasoning_output_tokens','reasoning_tokens')]:
+        if field in u.get(source,{}): result[dest]=u[source][field]
     for key, dest in [('prompt_eval_count','input_tokens'), ('eval_count','output_tokens')]:
-        if key in data: result[dest] = data[key]
+        if type(data.get(key)) in (int,float) and 0<=data[key]<=2**63-1 and math.isfinite(data[key]): result[dest] = data[key]
     for source, dest in [('prompt_eval_duration','prompt_seconds'), ('eval_duration','generation_seconds')]:
-        if data.get(source): result[dest] = data[source]/1e9
+        if type(data.get(source)) in (int,float) and math.isfinite(data[source]) and data[source]>0: result[dest] = data[source]/1e9
     for key in ('prompt', 'generation'):
         tokens = result.get('input_tokens' if key == 'prompt' else 'output_tokens')
         if tokens is not None and result.get(key+'_seconds'): result[key+'_tps'] = tokens/result[key+'_seconds']
     return result
+
 
 def total_token_rate(metrics):
     """End-to-end throughput; never substitute this for a generation-only rate."""
@@ -280,14 +317,14 @@ def events(response):
     else: yield json.load(response)
 
 def run_request(c, mode, body, emit, cancel):
-    start = time.monotonic(); metrics = {}; text = ''; thinking = ''
+    start = time.monotonic(); metrics = {}; request_usage = {}; text = ''; thinking = ''
     thought_start = thought_end = None
     raw = None
     with open_request(c, endpoint(c, mode), body) as response:
         for data in events(response):
             if cancel.is_set(): raise InterruptedError('Request cancelled')
             if data.get('error'): raise ValueError(str(data['error']))
-            raw = data; metrics.update(usage_metrics(data))
+            raw = data; request_usage=merge_usage(request_usage,data.get('usage')); metrics.update(usage_metrics(dict(data,usage=request_usage)))
             if mode == 'decision': continue
             delta = ''; thought = ''
             if native_ollama(c):
@@ -303,7 +340,8 @@ def run_request(c, mode, body, emit, cancel):
                     delta = data.get('output_text') or ''.join(v.get('text', '') for o in data['output'] for v in o.get('content', []) if v.get('type') == 'output_text')
             elif c.get('protocol') == 'messages':
                 typ = data.get('type')
-                if typ == 'message_start': metrics.update(usage_metrics(data.get('message', {})))
+                if typ == 'message_start':
+                    request_usage=merge_usage(request_usage,data.get('message',{}).get('usage')); metrics.update(usage_metrics({'usage':request_usage}))
                 elif typ == 'content_block_delta':
                     d = data.get('delta', {}); delta = d.get('text', ''); thought = d.get('thinking', '')
                 elif isinstance(data.get('content'), list):

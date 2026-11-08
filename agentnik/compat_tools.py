@@ -1,5 +1,5 @@
 """Protocol-specific Chat Completions and Messages research adapters."""
-import copy,json,math
+import copy,json
 from . import core
 from .responses_tools import bounded_events
 from .tools import LimitError,ResearchError,UncertainError,ToolCall
@@ -13,10 +13,11 @@ def wire_tools(definitions,protocol):
 
 def request(c,body,runtime,emit,state):
     messages=c.get('protocol')=='messages'
-    state.update(text='',thinking='',metrics={})
+    state.update(text='',thinking='',metrics={},provider_usage={})
     blocks={}; fragments={}; closed=set(); calls={}; finish=None; stopped=False; started=False; message_delta_seen=False
     def usage(data):
-        state['metrics'].update({k:v for k,v in core.usage_metrics(data).items() if type(v) in (int,float) and math.isfinite(v) and v>=0})
+        state['provider_usage']=core.merge_usage(state['provider_usage'],data.get('usage'))
+        state['metrics'].update(core.usage_metrics(dict(data,usage=state['provider_usage'])))
     def block_index(data):
         index=data.get('index')
         if type(index) is not int or not 0<=index<64: raise ResearchError('Invalid content/tool index')
