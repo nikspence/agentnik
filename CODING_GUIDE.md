@@ -21,6 +21,8 @@ The current tools list directories, read UTF-8 files, and propose complete file 
 
 Each run has shared request, tool, context, and time limits. Cancellation stops further scheduling and invalidates pending approval; edits already applied remain in the project. Remote inference may continue or incur charges after cancellation. Each new run starts a fresh model conversation, so include the relevant task context again.
 
+Completed and failed runs show reported input and output token totals separately for Heavy and Light. Counts marked **known usage only** omit requests whose provider did not report that count; **unknown** means none of the role's requests reported it. These are reported tokens, not cost estimates. Cancelled runs may not have a final usage summary.
+
 ## Projects and history
 
 The **Repositories** manager can rename entries, locate a moved folder, or remove an entry from the list. Removing an entry leaves its files and history intact. Each Code pane keeps a snapshot of its original working directory. After relocating an entry, open a new Code pane to use the new location; an existing pane keeps its original path.

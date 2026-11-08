@@ -36,6 +36,27 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_usage_is_attributed_to_roles_and_missing_counts_are_visible(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C),directory,'Analyze',dict(C,model='light'));events=[]
+            responses=[({'input_tokens':10,'output_tokens':2},[SimpleNamespace(name='delegate_light',arguments={'task':'Check'},id='one',provider={})]),
+                       ({'input_tokens':3,'output_tokens':0},[]),({},[])]
+            def request(connection,body,runtime,emit,state):
+                metrics,calls=responses.pop(0);state.update(metrics=metrics,text='Done')
+                return ({'role':'assistant','content':'Done'},calls)
+            with patch('agentnik.compat_tools.request',side_effect=request):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed')
+            self.assertIn('Heavy: 2 request(s), input 10 (known usage only), output 2 (known usage only)',events[-1]['usage'])
+            self.assertIn('Light: 1 request(s), input 3, output 0 tokens',events[-1]['usage'])
+
+    def test_failed_request_usage_is_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(C,directory,'Analyze');events=[]
+            with patch('agentnik.compat_tools.request',side_effect=ValueError('failure')):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'failed')
+            self.assertIn('Heavy: 1 request(s), input unknown, output unknown',events[-1]['usage'])
+
     def test_chat_reads_approves_and_applies_real_temp_file_edit(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'example.py';path.write_text('old\n')

@@ -198,6 +198,7 @@ class CodeTab(QWidget):
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='finished':
             self.session['code_state']=event['status'];self.finish();self.record(kind,event['text'])
+            if event.get('usage'):self.record('usage',event['usage'])
 
     def decide(self,allowed):
         if self.job and self.pending_fingerprint and self.job.decide(self.pending_fingerprint,allowed):
