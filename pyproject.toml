@@ -19,4 +19,4 @@ agentnik = "agentnik.ui:main"
 include = ["agentnik*"]
 
 [tool.setuptools.package-data]
-agentnik = ["assets/*.svg", "assets/*.png", "assets/*.ico", "translations/*.qm"]
+agentnik = ["assets/*.svg", "assets/*.png", "assets/*.ico", "translations/*.qm", "translations/*.ts"]

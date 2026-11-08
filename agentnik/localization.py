@@ -2,7 +2,7 @@
 from pathlib import Path
 from PySide6.QtCore import QLocale, QTranslator
 
-CATALOGS = {'ko':'한국어', 'es':'Español', 'de':'Deutsch', 'fr':'Français',
+CATALOGS = {'ko':'한국어 (미리보기)', 'es':'Español', 'de':'Deutsch', 'fr':'Français',
             'zh-Hans':'简体中文', 'zh-Hant':'繁體中文'}
 CATALOG_DIR = Path(__file__).parent / 'translations'
 
