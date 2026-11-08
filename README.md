@@ -49,6 +49,8 @@ Optional key files can be supplied with `--litellm-key-file PATH` and `--ollama-
 
 Milestone A establishes the independent Agentnik baseline. Chat, structured decisions, saved prompts, attachments, history, themes, and connection management are implemented. Bounded web research is planned in `AGENTNIK_PLAN.md`; web tools, citations, and route fallback are not implemented yet.
 
+Future Coding Agent work will add a saved **Repositories** list for local repositories or project folders. **＋ Code** will ask which project to use, then open an independent CLI-style coding pane. This workflow is planned in `AGENTNIK_PLAN.md`; it is not available yet.
+
 ## Conversations
 
 Use **＋ Chat** or **＋ Decision** to select a connection and open a session. Tabs are independent, including tabs that use the same connection. Changing the connection selector opens a new session. Models load automatically when a tab opens; use the refresh icon to reload them. A manually entered model works even when listing models is unavailable. New manually created connections default to Responses; discovered and saved connections retain their configured protocol.

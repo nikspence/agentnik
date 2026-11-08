@@ -2,7 +2,7 @@
 
 ## Objective and ownership
 
-Create Agentnik as a standalone, cross-platform Python/Qt desktop application for chat, structured decisions, and bounded agentic web research.
+Create Agentnik as a standalone, cross-platform Python/Qt desktop application for chat, structured decisions, bounded agentic web research, and a future repository-based Coding Agent workspace.
 
 Agentnik will start in a clean new repository with a fresh initial commit. Do not import Git history, remotes, tags, branches, or repository metadata. Public documentation, source code, assets, application metadata, tests, and packaging must use Agentnik naming and contain no references to the predecessor application. Preserve the MIT license and its copyright notice: **Copyright (c) 2026 Nikolaus Spence**. Nikolaus Spence is the author and copyright holder.
 
@@ -118,11 +118,42 @@ Track attempted routes/backends to prevent cycles and duplicate execution. Never
 6. Keep ordinary tests offline and free of paid requests. Run narrowly scoped live checks only when authorized, with separate results for each endpoint/model/route. Treat documentation, mocks, offscreen validation, and live compatibility as distinct evidence.
 7. Refresh documentation and screenshots to match delivered behavior. Run packaging/asset checks and report any untested platforms or providers explicitly.
 
+## 10. Future Coding Agent workspace
+
+### Repository list
+
+- Add a persistent **Repositories** list (Repos for short) for local working directories. A directory may be a Git repository or an ordinary project folder; Git is not required just to register a project.
+- Each entry has a stable identifier, display name, and local directory path. Provide **Add folder**, rename, and remove-from-list actions. Removing an entry never deletes its directory or files.
+- Validate that a selected directory exists and is accessible. Normalize paths for duplicate detection with platform-appropriate case handling and resolved directory aliases. Show missing/unavailable entries and allow the user to locate them again.
+- Store this registry in Agentnik's independent application data. Do not scan the computer for projects or automatically import another application's repository list. Exclude local absolute paths from portable exports by default.
+
+### Starting a coding session
+
+1. The toolbar offers **＋ Code** alongside **＋ Chat** and **＋ Decision** when Coding Agent support is delivered.
+2. Clicking **＋ Code** opens a repository picker showing registered names and paths, with search and **Add folder**. With no saved entries, prompt the user to add a folder. Cancelling the picker starts no session or process.
+3. Selecting a project opens an independent Code tab containing a coding pane with a CLI-style conversation and command/output activity, similar to the Codex interaction model. Clearly show the selected repository and working directory.
+4. The pane supports a prompt composer, streaming assistant output, tool/command activity, run/cancel status, and review of changed files/diffs. Keep terminal escape/control sequences from becoming active HTML or application commands.
+5. Bind each coding session to its selected project. Opening another project creates another session; never silently change a running session's working directory. Keep other chat, decision, and code tabs responsive.
+
+### Execution and persistence contracts
+
+- Keep coding execution separate from the web-research tool registry. Adding coding support must not grant shell or file access to ordinary chat/research sessions.
+- Introduce a coding backend adapter boundary. Decide during implementation whether the first backend integrates an existing coding CLI or runs an Agentnik-managed coding loop; the CLI-style pane does not commit the application to a particular external CLI or provider.
+- Make the active backend, model/connection, working directory, file-access boundary, and command approval policy visible. A selected working directory alone is not a filesystem sandbox. Define and enforce execution boundaries before enabling writes or command execution.
+- Preserve repository state and existing uncommitted changes. Do not reset, clean, commit, push, or publish automatically. Make proposed edits and command outcomes reviewable, with explicit handling of destructive actions and operations outside the chosen project.
+- Run processes and output handling off the GUI thread. Bound retained output and execution time, handle process exit/errors, and define cancellation/child-process cleanup separately from remote request cancellation. Validate Windows, macOS, and Linux process/terminal requirements independently.
+- Persist a distinct, versioned coding session type containing the project identifier, conversation, bounded activity, and run state. Reopening history does not restart commands; require an explicit resume/start action. Keep credentials out of transcripts and exports.
+
+Acceptance: test registry persistence, ordinary folders and Git repositories, duplicate/missing paths, picker cancellation, independent project tabs, process launch failures, cancellation/late output, changed-file review, and reopen-without-execution behavior. Use temporary projects and fake backends for ordinary tests.
+
+This is future scope, not an implemented capability. Continue milestones B through D first; build the repository registry and picker as the first slice of the Coding Agent milestone before connecting an execution backend.
+
 ## Milestones and scope
 
 - **A — Independent baseline:** clean repository, Agentnik identity, MIT ownership, isolated storage, inherited behavior verified.
 - **B — Managed research:** bounded tool loop, initial managed backend, sources, persistence, and cancellation.
 - **C — Hosted research and routing:** initial hosted adapter, all four policies, visible bounded fallback, shared accounting and citations.
 - **D — Release readiness:** remaining protocol adapters in the stated support matrix, security/GUI checks, documentation, and distribution validation.
+- **E — Coding Agent:** persistent local repository/folder list, **＋ Code** repository selection, independent CLI-style coding panes, reviewed execution boundaries, and coding-session persistence.
 
-The first browsing release requires both routes and tested priority/fallback behavior. Full browser automation, JavaScript interaction, login sessions, form submission, purchases, arbitrary code execution, autonomous background tasks, model-provider failover, and research inside System One are deferred.
+The first browsing release requires both routes and tested priority/fallback behavior. Full browser automation, JavaScript interaction, login sessions, form submission, purchases, arbitrary code execution in chat/research, autonomous background tasks, model-provider failover, and research inside System One are deferred. Repository-scoped coding execution belongs to the separate future milestone E.
