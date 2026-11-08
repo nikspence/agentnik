@@ -1,0 +1,66 @@
+"""Offline release planning, clean-environment gates, and real ZIP verification."""
+import contextlib
+import hashlib
+import io
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+import zipfile
+from tools import build_release
+
+
+class ReleaseTooling(unittest.TestCase):
+    def test_plan_never_builds_or_creates_output(self):
+        with patch.object(build_release.subprocess,'run') as run,contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(build_release.main(['--label','offline-plan-check']),0)
+            self.assertFalse(json.loads(out.getvalue())['build']);run.assert_not_called()
+            self.assertFalse((build_release.ROOT/'dist'/'build-offline-plan-check').exists())
+
+    def test_shared_site_packages_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory,'pyvenv.cfg').write_text('include-system-site-packages = true\n')
+            with patch.object(build_release.sys,'prefix',directory),patch.object(build_release.sys,'base_prefix',directory+'/base'):
+                with self.assertRaisesRegex(ValueError,'system site packages'):build_release.clean_environment()
+
+    def test_missing_or_unpinned_dependencies_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory,'pyvenv.cfg').write_text('include-system-site-packages = false\n')
+            with patch.object(build_release.sys,'prefix',directory),patch.object(build_release.sys,'base_prefix',directory+'/base'),patch.object(build_release.importlib.metadata,'version',return_value='unexpected'):
+                with self.assertRaisesRegex(ValueError,'requirements-build'):build_release.clean_environment()
+
+    def bundle(self,root):
+        bundle=Path(root)/'Agentnik';bundle.mkdir()
+        for name in ('Agentnik.exe','LICENSE','README.md','VALIDATION.md'): (bundle/name).write_text('fixture')
+        (bundle/'BUILD-MANIFEST.json').write_text('{}');(bundle/'THIRD_PARTY_LICENSES').mkdir()
+        assets=bundle/'_internal'/'agentnik'/'assets';assets.mkdir(parents=True)
+        for item in (build_release.ROOT/'agentnik'/'assets').iterdir():
+            if item.suffix in ('.svg','.png','.ico'): (assets/item.name).write_bytes(b'fixture')
+        qt=bundle/'_internal'/'PySide6'/'plugins'/'platforms';qt.mkdir(parents=True);(qt/'qwindows.dll').write_bytes(b'fixture')
+        return bundle
+
+    def test_archive_contents_checksum_and_non_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle=self.bundle(directory);archive=Path(directory)/'fixture.zip'
+            digest=build_release.package_bundle(bundle,archive,{})
+            self.assertEqual(digest,hashlib.sha256(archive.read_bytes()).hexdigest())
+            self.assertIn(digest,archive.with_suffix('.zip.sha256').read_text())
+            with zipfile.ZipFile(archive) as z:
+                self.assertIsNone(z.testzip());self.assertIn('Agentnik/LICENSE',z.namelist())
+            original=archive.read_bytes()
+            with self.assertRaises(ValueError):build_release.package_bundle(bundle,archive,{})
+            self.assertEqual(archive.read_bytes(),original)
+
+    def test_missing_assets_and_unexpected_local_data_fail_before_archiving(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle=self.bundle(directory);archive=Path(directory)/'fixture.zip'
+            plugin=bundle/'_internal'/'PySide6'/'plugins'/'platforms'/'qwindows.dll';plugin.unlink()
+            with self.assertRaisesRegex(ValueError,'platform plugin'):build_release.package_bundle(bundle,archive,{})
+            self.assertFalse(archive.exists());plugin.write_bytes(b'fixture')
+            (bundle/'history.sqlite3').write_bytes(b'private')
+            with self.assertRaisesRegex(ValueError,'local data'):build_release.package_bundle(bundle,archive,{})
+            self.assertFalse(archive.exists())
+
+
+if __name__=='__main__':unittest.main()

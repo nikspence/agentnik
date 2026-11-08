@@ -45,6 +45,10 @@ Alternatively, `python -m pip install .` installs the `agentnik` desktop entry p
 
 Optional key files can be supplied with `--litellm-key-file PATH` and `--ollama-key-file PATH`; use `--litellm-url URL` for a custom LiteLLM endpoint. Keys are read into the process environment and are saved only when you explicitly save a connection. Do not commit key files.
 
+## Validation and build tools
+
+See [DEVELOPMENT_VALIDATION.md](DEVELOPMENT_VALIDATION.md) for the opt-in live compatibility CLI and repeatable Windows development archives. Both tools print a plan by default; live requests require `--execute`, and builds require `--build`. The compatibility CLI requires an exact model/protocol/route and makes no automatic retries or fallback.
+
 ## Project status
 
 Milestones B and C provide a bounded research preview with native Ollama and Responses managed tools, OpenAI Responses hosted search, all four route policies, visible fallback, sources, persistence, and shared accounting. Scoped live LiteLLM checks passed streamed chat and tool continuation for selected ChatGPT/Ollama Cloud aliases, plus real managed search and page retrieval using `chatgpt/gpt-6-luna`; see [live results](MILESTONE_D_LIVE_RESULTS.md). Other models/routes remain unverified. Milestone D now includes Chat Completions and Messages managed adapters; live compatibility, broader platform checks, and distribution readiness remain outstanding; see `AGENTNIK_PLAN.md`.

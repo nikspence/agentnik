@@ -14,7 +14,7 @@ Agentnik is a cross-platform Python desktop client for chat and Ollama System On
 - `agentnik/research_ui.py`: per-chat research settings, activity, and source rendering.
 - `agentnik/ui.py`: PySide6 interface, background jobs, chat, and decision forms.
 - `assets/`: the reusable robot SVG and current screenshots. `agentnik/assets/` contains packaged logo and icon variants; `tools/build_branding.py` rebuilds those assets.
-- `tests/`: standard-library unit tests and offscreen Qt integration tests. `tools/live_smoke.py` performs optional real endpoint checks.
+- `tests/`: standard-library unit tests and offscreen Qt integration tests. `tools/live_smoke.py` performs optional baseline endpoint checks; `tools/live_compat.py` plans explicit compatibility checks and requires `--execute` for live requests. `tools/build_release.py` automates isolated Windows development archives; see DEVELOPMENT_VALIDATION.md.
 
 ## Development
 

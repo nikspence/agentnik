@@ -1,0 +1,6 @@
+# Build-only versions observed in the current Windows development environment.
+# Install into a dedicated venv without system site packages. Runtime users do not need these.
+PySide6==6.12.0
+keyring==25.7.0
+PyInstaller==6.22.3
+pyinstaller-hooks-contrib==2026.9

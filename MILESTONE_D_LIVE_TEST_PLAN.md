@@ -76,3 +76,8 @@ Record one row per exact alias/protocol/route. Include build/revision, connectio
 - [LiteLLM Responses passthrough](https://docs.litellm.ai/docs/response_api_native_passthrough): endpoint behavior depends on the deployment; some providers are bridged through Chat Completions.
 - [LiteLLM provider list](https://docs.litellm.ai/docs/providers): provider availability does not establish features for a specific alias.
 - [Ollama Cloud models](https://ollama.com/blog/cloud-models) and [tool support](https://ollama.com/blog/tool-support): cloud inference is remote, and tool support is model-dependent.
+
+
+## Automated headless companion
+
+Use `tools/live_compat.py` for one exact endpoint/model/protocol/route at a time. It prints a plan by default and only reads keys/issues requests with `--execute`. It uses the real bounded protocol/research code, no automatic retries or route/model fallback, and sanitized evidence reports. Managed checks distinguish completed search, direct page retrieval, continuation, and citation link generation; a plain answer alone is not a search pass. Headless results do not replace the application checklist above. See [the CLI guide](DEVELOPMENT_VALIDATION.md) for commands, key-file handling, output paths, and exit codes.

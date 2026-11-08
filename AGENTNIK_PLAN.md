@@ -104,7 +104,7 @@ D0.3 local checks are complete: research Runtime waits share a 16-worker process
 
 ## 5. D1 — Controlled compatibility evidence
 
-The existing `tools/live_smoke.py` is useful for baseline endpoints/decisions but is not a research compatibility matrix. Add a separate opt-in harness or an explicit research mode before live research testing:
+Delivered: `tools/live_compat.py` is the separate explicit compatibility harness; `tools/live_smoke.py` remains the baseline endpoint/decision helper. The new CLI plans by default, requires `--execute` for live requests, and selects one URL/model/protocol/route/backend without automatic retries or fallback. Sanitized reports distinguish successful chat, managed search, direct fetch, continuation, and citation link generation. CLI use is documented in [DEVELOPMENT_VALIDATION.md](DEVELOPMENT_VALIDATION.md). Maintain these contracts:
 
 1. Require the exact endpoint, protocol, model, route, and managed backend/profile. No automatic model selection, hidden cross-provider fallback, or background paid probes.
 2. Make the planned bounded request/query visible and use a small, public, non-sensitive task. Honor cancellation and the same limits as the GUI.
@@ -112,11 +112,17 @@ The existing `tools/live_smoke.py` is useful for baseline endpoints/decisions bu
 4. Distinguish model tool-calling from successful external search/fetch and from final-answer citation rendering. Test routing errors with mocks; do not manufacture repeated live failures to exercise fallback.
 5. Update only the capability actually demonstrated. Report unavailable credentials/models as not tested. Do not claim every model on a compatible server works.
 
+D1 tooling has offline coverage for planning without key reads/requests/writes, invalid scope rejection, report overwrite prevention, bounded chat parsing, cancellation, sanitized error/report output, and distinguishing an answer from real search evidence. No live checks were issued in this tooling slice; prior scoped live results remain in MILESTONE_D_LIVE_RESULTS.md.
+
 Acceptance is per endpoint/model/protocol/route, not a global supported-provider label. No live requests are authorized merely by this plan review. Keep System One verification separate and require a substantive real request before claiming a model supports it.
 
 ## 6. D2 — Repeatable releases and platform gates
 
-Automate clean build, documentation/license inclusion, archive creation, SHA-256 generation, and contents verification. `Agentnik.spec` currently bundles branding assets; root README/LICENSE and archive assembly still need an explicit repeatable release step. Record Python, Qt, PyInstaller/hooks, dependency versions, OS/architecture, source revision, and relevant third-party license notices. Validate a clean build environment without accidental system-site-package dependencies.
+Delivered tooling: `tools/build_release.py` plans by default and requires `--build` to create a fresh labeled Windows x64 onedir archive. It rejects existing output, requires an isolated environment and pinned top-level build tools, copies root README/VALIDATION/LICENSE, collects available installed dependency/Python notices, records source/environment/dependency metadata, verifies packaged assets/Qt plugin and ZIP contents/integrity, and creates a SHA-256 sidecar. `--smoke` uses `tools/frozen_smoke.py` for actual Qt-window/database readiness and graceful exit without changing PowerShell execution policy. A clean-source build is the default; explicit `--allow-dirty` creates a labeled development artifact with that state recorded.
+
+The isolated `.venv-build` environment (system site packages disabled) successfully produced the unsigned `dist/build-dev-d1-d2-r2/Agentnik-dev-d1-d2-r2-windows-x64.zip`, about 56 MB, with 79 installed-distribution notice files plus the Python license. Frozen startup and graceful exit passed on this Windows build host; ZIP/checksum validation passed. This is a development build of package version 0.1.0, not a replacement for the historical v0.1.0 tag/archive or a newly published release. The manifest identifies ab8b6bd plus uncommitted tooling/docs changes.
+
+D2 remains partial: full bundled-library license review, clean-machine/native workflows, credential/TLS checks, macOS/Linux evidence, signing decisions and final release/version selection remain outstanding. Top-level versions are pinned in requirements-build.txt; transitive versions are recorded per manifest rather than fully locked.
 
 Keep onedir as the initial Windows format. Distribute the whole directory. PyInstaller builds are platform-specific; Windows success does not establish Linux/macOS portability. See [PyInstaller operating mode and distribution requirements](https://pyinstaller.org/en/stable/operating-mode.html).
 
@@ -199,4 +205,4 @@ Defer additional hosted/search providers until an adapter and evidence justify t
 
 For each slice: inspect the relevant implementation, preserve user data, add tests for meaningful behavioral risks, run relevant offline/Qt checks, and update evidence without erasing historical limitations. Do not substitute test counts, documentation, or a startup screenshot for compatibility evidence.
 
-Immediate order (D0 local hardening complete): **D1 harness and D2 release automation → E1 registry/picker**. Authorized live/provider and available platform checks proceed as their prerequisites become available; coding execution remains gated by E2.
+Immediate order (D0 and D1 tooling complete; Windows D2 automation/startup verified): **E1 registry/picker**, alongside remaining D1 provider and D2 platform/release evidence as authorized and available. Authorized live/provider and available platform checks proceed as their prerequisites become available; coding execution remains gated by E2.
