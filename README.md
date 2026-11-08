@@ -59,7 +59,7 @@ Agentnik now owns its coding loop using your existing connections and models, wi
 
 **Run coding task** can inspect project files and propose UTF-8 file edits. Review the full diff, then approve or reject each edit. Existing files must be read first; conflicting changes stop the write. Cancellation retains your draft and already applied approved edits. No commands, deletion, directory creation, commits or pushes are available. Safety recommendations show **Not checked** because System One review is not connected yet. Reopening never restarts a run; model assignments persist without keys. Each Run currently begins a fresh model conversation.
 
-The separate **Try simulated workflow (no execution)** option remains available. The coding backend has offline protocol/Qt/file-operation coverage; live coding model compatibility is not yet established. These changes are newer than the v0.2.0 archive. See [the coding backend plan](CODING_BACKEND_PLAN.md) for limits, model roles and remaining execution gates.
+The separate **Try simulated workflow (no execution)** option remains available. The coding backend has offline protocol/Qt/file-operation coverage; live coding model compatibility is not yet established. These changes are newer than the v0.2.0 archive. Follow the [coding guide](CODING_GUIDE.md) to set up a project, select models and review edits; see [the coding backend plan](CODING_BACKEND_PLAN.md) for implementation boundaries and remaining execution gates.
 
 ## Conversations
 

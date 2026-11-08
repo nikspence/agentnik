@@ -4,7 +4,7 @@ Reviewed after the v0.2.0 release: 2026-11-08. This roadmap describes the curren
 
 ## Objective and preserved contracts
 
-Agentnik is an independent Python/Qt desktop application for chat, Ollama System One decisions, bounded web research, and a future repository-based Coding Agent workspace. Keep runtime dependencies small and support Windows, macOS, and Linux without claiming untested platform compatibility.
+Agentnik is an independent Python/Qt desktop application for chat, Ollama System One decisions, bounded web research, and a repository-based Coding Agent workspace. Keep runtime dependencies small and support Windows, macOS, and Linux without claiming untested platform compatibility. Plan a localized interface without changing the language of user or model content.
 
 - Preserve the robot geometry, red robot/`nik` branding, theme-sensitive `agent` wordmark, independent application identity/storage, and MIT license verbatim, including **Copyright (c) 2026 Nikolaus Spence**.
 - Preserve independent tabs and histories, responsive background work, Markdown, inline thinking, images, statistics, accessibility, themes, saved prompts, and attachment cleanup.
@@ -21,7 +21,8 @@ Agentnik is an independent Python/Qt desktop application for chat, Ollama System
 | B — Managed research | Implemented preview: native Ollama tool loop, Ollama search, direct public page fetch, sources/activity, persistence, cancellation | Scoped live managed search/fetch passed through LiteLLM Responses; other combinations remain unverified |
 | C — Hosted research and routing | Implemented preview: managed Responses, official OpenAI Responses hosted search, four policies, bounded fallback/accounting | Offline evidence; live research compatibility unverified |
 | D — Hardening and release readiness | D0 complete; D1 harness delivered; isolated Windows v0.2.0 archive built and tagged | Native/clean-machine, additional live protocols, licensing and macOS/Linux gates remain open |
-| E — Coding Agent | E1 passive registry/picker/panes implemented after v0.2.0 | E2 backend and execution boundaries remain undecided; no commands/inference in E1 |
+| E — Coding Agent | E1 registry/picker and an Agentnik-owned Heavy/Light coding and approved file-edit preview implemented after v0.2.0 | Live coding compatibility, role accounting, longer workflows, and a separate command execution boundary remain open |
+| L — Localization | Planned; current interface text is English and largely embedded in Qt views | Extract user-facing strings, ship reviewed translations and validate locale behavior before claiming language support |
 | F — MCP servers and Skills | Long-term planned | Optional extensions with explicit configuration, activation, permissions, and shared tool approvals |
 
 The release baseline is **144 passing offline tests**, including protocol/transport mocks and offscreen Qt integration. The annotated **v0.2.0** tag points to **efffd07** and was pushed with the release commits. The unsigned Windows x64 archive was built from that clean revision in an isolated virtual environment, passed real Qt-window/temporary-database startup and graceful exit, and passed archive/checksum checks. It includes release notes, documentation/images, dependency notices and a build manifest. The archive is local under `dist/build-v0.2.0/`; pushing the Git tag did not upload the binary as a GitHub Release asset. v0.1.0 remains unchanged.
@@ -38,10 +39,11 @@ Anthropic aliases are advertised by the gateway but unavailable to the user's Ma
 
 ### Next delivery decisions
 
-1. **E1 implemented in the development tree:** repository/folder registry, manager and searchable + Code picker, then a passive project-bound Code pane. Cancelling launches nothing; selecting a project starts no command or inference. Show the backend-not-connected state clearly. This passive feature slice is complete with 148 offline tests passing; it is not included in the v0.2.0 archive.
+1. **E1 and the first E2/E3 slice are in the development tree:** repository/folder registry, manager, searchable + Code picker, project-bound Code panes, and an explicitly started owned coding loop with approved file edits. Selecting a project starts no command or inference. This work is not included in the v0.2.0 archive.
 2. **Build Agentnik-owned coding:** use existing connections and coding models; Codex is inspiration only. Independently assign heavy and light models in one workflow. Heavy handles planning/tool/edit proposals; bounded light subtasks return results without gaining repository tools or write rights. File edits require exact diff approval. Define a separate permission/process boundary before shell execution.
 3. **Keep D evidence work parallel in priority, not automatic in execution:** the manual checklist and opt-in harness can qualify individual routes/platforms as access becomes available. Windows preview improvements and E1 need not wait for unavailable Anthropic/macOS/Linux environments. Do not mark all of D complete or call v0.2.0 cross-platform validated.
 4. **Keep MCP/Skills as F:** use the execution/approval contracts established in E2. Preserve the shared tool interface now, but avoid building an extension framework before a working coding integration demonstrates what it needs.
+5. **Add localization as a cross-cutting milestone L:** establish one translation path for existing and new UI text, then ship English, Korean, Spanish, German, French, and Chinese catalogs. Keep language coverage explicit and add further locales through the same workflow.
 
 Earlier D0 subsections below preserve checkpoint counts and rationale; this section is the current status, and VALIDATION.md is the historical evidence record.
 
@@ -204,7 +206,29 @@ Provide the requested composer, streaming transcript, command/output activity, r
 
 Bind each session to its project; never silently change a running working directory. Persist a distinct versioned coding-session type with bounded activity and run state. Reopen does not rerun commands. Validate fake backends and temporary projects first; native execution/platform checks are separate gates.
 
-## 8. F — MCP servers and Skills (long term)
+## 8. L — Interface localization
+
+Localize the desktop interface across chat, decisions, research, repository and coding panes, connections, settings, dialogs, approvals, activity, errors, accessibility labels, and packaged startup flows. The first supported set is **English (`en`)**, **Korean (`ko`)**, **Spanish (`es`)**, **German (`de`)**, **French (`fr`)**, and **Chinese in Simplified (`zh-Hans`) and Traditional (`zh-Hant`) scripts**. English is the source language and fallback. Further languages should use the same documented contribution and review process; do not advertise a locale until its catalog and UI checks pass.
+
+### L1: Translation foundation
+
+- Choose a maintainable Python/Qt catalog and extraction workflow after a short implementation spike. Centralize application-owned display strings, including dynamically assembled status, tool, validation, and safety-badge text. Keep stable internal IDs, protocol fields, model aliases, file paths, and persisted session data independent of translated labels.
+- Add an explicit language setting with a **System default** option, locale-code persistence, and English fallback for missing translations. Define startup loading, runtime switch behavior (immediate update or clearly marked restart), and packaged catalog lookup on Windows, macOS, and Linux. A missing or corrupt catalog must leave the application usable in English without losing settings or history.
+- Use named placeholders and locale-aware numbers, dates, times, and plural forms where displayed. Keep user prompts, model output, repository content, tool payloads, citations, and imported data in their original language. Translate application framing around those values without treating untrusted text as a format string.
+
+### L2: Language coverage and review
+
+- Extract and translate all visible application strings for the initial locale set, including dialogs and error paths. Give translators context for ambiguous short labels and keep technical terms consistent across chat, research, decisions, and coding. Review Chinese scripts separately rather than labeling one translation simply “Chinese.”
+- Provide contributor instructions for updating source strings, catalogs, translator notes, and release assets. Track missing, stale, and unreviewed entries; avoid silently calling a partially translated interface complete. Add new locales by contribution and review without changing the stored data format.
+- Review layout expansion, clipping, line wrapping, shortcuts, screen-reader names, input methods, font fallback, and mixed-language text in light/dark themes. Verify Korean and both Chinese scripts render correctly in the packaged application. Preserve the brand wordmark and robot artwork as brand assets.
+
+### L3: Acceptance and release gates
+
+Offline tests cover locale selection/persistence, fallback and corrupt catalogs, placeholders/plurals/formatting, translated safety and approval text, and stable saved data across language changes. Offscreen Qt checks exercise representative dialogs and all major panes in every advertised locale, with visual review for long labels and CJK text. Release checks verify catalogs are bundled and startup succeeds under a non-English system locale on each claimed platform. Document the languages actually reviewed for a release and any remaining untranslated strings. No live inference is needed for localization validation.
+
+Sequence **L1 foundation → L2 reviewed catalogs → L3 release validation**. New UI work should use the translation path once L1 lands; localization can advance alongside coding and D evidence work without implying that untranslated current builds support these languages.
+
+## 9. F — MCP servers and Skills (long term)
 
 Add optional extensibility through **Model Context Protocol (MCP) servers** and reusable **Skills** after the core execution and approval contracts are established. Support chat and coding where appropriate, with capabilities explicitly enabled for each session/project. Do not automatically expose extensions to System One decisions or bypass research navigation policy.
 
@@ -235,10 +259,10 @@ Sequence **F1 server manager and explicit connections → F2 limited tool integr
 
 Use fake servers and temporary skill libraries for ordinary tests. Cover disabled/missing servers, malformed/changing schemas, tool-name collisions, credential isolation, approval denial, cancellation/late responses, reconnect and process cleanup, hostile resource paths, bounded context/output, skill updates, and reopen without execution. Live server compatibility is recorded separately by server/version/transport/capability. MCP and Skills remain planned features until these slices are implemented and validated.
 
-## 9. Deferred scope and review discipline
+## 10. Deferred scope and review discipline
 
 Defer additional hosted/search providers until an adapter and evidence justify them. Full browser automation, JavaScript interaction, login/cookie sessions, forms/purchases, arbitrary execution in research, autonomous background tasks, model-provider failover, and research inside System One remain outside this roadmap's delivered scope.
 
 For each slice: inspect the relevant implementation, preserve user data, add tests for meaningful behavioral risks, run relevant offline/Qt checks, and update evidence without erasing historical limitations. Do not substitute test counts, documentation, or a startup screenshot for compatibility evidence.
 
-Immediate order (Agentnik-owned coding/file-edit preview implemented): **multi-model coding qualification, per-role accounting and multi-file workflow hardening**, alongside remaining D1 provider and D2 platform/release evidence as authorized and available. Authorized live/provider and available platform checks proceed as their prerequisites become available; coding execution remains gated by E2.
+Immediate order (Agentnik-owned coding/file-edit preview implemented): **multi-model coding qualification, per-role accounting and multi-file workflow hardening**, with L1 translation foundation as a parallel UI preparation slice, alongside remaining D1 provider and D2 platform/release evidence as authorized and available. Authorized live/provider and available platform checks proceed as their prerequisites become available; command execution remains gated by E2.
