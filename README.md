@@ -197,9 +197,11 @@ python -m compileall -q agentnik tests tools
 
 Ordinary tests are offline and use temporary storage. They cover provider wire formats, streaming, cancellation, decisions, credentials, attachment cleanup, independent tabs, saved prompts, font controls, theme switching, and packaged branding. `tools/live_smoke.py` is an optional endpoint check; running it lists models, and `--generate` or `--decision-model MODEL` issues inference. Run live checks only when authorized. No live endpoint compatibility is claimed for this baseline.
 
-Windows source and offscreen Qt checks are recorded in `VALIDATION.md`. macOS/Linux runtime behavior and frozen distributions remain unverified.
+Windows source and offscreen Qt checks are recorded in `VALIDATION.md`. macOS/Linux runtime behavior remains unverified. The first Windows frozen build passed startup and clean-exit smoke checks; see `VALIDATION.md`.
 
 ## Packaging
+
+The first Windows x64 build is tagged **v0.1.0**. Extract the complete `Agentnik-v0.1.0-windows-x64.zip` folder and run `Agentnik/Agentnik.exe`; keep its `_internal` folder beside it. Python is bundled. The application uses independent Agentnik storage as described above. This build is unsigned; live endpoint and full distribution workflow validation remain outstanding.
 
 The Python wheel has been built and installed locally; see [validation results](VALIDATION.md). To build a wheel without resolving runtime dependencies:
 
