@@ -26,6 +26,7 @@ from .research_ui import WebSettings, ResearchDetails
 from .storage import Store
 from .repositories import RepositoryRegistry
 from .code_ui import RepositoryPicker, CodeTab
+from . import localization
 
 class Signals(QObject):
     progress = Signal(object)
@@ -775,6 +776,12 @@ class Window(QMainWindow):
         for text, fn in [('☰ History',self.toggle_history),('☆ Prompts',self.toggle_prompts),('＋ Chat',lambda:self.new_session('chat')),('＋ Decision',lambda:self.new_session('decision')),('＋ Code',self.new_code),('Repositories',self.manage_repositories),('Connections',self.manage_connections)]:
             action = QAction(text,self); action.triggered.connect(fn); toolbar.addAction(action)
         toolbar.addSeparator(); toolbar.addWidget(QLabel('Theme: ')); self.theme = QComboBox(); self.theme.addItems(['System','Light','Dark']); toolbar.addWidget(self.theme); self.theme.setCurrentText(store.config['settings'].get('theme','System')); self.theme.currentTextChanged.connect(self.apply_theme)
+        toolbar.addWidget(QLabel('Language: '));self.language=QComboBox();self.language.setToolTip('Language changes take effect after restarting Agentnik.')
+        for code,name in localization.choices():self.language.addItem(name,code)
+        saved_language=store.config['settings'].get('language','system')
+        if self.language.findData(saved_language)<0:self.language.addItem(saved_language+' (unavailable)',saved_language)
+        self.language.setCurrentIndex(self.language.findData(saved_language));toolbar.addWidget(self.language)
+        self.language.currentIndexChanged.connect(self.save_language)
         self.font_smaller = QPushButton('A−'); self.font_smaller.setAccessibleName('Decrease font size'); self.font_smaller.setToolTip('Decrease font size'); self.font_smaller.clicked.connect(lambda:self.adjust_font_size(-1)); toolbar.addWidget(self.font_smaller)
         self.font_larger = QPushButton('A+'); self.font_larger.setAccessibleName('Increase font size'); self.font_larger.setToolTip('Increase font size'); self.font_larger.clicked.connect(lambda:self.adjust_font_size(1)); toolbar.addWidget(self.font_larger)
         self.split = QSplitter(); self.setCentralWidget(self.split)
@@ -801,6 +808,9 @@ class Window(QMainWindow):
         hint = QLabel('Open a chat or decision tab to begin.\nConnections are discovered from your environment and local servers.'); hint.setAlignment(Qt.AlignmentFlag.AlignCenter); hint.setWordWrap(True); welcome.addWidget(hint); welcome.addStretch()
         self.tabs.addTab(self.empty,'Welcome'); self.update_branding()
         QApplication.styleHints().colorSchemeChanged.connect(self.system_theme_changed)
+    def save_language(self,*_):
+        self.store.config['settings']['language']=self.language.currentData();self.store.flush()
+        self.statusBar().showMessage('Language choice saved; restart Agentnik to apply it.')
     def apply_theme(self,*_):
         value = self.theme.currentText(); self.store.config['settings']['theme'] = value; self.store.flush()
         scheme = {'Light':Qt.ColorScheme.Light,'Dark':Qt.ColorScheme.Dark}.get(value,Qt.ColorScheme.Unknown)
@@ -1011,6 +1021,8 @@ def main():
             os.environ.pop('OLLAMA_HOST',None)
     except OSError as exc: parser.error(f'Cannot read key file: {exc}')
     app = QApplication(sys.argv); app.setApplicationName('Agentnik'); app.setOrganizationName('Agentnik'); app.setStyle('Fusion')
-    try: window = Window(Store(args.data_dir))
+    try:
+        store=Store(args.data_dir);translator=localization.install(app,store.config['settings'].get('language','system'))
+        window = Window(store)
     except Exception as exc: error(None,exc); return
     window.show(); sys.exit(app.exec())

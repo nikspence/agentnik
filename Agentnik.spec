@@ -9,7 +9,7 @@ a = Analysis(
     ['agentnik.py'],
     pathex=[],
     binaries=[],
-    datas=[('agentnik/assets', 'agentnik/assets')],
+    datas=[('agentnik/assets', 'agentnik/assets'), ('agentnik/translations', 'agentnik/translations')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

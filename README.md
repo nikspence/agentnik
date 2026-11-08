@@ -61,7 +61,7 @@ Agentnik now owns its coding loop using your existing connections and models, wi
 
 The separate **Try simulated workflow (no execution)** option remains available. The coding backend has offline protocol/Qt/file-operation coverage; live coding model compatibility is not yet established. These changes are newer than the v0.2.0 archive. Follow the [coding guide](CODING_GUIDE.md) to set up a project, select models and review edits; see [the coding backend plan](CODING_BACKEND_PLAN.md) for implementation boundaries and remaining execution gates.
 
-Localization is in preparation. The repository picker is the first Qt translation extraction pilot; language catalogs and a language selector are not yet available. See [the localization milestone](AGENTNIK_PLAN.md#8-l--interface-localization).
+Localization is in preparation. The repository picker is the first Qt translation extraction pilot. The language selector currently offers System default and English; changes take effect after restart. No translated catalogs are shipped yet. See [the localization milestone](AGENTNIK_PLAN.md#8-l--interface-localization).
 
 ## Conversations
 
@@ -236,7 +236,7 @@ python -m pip wheel . --no-deps --wheel-dir dist
 Build and test on each target OS; a Windows build does not produce a macOS or Linux application. For an initial distributable, install PyInstaller as a build-only dependency and run:
 
 ```powershell
-python -m PyInstaller --noconfirm --windowed --name Agentnik --icon agentnik/assets/agentnik-icon.ico --add-data "agentnik/assets:agentnik/assets" --collect-submodules keyring.backends agentnik.py
+python -m PyInstaller --noconfirm --windowed --name Agentnik --icon agentnik/assets/agentnik-icon.ico --add-data "agentnik/assets:agentnik/assets" --add-data "agentnik/translations:agentnik/translations" --collect-submodules keyring.backends agentnik.py
 ```
 
 Verify credential storage, TLS access, file dialogs, clipboard images, history, and Qt platform plugins in each packaged build. Signed installers and automatic updates are future distribution work.

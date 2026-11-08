@@ -37,6 +37,7 @@ def load_config(path):
         settings=config.get('settings',{})
         if not isinstance(settings,dict): raise ValueError()
         if 'theme' in settings and settings['theme'] not in ('System','Light','Dark'): raise ValueError()
+        if 'language' in settings and (not isinstance(settings['language'],str) or not 1<=len(settings['language'])<=32): raise ValueError()
         for field in ('font_size','composer_height'):
             if field in settings and (type(settings[field]) is not int or settings[field]<=0): raise ValueError()
         for field in ('prompts_visible','history_visible'):
