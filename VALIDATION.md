@@ -57,3 +57,12 @@ Built with PyInstaller 6.22.3, hooks 2026.9, Python 3.15.0 and PySide6 6.12.0 on
 The actual windowed executable initialized a Qt window titled Agentnik and created a history database under a dedicated test data directory. The startup check allowed up to 20 seconds and located the hidden window by its process-owned native handle, then requested a graceful close and verified exit code 0. The initial check ran too early; process input-idle alone was not sufficient evidence of application readiness.
 
 This verifies Windows startup and clean exit, not live provider/TLS requests, credential-store writes, every dialog/clipboard workflow, or macOS/Linux distributions. The build is unsigned. Source tests previously passed (84 offline tests); no live inference was run for this build.
+
+
+## Milestone D protocol matrix
+
+All 90 offline tests pass, including six additional protocol matrix tests. Chat Completions and Messages now execute managed research through their own wire formats. Coverage includes streaming/non-streaming calls, multiple results and correlation IDs, fragmented JSON, signed/redacted thinking preservation, grouped Messages tool results, structured history follow-up, usage after completion, missing usage, duplicate/unknown calls, incomplete stop reasons and disconnection before execution. No new runtime dependencies were added.
+
+References checked: [Chat Completions streaming](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events) and [Messages streaming](https://platform.claude.com/docs/en/build-with-claude/streaming). Protocol mocks do not establish live model compatibility. Milestone D remains incomplete pending live provider checks, full native workflows and macOS/Linux validation. Existing v0.1.0 release artifacts and tag are preserved; development builds use a separate output directory.
+
+The isolated milestone D Windows development build passed actual frozen Qt window initialization, temporary SQLite creation, and graceful exit code 0. `tools/smoke_frozen.ps1` waits up to 30 seconds for real readiness instead of treating process input-idle as app readiness. This remains a startup smoke check, not full native workflow or live-provider validation.

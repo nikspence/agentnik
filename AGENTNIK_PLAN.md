@@ -1,167 +1,156 @@
 # Agentnik implementation plan
 
-## Objective and ownership
+Reviewed: 2026-11-08. This roadmap describes the current development tree and the remaining acceptance gates. Detailed historical evidence is in [VALIDATION.md](VALIDATION.md); installation and delivered behavior are in [README.md](README.md).
 
-Create Agentnik as a standalone, cross-platform Python/Qt desktop application for chat, structured decisions, bounded agentic web research, and a future repository-based Coding Agent workspace.
+## Objective and preserved contracts
 
-Agentnik will start in a clean new repository with a fresh initial commit. Do not import Git history, remotes, tags, branches, or repository metadata. Public documentation, source code, assets, application metadata, tests, and packaging must use Agentnik naming and contain no references to the predecessor application. Preserve the MIT license and its copyright notice: **Copyright (c) 2026 Nikolaus Spence**. Nikolaus Spence is the author and copyright holder.
+Agentnik is an independent Python/Qt desktop application for chat, Ollama System One decisions, bounded web research, and a future repository-based Coding Agent workspace. Keep runtime dependencies small and support Windows, macOS, and Linux without claiming untested platform compatibility.
 
-This document is an implementation plan. Creating the repository, publishing it, and executing live endpoint requests are separate actions from writing this plan.
+- Preserve the robot geometry, red robot/`nik` branding, theme-sensitive `agent` wordmark, independent application identity/storage, and MIT license verbatim, including **Copyright (c) 2026 Nikolaus Spence**.
+- Preserve independent tabs and histories, responsive background work, Markdown, inline thinking, images, statistics, accessibility, themes, saved prompts, and attachment cleanup.
+- Preserve Responses, Chat Completions, Messages, and native Ollama chat. Bedrock support remains Mantle bearer-token endpoints. A protocol name does not establish model capability.
+- Keep System One separate from chat/research: ordered questions and criteria, multiple images, and image-only state fallback remain supported.
+- Keep secrets in the credential store or the existing explicit plaintext fallback. Exclude credentials from history, logs, tool records, screenshots, and exports by default. Preserve confirmation for destructive history actions.
+- Ordinary tests remain offline. No background inference probes, paid requests, or live research requests during routine validation. Live checks require an authorized, explicit endpoint/model/route selection.
 
-## 1. Establish a clean Agentnik baseline
+## 1. Current position and evidence
 
-1. Choose a separate destination directory and verify it is empty before populating it. Leave the current application and its user data untouched.
-2. Copy only reviewed application source, tests, necessary tools, dependency declarations, and suitable assets. Exclude `.git`, virtual environments, caches, build products, local configuration, databases, attachments, credentials, key files, logs, and screenshots that expose private data.
-3. Rename the Python package and launcher to `agentnik` and `agentnik.py`. Update imports, entry points, project metadata, commands, scripts, tests, and contributor instructions together.
-4. Write an Agentnik README and AGENTS.md describing the actual baseline and planned work. Replace branding assets and screenshots with Agentnik material; inspect rendered images as well as filenames and text. Do not ship old branding while replacement assets are pending.
-5. Use independent application identity, window titles, platform metadata, settings, credential-store service names, and data directories. Use `AGENTNIK_HOME` and retain an explicit `--data-dir` override. Never discover or modify another application's data automatically.
-6. Preserve provider-standard environment variable discovery and endpoint compatibility. Remove predecessor-specific environment aliases, import labels, and compatibility documentation. Do not add a named legacy migration feature. Generic validated connection import/export may remain.
-7. Retain the MIT LICENSE verbatim with Nikolaus Spence's copyright notice; identify Nikolaus Spence as author in project metadata.
-8. Scan all tracked text and inspect assets for predecessor names, obsolete links, secrets, and machine-specific paths. Initialize a new Git repository with no inherited remote and create a fresh baseline commit after validation. Do not publish unless requested.
+| Milestone | Current state | Remaining qualification |
+| --- | --- | --- |
+| A — Independent baseline | Established: standalone repository, identity/storage, red branding, baseline functionality and packaged assets | Preserve these contracts in every later slice |
+| B — Managed research | Implemented preview: native Ollama tool loop, Ollama search, direct public page fetch, sources/activity, persistence, cancellation | Offline evidence; live research compatibility unverified |
+| C — Hosted research and routing | Implemented preview: managed Responses, official OpenAI Responses hosted search, four policies, bounded fallback/accounting | Offline evidence; live research compatibility unverified |
+| D — Hardening and release readiness | In progress: development tree adds Chat Completions/Messages managed adapters and a readiness-based frozen smoke script | D0 local hardening, D1 controlled compatibility evidence, D2 distribution/platform gates below |
+| E — Coding Agent | Planned | Begin with passive repository registry/picker; execution needs a separate boundary/backend decision |
 
-Baseline acceptance: Agentnik launches with independent storage, inherited functionality passes relevant tests, packaged assets resolve, and the new repository contains only intended files with no inherited history or predecessor references.
+The current offline baseline is **90 passing tests**, including offscreen Qt and mocked protocol/transport checks. This establishes contract coverage, not real provider compatibility. Existing screenshots use simulated responses. User testing has reported successful Windows use; that is useful feedback, not a completed native workflow matrix.
 
-## 2. Preserve the baseline contracts
+The **v0.1.0** tag and Windows onedir archive are an earlier source checkpoint. Its frozen executable passed actual Qt-window initialization, temporary SQLite creation, and graceful exit; it is unsigned. The current D development build passed a separate Windows startup smoke check. Neither proves live TLS/provider behavior, credential-store integration, complete native workflows, or macOS/Linux operation. Keep the historical tag/archive unchanged and use distinct development output directories. Current D changes remain development work until reviewed and committed; do not describe them as present in v0.1.0.
 
-- Keep chat tabs and histories independent and network work off the GUI thread. Preserve Markdown, inline thinking, images, statistics, accessibility, themes, saved prompts, and attachment persistence/cleanup.
-- Preserve Responses, Chat Completions, Messages, and native Ollama chat behavior. Keep Bedrock scoped to Mantle bearer-token endpoints.
-- Preserve structured System One decisions, ordered questions and criteria, multiple images, and image-only state fallback. Web research initially applies to chat only.
-- Keep secrets in the credential store or the existing explicit plaintext fallback. Exclude credentials from histories, logs, tool records, and exports by default.
-- Preserve explicit confirmation for destructive history operations and validation of imported connections.
-- Keep dependencies minimal and compatible with Windows, macOS, and Linux. Asset-build dependencies remain optional.
+## 2. Delivered architecture and support boundaries
 
-## 3. Define search routing and capability contracts
+| Area | Implementation | Boundary |
+| --- | --- | --- |
+| Endpoint/protocol baseline | `core.py`, `storage.py`, `ui.py` | Existing provider discovery and saved connection compatibility remain contracts |
+| Typed tools and budgets | `tools.py` | Only registered `web_search(query)` and `web_fetch(url)`; no shell/files/code tools in research |
+| Managed orchestration | `research.py`, `ollama_tools.py`, `responses_tools.py`, `compat_tools.py` | Complete argument assembly and batch validation before execution; protocol-specific continuation preserved |
+| Search/retrieval | `web.py` | Ollama search service; direct pinned HTTP(S) fetch, not Ollama service-backed fetch |
+| Routing/failure handling | `routing.py`, `failures.py` | Same model/connection throughout fallback; shared turn budgets |
+| Hosted search | `hosted.py` | Explicitly configured official OpenAI Responses endpoint only; other compatible gateways/providers are not implicitly supported |
+| Sources and presentation | `citations.py`, `research_ui.py`, `ui.py` | Validated references and provider annotations; links do not establish semantic claim support |
+| Release tooling | `Agentnik.spec`, `tools/smoke_frozen.ps1` | Current evidence is Windows onedir startup only |
 
-Support two distinct routes behind a common research interface:
+Managed research has mocked streaming/non-streaming coverage for native Ollama, Responses, Chat Completions, and Messages. Messages preserves signed/redacted thinking and grouped tool results; Responses preserves opaque continuation items. Do not transfer provider-specific continuation state across incompatible protocols/accounts or flatten it into ordinary text. New provider variants require their own fixtures and compatibility evidence.
 
-| Route | Execution responsibility |
-| --- | --- |
-| Provider-hosted search | The connected model provider executes its supported search/retrieval tool inside the provider request. |
-| Agentnik-managed tools | Agentnik executes validated search/fetch calls and supplies their results to the model in subsequent requests. |
+Web access starts off. Settings provide **Provider first**, **Agentnik first**, **Provider only**, and **Agentnik only**, with connection defaults and independent chat overrides. Capability records distinguish unknown, configured, verified, and unsupported, scoped to endpoint/protocol/model. Configuration and documentation alone must not mark a model verified.
 
-Both routes must be implemented for the browsing milestone to be complete.
+The ordered managed backend list currently contains independently credentialed **profiles for one Ollama search service**, not multiple search-provider implementations. Missing credentials and eligible explicit failures can advance profiles without replaying model inference. Additional search providers remain an extension point.
 
-Offer four policies: **Provider first**, **Agentnik first**, **Provider only**, and **Agentnik only**. Save the default per connection and allow an override per chat. Web access starts off. A managed route can have an ordered list of search backends with independently stored credentials.
+Direct page fetch validates public destinations, pins approved DNS addresses, retains the original TLS hostname, and revalidates redirects. It uses a separate transport without model credentials/browser cookies. Both provider-hosted navigation and search-service internal navigation are outside Agentnik's transport controls. Consequently the current strict navigation policy disables **both current search routes before inference**; it does not provide a strict managed-search alternative.
 
-Track hosted-search and model tool-calling capabilities separately for each endpoint/model combination. Protocol compatibility is not evidence of capability. Represent unknown, configured, verified, and unsupported states distinctly; record when and how verification occurred. Do not issue background inference probes or claim compatibility without appropriate validation.
+Default limits currently include four tool rounds, eight tool calls, five search results, 1 MB per web response, 3 MB retrieved per turn, 32 KB tool context, 4 KB arguments, 512 KB model response, six model requests, eight route attempts, 45-second request and 180-second turn deadlines, three redirects, and five-second maximum backoff. These are separate limits, not a guarantee that total retained session storage is 32 KB.
 
-Keep the selected model and model connection unchanged during search-route fallback. Changing models or model providers is outside this policy. Disclose that managed searches may send queries to a separate service even when inference runs locally.
+## 3. Lessons retained from implementation
 
-## 4. Build the tool foundation
+- **Readiness needs application evidence.** The first frozen check was too impatient. Wait for a process-owned Qt window and temporary database within a deadline, then request a graceful close and verify exit status. Input-idle alone is insufficient; startup success is narrower than interactive success.
+- **Protocol compatibility is narrower than capability.** Keep separate adapters, structured tool histories, opaque reasoning, identifiers, completion reasons, and missing-usage states. Do not infer hosted support from a Responses-shaped gateway.
+- **Fallback can duplicate remote work.** Retry only eligible explicit outcomes within budgets. Stop on cancellation, access restriction, partial output/tool activity, or uncertain execution. Do not change model/provider or use alternate routes to bypass restrictions. Empty results are research evidence, not a transport failure.
+- **Cancellation is cooperative.** Stop scheduling and reject late results immediately; remote computation/billing and outstanding local socket operations may continue until their own bounds. Test resource behavior across repeated cancellations, not just one late result.
+- **External navigation needs honest disclosure.** Direct fetch has local controls; search services and hosted tools do not inherit those controls. Do not silently weaken strict policy or enable service-backed fetch.
+- **Discovery should identify destinations without erasing user intent.** Environment-discovered `0.0.0.0` means connect to `127.0.0.1`. Merge matching environment/probe discoveries, retaining environment metadata and useful probe information. Preserve independently saved connections and avoid treating arbitrary DNS names or IPv6 destinations as equivalent.
+- **Small asset defects affect runtime quality.** Empty SVG paths caused Qt warnings. Retain parser-warning coverage and inspect both themes. Editing/resending a historical prompt restores a draft and appends a new turn on Send; it does not rewrite history.
+- **Build and release are distinct.** A wheel, source test suite, local frozen startup, and portable desktop release establish different evidence. The first release archive included documentation/license through manual assembly; automate that step before repeating releases.
 
-- Introduce typed records for tool definitions, tool calls, results, source records, route attempts, and research events. Preserve provider-specific identifiers and required continuation state.
-- Separate transport/protocol adapters from orchestration, route policy, and web-service adapters. Suggested modules: `agentnik/core.py`, `agentnik/tools.py`, `agentnik/web.py`, and `agentnik/research.py`; refine boundaries after inspecting the copied implementation.
-- Add protocol-specific serialization and parsing for tool calls/results. Assemble streamed arguments before validating or executing a call; handle multiple calls and malformed arguments explicitly.
-- Preserve structured assistant/tool exchanges for follow-up requests, including required reasoning/continuation blocks where applicable. Do not flatten everything into assistant text.
-- Execute only registered, schema-validated tools. The initial registry contains `web_search(query)` and `web_fetch(url)`; it provides no arbitrary code, shell, file access, or state-changing web operations.
-- Bound tool rounds, calls, result count, retrieved bytes, context contribution, per-request time, and total turn time. Make limits explicit and return understandable limit errors.
-- Use cancellation tokens and run identifiers across every stage. Stop scheduling work immediately on cancellation and reject late worker results. Do not promise that remote computation or billing stops.
+## 4. D0 — Next work: local hardening
 
-## 5. Implement both search routes
+Complete these slices in order, with focused regression tests and corresponding validation notes. Findings below identify review targets; an untested edge case is not a claim of a demonstrated exploit.
 
-### Agentnik-managed tools
+### D0.1 Stream integrity and continuation
 
-Implement a search backend interface returning titles, URLs, and bounded excerpts. Start with Ollama's documented search/fetch service, subject to verifying its current contract during implementation. Keep this adapter replaceable and permit additional configured backends without changing the model tool schemas.
+Audit `compat_tools.py` first. Enforce coherent message/block lifecycle and terminal states: missing/duplicate starts or stops, deltas after closure, conflicting call indexes/IDs/names, malformed argument types, interrupted streams, and unsupported stop reasons. Never execute tools from an incomplete or ambiguous response. Safely ignore documented non-semantic events without interpreting unknown tool-bearing content as permission to execute.
 
-Implement bounded page retrieval and readable-text extraction with provenance, retrieval timestamps, content type, truncation indicators, and structured errors. Prefer service-provided extraction where suitable. Add dependencies only when a concrete extraction requirement justifies them.
+Preserve complete Responses output items, Messages thinking/signatures, and correlated results across follow-up turns. Define which partial exchanges may be persisted after failure without becoming executable continuation. Add multi-block/annotation-offset and truncated-stream fixtures where existing coverage is incomplete.
 
-Support native Ollama tool execution first, then the supported Chat Completions, Responses, and Messages adapters. Each adapter requires its own contract tests; do not assume one wire format works across protocols.
+Acceptance: hostile event-order fixtures fail before tool execution; valid fragmented/multiple calls retain exact correlation and continuation; ordinary chat and all managed adapters still pass offline tests.
 
-### Provider-hosted search
+### D0.2 Usage and durable state
 
-Start with a documented OpenAI Responses web-search adapter. Verify the current API, model restrictions, usage fields, citation annotations, and continuation requirements before implementation. Enable it only for appropriately configured endpoints/models; do not send provider-specific tools indiscriminately to compatible gateways.
+`core.usage_metrics` normalizes primary input/output counts but does not yet model cache-related provider detail. Define per-request usage snapshots and preserve bounded, sanitized provider details where useful. Messages `message_delta` usage is cumulative: update the request snapshot rather than summing deltas. Define cache read/write semantics before aggregating; missing values stay unknown, failed-attempt usage remains included, and no cost is invented. The [Messages streaming contract](https://platform.claude.com/docs/en/build-with-claude/streaming) documents event ordering and cumulative usage.
 
-Parse search progress, source annotations, completion/failure events, and available usage. Preserve source references through streaming and final rendering. Other hosted providers need separate adapters and validation.
+Validate saved connection/backend settings and versioned session shapes before use. Specify recovery for corrupt/truncated configuration, safe defaults for old sessions, and rejection of unsupported future versions without destroying the original file. Retain atomic configuration writes and shared attachment cleanup. Review capability invalidation when connection credentials/configuration change; verification evidence needs scope, date, and method.
 
-Normalize both routes into shared UI events and source records while preserving their distinct execution and accounting semantics.
+Set an explicit total retained research-record limit covering sources, activity, partial exchanges, annotations, and metadata, separately from model-context limits. Test large failures and interrupted reopen. Reopening history must never restart tools or requests.
 
-## 6. Make fallback explicit and bounded
+Acceptance: cumulative/cache/missing usage fixtures reconcile without double-counting; malformed settings produce recoverable errors; bounded persistence survives save/reopen and excludes credentials.
 
-| Outcome | Planned handling |
-| --- | --- |
-| Capability known unsupported or required backend absent | Skip to the next eligible route; show the reason. |
-| Explicit unsupported-tool rejection | Mark scoped capability accordingly and fall back when policy permits. |
-| Authentication failure | Surface the configuration issue; fall back only if enabled by the selected policy. |
-| Rate limit or temporary failure | Respect bounded retry/backoff and provider retry guidance; use the next eligible route when policy permits. |
-| Timeout/disconnection after submission with uncertain execution | Surface the uncertain outcome; require explicit user action before another potentially billed attempt. |
-| Failure after partial tool activity or output | Preserve the partial attempt and show its status; require explicit restart rather than silently replaying the turn. |
-| Cancellation, access restriction, or blocked URL | Stop the affected operation; never use another route to bypass a restriction. |
-| Empty or irrelevant results | Return that result to the research loop; another query is a bounded research step, not automatic transport fallback. |
+### D0.3 Worker, transport, and Qt lifecycle
 
-Track attempted routes/backends to prevent cycles and duplicate execution. Never reinterpret an unrelated API error as proof that tools are unsupported. Explain route switches in the UI. A single-route policy never silently changes route.
+Test rapid cancel/restart and simultaneous tabs with stalled DNS, web, and model workers. Add an aggregate concurrency/resource bound if existing per-turn deadlines allow abandoned workers to accumulate; reject late results without compromising responsiveness. Keep remote-stop limitations explicit.
 
-## 7. Web access boundaries
+The pinned transport currently tries the first approved address. Consider bounded failover among already validated public addresses under the same deadline and TLS hostname; never re-resolve through an unvalidated path. Retain redirect, content-type, compression, and byte restrictions. Richer extraction/charset support is optional follow-up, not a reason to relax transport controls.
 
-- Treat retrieved content as untrusted evidence, not instructions or permission to invoke other capabilities.
-- Restrict managed fetches to public HTTP(S) resources. Reject embedded credentials and local/private/link-local/reserved destinations. Revalidate every redirect and address resolution, including IPv6, and address DNS-rebinding risks in the transport design.
-- Use a dedicated web transport. Never forward model-provider authorization headers, application credentials, or browser cookies to retrieved sites.
-- Apply the same destination restrictions to service-backed fetch requests. Where a hosted service's internal navigation cannot be controlled, disclose that limitation and disable that route when it cannot honor the selected access policy.
-- Limit content types, redirects, compressed/decompressed sizes, and extraction work. Render retrieved text without executing page scripts or active HTML.
-- Keep query transmission and backend credentials visible in settings. Do not attach full conversations or images to search requests unless explicitly required and authorized.
+Check that research completion preserves the user's thinking expansion choice just as ordinary chat does. Exercise cancellation, draft retention, edit/resend, source links, independent tabs, interrupted reopen, and light/dark presentation. Expand discovery regressions for saved-profile independence and environment/probe precedence.
 
-## 8. UI, persistence, and accounting
+Acceptance: bounded worker behavior under repeated cancellation, no late history/UI mutations, no outbound requests for strict-policy research, and offscreen Qt regression coverage. Record any native checks separately.
 
-- Add the per-chat Web access toggle and route preference controls, with clear unavailable/unknown capability states.
-- Show searching, reading, retries, route switches, limits, and failures in a collapsible activity view. Continue streaming the final answer without blocking other tabs.
-- Render clickable citations and a sources panel using recorded source identifiers and URLs. Validate model-generated citation references against retrieved sources; do not present invented references as verified citations. A valid source link alone does not prove a claim is supported.
-- Persist sources, retrieval timestamps, bounded excerpts, tool exchanges, route attempts, and completion/cancellation state in versioned session payloads. Maintain defaults for baseline sessions and keep credentials out of persistence and exports.
-- Bound retained tool context and storage. Distinguish a saved excerpt from a complete page or a fresh retrieval.
-- Aggregate reported token usage across all model requests in a turn. Show total elapsed time separately from generation timing and tool latency; include reported usage from failed attempts when available. Do not fabricate missing usage or costs.
+**D0 exit:** all applicable offline tests and compile checks pass; focused Qt checks cover changed interaction; newly found issues are fixed or explicitly scoped with rationale. Update README/VALIDATION to describe delivered behavior. This is the next implementation target, not another new feature family.
 
-## 9. Verification and delivery gates
+## 5. D1 — Controlled compatibility evidence
 
-1. Validate the renamed baseline before adding browsing: standard-library tests, offscreen Qt checks, compile checks, launch with temporary application data, and branding inspection.
-2. Add mocked protocol tests for streamed/non-streamed tool calls, multiple calls, continuation state, citations, and multi-request usage aggregation.
-3. Test route ordering, single-route policies, capability scope, retries, credential failures, uncertain outcomes, partial results, limits, and prevention of fallback loops.
-4. Test hostile URLs, redirects, address resolution, oversized/compressed responses, malformed tool arguments, credential isolation, and untrusted page content.
-5. Verify persistence/reopening, exports, cancellation, late results, independent tabs, clickable sources, and light/dark rendering with temporary data and offscreen Qt where practical.
-6. Keep ordinary tests offline and free of paid requests. Run narrowly scoped live checks only when authorized, with separate results for each endpoint/model/route. Treat documentation, mocks, offscreen validation, and live compatibility as distinct evidence.
-7. Refresh documentation and screenshots to match delivered behavior. Run packaging/asset checks and report any untested platforms or providers explicitly.
+The existing `tools/live_smoke.py` is useful for baseline endpoints/decisions but is not a research compatibility matrix. Add a separate opt-in harness or an explicit research mode before live research testing:
 
-## 10. Future Coding Agent workspace
+1. Require the exact endpoint, protocol, model, route, and managed backend/profile. No automatic model selection, hidden cross-provider fallback, or background paid probes.
+2. Make the planned bounded request/query visible and use a small, public, non-sensitive task. Honor cancellation and the same limits as the GUI.
+3. Record timestamp, application revision, selected scope, stop outcome, tool correlation/continuation result, citations, and available usage. Redact secrets; do not retain private transcripts or key files as fixtures.
+4. Distinguish model tool-calling from successful external search/fetch and from final-answer citation rendering. Test routing errors with mocks; do not manufacture repeated live failures to exercise fallback.
+5. Update only the capability actually demonstrated. Report unavailable credentials/models as not tested. Do not claim every model on a compatible server works.
 
-### Repository list
+Acceptance is per endpoint/model/protocol/route, not a global supported-provider label. No live requests are authorized merely by this plan review. Keep System One verification separate and require a substantive real request before claiming a model supports it.
 
-- Add a persistent **Repositories** list (Repos for short) for local working directories. A directory may be a Git repository or an ordinary project folder; Git is not required just to register a project.
-- Each entry has a stable identifier, display name, and local directory path. Provide **Add folder**, rename, and remove-from-list actions. Removing an entry never deletes its directory or files.
-- Validate that a selected directory exists and is accessible. Normalize paths for duplicate detection with platform-appropriate case handling and resolved directory aliases. Show missing/unavailable entries and allow the user to locate them again.
-- Store this registry in Agentnik's independent application data. Do not scan the computer for projects or automatically import another application's repository list. Exclude local absolute paths from portable exports by default.
+## 6. D2 — Repeatable releases and platform gates
 
-### Starting a coding session
+Automate clean build, documentation/license inclusion, archive creation, SHA-256 generation, and contents verification. `Agentnik.spec` currently bundles branding assets; root README/LICENSE and archive assembly still need an explicit repeatable release step. Record Python, Qt, PyInstaller/hooks, dependency versions, OS/architecture, source revision, and relevant third-party license notices. Validate a clean build environment without accidental system-site-package dependencies.
 
-1. The toolbar offers **＋ Code** alongside **＋ Chat** and **＋ Decision** when Coding Agent support is delivered.
-2. Clicking **＋ Code** opens a repository picker showing registered names and paths, with search and **Add folder**. With no saved entries, prompt the user to add a folder. Cancelling the picker starts no session or process.
-3. Selecting a project opens an independent Code tab containing a coding pane with a CLI-style conversation and command/output activity, similar to the Codex interaction model. Clearly show the selected repository and working directory.
-4. The pane supports a prompt composer, streaming assistant output, tool/command activity, run/cancel status, and review of changed files/diffs. Keep terminal escape/control sequences from becoming active HTML or application commands.
-5. Bind each coding session to its selected project. Opening another project creates another session; never silently change a running session's working directory. Keep other chat, decision, and code tabs responsive.
+Keep onedir as the initial Windows format. Distribute the whole directory. PyInstaller builds are platform-specific; Windows success does not establish Linux/macOS portability. See [PyInstaller operating mode and distribution requirements](https://pyinstaller.org/en/stable/operating-mode.html).
 
-### Execution and persistence contracts
+For each claimed platform/artifact, record:
 
-- Keep coding execution separate from the web-research tool registry. Adding coding support must not grant shell or file access to ordinary chat/research sessions.
-- Introduce a coding backend adapter boundary. Decide during implementation whether the first backend integrates an existing coding CLI or runs an Agentnik-managed coding loop; the CLI-style pane does not commit the application to a particular external CLI or provider.
-- Make the active backend, model/connection, working directory, file-access boundary, and command approval policy visible. A selected working directory alone is not a filesystem sandbox. Define and enforce execution boundaries before enabling writes or command execution.
-- Preserve repository state and existing uncommitted changes. Do not reset, clean, commit, push, or publish automatically. Make proposed edits and command outcomes reviewable, with explicit handling of destructive actions and operations outside the chosen project.
-- Run processes and output handling off the GUI thread. Bound retained output and execution time, handle process exit/errors, and define cancellation/child-process cleanup separately from remote request cancellation. Validate Windows, macOS, and Linux process/terminal requirements independently.
-- Persist a distinct, versioned coding session type containing the project identifier, conversation, bounded activity, and run state. Reopening history does not restart commands; require an explicit resume/start action. Keep credentials out of transcripts and exports.
+- Clean-machine launch without development Python, packaged assets/plugins, readiness-based temporary-data startup and graceful exit.
+- Native chat/decision/research forms, file dialogs, clipboard, links, cancellation, themes, attachment/history reopen, and keyring success/unavailable/explicit-fallback behavior.
+- TLS/certificate behavior with an appropriate authorized check, distinguishing transport success from inference compatibility.
+- Required platform libraries, signing/notarization status, installation/update behavior, and known limitations.
 
-Acceptance: test registry persistence, ordinary folders and Git repositories, duplicate/missing paths, picker cancellation, independent project tabs, process launch failures, cancellation/late output, changed-file review, and reopen-without-execution behavior. Use temporary projects and fake backends for ordinary tests.
+A Windows preview may ship with clearly documented model/platform limits after its applicable gates pass. Full D completion requires the declared cross-platform and compatibility matrix; unavailable macOS/Linux hosts remain explicit pending evidence. They need not prevent passive E1 development after D0. Signing, installers, and automatic updates are separate scope decisions, not implied by an unsigned ZIP.
 
-This is future scope, not an implemented capability. Continue milestones B through D first; build the repository registry and picker as the first slice of the Coding Agent milestone before connecting an execution backend.
+Before another release, explicitly choose and synchronize the version in package metadata, artifacts, release notes, and tag. Do not overwrite v0.1.0 or silently retag it. Committing, pushing, tagging, and publishing remain separate requested actions.
 
-## Implementation status
+## 7. E — Repository-based Coding Agent
 
-Milestone A is established. Milestone B has a native Ollama managed research preview: typed/bounded tool execution, structured streamed continuation, Ollama search with a separate credential, direct public page retrieval, per-chat opt-in, activity/source views, versioned persistence, cancellation/late-result handling, and usage aggregation. The initial managed backend intentionally uses direct page retrieval instead of Ollama service-backed fetch, whose internal navigation cannot be constrained here. Search-service navigation remains an explicitly disclosed external-service limitation.
+### E1: Passive repository registry and picker
 
-Milestone C now adds an explicitly configured official OpenAI Responses hosted-search adapter, managed Responses tool calls, all four routing policies, per-connection defaults and per-chat overrides, independently credentialed ordered backend profiles, visible bounded retries/fallback, shared accounting, and inline citations. Strict navigation requirements disable externally navigated search before submission. No route fallback changes the model or endpoint.
+After D0, this is the first feature slice, even if external D1/D2 evidence is awaiting suitable providers/platforms.
 
-Ordinary verification remains offline. Both initial routes and routing behavior have mocked contract coverage; live compatibility, remaining Chat Completions/Messages research adapters, native cross-platform checks, and distribution readiness remain outstanding for milestone D. This is a research preview, not a release-readiness claim.
+- Persist a **Repositories** list (Repos for short) of local working directories. Git is optional. Use stable identifiers, display names, and paths; provide Add folder, rename, remove-from-list, and relocate-missing-folder actions. Removing an entry never deletes files.
+- Detect duplicates with platform-appropriate path/case/alias handling. Validate accessibility and show missing paths without losing the entry. Do not scan the computer or import other applications' registries. Exclude absolute local paths from portable exports by default.
+- **＋ Code** opens a searchable repository picker with Add folder. Cancelling starts no session or process. Selecting a project opens an independent Code pane with the repository/working directory visible and a clear backend-not-connected state until E2 is implemented.
+- Use temporary ordinary folders/Git repositories to test persistence, duplicates, unavailable paths, cancellation, independent tabs, and reopen without execution.
 
-## Milestones and scope
+### E2: Decide and enforce the execution contract
 
-- **A — Independent baseline:** clean repository, Agentnik identity, MIT ownership, isolated storage, inherited behavior verified.
-- **B — Managed research:** bounded tool loop, initial managed backend, sources, persistence, and cancellation.
-- **C — Hosted research and routing:** initial hosted adapter, all four policies, visible bounded fallback, shared accounting and citations.
-- **D — Release readiness:** remaining protocol adapters in the stated support matrix, security/GUI checks, documentation, and distribution validation.
-- **E — Coding Agent:** persistent local repository/folder list, **＋ Code** repository selection, independent CLI-style coding panes, reviewed execution boundaries, and coding-session persistence.
+Choose deliberately between integrating an existing coding CLI and implementing an Agentnik-owned coding loop. Evaluate process/session APIs, structured output, authentication, cancellation and child cleanup, licensing/distribution, platform support, and how edits/diffs are reviewed. Do not assume terminal emulation alone provides a reliable integration.
 
-The first browsing release requires both routes and tested priority/fallback behavior. Full browser automation, JavaScript interaction, login sessions, form submission, purchases, arbitrary code execution in chat/research, autonomous background tasks, model-provider failover, and research inside System One are deferred. Repository-scoped coding execution belongs to the separate future milestone E.
+A selected directory is not a filesystem sandbox. Define enforceable file/command/network boundaries, approvals, operations outside the project, and destructive-action handling before enabling execution. Keep coding tools/credentials separate from chat/research. Preserve pre-existing uncommitted changes; no automatic reset, clean, commit, push, or publish.
+
+### E3: CLI-style coding sessions
+
+Provide the requested composer, streaming transcript, command/output activity, run/cancel state, and changed-file/diff review. Sanitize terminal controls rather than interpreting them as HTML/application commands. Keep processes off the GUI thread, bound output/time, and handle launch failure and platform-specific child-process cleanup.
+
+Bind each session to its project; never silently change a running working directory. Persist a distinct versioned coding-session type with bounded activity and run state. Reopen does not rerun commands. Validate fake backends and temporary projects first; native execution/platform checks are separate gates.
+
+## 8. Deferred scope and review discipline
+
+Defer additional hosted/search providers until an adapter and evidence justify them. Full browser automation, JavaScript interaction, login/cookie sessions, forms/purchases, arbitrary execution in research, autonomous background tasks, model-provider failover, and research inside System One remain outside this roadmap's delivered scope.
+
+For each slice: inspect the relevant implementation, preserve user data, add tests for meaningful behavioral risks, run relevant offline/Qt checks, and update evidence without erasing historical limitations. Do not substitute test counts, documentation, or a startup screenshot for compatibility evidence.
+
+Immediate order: **D0.1 stream integrity → D0.2 accounting/state → D0.3 lifecycle/Qt → D1 harness and D2 release automation → E1 registry/picker**. Authorized live/provider and available platform checks proceed as their prerequisites become available; coding execution remains gated by E2.

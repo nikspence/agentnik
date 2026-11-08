@@ -31,7 +31,7 @@ def eligible(route,c,config,backends,access_policy):
         if not hosted.supported_endpoint(c): return 'Hosted adapter requires the official OpenAI Responses connection'
         field='hosted_search'
     else:
-        if not core.native_ollama(c) and c.get('protocol')!='responses': return 'Managed adapter requires native Ollama or Responses'
+        if c.get('protocol','chat') not in core.PROTOCOLS: return 'Unsupported managed protocol'
         field='managed_tools'
     state=research.capability(config,c,field).state
     if state not in ('configured','verified'): return f'{field}: {state}; configure this endpoint/model explicitly'

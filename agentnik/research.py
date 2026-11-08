@@ -4,7 +4,7 @@ from dataclasses import asdict, replace
 import json
 import re
 import time
-from . import core, ollama_tools, responses_tools
+from . import core, ollama_tools, responses_tools, compat_tools
 from .failures import classify
 from .tools import (Capability, DEFINITIONS, LimitError, ResearchError, ResearchEvent,
                     AccessError, Registry, RouteAttempt, Runtime, Source, ToolResult, utc_now)
@@ -45,9 +45,11 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
     owned_runtime=runtime is None
     runtime=runtime or Runtime(cancel,limits,run_id); attempt_started=time.monotonic(); route=RouteAttempt()
     is_responses=c.get("protocol")=="responses"
+    native=core.native_ollama(c)
+    protocol=c.get("protocol","chat")
     state={'version':2,'run_id':runtime.run_id,'route':'managed','status':'running','sources':[],
            'events':[],'tool_records':[],'exchanges':[],'attempts':[asdict(route)],'limits':asdict(runtime.limits),
-           'backend_attempts':getattr(backend,'attempts',[]),'capability_state':'configured','response_items':[],'provider_usage':[],'protocol':'responses' if is_responses else 'native_ollama'}
+           'backend_attempts':getattr(backend,'attempts',[]),'capability_state':'configured','response_items':[],'provider_usage':[],'protocol':'native_ollama' if native else protocol}
     prior_sources={s['id']:s for m in messages if m.get('status','ok')=='ok' for s in m.get('research',{}).get('sources',[]) if re.fullmatch(r'S\d+',s.get('id',''))}
     next_source=max((int(ident[1:]) for ident in prior_sources),default=0)+1
     secrets=(c.get('api_key',''),key,*getattr(backend,'secret_values',[]))
@@ -81,15 +83,16 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
         active.clear()
     try:
         runtime.check()
-        if not core.native_ollama(c) and not is_responses: raise ResearchError('Managed research requires native Ollama or Responses')
+        if protocol not in core.PROTOCOLS: raise ResearchError('Unsupported managed protocol')
         service=backend or OllamaWeb(key)
         registry=Registry(service.search,service.fetch)
         body=core.chat_body(c,messages)
         if is_responses:
             body.update(instructions=INSTRUCTIONS,store=False,include=['reasoning.encrypted_content'],tools=responses_tools.wire_tools(DEFINITIONS))
         else:
-            body['messages'].insert(0,{'role':'system','content':INSTRUCTIONS})
-            body['tools']=[d.wire() for d in DEFINITIONS]
+            if protocol=='messages': body['system']=INSTRUCTIONS
+            else: body['messages'].insert(0,{'role':'system','content':INSTRUCTIONS})
+            body['tools']=[d.wire() for d in DEFINITIONS] if native else compat_tools.wire_tools(DEFINITIONS,protocol)
         runtime.notify=lambda kind,detail:event(kind,detail)
         event('route','Agentnik managed: configured search backends and public page reader.')
         for round_number in range(runtime.limits.rounds+1):
@@ -103,7 +106,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 result.update(text=value['text'],thinking=combined_thinking(value['thinking']))
                 emit(snapshot())
             model_started=time.monotonic()
-            try: assistant,calls=runtime.wait(lambda:(responses_tools if is_responses else ollama_tools).request(c,body,runtime,progress,active))
+            try: assistant,calls=runtime.wait(lambda:(responses_tools if is_responses else ollama_tools if native else compat_tools).request(c,body,runtime,progress,active))
             finally: model_seconds+=time.monotonic()-model_started
             active_text=active.get('text',''); active_thinking=active.get('thinking','')
             usage()
@@ -150,8 +153,15 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 if is_responses:
                     wire={'type':'function_call_output','call_id':call.id,'output':content}
                     body['input'].append(wire); state['response_items'].append(wire)
+                elif protocol=='messages':
+                    block={'type':'tool_result','tool_use_id':call.id,'content':content}
+                    if body['messages'][-1]['role']=='user': body['messages'][-1]['content'].append(block)
+                    else:
+                        wire={'role':'user','content':[block]}
+                        body['messages'].append(wire); state['exchanges'].append(wire)
                 else:
-                    if call.provider.get('id'): wire['tool_call_id']=call.provider['id']
+                    if not native: wire={'role':'tool','tool_call_id':call.id,'content':content}
+                    elif call.provider.get('id'): wire['tool_call_id']=call.provider['id']
                     body['messages'].append(wire); state['exchanges'].append(wire)
                 event('tool_completed',f'{call.name}: {len(sources)} source(s)')
         else: raise LimitError('Research round limit reached')

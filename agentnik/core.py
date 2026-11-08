@@ -175,6 +175,11 @@ def chat_body(c, messages):
             if response_context_bytes>128_000:
                 raise ValueError('Saved Responses context exceeds 128 KB; open a new chat')
             history.extend(copy.deepcopy(saved)); continue
+        if protocol in ('chat','messages') and not native_ollama(c) and m.get('research',{}).get('protocol')==protocol and m['research'].get('exchanges'):
+            import copy
+            saved=m['research']['exchanges']; response_context_bytes+=len(json.dumps(saved).encode())
+            if response_context_bytes>128_000: raise ValueError('Saved tool context exceeds 128 KB; open a new chat')
+            history.extend(copy.deepcopy(saved)); continue
         text_type = 'output_text' if m['role'] == 'assistant' else 'input_text'
         content = m['text']
         if m.get('images'):

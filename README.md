@@ -47,7 +47,7 @@ Optional key files can be supplied with `--litellm-key-file PATH` and `--ollama-
 
 ## Project status
 
-Milestones B and C provide a bounded research preview with native Ollama and Responses managed tools, OpenAI Responses hosted search, all four route policies, visible fallback, sources, persistence, and shared accounting. Live research compatibility remains unverified. Milestone D still covers the remaining research adapters, broader security/GUI checks, and distribution readiness; see `AGENTNIK_PLAN.md`.
+Milestones B and C provide a bounded research preview with native Ollama and Responses managed tools, OpenAI Responses hosted search, all four route policies, visible fallback, sources, persistence, and shared accounting. Live research compatibility remains unverified. Milestone D now includes Chat Completions and Messages managed adapters; live compatibility, broader platform checks, and distribution readiness remain outstanding; see `AGENTNIK_PLAN.md`.
 
 Future Coding Agent work will add a saved **Repositories** list for local repositories or project folders. **＋ Code** will ask which project to use, then open an independent CLI-style coding pane. This workflow is planned in `AGENTNIK_PLAN.md`; it is not available yet.
 
@@ -88,7 +88,7 @@ The provider performs search inside the submitted Responses request using its co
 
 ### Agentnik-managed tools
 
-Managed tools support native Ollama (the detected port 11434 route or direct Ollama.com chat) and explicitly configured Responses endpoints. **Chat Completions** and **Messages** research adapters are still planned; their ordinary chat behavior remains available. System One is separate from research.
+Managed tools support native Ollama (the detected port 11434 route or direct Ollama.com chat), Responses, Chat Completions, and Messages, each explicitly enabled per endpoint/model. Chat Completions retains assistant tool calls and `tool_call_id` results. Messages retains signed/redacted thinking blocks and groups matching `tool_result` blocks in a user message. Streamed arguments are assembled before any tool executes; malformed, duplicate, or truncated calls stop the turn. System One is separate from research.
 
 Configure a separate Ollama search API key in **Web settings…**, or use **Manage ordered search backends…** to add, edit, reorder, and remove independently credentialed profiles. The initial adapter uses [Ollama's search API](https://docs.ollama.com/capabilities/web-search); additional service adapters remain future work. Up to five profiles can participate. The optional `OLLAMA_WEB_API_KEY` profile follows saved profiles when there is room and no saved default profile. Inference `OLLAMA_API_KEY` is never reused for search. Removing a saved profile does not unset an environment key.
 

@@ -7,7 +7,7 @@ Agentnik is a cross-platform Python desktop client for chat and Ollama System On
 - `agentnik/core.py`: endpoint discovery, request formats, streaming, and decision validation.
 - `agentnik/storage.py`: local SQLite session history, attachments, connection settings, and credential-store integration.
 - `agentnik/tools.py`, `agentnik/research.py`: bounded tool contracts and managed research orchestration.
-- `agentnik/ollama_tools.py`, `agentnik/responses_tools.py`: protocol-specific structured streaming and continuation.
+- `agentnik/ollama_tools.py`, `agentnik/responses_tools.py`, `agentnik/compat_tools.py`: protocol-specific structured streaming and continuation.
 - `agentnik/hosted.py`, `agentnik/routing.py`, `agentnik/failures.py`: hosted search, scoped eligibility, conservative fallback, and shared attempt accounting.
 - `agentnik/citations.py`: inline citation formatting from recorded sources/annotations.
 - `agentnik/web.py`: dedicated public-address transport and Ollama search adapter.
@@ -40,4 +40,4 @@ Tests set Qt to use its offscreen platform; PySide6 and keyring must be installe
 
 ## Roadmap
 
-Read `AGENTNIK_PLAN.md` before research work. Establish and validate milestone A before adding web tools. Milestones B/C implement native Ollama and Responses managed research, official OpenAI Responses hosted search, and four route policies with bounded fallback. Chat Completions/Messages research adapters and distribution readiness remain milestone D work. Never bypass access restrictions or automatically replay partial/uncertain submissions; do not infer capability from protocol compatibility. Preserve the explicit preview status and distinguish offline tests from live compatibility. Do not issue live inference requests during ordinary validation.
+Read `AGENTNIK_PLAN.md` before research work. Establish and validate milestone A before adding web tools. Milestones B/C implement native Ollama and Responses managed research, official OpenAI Responses hosted search, and four route policies with bounded fallback. Milestone D adds Chat Completions/Messages managed adapters with protocol-specific continuation. Live compatibility, cross-platform and full distribution validation remain outstanding. Never bypass access restrictions or automatically replay partial/uncertain submissions; do not infer capability from protocol compatibility. Preserve the explicit preview status and distinguish offline tests from live compatibility. Do not issue live inference requests during ordinary validation.

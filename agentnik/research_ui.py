@@ -98,7 +98,7 @@ class WebSettings(QDialog):
 
 def core_managed(c):
     from . import core
-    return core.native_ollama(c) or c.get('protocol')=='responses'
+    return c.get('protocol','chat') in core.PROTOCOLS
 
 
 class ResearchDetails(QWidget):
