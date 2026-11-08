@@ -18,4 +18,20 @@ Do not launch a real coding CLI, subprocess, or paid model request just to ident
 - The optional System One recommendation remains planned. It will be advisory, bound to the exact proposal, and shown with reasons and risk badges. A missing, invalid or timed-out check must not become a Safe recommendation. It never replaces execution policy or user approval.
 - Activity keeps at most 32 records of 2,048 characters. Drafts survive cancellation. Reopening a running/awaiting-approval simulation records interruption and never restarts it. Schema version 4 remains compatible with passive E1 panes; no real execution state is embedded in old chat histories.
 
-Next: choose a candidate structured CLI interface, review its official protocol and approval guarantees, and build an adapter behind this contract with fake transport/process fixtures before enabling a live backend.
+## Selected protocol candidate: Codex app-server
+
+Codex app-server is the first integration candidate, not an enabled coding backend. The [official app-server documentation](https://developers.openai.com/codex/app-server/) describes initialization, structured item/turn events and server-initiated command/file approval requests. It also states approval depends on server settings. Therefore receiving approval events alone does not establish that every command or file change will wait for Agentnik approval.
+
+The process-free `agentnik/codex_protocol.py` spike uses injected send/event functions. It handles initialization, explicit active-turn identity, bounded JSON parsing, command approval correlation, one-shot accept/decline and invalidation on resolution/completion/close. Command strings stay opaque; they are never split into invented argument arrays. The full request payload participates in its fingerprint. Network/additional-permission requests are not accepted as ordinary command approvals. Unknown server requests receive an unsupported-method error; malformed messages close the adapter and clear pending decisions.
+
+The installed Codex launcher was identified through filesystem/command inventory only. It was not executed. This spike neither connects to it nor reads account tokens, starts inference, writes project files or provides process-tree cleanup. Fixtures validate client behavior; they cannot prove server-side enforcement.
+
+Next implementation gates:
+
+1. Build a bounded stdio transport against fake child-process fixtures: launch/exit/error handling, complete-line framing, stderr limits, backpressure, interruption and owned-child cleanup. No automatic reconnect/replay.
+2. Review the installed version's supported configuration/schema before any explicit startup. Isolate inherited hooks, MCP servers, skills, user/project settings and environment credentials; startup itself must not silently activate extensions.
+3. Establish the exact approval/sandbox policy. Require evidence that all intended commands/edits are intercepted, or keep execution disabled. A workspace path and a request notification are not enforcement.
+4. Add explicit thread/turn start/resume/interrupt only after lifecycle and authentication contracts are selected. Persist identity without replaying commands on reopen. Treat CLI authentication/provider compatibility separately from Agentnik's LiteLLM chat connections.
+5. Qualify a real backend on temporary projects with explicit authorization. Test pre-existing uncommitted changes, denial, cancellation, child cleanup and diff provenance before exposing real Run controls.
+
+The native argument-tuple simulation and opaque-string Codex proposal are distinct representations. Future System One review must evaluate the exact native representation and permissions, never a lossy re-parsed command preview.
