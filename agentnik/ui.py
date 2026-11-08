@@ -978,7 +978,7 @@ class Window(QMainWindow):
     def stats(self,*_):
         self.refresh_prompts()
         tab = self.tabs.currentWidget()
-        if isinstance(tab,CodeTab): self.statusBar().showMessage('Code · '+tab.session['project_name']+' · Backend not connected'); return
+        if isinstance(tab,CodeTab): self.statusBar().showMessage('Code · '+tab.session['project_name']+' · '+('Running' if tab.job else 'Ready')); return
         if not isinstance(tab,SessionTab): self.statusBar().showMessage('Ready · New chat: Ctrl+N · Toggle history: Ctrl+B'); return
         s = tab.session; measurements = [m['metrics'] for m in s['messages'] if 'metrics' in m] if s['mode']=='chat' else [r['result']['metrics'] for r in s['runs']]
         total_in = sum(m.get('input_tokens',0) for m in measurements); total_out = sum(m.get('output_tokens',0) for m in measurements)
@@ -988,7 +988,7 @@ class Window(QMainWindow):
         if context is not None and limit: text += f' ({context/limit:.1%})'
         self.statusBar().showMessage(text+f' tokens   ·   Total in: {number(total_in)}   ·   Total out: {number(total_out)}'+(' (known usage only)' if unknown else '')+'   ·   '+s['connection_name'])
     def closeEvent(self,event):
-        running = [self.tabs.widget(i) for i in range(self.tabs.count()) if isinstance(self.tabs.widget(i),SessionTab) and self.tabs.widget(i).job]
+        running = [self.tabs.widget(i) for i in range(self.tabs.count()) if isinstance(self.tabs.widget(i),(SessionTab,CodeTab)) and self.tabs.widget(i).job]
         if running and not confirm(self,'Requests are running. Close Agentnik and stop receiving responses?'): event.ignore(); return
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
