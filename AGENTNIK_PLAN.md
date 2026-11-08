@@ -22,6 +22,7 @@ Agentnik is an independent Python/Qt desktop application for chat, Ollama System
 | C — Hosted research and routing | Implemented preview: managed Responses, official OpenAI Responses hosted search, four policies, bounded fallback/accounting | Offline evidence; live research compatibility unverified |
 | D — Hardening and release readiness | In progress: development tree adds Chat Completions/Messages managed adapters and a readiness-based frozen smoke script | D0 local hardening, D1 controlled compatibility evidence, D2 distribution/platform gates below |
 | E — Coding Agent | Planned | Begin with passive repository registry/picker; execution needs a separate boundary/backend decision |
+| F — MCP servers and Skills | Long-term planned | Optional extensions with explicit configuration, activation, permissions, and shared tool approvals |
 
 The current offline baseline is **90 passing tests**, including offscreen Qt and mocked protocol/transport checks. This establishes contract coverage, not real provider compatibility. Existing screenshots use simulated responses. User testing has reported successful Windows use; that is useful feedback, not a completed native workflow matrix.
 
@@ -72,6 +73,8 @@ Audit `compat_tools.py` first. Enforce coherent message/block lifecycle and term
 Preserve complete Responses output items, Messages thinking/signatures, and correlated results across follow-up turns. Define which partial exchanges may be persisted after failure without becoming executable continuation. Add multi-block/annotation-offset and truncated-stream fixtures where existing coverage is incomplete.
 
 Acceptance: hostile event-order fixtures fail before tool execution; valid fragmented/multiple calls retain exact correlation and continuation; ordinary chat and all managed adapters still pass offline tests.
+
+D0.1 progress: Chat Completions/Messages lifecycle hardening is implemented with offline rejection tests for missing/duplicate starts, premature/duplicate terminal events, content after closure/completion, ambiguous tool indexes, malformed identifiers/function fragments, and valid fragmented multi-call correlation. Messages retains signed/redacted thinking and grouped results; documented ping events remain harmless. The offline suite now has 94 passing tests. Remaining D0.1 work: Responses multi-block/annotation/truncation edge cases and explicit partial-exchange persistence semantics. This does not establish live Messages compatibility.
 
 ### D0.2 Usage and durable state
 
@@ -141,13 +144,52 @@ Choose deliberately between integrating an existing coding CLI and implementing 
 
 A selected directory is not a filesystem sandbox. Define enforceable file/command/network boundaries, approvals, operations outside the project, and destructive-action handling before enabling execution. Keep coding tools/credentials separate from chat/research. Preserve pre-existing uncommitted changes; no automatic reset, clean, commit, push, or publish.
 
+### Optional System One command safety recommendation
+
+When the Coding Agent is ready to request approval for a proposed command, optionally run a configured System One decision model against that command and a deliberately limited context (for example, working-directory scope and the intended operation). Show the result alongside the exact command in the approval view as a concise recommendation with reason text and one or more clear badges. Suggested categories include **Safe**, **Risky**, **Privacy**, **Warning**, and **Danger**; define the structured decision schema and mapping so labels are consistent and explainable. Multiple badges may apply, and an uncertain or incomplete result must be shown as **Unknown** or **Review needed**, not silently treated as safe.
+
+This check is opt-in and advisory. It never grants approval, suppresses the normal user approval step, or replaces enforced execution boundaries. The user sees what command and context will be sent, which configured decision endpoint/model will receive it, and the result before approving or rejecting. If the check is disabled, unavailable, times out, or returns invalid output, present that status plainly and continue only through the ordinary approval policy; do not represent missing review as a safety pass. Do not send secrets or unrelated conversation history. Preserve the recommendation and its scope in the session's bounded audit record without storing credentials.
+
+Acceptance: tests cover badge mapping, mixed categories, explanation and uncertainty display, opt-in/offline/error states, context minimization, and the fact that every command still requires the established approval and enforcement path. Validate that the proposed command shown for approval is the same command evaluated; any modification requires a fresh review.
+
 ### E3: CLI-style coding sessions
 
 Provide the requested composer, streaming transcript, command/output activity, run/cancel state, and changed-file/diff review. Sanitize terminal controls rather than interpreting them as HTML/application commands. Keep processes off the GUI thread, bound output/time, and handle launch failure and platform-specific child-process cleanup.
 
 Bind each session to its project; never silently change a running working directory. Persist a distinct versioned coding-session type with bounded activity and run state. Reopen does not rerun commands. Validate fake backends and temporary projects first; native execution/platform checks are separate gates.
 
-## 8. Deferred scope and review discipline
+## 8. F — MCP servers and Skills (long term)
+
+Add optional extensibility through **Model Context Protocol (MCP) servers** and reusable **Skills** after the core execution and approval contracts are established. Support chat and coding where appropriate, with capabilities explicitly enabled for each session/project. Do not automatically expose extensions to System One decisions or bypass research navigation policy.
+
+### F1: MCP server configuration and connections
+
+- Provide a server manager to add, edit, enable/disable, remove, and test configured servers. Plan for local process-based and remote HTTP connections; select supported transports, protocol versions, and authentication flows against the official MCP specification during implementation.
+- Show server identity, connection status, discovered capabilities, and the permissions/data exposure involved. Store credentials through the existing credential mechanism and exclude them from exports. Review local launch commands and remote destinations before connecting; discovery of a server is not authorization to launch or use it.
+- Start with a small explicit capability set, then add tools, resources, and prompts in reviewed slices. Namespace identifiers by server, validate schemas and payloads, handle capability changes, and preserve source provenance. Server descriptions and returned content are untrusted input.
+- Run connections off the GUI thread with bounded requests/output, cancellation, reconnect behavior, and local child-process cleanup. Reopening a session does not replay tool calls or silently launch a server.
+
+### F2: Shared tool permissions and activity
+
+Route MCP tool calls through the same reviewed execution/approval policy as built-in tools, with per-server/tool and per-session/project controls. Clearly identify the server, operation, arguments, and affected data in approval and activity views. Read-only hints or server-supplied safety descriptions do not grant permissions. A skill cannot grant them either.
+
+Where a tool proposes command execution, the optional System One command safety recommendation can appear in its approval view under the same advisory rules as E2. It must evaluate the actual command and scope; do not apply command-line badges to opaque remote tools as though their effects were known. Preserve bounded, credential-free activity and results in session history.
+
+### F3: Reusable Skills
+
+- Define a documented, versioned skill format based on a `SKILL.md` entry point plus optional supporting resources/scripts. Evaluate compatibility with established skill formats before choosing Agentnik-specific metadata; do not promise universal format compatibility.
+- Support user-level and repository-level skill libraries with explicit discovery roots, stable identity, source/version information, duplicate resolution, and enable/disable controls. Do not scan arbitrary directories or execute installation hooks while discovering skills.
+- Let users select a skill explicitly first; later consider suggested activation with visible reasons and user controls. Show active skills in the session and load only the instructions/resources needed within context limits.
+- Review a skill's source and requested capabilities before enabling it. Treat instructions, references, and scripts as untrusted; prevent path traversal and access outside approved roots. Scripts use the established command execution/approval path. Installing or selecting a skill never grants file, network, tool, or credential access by itself.
+- Keep secrets out of skill files and exports. Define update/removal behavior and record which skill revision informed a session without rerunning anything on reopen. Skill-generated MCP requests remain subject to F2.
+
+### Delivery and acceptance
+
+Sequence **F1 server manager and explicit connections → F2 limited tool integration → F3 explicit skill activation**, then expand resources/prompts and suggested activation when evidence supports them. Keep dependencies optional where practical and validate Windows/macOS/Linux separately.
+
+Use fake servers and temporary skill libraries for ordinary tests. Cover disabled/missing servers, malformed/changing schemas, tool-name collisions, credential isolation, approval denial, cancellation/late responses, reconnect and process cleanup, hostile resource paths, bounded context/output, skill updates, and reopen without execution. Live server compatibility is recorded separately by server/version/transport/capability. MCP and Skills remain planned features until these slices are implemented and validated.
+
+## 9. Deferred scope and review discipline
 
 Defer additional hosted/search providers until an adapter and evidence justify them. Full browser automation, JavaScript interaction, login/cookie sessions, forms/purchases, arbitrary execution in research, autonomous background tasks, model-provider failover, and research inside System One remain outside this roadmap's delivered scope.
 

@@ -117,7 +117,12 @@ class PublicTransport:
                     raise EndpointError(r.status,json.dumps({'error':{'message':'Web service rejected the request'}}),r.getheader('Retry-After'))
                 ctype=r.getheader('Content-Type','').split(';')[0].strip().lower()
                 allowed=('application/json',) if body is not None else ('text/html','text/plain','application/xhtml+xml')
-                if ctype not in allowed: raise AccessError('Unsupported web content type')
+                # Ollama's search API can label its JSON payload as text/html.
+                # Permit that label only for this fixed POST endpoint; OllamaWeb
+                # still requires valid JSON and the expected results schema.
+                mislabeled_search = (body is not None and url=='https://ollama.com/api/web_search'
+                                     and not redirects and ctype=='text/html')
+                if ctype not in allowed and not mislabeled_search: raise AccessError('Unsupported web content type')
                 payload=read_bounded(r,c,runtime)
                 return url,ctype,payload
             finally: c.close()

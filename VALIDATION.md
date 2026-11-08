@@ -66,3 +66,24 @@ All 90 offline tests pass, including six additional protocol matrix tests. Chat 
 References checked: [Chat Completions streaming](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events) and [Messages streaming](https://platform.claude.com/docs/en/build-with-claude/streaming). Protocol mocks do not establish live model compatibility. Milestone D remains incomplete pending live provider checks, full native workflows and macOS/Linux validation. Existing v0.1.0 release artifacts and tag are preserved; development builds use a separate output directory.
 
 The isolated milestone D Windows development build passed actual frozen Qt window initialization, temporary SQLite creation, and graceful exit code 0. `tools/smoke_frozen.ps1` waits up to 30 seconds for real readiness instead of treating process input-idle as app readiness. This remains a startup smoke check, not full native workflow or live-provider validation.
+
+
+## Initial authorized LiteLLM live checks
+
+User-authorized live checks against the supplied LiteLLM gateway returned 115 model aliases. Streamed chat passed for `ollama-cloud/gpt-oss:20b` (Chat Completions), `chatgpt/gpt-6-luna` (Responses), and `us-west-2/google.gemma-3-4b-it` (Chat Completions). The Ollama and ChatGPT aliases also passed real model tool-call/result continuation with a synthetic local source through Agentnik's managed loop. This does not establish live web search or page-fetch compatibility. Two Claude aliases were rejected by Mantle as unavailable to the account; one older subscription alias was rejected as unsupported for the ChatGPT account route. No native GUI checks were part of this run. See [the scoped results](MILESTONE_D_LIVE_RESULTS.md) for the matrix and remaining gaps. Historical offline-only checkpoints above remain accurate for their original scope.
+
+
+## Search content-type fix and successful live recheck
+
+The authorized header inspection found HTTP 200 with `Content-Type: text/html; charset=utf-8`, no content encoding, and a valid JSON object containing `results`. Ollama search was labeling JSON as HTML. The transport now accepts that label only for a POST to the exact `https://ollama.com/api/web_search` URL with redirects disabled; JSON parsing and search-result schema checks still apply. Other endpoints and content-type checks remain restricted.
+
+A real recheck using `chatgpt/gpt-6-luna` through LiteLLM Responses completed one Ollama search and one direct public-page fetch. It returned five search sources and one fetched source, then answered with citations to S1 and S6. Three model requests completed in about 18.6 seconds, with usage reported. This establishes end-to-end managed search/fetch compatibility for this exact route, not hosted search or native GUI validation. Detail is under ignored `test-output/litellm-real-web-fixed.json`.
+
+All 91 offline tests and compile checks passed. Regression coverage accepts mislabeled valid results, rejects actual HTML and wrong JSON structure, and rejects the exception on other endpoints or with redirects enabled. Account feedback confirms Anthropic is unavailable despite its listed aliases; further live targets prioritize ChatGPT 6+, DeepSeek, or Kimi.
+
+
+## D0.1 Chat Completions and Messages stream integrity
+
+All 94 offline tests pass, including three additional protocol test groups with hostile event-order/fragment subcases and valid fragmented multi-call continuation. Messages now requires a coherent start, sequential closed content blocks, terminal message deltas, and a final stop. Duplicate/premature/late lifecycle events are rejected before tool dispatch. Non-streamed Messages and signed/redacted thinking remain covered. Chat Completions requires streamed tool indexes, rejects duplicate indexes within an event, validates fragment types, and rejects choice data after a finish reason while still accepting the usage-only tail. Valid fragmented names/arguments and multiple correlated results remain supported. No new runtime dependencies were introduced; compile checks passed.
+
+This slice used mocks/offscreen Qt only and made no live inference requests. No GUI changes were made. Responses annotation/continuation edge cases and partial-record persistence review remain open within D0.1.

@@ -14,7 +14,7 @@ def wire_tools(definitions,protocol):
 def request(c,body,runtime,emit,state):
     messages=c.get('protocol')=='messages'
     state.update(text='',thinking='',metrics={})
-    blocks={}; fragments={}; closed=set(); calls={}; finish=None; stopped=False
+    blocks={}; fragments={}; closed=set(); calls={}; finish=None; stopped=False; started=False; message_delta_seen=False
     def usage(data):
         state['metrics'].update({k:v for k,v in core.usage_metrics(data).items() if type(v) in (int,float) and math.isfinite(v) and v>=0})
     def block_index(data):
@@ -29,10 +29,19 @@ def request(c,body,runtime,emit,state):
             usage(data)
             if messages:
                 typ=data.get('type')
-                if typ=='message_start': usage(data.get('message',{}))
+                if stopped and typ!='ping': raise ResearchError('Messages event after completion')
+                if typ=='message_start':
+                    if started or blocks: raise ResearchError('Duplicate Messages start')
+                    if not isinstance(data.get('message'),dict): raise ResearchError('Malformed Messages start')
+                    started=True; usage(data['message'])
+                elif typ not in ('ping','message') and not started:
+                    raise UncertainError('Messages event before message start')
                 elif typ=='content_block_start':
+                    if message_delta_seen: raise ResearchError('Content after message delta')
+                    if not isinstance(data.get('content_block'),dict): raise ResearchError('Malformed content block')
                     i=block_index(data)
                     if i in blocks: raise ResearchError('Duplicate content block')
+                    if closed!=set(blocks) or i!=len(blocks): raise ResearchError('Out-of-order content block')
                     blocks[i]=copy.deepcopy(data['content_block'])
                 elif typ=='content_block_delta':
                     i=block_index(data)
@@ -58,9 +67,21 @@ def request(c,body,runtime,emit,state):
                         try: blocks[i]['input']=json.loads(fragments[i])
                         except (ValueError,RecursionError): raise ResearchError('Malformed streamed tool JSON') from None
                     closed.add(i)
-                elif typ=='message_delta': finish=data.get('delta',{}).get('stop_reason',finish)
-                elif typ=='message_stop': stopped=True
-                elif isinstance(data.get('content'),list):
+                elif typ=='message_delta':
+                    if closed!=set(blocks): raise ResearchError('Message delta before content closed')
+                    if not isinstance(data.get('delta'),dict): raise ResearchError('Malformed message delta')
+                    reason=data['delta'].get('stop_reason')
+                    if reason is not None:
+                        if finish is not None: raise ResearchError('Duplicate stop reason')
+                        finish=reason
+                    message_delta_seen=True
+                elif typ=='message_stop':
+                    if not message_delta_seen or closed!=set(blocks): raise ResearchError('Premature message stop')
+                    stopped=True
+                elif typ=='message' and isinstance(data.get('content'),list):
+                    if started: raise ResearchError('Full message inside stream')
+                    started=True
+                    if any(not isinstance(b,dict) for b in data['content']): raise ResearchError('Malformed content block')
                     blocks={i:copy.deepcopy(b) for i,b in enumerate(data['content'])}; closed=set(blocks)
                     finish=data.get('stop_reason'); stopped=True
                 elif typ not in ('ping',): raise ResearchError('Unexpected Messages event')
@@ -71,20 +92,37 @@ def request(c,body,runtime,emit,state):
                 state['thinking']=''.join(b.get('thinking','') for _,b in sorted(blocks.items()) if b.get('type')=='thinking')
             else:
                 choices=data.get('choices',[])
+                if not isinstance(choices,list): raise ResearchError('Malformed completion choices')
                 if len(choices)>1: raise ResearchError('Multiple completion choices are not supported')
                 if choices:
-                    choice=choices[0]; delta=choice.get('delta') or choice.get('message') or {}
+                    if finish is not None: raise ResearchError('Completion data after finish')
+                    choice=choices[0]
+                    if not isinstance(choice,dict): raise ResearchError('Malformed completion choice')
+                    if choice.get('index',0)!=0: raise ResearchError('Unexpected completion choice index')
+                    delta=choice.get('delta') or choice.get('message') or {}
+                    if not isinstance(delta,dict): raise ResearchError('Malformed completion delta')
+                    for field in ('content','reasoning_content'):
+                        if delta.get(field) is not None and not isinstance(delta[field],str): raise ResearchError('Malformed text delta')
+                    raw_calls=delta.get('tool_calls',[])
+                    if not isinstance(raw_calls,list): raise ResearchError('Malformed tool calls')
+                    event_indexes=set()
                     state['text']+=delta.get('content') or ''
                     state['thinking']+=delta.get('reasoning_content') or ''
-                    for pos,call in enumerate(delta.get('tool_calls',[])):
+                    for pos,call in enumerate(raw_calls):
+                        if not isinstance(call,dict): raise ResearchError('Malformed tool call')
+                        if 'delta' in choice and 'index' not in call: raise ResearchError('Streamed tool call missing index')
                         if call.get('type','function')!='function': raise ResearchError('Unregistered tool type')
                         i=call.get('index',pos)
                         if type(i) is not int or not 0<=i<runtime.limits.calls: raise LimitError('Tool index limit reached')
+                        if i in event_indexes: raise ResearchError('Duplicate tool index in event')
+                        event_indexes.add(i)
                         current=calls.setdefault(i,{'id':'','type':'function','function':{'name':'','arguments':''}})
+                        if 'id' in call and (not isinstance(call['id'],str) or not call['id']): raise ResearchError('Malformed tool ID')
                         if call.get('id'):
                             if current['id'] and current['id']!=call['id']: raise ResearchError('Conflicting tool ID')
                             current['id']=call['id']
                         fn=call.get('function',{})
+                        if not isinstance(fn,dict): raise ResearchError('Malformed function fragment')
                         for field in ('name','arguments'):
                             value=fn.get(field,'')
                             if not isinstance(value,str): raise ResearchError('Malformed function fragment')

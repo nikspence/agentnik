@@ -67,7 +67,7 @@ class Matrix(unittest.TestCase):
                 {'type':'content_block_delta','index':1,'delta':{'type':'input_json_delta','partial_json':'"evidence"}'}},
                 {'type':'content_block_stop','index':1},
                 {'type':'message_delta','delta':{'stop_reason':'tool_use'},'usage':{'output_tokens':4}}, {'type':'message_stop'}]
-        final=[{'type':'content_block_start','index':0,'content_block':{'type':'text','text':'Answer [S1]'}}, {'type':'content_block_stop','index':0},
+        final=[{'type':'message_start','message':{}}, {'type':'content_block_start','index':0,'content_block':{'type':'text','text':'Answer [S1]'}}, {'type':'content_block_stop','index':0},
                {'type':'message_delta','delta':{'stop_reason':'end_turn'},'usage':{'output_tokens':2}}, {'type':'message_stop'}]
         result,bodies,backend,c=self.run_loop('messages',[Wire(events),Wire(final)],True)
         self.assertEqual(result['status'],'ok'); self.assertEqual(bodies[1]['messages'][-2]['content'][0]['signature'],'signed')
@@ -80,6 +80,47 @@ class Matrix(unittest.TestCase):
         for stop in ('max_tokens',None):
             result,_,backend,_=self.run_loop('messages',[Wire(msg([{'type':'tool_use','id':'a','name':'web_search','input':{'query':'x'}}],stop),False)])
             self.assertEqual(result['status'],'failed'); self.assertFalse(backend.searches)
+
+    def test_messages_invalid_lifecycle_never_executes(self):
+        start={'type':'message_start','message':{}}
+        block={'type':'content_block_start','index':0,'content_block':{'type':'tool_use','id':'a','name':'web_search','input':{'query':'evidence'}}}
+        close={'type':'content_block_stop','index':0}
+        delta={'type':'message_delta','delta':{'stop_reason':'tool_use'}}
+        stop={'type':'message_stop'}
+        valid=[start,block,close,delta,stop]
+        fixtures=[valid[1:], [start,*valid], valid+[stop], valid+[block],
+                  [start,block,delta,close,stop], [start,block,close,stop],
+                  [start,block,close,delta,delta,stop],
+                  [start,block,close,delta,block,stop],
+                  [start,block,close,{'type':'content_block_delta','index':0,'delta':{'type':'input_json_delta','partial_json':'{}'}},delta,stop]]
+        for events in fixtures:
+            with self.subTest(events=events):
+                result,_,backend,_=self.run_loop('messages',[Wire(events)],True)
+                self.assertEqual(result['status'],'failed'); self.assertFalse(backend.searches)
+
+    def test_chat_stream_multiple_fragmented_calls_preserve_correlation(self):
+        events=[{'choices':[{'delta':{'tool_calls':[
+                    {'index':0,'id':'first','type':'function','function':{'name':'web_','arguments':'{"query":'}},
+                    {'index':1,'id':'second','type':'function','function':{'name':'web_search','arguments':'{"query":"two"}'}}]}}]},
+                {'choices':[{'delta':{'tool_calls':[{'index':0,'function':{'name':'search','arguments':'"one"}'}}]},'finish_reason':'tool_calls'}]}]
+        final=[{'choices':[{'delta':{'content':'Answer [S1] [S2]'},'finish_reason':'stop'}]}]
+        result,bodies,backend,_=self.run_loop('chat',[Wire(events),Wire(final)],True)
+        self.assertEqual(result['status'],'ok'); self.assertEqual(backend.searches,['one','two'])
+        self.assertEqual([m['tool_call_id'] for m in bodies[1]['messages'] if m['role']=='tool'],['first','second'])
+
+    def test_chat_invalid_fragments_and_terminal_events_never_execute(self):
+        call=dict(chat_call(),index=0)
+        end={'choices':[{'delta':{},'finish_reason':'tool_calls'}]}
+        first={'choices':[{'delta':{'tool_calls':[call]}}]}
+        fixtures=[[first,end,end], [first,end,first],
+                  [{'choices':[{'delta':{'tool_calls':[chat_call()]},'finish_reason':'tool_calls'}]}],
+                  [{'choices':[{'delta':{'tool_calls':[call,call]},'finish_reason':'tool_calls'}]}]]
+        for bad in [dict(call,id=42),dict(call,function=[]),dict(call,function={'name':'web_search','arguments':{}})]:
+            fixtures.append([{'choices':[{'delta':{'tool_calls':[bad]},'finish_reason':'tool_calls'}]}])
+        for events in fixtures:
+            with self.subTest(events=events):
+                result,_,backend,_=self.run_loop('chat',[Wire(events)],True)
+                self.assertEqual(result['status'],'failed'); self.assertFalse(backend.searches)
 
     def test_disconnected_streams_do_not_execute_partial_tools(self):
         fixtures=[('chat',[{'choices':[{'delta':{'tool_calls':[dict(chat_call(),index=0)]}}]}]),

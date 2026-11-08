@@ -266,6 +266,26 @@ class TransportContracts(unittest.TestCase):
         self.assertNotIn('headers',transport.request.call_args.kwargs)
         self.assertNotIn('evil',sources[0].excerpt); self.assertEqual(sources[0].title,'Title')
 
+    def test_mislabeled_search_json_is_scoped_and_validated(self):
+        connection=MagicMock()
+        def response(payload):
+            r=io.BytesIO(payload); r.status=200
+            r.getheader=lambda name,default=None: 'text/html; charset=utf-8' if name=='Content-Type' else default
+            return r
+        with patch.object(socket,'getaddrinfo',return_value=PUBLIC),patch.object(web,'PinnedConnection',return_value=connection):
+            connection.getresponse.return_value=response(b'{"results":[]}')
+            self.assertEqual(web.OllamaWeb('key').search('x',Runtime()),[])
+            for payload in (b'<html>Not JSON</html>',b'{"unexpected":true}'):
+                connection.getresponse.return_value=response(payload)
+                with self.assertRaisesRegex(web.ResearchError,'Malformed search'):
+                    web.OllamaWeb('key').search('x',Runtime())
+            for url,redirects in [('https://example.com/api/web_search',False),
+                                  ('https://ollama.com/other',False),
+                                  ('https://ollama.com/api/web_search',True)]:
+                connection.getresponse.return_value=response(b'{"results":[]}')
+                with self.assertRaises(AccessError):
+                    web.PublicTransport().request(url,Runtime(),body=b'{}',redirects=redirects)
+
     def test_service_redirect_content_type_and_malformed_json_errors(self):
         connection=MagicMock(); r=MagicMock(); connection.getresponse.return_value=r
         with patch.object(socket,'getaddrinfo',return_value=PUBLIC),patch.object(web,'PinnedConnection',return_value=connection):
