@@ -217,7 +217,7 @@ Windows source and offscreen Qt checks are recorded in `VALIDATION.md`. macOS/Li
 
 ## Packaging
 
-The first Windows x64 build is tagged **v0.1.0**. Extract the complete `Agentnik-v0.1.0-windows-x64.zip` folder and run `Agentnik/Agentnik.exe`; keep its `_internal` folder beside it. Python is bundled. The application uses independent Agentnik storage as described above. This build is unsigned; live endpoint and full distribution workflow validation remain outstanding.
+The Windows x64 release is **v0.2.0**. Extract the complete `Agentnik-v0.2.0-windows-x64.zip` archive and run `Agentnik/Agentnik.exe`; keep its `_internal` folder beside it. Python is bundled. See [release notes](RELEASE_NOTES.md) and the bundled `BUILD-MANIFEST.json` for changes and build evidence. The build is unsigned. Research remains a preview with scoped live compatibility results; full native workflow, clean-machine, and macOS/Linux validation remain pending. The historical v0.1.0 tag/archive is preserved.
 
 The Python wheel has been built and installed locally; see [validation results](VALIDATION.md). To build a wheel without resolving runtime dependencies:
 

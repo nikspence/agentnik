@@ -135,7 +135,7 @@ For each claimed platform/artifact, record:
 
 A Windows preview may ship with clearly documented model/platform limits after its applicable gates pass. Full D completion requires the declared cross-platform and compatibility matrix; unavailable macOS/Linux hosts remain explicit pending evidence. They need not prevent passive E1 development after D0. Signing, installers, and automatic updates are separate scope decisions, not implied by an unsigned ZIP.
 
-Before another release, explicitly choose and synchronize the version in package metadata, artifacts, release notes, and tag. Do not overwrite v0.1.0 or silently retag it. Committing, pushing, tagging, and publishing remain separate requested actions.
+The user selected v0.2.0 as the next Windows release. Package/project metadata and release notes are synchronized at 0.2.0; the archive manifest records clean source and frozen-startup evidence. Preserve outstanding platform/native/license gates. For later releases, explicitly choose and synchronize the version in package metadata, artifacts, release notes, and tag. Do not overwrite v0.1.0 or silently retag it. Committing, pushing, tagging, and publishing remain separate requested actions.
 
 ## 7. E — Repository-based Coding Agent
 

@@ -36,7 +36,7 @@ def clean_environment():
 
 def package_bundle(bundle, archive, metadata):
     """Package only the explicit onedir tree; validate archive integrity/contents."""
-    required=['Agentnik.exe','LICENSE','README.md','VALIDATION.md','BUILD-MANIFEST.json','THIRD_PARTY_LICENSES']
+    required=['Agentnik.exe','LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','BUILD-MANIFEST.json','THIRD_PARTY_LICENSES']
     for name in required:
         if not (bundle/name).exists(): raise ValueError('Missing bundle component: '+name)
     if archive.exists() or archive.with_suffix(archive.suffix+'.sha256').exists(): raise ValueError('Archive/checksum already exists')
@@ -107,7 +107,13 @@ def main(argv=None):
         run.mkdir(parents=True)
         subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean','--distpath',str(run/'dist'),'--workpath',str(run/'work'),str(ROOT/'Agentnik.spec')],cwd=ROOT,check=True)
         bundle=run/'dist'/'Agentnik'
-        for name in ('LICENSE','README.md','VALIDATION.md'):shutil.copy2(ROOT/name,bundle/name)
+        for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','MILESTONE_D_LIVE_TEST_PLAN.md','MILESTONE_D_LIVE_RESULTS.md'):
+            shutil.copy2(ROOT/name,bundle/name)
+        # Keep the bundled README's relative image links usable.
+        for source,target in ((ROOT/'assets',bundle/'assets'),(ROOT/'agentnik'/'assets',bundle/'agentnik'/'assets')):
+            target.mkdir(parents=True,exist_ok=True)
+            for image in source.iterdir():
+                if image.suffix in ('.png','.svg','.ico'):shutil.copy2(image,target/image.name)
         notices=copy_notices(bundle)
         manifest={'schema_version':1,'timestamp':datetime.now(timezone.utc).isoformat(),'application_version':__version__,'artifact_label':args.label,
                   'source':source,'python':sys.version,'os':platform.platform(),'architecture':platform.machine(),

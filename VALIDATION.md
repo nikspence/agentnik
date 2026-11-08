@@ -143,3 +143,10 @@ A dedicated `.venv-build` environment was created with system site packages disa
 Successful artifact: `dist/build-dev-d1-d2-r2/Agentnik-dev-d1-d2-r2-windows-x64.zip`, about 56.0 MB, SHA-256 `9e47fd99748c8fc2d2e1eabdd7e86649327393e380cc19a66dc1348e68855cb7`. Archive integrity/contents and branding/Qt plugin checks passed. BUILD-MANIFEST.json records Python 3.15.0, PySide6 6.12.0, keyring 25.7.0, PyInstaller 6.22.3/hooks 2026.9, all installed dependency versions, OS/architecture, ab8b6bd plus dirty source state, unsigned status and smoke outcome. Assembly includes README, VALIDATION, the MIT license, 79 installed-distribution notice files, and Python's license.
 
 This is a development artifact, not a new tagged/published release or replacement for v0.1.0. It verifies startup on this build host, not a clean Windows machine or complete dialogs/clipboard/keyring/TLS workflows. Dependency notices were collected, not fully audited for every bundled library. macOS/Linux, signing/distribution and final release/version gates remain pending. No live inference or search was issued in this development slice. D1 harness tooling is delivered; provider evidence remains scoped to earlier results or later explicitly authorized runs.
+
+
+## v0.2.0 release source preparation
+
+The release version is synchronized at 0.2.0 in package/project metadata and the web User-Agent uses the package version. All 143 offline tests passed in the isolated `.venv-build` environment; compile and whitespace checks passed. Release assembly now includes release notes, linked validation/development/roadmap documents, and README image assets alongside the existing legal notices and build manifest. No live inference was issued for release preparation.
+
+The Windows archive is built from the clean release-source commit with label v0.2.0. Its BUILD-MANIFEST.json records the exact source/environment and the actual frozen startup outcome; its SHA-256 sidecar verifies archive integrity. Historical v0.1.0 artifacts/tag remain unchanged. This release does not close the documented clean-machine, complete native workflow, macOS/Linux, signing, or full bundled-license review gates.

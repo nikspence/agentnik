@@ -14,6 +14,7 @@ import time
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from .tools import AccessError, LimitError, ResearchError, Source, utc_now
 from .core import EndpointError
+from . import __version__
 
 
 def public_url(url):
@@ -117,7 +118,7 @@ class PublicTransport:
             url,addresses=resolve_public(url,runtime)
             c=PinnedConnection(url,addresses,runtime.timeout())
             p=urlsplit(url); path=p.path+('?' +p.query if p.query else '')
-            request_headers={'Accept-Encoding':'identity','User-Agent':'Agentnik/0.1'}
+            request_headers={'Accept-Encoding':'identity','User-Agent':'Agentnik/'+__version__}
             request_headers.update(headers or {})
             try:
                 c.request('POST' if body is not None else 'GET',path,body=body,headers=request_headers)

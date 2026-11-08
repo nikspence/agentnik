@@ -32,7 +32,7 @@ class ReleaseTooling(unittest.TestCase):
 
     def bundle(self,root):
         bundle=Path(root)/'Agentnik';bundle.mkdir()
-        for name in ('Agentnik.exe','LICENSE','README.md','VALIDATION.md'): (bundle/name).write_text('fixture')
+        for name in ('Agentnik.exe','LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md'): (bundle/name).write_text('fixture')
         (bundle/'BUILD-MANIFEST.json').write_text('{}');(bundle/'THIRD_PARTY_LICENSES').mkdir()
         assets=bundle/'_internal'/'agentnik'/'assets';assets.mkdir(parents=True)
         for item in (build_release.ROOT/'agentnik'/'assets').iterdir():
