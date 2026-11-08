@@ -44,7 +44,7 @@ def build():
     OUT.mkdir(exist_ok=True)
     ET.register_namespace('', 'http://www.w3.org/2000/svg')
     robot=ET.parse(ROOT/'assets/robot.svg').getroot()
-    # Keep the supplied robot geometry and its colors exactly as the icon source.
+    # Use the robot geometry and red palette from the reusable icon source.
     content=''.join(ET.tostring(child,encoding='unicode') for child in robot if not child.tag.endswith('title'))
     icon=OUT/'agentnik-icon.svg'
     icon.write_text(f'<svg xmlns="http://www.w3.org/2000/svg" width="453" height="438" viewBox="45 255 453 438"><title>Agentnik robot icon</title>{content}</svg>\n',encoding='utf-8')
