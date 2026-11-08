@@ -32,7 +32,8 @@ def load_config(path):
         from .core import validate_connections
         validate_connections({'connections':config.get('connections',{})})
         for entry in config.get('connections',{}).values():
-            if 'credential_id' in entry and not isinstance(entry['credential_id'],str): raise ValueError()
+            for field in ('credential_id','_capability_scope'):
+                if field in entry and (not isinstance(entry[field],str) or len(entry[field])>128): raise ValueError()
         settings=config.get('settings',{})
         if not isinstance(settings,dict): raise ValueError()
         if 'theme' in settings and settings['theme'] not in ('System','Light','Dark'): raise ValueError()
@@ -48,8 +49,8 @@ def load_config(path):
             ids.add(entry['id'])
             for field in ('kind','name','credential_id','api_key'):
                 if field in entry and not isinstance(entry[field],str): raise ValueError()
-        for field in ('research_capabilities','research_defaults'):
-            if field in config and not isinstance(config[field],dict): raise ValueError()
+        from .research_settings import validate_research_config
+        validate_research_config(config)
         config.setdefault('connections',{}); config.setdefault('settings',{})
         return config
     except (ValueError,TypeError,AttributeError,OSError,RecursionError):
@@ -62,6 +63,7 @@ class Store:
         self.root.mkdir(parents=True, exist_ok=True)
         self.config_path = self.root/'connections.json'
         self.config = load_config(self.config_path)
+        self._legacy_scopes={}
         self.attachments = self.root/'attachments'; self.attachments.mkdir(exist_ok=True)
         self.db = sqlite3.connect(self.root/'history.sqlite3')
         self.db.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, updated REAL, payload TEXT)')
@@ -77,6 +79,7 @@ class Store:
         result = {}
         for name, c in self.config['connections'].items():
             result[name] = dict(c)
+            result[name].setdefault('_capability_scope',self._legacy_scopes.setdefault(name,uuid.uuid4().hex))
             if c.get('credential_id'):
                 try: result[name]['api_key'] = keyring.get_password('Agentnik', c['credential_id']) or ''
                 except Exception: result[name]['api_key'] = ''
@@ -93,6 +96,17 @@ class Store:
                 # Save the secret first; failure leaves the old entry intact.
                 keyring.set_password('Agentnik', credential_id, c['api_key'])
                 saved['credential_id'] = credential_id
+        previous_key=old.get('api_key','')
+        if old.get('credential_id'):
+            try: previous_key=keyring.get_password('Agentnik',old['credential_id']) or ''
+            except Exception: previous_key=None
+        old_settings={k:v for k,v in safe_connection(old).items() if k!='_capability_scope'}
+        new_settings={k:v for k,v in safe_connection(saved).items() if k!='_capability_scope'}
+        changed=(old_settings!=new_settings or previous_key!=c.get('api_key',''))
+        saved['_capability_scope']=uuid.uuid4().hex if changed else old.get('_capability_scope',uuid.uuid4().hex)
+        if changed:
+            from .research_settings import invalidate_capabilities
+            invalidate_capabilities(self.config,[old,saved])
         self.config['connections'][name] = saved
         self.flush()
         if old.get('credential_id'):
@@ -101,6 +115,8 @@ class Store:
 
     def delete_connection(self, name):
         c = self.config['connections'].pop(name)
+        from .research_settings import invalidate_capabilities
+        invalidate_capabilities(self.config,[c], 'Saved connection removed; verification required')
         self.flush()
         if c.get('credential_id'):
             import keyring

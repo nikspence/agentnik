@@ -499,7 +499,9 @@ class SessionTab(QWidget):
         updates=result['research'].get('capability_updates')
         if updates is None and capability_state in ('verified','unsupported'):
             updates=[{'field':'managed_tools','state':capability_state,'evidence':'Structured managed request observed '+capability_state}]
-        for update in updates or []:
+        current=self.active_connection()
+        same_context=all(current.get(k)==self.research_connection.get(k) for k in ('url','protocol','model','api_key','reasoning','stream','context_limit','_capability_scope'))
+        for update in (updates or []) if same_context else []:
             research.set_capability(self.store.config,self.research_connection,update['state'],update['evidence'],update['field'])
         if updates: self.store.flush()
         if ok: self.composer.clear(); self.attachments.set_paths([])
@@ -537,6 +539,10 @@ class SessionTab(QWidget):
         try: same = core.base_url(saved.get('url','')) == core.base_url(c['url'])
         except ValueError: same = False
         c['api_key'] = self.credentials.get('api_key', saved.get('api_key','') if same else '')
+        if 'api_key' in self.credentials:
+            c['_capability_scope']=self.credentials.setdefault('_capability_scope',uuid.uuid4().hex)
+        elif same and saved.get('_capability_scope'):
+            c['_capability_scope']=saved['_capability_scope']
         c.update(model=self.model.currentText().strip(),reasoning=self.reasoning.text().strip(),stream=self.stream.isChecked())
         return c
     def load_models(self):
@@ -674,7 +680,9 @@ class SessionTab(QWidget):
         self.info.setText('Cancelled. The server may still finish processing.' if cancelled else message)
         if not cancelled and ('401' in message or '403' in message):
             key,ok = QInputDialog.getText(self,'Endpoint authentication','API key for this tab (not saved):',QLineEdit.EchoMode.Password)
-            if ok: self.credentials['api_key'] = key
+            if ok:
+                self.credentials['api_key'] = key
+                self.credentials['_capability_scope'] = uuid.uuid4().hex
         self.render()
     def cancel(self):
         if self.job:
@@ -830,7 +838,21 @@ class Window(QMainWindow):
         icon = QIcon(str(assets/'agentnik-icon.svg'))
         self.setWindowIcon(icon); QApplication.setWindowIcon(icon)
     def reload_connections(self):
+        previous=getattr(self,'connections',{})
         self.connections = {**core.merge_discovered(core.environment_connections(),self.local),**self.store.connections()}
+        from .research_settings import invalidate_capabilities
+        changed=[]
+        for name,c in self.connections.items():
+            if name not in self.store.config['connections']:
+                old=previous.get(name,{})
+                fields=('url','protocol','model','api_key','reasoning','stream','context_limit')
+                same=all(old.get(k)==c.get(k) for k in fields)
+                c['_capability_scope']=old.get('_capability_scope',uuid.uuid4().hex) if same else uuid.uuid4().hex
+            old=(previous or {}).get(name)
+            if old is not None and any(old.get(k)!=c.get(k) for k in ('url','protocol','model','api_key','reasoning','stream','context_limit')): changed.extend([old,c])
+        if changed:
+            invalidate_capabilities(self.store.config,changed)
+            self.store.flush()
         for i in range(self.tabs.count()):
             widget = self.tabs.widget(i)
             if isinstance(widget,SessionTab): widget.refresh_connections()

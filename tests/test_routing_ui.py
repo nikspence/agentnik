@@ -41,7 +41,7 @@ class RouteDesktop(unittest.TestCase):
                 with patch('agentnik.ui.WebSettings',return_value=dlg),patch.object(dlg,'exec',return_value=QDialog.DialogCode.Accepted),patch('agentnik.ui.error',side_effect=lambda parent,exc:(_ for _ in ()).throw(exc)): first.configure_web()
                 defaults=routing.connection_defaults(store.config,'test',C)
                 self.assertEqual(defaults,{'policy':'Agentnik first','access_policy':'strict_public'})
-                self.assertEqual(research.capability(store.config,C,'hosted_search').state,'configured')
+                self.assertEqual(research.capability(store.config,first.active_connection(),'hosted_search').state,'configured')
                 first.route_policy.setCurrentText('Provider only'); first.save_draft()
                 w.new_session('chat','test'); second=w.tabs.currentWidget(); self.assertIsNone(second.route_policy.currentData())
                 self.assertEqual(first.route_policy.currentData(),'Provider only')
@@ -64,8 +64,8 @@ class RouteDesktop(unittest.TestCase):
                 tab.route_policy.setCurrentText('Provider only'); tab.web_access.setChecked(True); tab.composer.setPlainText('Find current evidence'); tab.submit()
                 self.settle(lambda:tab.job is None)
                 self.assertEqual(tab.session['messages'][-1]['status'],'ok'); send.assert_called_once()
-                self.assertEqual(research.capability(store.config,C,'hosted_search').state,'verified')
-                self.assertEqual(research.capability(store.config,C,'managed_tools').state,'unknown')
+                self.assertEqual(research.capability(store.config,tab.active_connection(),'hosted_search').state,'verified')
+                self.assertEqual(research.capability(store.config,tab.active_connection(),'managed_tools').state,'unknown')
                 bubble=tab.findChildren(MessageBubble)[-1]
                 self.assertIn('href="https://example.com/"',bubble.text.toHtml())
                 with patch('agentnik.ui.QDesktopServices.openUrl') as opening:

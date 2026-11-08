@@ -194,6 +194,8 @@ Default local data directories:
 
 `--data-dir PATH` or `AGENTNIK_HOME` overrides the directory. Connections use JSON; session history uses Python's built-in SQLite. Light/dark/system theme and sidebar visibility are remembered.
 
+Research verification is scoped to the endpoint, protocol, model, and an opaque connection context. Different saved accounts and session credential overrides do not share verification. Editing a saved connection or changing observed environment credentials requires a fresh compatibility check. Legacy explicit enablement can remain configured, but older unbound verification is not carried forward. Environment and unsaved legacy credential scopes last only for the current application/store lifetime; saving a connection creates a persistent scope. Keys and key fingerprints are not stored in capability records. Externally changed credentials or upstream model mappings still require an explicit recheck.
+
 If saved connection settings are malformed or use an unsupported version, startup reports how to repair them and preserves the original file. Restore a known-good `connections.json` or repair its JSON/settings, then restart. Agentnik does not silently replace the file or remove credential references.
 
 ## Validation
