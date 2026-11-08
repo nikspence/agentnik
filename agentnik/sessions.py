@@ -42,7 +42,8 @@ def validate_session(value, ident=None):
         activity=data.get('code_activity',[])
         require(isinstance(activity,list) and len(activity)<=32)
         require(all(isinstance(e,dict) and isinstance(e.get('kind'),str) and isinstance(e.get('text'),str) and len(e['text'])<=2048 for e in activity))
-        require(data.get('code_state','idle') in ('idle','running','awaiting_approval','completed','cancelled','rejected','timed_out','interrupted'))
+        if 'coding_light_enabled' in data: require(type(data['coding_light_enabled']) is bool)
+        require(data.get('code_state','idle') in ('idle','running','awaiting_approval','completed','failed','cancelled','rejected','timed_out','interrupted'))
         return data
     require(data.get('version',1)<=3)
     def form(value):

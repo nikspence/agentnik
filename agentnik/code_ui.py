@@ -1,4 +1,4 @@
-"""Passive repository picker and Code pane; no inference or process backend."""
+"""Repository picker and Agentnik-owned coding pane."""
 from pathlib import Path
 import json
 import threading
@@ -80,7 +80,7 @@ class CodeTab(QWidget):
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
         if session.get("code_state") in ("running","awaiting_approval"):
             session["code_state"]="interrupted"
-            session.setdefault("code_activity",[]).append({"kind":"interrupted","text":"Interrupted simulation; nothing resumes automatically."})
+            session.setdefault("code_activity",[]).append({"kind":"interrupted","text":"Interrupted coding run; nothing resumes automatically."})
             session["code_activity"]=session["code_activity"][-32:]
             self.store.save(session)
         layout=QVBoxLayout(self)
@@ -102,6 +102,8 @@ class CodeTab(QWidget):
             for name in window.connections:connection.addItem(name,name)
             model=QLineEdit();model.setPlaceholderText('Model alias (any supported coding model)')
             saved=bindings.get(role,{})
+            missing=saved.get('connection','')
+            if missing and connection.findData(missing)<0:connection.addItem(missing+' (unavailable)',missing)
             connection.setCurrentIndex(max(0,connection.findData(saved.get('connection',''))));model.setText(saved.get('model',''))
             row.addWidget(connection);row.addWidget(model,1);self.roles[role]=(connection,model)
             choose=QPushButton('Choose model…');choose.clicked.connect(lambda _,r=role:self.choose_model(r));row.addWidget(choose)

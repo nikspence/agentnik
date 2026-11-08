@@ -13,6 +13,46 @@ from test_compat_tools import chat
 from test_code_agent import call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_missing_saved_connection_is_preserved_on_reopen(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident)
+                session['coding_models']={'heavy':{'connection':'Missing','model':'saved-alias'}};store.save(session);window.open_session(session)
+                tab=window.tabs.currentWidget();app.processEvents();tab.save_models()
+                self.assertIn('unavailable',tab.roles['heavy'][0].currentText())
+                self.assertEqual(tab.session['coding_models']['heavy'],{'connection':'Missing','model':'saved-alias'})
+                with self.assertRaises(ValueError):tab.role_connection('heavy')
+            finally:window.close();app.processEvents();store.db.close()
+
+    def test_failed_run_can_be_saved_and_reopened(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
+            store.config['connections']={'Gateway':{'url':'https://gateway.example/v1','protocol':'chat','model':'heavy','stream':False}}
+            window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
+                tab=window.tabs.currentWidget();tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Gateway'))
+                tab.composer.setPlainText('Analyze')
+                with patch.object(core,'open_request',side_effect=core.EndpointError(401,'private error')):
+                    tab.start_coding();deadline=time.monotonic()+3
+                    while tab.job is not None and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+                    self.assertIsNone(tab.job)
+                saved=next(s for s in store.list_sessions() if s['id']==session['id'])
+                self.assertEqual(saved['code_state'],'failed');self.assertNotIn('private error',json.dumps(saved))
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents()
+                self.assertEqual(window.tabs.currentWidget().composer.toPlainText(),'Analyze')
+                self.assertIn('Coding stopped',window.tabs.currentWidget().activity.toPlainText())
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_selected_connection_edits_only_after_approval_and_restores_roles(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
