@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QWidget,QDialog,QVBoxLayout,QHBoxLayout,QLabel,QLi
 from .repositories import RepositoryRegistry
 from .coding import SimulationRun,plain
 from .code_agent import CodingRun
+from .research import scrub
 from . import core
 
 
@@ -94,6 +95,10 @@ class CodeTab(QWidget):
         info=QLabel(note);info.setWordWrap(True);layout.addWidget(info)
         self.activity=QPlainTextEdit('\n'.join(plain(e.get('text',e.get('kind',''))) for e in session.get('code_activity',[])) or 'No commands have been run.');self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
         self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText('Describe the coding task; repository files may be sent to the selected models');layout.addWidget(self.composer)
+        context=session.get('coding_context')
+        self.context_view=QPlainTextEdit(('Previous task:\n'+context['task']+'\n\nPrevious answer:\n'+context['answer']) if context else 'No completed coding task available.')
+        self.context_view.setReadOnly(True);self.context_view.setMaximumHeight(110);layout.addWidget(self.context_view)
+        self.use_context=QCheckBox('Send previous task and answer with next run (up to 2,048 characters each)');self.use_context.setEnabled(bool(context));layout.addWidget(self.use_context)
         self.roles={}
         bindings=session.get('coding_models',{})
         for role in ('heavy','light'):
@@ -161,7 +166,8 @@ class CodeTab(QWidget):
         try:
             self.save_models();heavy=self.role_connection('heavy');light=self.role_connection('light') if self.light_enabled.isChecked() else None
             if not heavy or not self.composer.toPlainText().strip():raise ValueError('Choose a heavy model and enter a coding task')
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light)
+            context=self.session.get('coding_context') if self.use_context.isChecked() else None
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context)
         except ValueError as exc:QMessageBox.warning(self,'Coding settings',str(exc));return
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
 
@@ -169,6 +175,7 @@ class CodeTab(QWidget):
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
         self.light_enabled.setEnabled(False)
+        self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
         signals=self.events
@@ -205,6 +212,12 @@ class CodeTab(QWidget):
         elif kind=='diff':self.diff.setPlainText(plain(event['text']));self.record(kind,event['text'])
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='finished':
+            if event['status']=='completed' and isinstance(self.job,CodingRun):
+                secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key','')]
+                context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
+                self.session['coding_context']=context
+                self.context_view.setPlainText('Previous task:\n'+context['task']+'\n\nPrevious answer:\n'+context['answer'])
+                self.use_context.setChecked(False)
             self.session['code_state']=event['status'];self.finish();self.record(kind,event['text'])
             if event.get('usage'):self.record('usage',event['usage'])
 
@@ -218,6 +231,7 @@ class CodeTab(QWidget):
         for button in (self.approve,self.reject,self.cancel_button):button.setEnabled(False)
         self.simulate.setEnabled(True);self.send.setEnabled(True)
         self.light_enabled.setEnabled(True)
+        self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 
     def cancel(self):

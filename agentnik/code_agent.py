@@ -168,8 +168,10 @@ class ProjectFiles:
 
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,light=None):
+    def __init__(self,connection,root,prompt,light=None,context=None):
         self.connection=dict(connection);self.light=dict(light) if light else None;self.root=root;self.prompt=prompt;self.run_id=uuid.uuid4().hex
+        if context is not None and (not isinstance(context,dict) or set(context)!={'task','answer'} or any(not isinstance(v,str) or len(v)>2048 for v in context.values())):raise ValueError('Invalid previous coding context')
+        self.context=dict(context) if context else None
         self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self.denied=set()
 
     def stop(self):
@@ -235,7 +237,12 @@ class CodingRun:
         try:
             files=ProjectFiles(self.root);c=self.connection;native=core.native_ollama(c);protocol=c.get('protocol','chat')
             available_tools=[tool for tool in TOOLS if self.light or tool.name!='delegate_light']
-            body=core.chat_body(c,[{'role':'user','text':self.prompt}])
+            messages=[]
+            if self.context:
+                messages=[{'role':'user','text':self.context['task']},{'role':'assistant','text':self.context['answer']}]
+                runtime.charge('context_bytes',len(json.dumps(messages).encode()),runtime.limits.context_bytes)
+            messages.append({'role':'user','text':self.prompt})
+            body=core.chat_body(c,messages)
             if protocol=='responses':body.update(instructions=INSTRUCTIONS,store=False,include=['reasoning.encrypted_content'],tools=responses_tools.wire_tools(available_tools))
             elif protocol=='messages':body.update(system=INSTRUCTIONS,tools=compat_tools.wire_tools(available_tools,protocol))
             else:body['messages'].insert(0,{'role':'system','content':INSTRUCTIONS});body['tools']=[t.wire() for t in available_tools]

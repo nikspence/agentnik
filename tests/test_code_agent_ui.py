@@ -81,9 +81,17 @@ class CodingWorkspace(unittest.TestCase):
                     self.assertEqual((project/'test.txt').read_text(),'approved content');self.assertEqual(endpoint.call_count,2);process.assert_not_called()
                 saved=next(s for s in store.list_sessions() if s['id']==session['id'])
                 self.assertNotIn('private-model-key',json.dumps(saved))
+                self.assertEqual(saved['coding_context']['task'],'Create a test file')
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents()
                 reopened=window.tabs.currentWidget();self.assertEqual(reopened.roles['heavy'][1].text(),'my-heavy-coder')
                 self.assertEqual(reopened.roles['light'][1].text(),'my-light-coder');self.assertFalse(reopened.light_enabled.isChecked());self.assertIsNone(reopened.job)
+                self.assertIn('Created test.txt',reopened.context_view.toPlainText());self.assertFalse(reopened.use_context.isChecked())
+                reopened.use_context.setChecked(True);reopened.composer.setPlainText('Follow up');bodies=[]
+                def reply(c,url,body,timeout):bodies.append(body);return Wire(chat('Follow-up complete'),False)
+                with patch.object(core,'open_request',side_effect=reply):
+                    reopened.start_coding();settle(lambda:reopened.job is None)
+                self.assertIn('Create a test file',json.dumps(bodies[0]));self.assertIn('Created test.txt',json.dumps(bodies[0]))
+                self.assertFalse(reopened.use_context.isChecked())
             finally:window.close();app.processEvents();store.db.close()
 
 if __name__=='__main__':unittest.main()

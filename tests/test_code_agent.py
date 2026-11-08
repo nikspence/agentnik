@@ -75,6 +75,17 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_explicit_previous_context_is_plain_messages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Follow up',context={'task':'Earlier task','answer':'Earlier answer'})
+            bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return Wire(chat('Done'),False)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed')
+            messages=bodies[0]['messages'];self.assertEqual([m['role'] for m in messages],['system','user','assistant','user'])
+            self.assertEqual([m['content'] for m in messages[1:]],['Earlier task','Earlier answer','Follow up'])
+            with self.assertRaises(ValueError):CodingRun(C,directory,'x',context={'task':'x'*2049,'answer':'y'})
+
     def test_project_search_returns_redacted_results_to_model(self):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory,'a.txt').write_text('needle private-key',encoding='utf-8')
