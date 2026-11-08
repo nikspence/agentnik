@@ -47,7 +47,7 @@ Optional key files can be supplied with `--litellm-key-file PATH` and `--ollama-
 
 ## Project status
 
-Milestone A establishes the independent Agentnik baseline. Milestone B now has a managed research preview for native Ollama chat, with bounded tools, sources, activity, persistence, and cancellation. Hosted search, the four route policies, fallback, and the remaining research protocol adapters are still planned in `AGENTNIK_PLAN.md`. This preview is not the first complete browsing release, which requires both routes. Live research compatibility remains unverified.
+Milestones B and C provide a bounded research preview with native Ollama and Responses managed tools, OpenAI Responses hosted search, all four route policies, visible fallback, sources, persistence, and shared accounting. Live research compatibility remains unverified. Milestone D still covers the remaining research adapters, broader security/GUI checks, and distribution readiness; see `AGENTNIK_PLAN.md`.
 
 Future Coding Agent work will add a saved **Repositories** list for local repositories or project folders. **＋ Code** will ask which project to use, then open an independent CLI-style coding pane. This workflow is planned in `AGENTNIK_PLAN.md`; it is not available yet.
 
@@ -55,7 +55,7 @@ Future Coding Agent work will add a saved **Repositories** list for local reposi
 
 Use **＋ Chat** or **＋ Decision** to select a connection and open a session. Tabs are independent, including tabs that use the same connection. Changing the connection selector opens a new session. Models load automatically when a tab opens; use the refresh icon to reload them. A manually entered model works even when listing models is unavailable. New manually created connections default to Responses; discovered and saved connections retain their configured protocol.
 
-Chat supports OpenAI-compatible Chat Completions, Responses, and Anthropic Messages. Streaming is enabled by default and can be turned off for endpoints that do not support it. Reasoning effort is optional and must be supported by the selected model. Unsupported parameters produce a visible endpoint error rather than a silent retry that might duplicate a billed request. Managed web tools are opt-in and currently available only through the native Ollama chat adapter; ordinary chat does not execute tools.
+Chat supports OpenAI-compatible Chat Completions, Responses, and Anthropic Messages. Streaming is enabled by default and can be turned off for endpoints that do not support it. Reasoning effort is optional and must be supported by the selected model. Unsupported parameters produce a visible endpoint error rather than a silent retry that might duplicate a billed request. Web research is opt-in. Managed tools support native Ollama and Responses; hosted search uses the official OpenAI Responses endpoint. Ordinary chat does not execute tools.
 
 Chat uses rounded message cards: your prompts sit to the right and assistant replies to the left. Each card grows to hold the complete message, with one outer scrollbar for the conversation. Assistant Markdown renders during streaming as well as after completion, including wrapped code blocks. **Show thinking / Hide thinking** expands reasoning inline in the same card; streamed reasoning is initially visible and respects your toggle choice.
 
@@ -67,40 +67,69 @@ Select several images with **Attach images**, drop files onto the attachment are
 
 **Cancel** immediately stops accepting results for that request and releases the tab. Cancellation does not guarantee that the server stops computing or billing; a blocked transport worker can remain alive until its network timeout. Other tabs stay usable.
 
-## Managed web research preview
+## Web research preview
 
-1. Open a chat using native Ollama (the detected port 11434 route, or direct Ollama.com chat), and select a model.
-2. Open **Web settings…**, enter a separate Ollama search API key, and enable tool requests for this endpoint/model. Keys use the **Agentnik Web** credential-store service; explicit plaintext storage is available as a fallback. Alternatively set `OLLAMA_WEB_API_KEY`. Inference `OLLAMA_API_KEY` is not reused for search. Removing a saved key does not unset an environment key.
-3. Turn on **Web access · Agentnik managed (preview)** for that chat and send your request. New chats start with web access off. The toggle is saved independently per chat.
+New chats start with **Web access** off. Choose a model, open **Web settings…**, and explicitly enable the research capabilities you want for that endpoint/model. Configure the connection's default route and navigation policy there; use the dropdown beside **Web access** to override the route in one chat. **Connection default** follows the saved default, initially **Provider first**. Existing managed-only chats retain **Agentnik only** when upgraded.
 
-Enabling tools records **configured**, not **verified**. Capability is scoped to endpoint, protocol, and model; actual structured tool calls can establish verification. Only a specific native HTTP 400 unsupported-tools rejection records **unsupported**. No background inference probes run. Authentication errors and unrelated failures do not prove tool incompatibility. No endpoint/model has been verified with live research requests for this preview.
-
-Queries go to [Ollama's search API](https://docs.ollama.com/capabilities/web-search), even when inference runs locally. Agentnik sends only the generated query and result limit to that service, not the full conversation or image attachments. Model-generated queries can still contain prompt-derived information. Provider and search credentials are blocked from generated tool arguments. Search service internals are outside Agentnik's navigation controls; this limitation is disclosed in settings.
-
-Page reads use a separate direct transport. Agentnik checks HTTP(S) destinations, DNS addresses and every redirect; connects to a vetted IP while preserving TLS hostname verification; and blocks credentials in URLs, private/local/reserved destinations, IPv6 transition addresses, and ports other than 80/443. It sends no provider keys, cookies, proxies, or search key to pages. It accepts HTML/plain text, extracts inert readable text, and rejects compressed and unsupported content. Service-backed fetch is not enabled because Agentnik cannot enforce its internal redirects. Some sites will consequently be unavailable.
-
-Default bounds per turn:
-
-| Bound | Limit |
+| Policy | Route order |
 | --- | --- |
-| Tool rounds / calls | 4 / 8, with at most 5 model requests |
-| Search results per call | 5 |
-| Web response / total retrieved bytes | 1 MB / 3 MB |
+| Provider first | Hosted, then managed when an eligible fallback is safe |
+| Agentnik first | Managed, then hosted when an eligible fallback is safe |
+| Provider only | Hosted only |
+| Agentnik only | Managed only |
+
+Both routes always retain the selected model, connection, and endpoint. A single-route policy never changes route. Missing backends, unknown/unconfigured capabilities, and known unsupported routes are skipped with a recorded reason; there are no background inference probes. Protocol compatibility alone does not establish capability.
+
+### Provider-hosted search
+
+Enable **OpenAI-hosted web_search** only for a model that supports that tool on the official `https://api.openai.com/v1` Responses endpoint. The control is unavailable for compatible gateways and other protocols. Model support and restrictions must be checked against the [official OpenAI web-search documentation](https://developers.openai.com/api/docs/guides/tools-web-search); enabling the checkbox records **configured**, not **verified**. No particular OpenAI model has been live-validated in this preview.
+
+The provider performs search inside the submitted Responses request using its conversation input and inference credential; no managed search key is required. Agentnik parses search progress, source metadata, citation annotations, completion/failure, and available usage. Stateless requests preserve complete output/continuation items, including encrypted reasoning, rather than flattening them into assistant text. Source metadata without a page excerpt or retrieval timestamp is labeled accordingly; Agentnik records when the provider reported it.
+
+### Agentnik-managed tools
+
+Managed tools support native Ollama (the detected port 11434 route or direct Ollama.com chat) and explicitly configured Responses endpoints. **Chat Completions** and **Messages** research adapters are still planned; their ordinary chat behavior remains available. System One is separate from research.
+
+Configure a separate Ollama search API key in **Web settings…**, or use **Manage ordered search backends…** to add, edit, reorder, and remove independently credentialed profiles. The initial adapter uses [Ollama's search API](https://docs.ollama.com/capabilities/web-search); additional service adapters remain future work. Up to five profiles can participate. The optional `OLLAMA_WEB_API_KEY` profile follows saved profiles when there is room and no saved default profile. Inference `OLLAMA_API_KEY` is never reused for search. Removing a saved profile does not unset an environment key.
+
+Search credentials use the **Agentnik Web** credential store, with an explicit plaintext fallback. Keys and credential references are excluded from histories and ordinary session exports. Only the generated query and result limit are sent to the search service, not the complete conversation or image attachments; queries can still contain prompt-derived information. Configured credentials are blocked from generated tool arguments and scrubbed from returned tool content and persisted activity.
+
+### Navigation boundaries
+
+**Public page reads; external search navigation disclosed** enables these routes with their stated limitations. Managed page reads validate HTTP(S) URLs, all DNS addresses, and every redirect; connect to a vetted IP while preserving TLS hostname verification; and reject credentials in URLs, private/local/reserved destinations, IPv6 transition addresses, and ports outside 80/443. Page requests send no provider keys, search keys, cookies, or proxies. HTML/plain text is extracted as inert text; compressed and unsupported content is rejected. Some sites are consequently unavailable.
+
+Search services and the hosted provider control their own internal navigation. Agentnik cannot apply its destination checks inside those services. **Enforce public-only navigation everywhere** therefore disables both currently implemented external search routes before submitting any request. The activity view explains the skipped routes; it never falls back to bypass this restriction. Ollama service-backed page fetch remains disabled for the same reason.
+
+### Fallback and limits
+
+Explicit unsupported-tool rejections and authentication rejection can move to the next eligible route when the policy permits. A narrow HTTP 400 tool rejection records **unsupported**; unrelated API errors never establish tool incompatibility. HTTP 403 access restrictions stop the turn.
+
+Explicit HTTP 429/503 rejection with no partial activity permits one retry per route and a bounded wait. `Retry-After` is honored up to the five-second wait limit; longer guidance stops the turn and asks for an explicit later restart. After that retry, a two-route policy may consider its other route. A managed search call can try the next configured backend after a definite eligible rejection without replaying the model request. Duplicate profiles/credentials are not retried. Empty results are passed back to the model; they do not trigger transport fallback.
+
+Timeout, disconnection, unknown execution outcome, partial assistant output/reasoning, partial tool/search activity, cancellation, blocked URLs, and access restrictions stop automatic replay. Partial work and available usage remain saved; the draft remains editable. Cancellation rejects late results and stops scheduling work, while remote processing and billing may continue. Reopening interrupted history never restarts requests.
+
+| Bound | Default per turn |
+| --- | --- |
+| Managed tool rounds / all tool calls | 4 / 8 |
+| Model requests across routes and retries | 6 |
+| Route attempts / saved search profiles | 8 / 5 |
+| Search results per managed call | 5 |
+| Web response / total managed retrieved bytes | 1 MB / 3 MB |
 | Search excerpt / page excerpt | 3 KB / 8 KB |
 | New assistant/tool continuation context | 32 KB |
 | Model response / tool arguments | 512 KB / 4 KB |
 | Request / total turn duration | 45 s / 180 s |
-| Page redirects | 3 |
+| Retry wait / page redirects | 5 s / 3 |
 
-The collapsible **Research** view records activity, source links, retrieval timestamps, saved excerpts, and truncation. `[S1]`-style source IDs are validated against recorded sources; unknown IDs are marked unverified. Source links are clickable in the view. An identified source does not itself verify claim support. IDs stay unique across turns; cited saved evidence retains its original timestamp. Retained source counts and tool history are bounded; open a new chat when saved tool context reaches 128 KB.
+The collapsible **Research** view records route/backend selection, reasons, retries, searches, page reads, errors, sources, and excerpts. The route is also shown in the completion status. Both provider annotations and validated managed `[S1]` references render as prominent clickable inline citations. Unknown references and invalid provider offsets do not become verified links. Sources identify recorded evidence; they do not prove claim support. Saved excerpts retain original timestamps and are not fresh complete pages. Saved structured continuation is capped at 128 KB; open a new chat when it reaches the limit.
 
-Reported tokens are aggregated across model requests; the last model input count is shown separately for context usage. Missing usage is labeled **Known usage only**. Total elapsed time includes tools; generation rate is shown only when reported counts and timings support it. Failed attempts retain any reported usage. There are no fabricated costs.
+Reported tokens are summed across attempts, including failed requests when usage is supplied. Latest-input context is separate from the token sum and remains unknown when the last attempt did not report it. Missing usage is labeled **Known usage only**. Total elapsed time includes backoff and tools. **Managed tools** measures app-controlled tool latency; hosted tool latency remains unknown unless separately reported. Generation rates and costs are never inferred from unavailable provider measurements.
 
-Cancellation, limits, or failures preserve partial output and evidence while retaining the draft. Late worker results are rejected. Reopening interrupted history never starts commands or requests. Cancellation stops accepting work; remote processing and billing may continue. There is no automatic retry, route fallback, or model switch in this preview. Chat Completions, Responses, and Messages keep their ordinary chat support but do not yet support managed research. System One remains separate.
+![Hosted research with inline citations](assets/agentnik-hosted-dark.png)
 
-![Managed research in the dark theme](assets/agentnik-research-dark.png)
+![Visible hosted-to-managed fallback](assets/agentnik-fallback-light.png)
 
-This screenshot uses simulated model and source responses, not live endpoint evidence. Rebuild both theme screenshots offline with `python tools/capture_research.py`.
+These screenshots use explicitly simulated responses. Rebuild hosted/fallback/settings screenshots offline with `python tools/capture_routing.py`; `tools/capture_research.py` renders the native managed demo.
 
 ## System One query builder
 
@@ -145,7 +174,7 @@ Each response/run shows prompt and generated token counts, total elapsed time, p
 
 An open port appears even if its API requires authentication. Model-list probes distinguish compatible APIs from unverified open ports. Service names derived from port numbers are candidates; Ollama's version endpoint is used to confirm Ollama. Discovery does not scan the LAN or automatically issue inference requests. Custom addresses and ports can be entered manually.
 
-Environment discovery supports: OpenAI, Anthropic, LiteLLM, Ollama, llama.cpp, OpenRouter, Groq, Together, Mistral, DeepSeek, xAI, and Bedrock Mantle. It recognizes their API-key, base-URL, and model settings. Mantle uses bearer API keys, not AWS Runtime signing. Environment connections are saved only when explicitly copied through the connection manager.
+Environment discovery supports: OpenAI, Anthropic, LiteLLM, Ollama, llama.cpp, OpenRouter, Groq, Together, Mistral, DeepSeek, xAI, and Bedrock Mantle. It recognizes their API-key, base-URL, and model settings. Mantle uses bearer API keys, not AWS Runtime signing. Environment connections are saved only when explicitly copied through the connection manager. Environment-discovered wildcard hosts (`0.0.0.0`) are normalized to `127.0.0.1`, preserving the scheme, port, and path. Explicitly entered or saved connection URLs are unchanged. Matching environment and port-probed endpoints appear once, under the environment connection name. Environment credentials, protocol, and selected model take precedence; a probe can supply a missing model. Probe status appears in the connection tooltip. Matching normalizes localhost/127.0.0.1, default ports, and base-URL formatting, while preserving different schemes, ports, and paths.
 
 **Import** accepts validated JSON files with a top-level `connections` mapping. Imports are validated and previewed before saving; duplicate names can be skipped, replaced, or renamed. **Export** exports selected entries, or all entries when none are selected. API keys are excluded by default; including them requires an explicit choice. Credential-store references are never exported.
 

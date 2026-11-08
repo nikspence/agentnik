@@ -2,31 +2,103 @@
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QCheckBox,QDialog,QDialogButtonBox,QFormLayout,QLabel,
-                               QLineEdit,QPlainTextEdit,QPushButton,QToolButton,QVBoxLayout,QWidget)
-from . import research
+                               QLineEdit,QPlainTextEdit,QPushButton,QToolButton,QVBoxLayout,QWidget,
+                               QComboBox,QHBoxLayout,QListWidget,QInputDialog,QMessageBox)
+from . import research, routing, hosted
 from .tools import Limits
 from .web import public_url
 
 
+class SearchBackends(QDialog):
+    def __init__(self,parent,store):
+        super().__init__(parent); self.store=store; self.setWindowTitle('Search backends'); self.resize(580,360)
+        layout=QVBoxLayout(self)
+        label=QLabel('Saved profiles run in this order. Each has a separate key; the initial adapter is Ollama search. Changes are saved immediately. OLLAMA_WEB_API_KEY supplies an environment profile after saved profiles when needed.'); label.setWordWrap(True); layout.addWidget(label)
+        self.list=QListWidget(); layout.addWidget(self.list)
+        row=QHBoxLayout(); layout.addLayout(row)
+        for text,fn in [('Add',lambda:self.edit(True)),('Edit',lambda:self.edit(False)),('Remove',self.remove),('↑',lambda:self.move(-1)),('↓',lambda:self.move(1))]:
+            b=QPushButton(text); b.clicked.connect(fn); row.addWidget(b)
+        close=QPushButton('Close'); close.clicked.connect(self.accept); layout.addWidget(close); self.refresh()
+
+    def refresh(self,selected=0):
+        self.list.clear()
+        for entry in self.store.config.get('web_backends',[]): self.list.addItem(entry.get('name','Ollama search'))
+        self.list.setCurrentRow(selected)
+
+    def edit(self,add):
+        import uuid
+        entries=self.store.config.get('web_backends',[]); index=self.list.currentRow()
+        if not add and not 0<=index<len(entries): return
+        entry={} if add else entries[index]
+        if add and len(entries)>=5: return QMessageBox.warning(self,'Search backends','At most five saved profiles are supported.')
+        dlg=QDialog(self); dlg.setWindowTitle('Search backend profile'); form=QFormLayout(dlg)
+        name=QLineEdit(entry.get('name','Ollama search')); form.addRow('Name',name)
+        key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText('Blank keeps an existing key'); form.addRow('Ollama search API key',key)
+        plain=QCheckBox('Store as plaintext (explicit fallback)'); form.addRow(plain)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept); buttons.rejected.connect(dlg.reject); form.addRow(buttons)
+        while dlg.exec()==QDialog.DialogCode.Accepted:
+            try:
+                label=name.text().strip()
+                if not label or len(label)>80: raise ValueError('Enter a profile name of 1–80 characters')
+                if add and not key.text().strip(): raise ValueError('Enter a search key for the new profile')
+                ident=entry.get('id') or 'search-'+uuid.uuid4().hex
+                if key.text().strip(): self.store.save_web_key(key.text().strip(),plain.isChecked(),ident=ident,name=label)
+                else:
+                    entry['name']=label; self.store.flush()
+                self.refresh(index if not add else self.list.count()); return
+            except Exception as exc: QMessageBox.warning(self,'Search backends',str(exc))
+
+    def remove(self):
+        entries=self.store.config.get('web_backends',[]); index=self.list.currentRow()
+        if not 0<=index<len(entries): return
+        if QMessageBox.question(self,'Search backends','Remove this profile and its saved credential?',QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)!=QMessageBox.StandardButton.Yes: return
+        self.store.save_web_key(remove=True,ident=entries[index]['id']); self.refresh(max(0,index-1))
+
+    def move(self,offset):
+        entries=self.store.config.get('web_backends',[]); index=self.list.currentRow(); target=index+offset
+        if not 0<=index<len(entries) or not 0<=target<len(entries): return
+        entries[index],entries[target]=entries[target],entries[index]; self.store.flush(); self.refresh(target)
+
+
 class WebSettings(QDialog):
     def __init__(self,parent,c):
-        super().__init__(parent); self.setWindowTitle('Managed web research'); self.resize(600,420)
+        super().__init__(parent); self.store=parent.store; self.setWindowTitle('Web research'); self.resize(650,600)
         layout=QFormLayout(self)
-        notice=QLabel('Experimental: native Ollama chat only. Search queries are sent to Ollama.com, even when your model runs locally. Pages are read directly from public sites. Service search navigation cannot be controlled by Agentnik; direct page reads enforce public-address restrictions. Full conversations and images are not attached to search requests.'); notice.setWordWrap(True); layout.addRow(notice)
-        layout.addRow('Search service',QLabel('Ollama.com · https://ollama.com/api/web_search'))
-        self.key=QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.key.setPlaceholderText('Leave blank to keep the saved key / OLLAMA_WEB_API_KEY')
+        notice=QLabel('Hosted search browses inside the model provider using the submitted conversation. Managed search sends generated queries to a separate search service, even with local inference, and reads pages directly. Agentnik cannot enforce service/provider internal navigation. The strict navigation policy disables these external search routes.'); notice.setWordWrap(True); layout.addRow(notice)
+        defaults=routing.connection_defaults(self.store.config,parent.session['connection_name'],c)
+        self.default_policy=QComboBox(); self.default_policy.addItems(routing.POLICIES); self.default_policy.setCurrentText(defaults['policy']); layout.addRow('Default for this connection',self.default_policy)
+        self.access_policy=QComboBox(); self.access_policy.addItem('Public page reads; external search navigation disclosed','public_fetch'); self.access_policy.addItem('Enforce public-only navigation everywhere','strict_public'); self.access_policy.setCurrentIndex(self.access_policy.findData(defaults['access_policy'])); layout.addRow('Navigation policy',self.access_policy)
+        manage=QPushButton('Manage ordered search backends…'); manage.clicked.connect(self.manage_backends); layout.addRow(manage)
+        self.backend_label=QLabel(); layout.addRow('Key for first saved backend',self.backend_label); self.select_backend()
+        self.key=QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password); self.key.setPlaceholderText('Blank keeps saved key / OLLAMA_WEB_API_KEY for default profile')
         layout.addRow('Separate search API key',self.key)
-        self.remove=QCheckBox('Remove saved search key'); layout.addRow(self.remove)
-        self.plain=QCheckBox('Store the new search key as plaintext (explicit fallback)'); layout.addRow(self.plain)
-        current=research.capability(parent.store.config,c)
-        self.allow=QCheckBox('Enable tool requests for this endpoint/model')
-        self.allow.setChecked(current.state in ('configured','verified')); layout.addRow(self.allow)
-        label=QLabel(f'Model: {c.get("model", "")}\nTool capability: {current.state}\n{current.evidence}'); label.setTextFormat(Qt.TextFormat.PlainText); label.setWordWrap(True); layout.addRow(label)
+        self.remove=QCheckBox('Remove this saved search key'); layout.addRow(self.remove)
+        self.plain=QCheckBox('Store new search key as plaintext (explicit fallback)'); layout.addRow(self.plain)
+        current=research.capability(self.store.config,c)
+        self.allow=QCheckBox('Enable managed tool requests for this endpoint/model')
+        self.allow.setEnabled(core_managed(c)); self.allow.setChecked(current.state in ('configured','verified')); layout.addRow(self.allow)
+        hosted_cap=research.capability(self.store.config,c,'hosted_search')
+        self.allow_hosted=QCheckBox('Enable OpenAI-hosted web_search for this endpoint/model')
+        self.allow_hosted.setEnabled(hosted.supported_endpoint(c)); self.allow_hosted.setChecked(hosted_cap.state in ('configured','verified')); layout.addRow(self.allow_hosted)
+        label=QLabel(f'Model: {c.get("model", "")} · managed: {current.state} · hosted: {hosted_cap.state}\nEnabling is configuration, not verification. Hosted search requires the official OpenAI Responses endpoint and a model that supports web_search. No background inference probes are run.'); label.setTextFormat(Qt.TextFormat.PlainText); label.setWordWrap(True); layout.addRow(label)
         bounds=Limits()
-        info=QLabel(f'Limits: {bounds.rounds} tool rounds, {bounds.calls} calls, {bounds.results} results/call, {bounds.context_bytes//1000} KB new tool context; {bounds.request_seconds:g}s/request, {bounds.turn_seconds:g}s/turn. No automatic retry or route fallback. Hosted search and other model protocols are not implemented yet.'); info.setWordWrap(True); layout.addRow(info)
+        info=QLabel(f'Limits: {bounds.rounds} managed rounds, {bounds.calls} tool calls, {bounds.requests} model requests across attempts; {bounds.request_seconds:g}s/request, {bounds.turn_seconds:g}s/turn. One retry per route on explicit 429/503 rejection, with bounded Retry-After. Partial or uncertain work always requires explicit restart.'); info.setWordWrap(True); layout.addRow(info)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addRow(buttons)
+
+    def select_backend(self):
+        entries=self.store.config.get('web_backends',[])
+        self.backend_id=entries[0]['id'] if entries else 'ollama-search'
+        self.backend_label.setText(entries[0].get('name','Ollama search') if entries else 'Ollama search (default)')
+
+    def manage_backends(self):
+        SearchBackends(self,self.store).exec(); self.select_backend()
+
+
+def core_managed(c):
+    from . import core
+    return core.native_ollama(c) or c.get('protocol')=='responses'
 
 
 class ResearchDetails(QWidget):
@@ -44,10 +116,11 @@ class ResearchDetails(QWidget):
 
     def set_data(self,data):
         sources=data.get('sources',[]); events=data.get('events',[])
-        signature=(data.get('status'),len(events),len(sources),tuple(data.get('unverified_citations',[])))
+        signature=(data.get('status'),len(events),len(sources),tuple(data.get('unverified_citations',[])),data.get('unverified_annotations',0))
         if signature==self.signature: return
         self.signature=signature
-        self.toggle.setText(f'Research · {data.get("status","running")} · {len(sources)} source(s)')
+        route={'hosted':'Provider hosted','managed':'Agentnik managed'}.get(data.get('route'),'Selecting route')
+        self.toggle.setText(f'Research · {route} · {data.get("status","running")} · {len(sources)} source(s)')
         self.activity.setPlainText('\n'.join(f'{e.get("kind", "")}: {e.get("detail", "")}' for e in events))
         while self.links_layout.count():
             item=self.links_layout.takeAt(0)
@@ -59,8 +132,12 @@ class ResearchDetails(QWidget):
             link=QPushButton(f'[{source["id"]}] {source["title"][:100]}'); link.setToolTip(url)
             link.clicked.connect(lambda checked=False,u=url:QDesktopServices.openUrl(QUrl(u)))
             self.links_layout.addWidget(link)
-            excerpts.append(f'[{source["id"]}] {url}\nRetrieved: {source["retrieved_at"]} · {source.get("backend","")}\nSaved excerpt'+(' (truncated)' if source.get('truncated') else '')+'; not a fresh or complete page.\n'+source['excerpt'])
+            if source.get('metadata_only'):
+                excerpts.append(f'[{source["id"]}] {url}\nReported: {source.get("reported_at","unknown")} · {source.get("backend","")}\nProvider metadata only; page retrieval time and excerpt were not supplied.')
+            else:
+                excerpts.append(f'[{source["id"]}] {url}\nRetrieved: {source["retrieved_at"]} · {source.get("backend","")}\nSaved excerpt'+(' (truncated)' if source.get('truncated') else '')+'; not a fresh or complete page.\n'+source['excerpt'])
         text='\n\n'.join(excerpts)
         if sources: text+='\n\nSource links identify retrieved evidence; they do not verify that every claim is supported.'
+        if data.get('unverified_annotations'): text+='\nSome provider citation annotations could not be validated.'
         if data.get('unverified_citations'): text+='\nUnverified citation IDs: '+', '.join(data['unverified_citations'])
         self.excerpts.setPlainText(text); self.excerpts.setVisible(bool(text))

@@ -152,7 +152,9 @@ This is future scope, not an implemented capability. Continue milestones B throu
 
 Milestone A is established. Milestone B has a native Ollama managed research preview: typed/bounded tool execution, structured streamed continuation, Ollama search with a separate credential, direct public page retrieval, per-chat opt-in, activity/source views, versioned persistence, cancellation/late-result handling, and usage aggregation. The initial managed backend intentionally uses direct page retrieval instead of Ollama service-backed fetch, whose internal navigation cannot be constrained here. Search-service navigation remains an explicitly disclosed external-service limitation.
 
-Ordinary verification is offline. Hosted search, route policies/fallback, remaining protocol adapters, live compatibility checks, and release readiness remain outstanding. The complete first browsing release still requires both routes and tested routing behavior.
+Milestone C now adds an explicitly configured official OpenAI Responses hosted-search adapter, managed Responses tool calls, all four routing policies, per-connection defaults and per-chat overrides, independently credentialed ordered backend profiles, visible bounded retries/fallback, shared accounting, and inline citations. Strict navigation requirements disable externally navigated search before submission. No route fallback changes the model or endpoint.
+
+Ordinary verification remains offline. Both initial routes and routing behavior have mocked contract coverage; live compatibility, remaining Chat Completions/Messages research adapters, native cross-platform checks, and distribution readiness remain outstanding for milestone D. This is a research preview, not a release-readiness claim.
 
 ## Milestones and scope
 

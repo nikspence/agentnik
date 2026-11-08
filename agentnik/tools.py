@@ -17,6 +17,10 @@ class ResearchError(ValueError):
     pass
 
 
+class UncertainError(ResearchError):
+    pass
+
+
 class LimitError(ResearchError):
     pass
 
@@ -38,12 +42,15 @@ class Limits:
     request_seconds: float = 45
     turn_seconds: float = 180
     redirects: int = 3
+    requests: int = 6
+    attempts: int = 8
+    backoff_seconds: float = 5
 
     def __post_init__(self):
         for name, value in asdict(self).items():
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0 or (isinstance(value,float) and not math.isfinite(value)):
                 raise ValueError(f'{name} must be positive')
-            if name not in ('request_seconds', 'turn_seconds') and not isinstance(value, int):
+            if name not in ('request_seconds', 'turn_seconds', 'backoff_seconds') and not isinstance(value, int):
                 raise ValueError(f'{name} must be an integer')
 
 
@@ -132,7 +139,7 @@ class Runtime:
         self.limits = limits or Limits()
         self.run_id = run_id or uuid.uuid4().hex
         self.started = time.monotonic()
-        self.calls = self.retrieved_bytes = self.context_bytes = 0
+        self.calls = self.retrieved_bytes = self.context_bytes = self.requests = 0
         self.closed = False
         self.expired = False
 
@@ -168,6 +175,14 @@ class Runtime:
             self.check()
             if ok: return value
             raise value
+
+    def pause(self,seconds):
+        if seconds>self.limits.backoff_seconds:
+            raise LimitError('Retry guidance exceeds the bounded wait; wait and restart explicitly')
+        deadline=time.monotonic()+max(0,seconds)
+        while time.monotonic()<deadline:
+            self.check(); self.cancel.wait(min(.05,deadline-time.monotonic()))
+        self.check()
 
     def charge(self, field, amount, maximum):
         self.check()

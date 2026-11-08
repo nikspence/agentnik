@@ -22,7 +22,7 @@ The default sandbox process setup still failed after the trust restart. Checks c
 
 ## Milestone B managed research preview
 
-- All 54 offline tests pass: the 23 baseline tests plus 29 research protocol, transport, credential, persistence, cancellation, and Qt checks, plus two edit/resend checks.
+- At the milestone B checkpoint, 54 offline tests passed: the 23 baseline tests plus 29 research protocol, transport, credential, persistence, cancellation, and Qt checks, plus two edit/resend checks.
 - Tests cover streamed/non-streamed native calls, multiple calls, argument assembly, thinking/identifiers in continuation, cross-turn citation provenance, aggregate/missing usage, malformed/unregistered calls, call/context/wire limits, time limits, cancellation and rejected late results, partial failed attempts, and narrow unsupported-tool classification.
 - Transport mocks cover hostile IPv4/IPv6 URLs, mixed public/private DNS, pinned socket addresses with original TLS hostnames, redirect revalidation, credential isolation, content types, compression rejection, response/total byte caps, and readable text extraction. No real hostile destinations are contacted.
 - The preview wheel builds and installs; source-directory imports were excluded when checking installed research modules, a mocked research turn, and an offscreen temporary-data Qt entry-point launch.
@@ -31,4 +31,20 @@ The default sandbox process setup still failed after the trust restart. Checks c
 - Branding SVG loads are checked for Qt parser warnings. Eighteen empty paths were removed from each robot asset; regenerated PNG and ICO files remain byte-identical.
 - Light/dark research screenshots were generated using temporary storage and explicitly simulated model/source responses, then visually inspected. They establish layout, not provider compatibility.
 
-No live inference, search, or page-fetch requests were executed. Native interactive Windows checks, macOS/Linux, and frozen distributions remain unverified. Hosted search and tested routing/fallback are milestone C work; the preview is not a complete browsing release.
+No live inference, search, or page-fetch requests were executed. Native interactive Windows checks, macOS/Linux, and frozen distributions remain unverified. The B checkpoint did not include hosted search/routing; see the milestone C validation below for the delivered extension.
+
+
+## Milestone C hosted research and routing
+
+- All 84 offline tests pass: the 54 prior tests plus 28 routing, Responses, hosted-search, backend, accounting, and Qt tests, plus environment wildcard-host normalization and environment/probe deduplication coverage. Compile checks cover application, tests, and tools.
+- Hosted tests cover SSE and non-streamed JSON, web-search progress, annotation offsets/URLs, provider metadata without invented page timestamps/excerpts, unknown usage, partial failure/disconnection, wire limits, endpoint gating, and preserving stateless output/opaque reasoning items.
+- Managed Responses tests cover fragmented/multiple calls, strict flat tool schemas, function-call identifiers/results, opaque reasoning continuation, and rejecting malformed, duplicate, or unregistered calls before execution.
+- Routing tests cover all four orders and single-route behavior, capability scope/unknown skips, explicit unsupported/auth rejection, one bounded 429/503 retry, long Retry-After stopping, shared request budgets, unchanged connection/model during actual mocked hosted-to-managed fallback, usage from failed attempts, cancellation during waits, and no fallback after partial/uncertain/access-restricted outcomes.
+- Ordered backend tests cover missing keys, independent credentials, eligible rejection/fallback without model replay, duplicate prevention, empty results, and blocked access. Qt tests cover profile ordering and key replacement without corrupting profile identifiers.
+- Qt checks cover saved connection defaults, independent per-chat overrides, legacy managed-only settings, strict-policy blocking before requests, hosted operation without a managed key, separate capability updates, and clickable inline annotations both while streaming and after completion.
+- The milestone C wheel builds and installs. With source-directory imports excluded, the installed package passed new-module imports, a mocked hosted route, an offscreen temporary-data Qt launch, and zero SVG parser warnings.
+- Managed, hosted, fallback, and settings screenshots use temporary data and simulated responses only. Light/dark layouts and red inline links were visually inspected.
+
+Official references checked during implementation: [OpenAI web search](https://developers.openai.com/api/docs/guides/tools-web-search), [Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events), [function calling](https://developers.openai.com/api/docs/guides/function-calling), and [reasoning continuation](https://developers.openai.com/api/docs/guides/reasoning). Documentation and mocks establish contract coverage, not live endpoint/model compatibility.
+
+No live model inference or research-service checks were run. Hosted navigation cannot be controlled inside the provider; strict navigation policy disables it and the current service-based managed search. Chat Completions/Messages research adapters, native interactive/platform checks, and frozen distributions remain unverified or pending.

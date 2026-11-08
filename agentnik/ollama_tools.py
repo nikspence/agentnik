@@ -8,7 +8,7 @@ import json
 import math
 from pathlib import Path
 from . import core
-from .tools import LimitError, ResearchError, ToolCall
+from .tools import LimitError, ResearchError, ToolCall, UncertainError
 
 
 def history_messages(messages):
@@ -120,7 +120,7 @@ def request(c,body,runtime,emit,state):
             if data.get('done') is True:
                 completed=True; break
     runtime.check()
-    if not completed: raise ResearchError('Model disconnected before completion; restart explicitly')
+    if not completed: raise UncertainError('Model disconnected before completion; restart explicitly')
     calls,wire=assembler.finish()
     assistant={'role':'assistant','content':state['text']}
     if state['thinking']: assistant['thinking']=state['thinking']

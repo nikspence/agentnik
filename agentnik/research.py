@@ -4,7 +4,8 @@ from dataclasses import asdict, replace
 import json
 import re
 import time
-from . import core, ollama_tools
+from . import core, ollama_tools, responses_tools
+from .failures import classify
 from .tools import (Capability, DEFINITIONS, LimitError, ResearchError, ResearchEvent,
                     AccessError, Registry, RouteAttempt, Runtime, Source, ToolResult, utc_now)
 from .web import OllamaWeb
@@ -16,16 +17,17 @@ def capability_key(c):
     return json.dumps([core.base_url(c['url']),c.get('protocol','chat'),c.get('model','')],separators=(',',':'))
 
 
-def capability(config,c):
+def capability(config,c,field="managed_tools"):
     record=config.get('research_capabilities',{}).get(capability_key(c),{})
-    data=record.get('managed_tools',{})
+    data=record.get(field,{})
     return Capability(**data) if isinstance(data,dict) else Capability()
 
 
-def set_capability(config,c,state,evidence):
+def set_capability(config,c,state,evidence,field="managed_tools"):
     key=capability_key(c)
     record=config.setdefault('research_capabilities',{}).setdefault(key,{})
-    record['managed_tools']=asdict(Capability(state,utc_now(),evidence))
+    record[field]=asdict(Capability(state,utc_now(),evidence))
+    record.setdefault('managed_tools',asdict(Capability()))
     record.setdefault('hosted_search',asdict(Capability()))
 
 
@@ -39,14 +41,16 @@ def scrub(value,secrets):
     return value
 
 
-def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None):
-    runtime=Runtime(cancel,limits,run_id); route=RouteAttempt()
-    state={'version':1,'run_id':runtime.run_id,'status':'running','sources':[],
+def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,runtime=None):
+    owned_runtime=runtime is None
+    runtime=runtime or Runtime(cancel,limits,run_id); attempt_started=time.monotonic(); route=RouteAttempt()
+    is_responses=c.get("protocol")=="responses"
+    state={'version':2,'run_id':runtime.run_id,'route':'managed','status':'running','sources':[],
            'events':[],'tool_records':[],'exchanges':[],'attempts':[asdict(route)],'limits':asdict(runtime.limits),
-           'capability_state':'configured'}
+           'backend_attempts':getattr(backend,'attempts',[]),'capability_state':'configured','response_items':[],'provider_usage':[],'protocol':'responses' if is_responses else 'native_ollama'}
     prior_sources={s['id']:s for m in messages if m.get('status','ok')=='ok' for s in m.get('research',{}).get('sources',[]) if re.fullmatch(r'S\d+',s.get('id',''))}
     next_source=max((int(ident[1:]) for ident in prior_sources),default=0)+1
-    secrets=(c.get('api_key',''),key)
+    secrets=(c.get('api_key',''),key,*getattr(backend,'secret_values',[]))
     result={'text':'','thinking':'','metrics':{},'research':state,'status':'failed'}
     metrics={}; requested=0; all_usage=True; generation_seconds=0; generated_with_time=0
     tool_seconds=model_seconds=0; active={}; last_input=None; all_generation_timed=True
@@ -56,7 +60,7 @@ def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None):
             current=dict(metrics)
             for field in ('input_tokens','output_tokens'):
                 if field in active.get('metrics',{}): current[field]=current.get(field,0)+active['metrics'][field]
-            current.update(total_seconds=time.monotonic()-runtime.started,model_requests=requested,usage_complete=False)
+            current.update(total_seconds=time.monotonic()-attempt_started,model_requests=requested,usage_complete=False)
             value['metrics']=current
         return scrub(value,secrets)
     def event(kind,detail):
@@ -66,25 +70,30 @@ def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None):
     def usage():
         nonlocal last_input,all_usage,generation_seconds,generated_with_time,all_generation_timed
         reported=active.get('metrics',{})
-        if 'input_tokens' in reported: last_input=reported['input_tokens']
+        last_input=reported.get('input_tokens')
         if not all(k in reported for k in ('input_tokens','output_tokens')): all_usage=False
         for field in ('input_tokens','output_tokens'):
             if field in reported: metrics[field]=metrics.get(field,0)+reported[field]
         if not reported.get('generation_seconds') or 'output_tokens' not in reported: all_generation_timed=False
         if reported.get('generation_seconds') and 'output_tokens' in reported:
             generation_seconds+=reported['generation_seconds']; generated_with_time+=reported.get('output_tokens',0)
+        if active.get('provider_usage'): state['provider_usage'].append(copy.deepcopy(active['provider_usage']))
         active.clear()
     try:
         runtime.check()
-        if not core.native_ollama(c): raise ResearchError('Managed research currently supports native Ollama chat only')
+        if not core.native_ollama(c) and not is_responses: raise ResearchError('Managed research requires native Ollama or Responses')
         service=backend or OllamaWeb(key)
         registry=Registry(service.search,service.fetch)
         body=core.chat_body(c,messages)
-        body['messages'].insert(0,{'role':'system','content':INSTRUCTIONS})
-        body['tools']=[d.wire() for d in DEFINITIONS]
-        event('route','Agentnik managed: Ollama search and public page reader. No automatic fallback or retries.')
+        if is_responses:
+            body.update(instructions=INSTRUCTIONS,store=False,include=['reasoning.encrypted_content'],tools=responses_tools.wire_tools(DEFINITIONS))
+        else:
+            body['messages'].insert(0,{'role':'system','content':INSTRUCTIONS})
+            body['tools']=[d.wire() for d in DEFINITIONS]
+        runtime.notify=lambda kind,detail:event(kind,detail)
+        event('route','Agentnik managed: configured search backends and public page reader.')
         for round_number in range(runtime.limits.rounds+1):
-            runtime.check(); requested+=1
+            runtime.check(); runtime.charge('requests',1,runtime.limits.requests); requested+=1
             event('model',f'Model request {requested}')
             thinking_prefix=result['thinking']
             def combined_thinking(value):
@@ -94,14 +103,17 @@ def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None):
                 result.update(text=value['text'],thinking=combined_thinking(value['thinking']))
                 emit(snapshot())
             model_started=time.monotonic()
-            try: assistant,calls=runtime.wait(lambda:ollama_tools.request(c,body,runtime,progress,active))
+            try: assistant,calls=runtime.wait(lambda:(responses_tools if is_responses else ollama_tools).request(c,body,runtime,progress,active))
             finally: model_seconds+=time.monotonic()-model_started
+            active_text=active.get('text',''); active_thinking=active.get('thinking','')
             usage()
-            state['exchanges'].append(assistant)
-            # Bound assistant/tool continuation context contributed by this turn.
+            # Preserve all provider continuation items, including encrypted reasoning.
             runtime.charge('context_bytes',len(json.dumps(assistant).encode()),runtime.limits.context_bytes)
-            body['messages'].append(assistant)
-            result.update(text=assistant['content'],thinking=combined_thinking(assistant.get('thinking','')))
+            if is_responses:
+                state['response_items'].extend(assistant); body['input'].extend(assistant)
+            else:
+                state['exchanges'].append(assistant); body['messages'].append(assistant)
+            result.update(text=active_text,thinking=combined_thinking(active_thinking))
             if not calls:
                 result['status']='ok'; state['status']='completed'; route.status='completed'
                 event('completed','Research completed'); break
@@ -135,12 +147,21 @@ def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None):
                 content=json.dumps(scrub(tool_result.wire(),secrets),ensure_ascii=False)
                 runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
                 wire={'role':'tool','tool_name':call.name,'content':content}
-                if call.provider.get('id'): wire['tool_call_id']=call.provider['id']
-                body['messages'].append(wire); state['exchanges'].append(wire)
+                if is_responses:
+                    wire={'type':'function_call_output','call_id':call.id,'output':content}
+                    body['input'].append(wire); state['response_items'].append(wire)
+                else:
+                    if call.provider.get('id'): wire['tool_call_id']=call.provider['id']
+                    body['messages'].append(wire); state['exchanges'].append(wire)
                 event('tool_completed',f'{call.name}: {len(sources)} source(s)')
         else: raise LimitError('Research round limit reached')
     except Exception as exc:
+        if isinstance(exc,core.EndpointError): active.setdefault('metrics',{}).update(core.usage_metrics(exc.payload if isinstance(exc.payload,dict) else {}))
+        if active.get('output'): state['response_items'].extend(copy.deepcopy(active['output']))
         if active: usage()
+        partial=bool(result['text'] or result['thinking'] or state['sources'] or state['exchanges'] or state['response_items'] or state['tool_records'] or metrics.get('output_tokens',0)>0)
+        state['failure']=classify(exc,partial,tool='function')
+        if state['failure']['kind']=='unsupported': state['capability_state']='unsupported'
         result['status']='failed'
         result['error']=str(exc)[:1000]
         if requested==1 and not state['exchanges'] and str(exc).startswith('HTTP 400: '):
@@ -161,13 +182,20 @@ def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None):
     known={s['id'] for s in state['sources']}
     state['citations']=sorted(references & known)
     state['unverified_citations']=sorted(references-known)
-    metrics['total_seconds']=time.monotonic()-runtime.started
+    metrics['total_seconds']=time.monotonic()-attempt_started
     metrics['tool_seconds']=tool_seconds; metrics['model_seconds']=model_seconds; metrics['model_requests']=requested
     metrics['usage_complete']=all_usage and requested>0
-    if last_input is not None: metrics['last_input_tokens']=last_input
+    if requested: metrics['last_input_tokens']=last_input
     if all_generation_timed and generation_seconds:
         metrics['generation_seconds']=generation_seconds; metrics['generation_tps']=generated_with_time/generation_seconds
     result['metrics']=metrics
     value=snapshot()
-    runtime.closed=True
+    if owned_runtime: runtime.closed=True
     return value
+
+
+def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,config=None,policy=None,backends=None,access_policy='public_fetch'):
+    if config is None and policy is None:
+        return run_managed(c,messages,key,emit,cancel,limits,run_id,backend)
+    from .routing import run as routed_run
+    return routed_run(c,messages,key,emit,cancel,config or {},policy or 'Provider first',backends,access_policy,limits,run_id,backend)

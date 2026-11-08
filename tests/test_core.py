@@ -103,6 +103,35 @@ class Contracts(unittest.TestCase):
         with self.assertRaises(ValueError): core.base_url('https://secret@example.com')
         with self.assertRaises(ValueError): core.validate_connections({'connections':{'bad':{'url':'https://test','context_limit':'bad'}}})
 
+    def test_environment_wildcard_hosts_use_loopback(self):
+        cases=[('0.0.0.0','127.0.0.1'),('0.0.0.0:11434','127.0.0.1:11434'),
+               ('http://0.0.0.0:8080/v1','http://127.0.0.1:8080/v1'),
+               ('https://0.0.0.0:4000/custom/v1','https://127.0.0.1:4000/custom/v1')]
+        for raw,expected in cases:
+            with self.subTest(raw=raw),patch.dict('os.environ',{'OLLAMA_HOST':raw},clear=True):
+                self.assertEqual(core.environment_connections()['env:Ollama']['url'],expected)
+        with patch.dict('os.environ',{'OPENAI_BASE_URL':'http://0.0.0.0:8080/v1','LITELLM_URL':'http://0.0.0.0:4000/v1','BEDROCK_MANTLE_URL':'https://0.0.0.0/v1'},clear=True):
+            self.assertTrue(all('127.0.0.1' in c['url'] for c in core.environment_connections().values()))
+        for url in ('http://example.com/0.0.0.0','http://0.0.0.0.example/v1','http://192.168.1.2:8080/v1','http://localhost:11434'):
+            self.assertEqual(core.environment_host(url),url)
+        self.assertEqual(core.base_url('http://0.0.0.0:8080/v1'),'http://0.0.0.0:8080/v1')
+
+    def test_duplicate_environment_and_probed_connections_are_merged(self):
+        env={'env:Ollama':{'url':'http://localhost:11434','protocol':'responses','model':'chosen','api_key':'secret'}}
+        probe={'local:Ollama :11434 (Ollama confirmed)':{'url':'http://127.0.0.1:11434/v1','protocol':'chat','model':'probed'}}
+        merged=core.merge_discovered(env,probe)
+        self.assertEqual(list(merged),['env:Ollama'])
+        self.assertEqual(merged['env:Ollama']['model'],'chosen'); self.assertEqual(merged['env:Ollama']['api_key'],'secret')
+        self.assertEqual(merged['env:Ollama']['protocol'],'responses')
+        self.assertIn('confirmed',merged['env:Ollama']['discovery_status'])
+        self.assertNotIn('discovery_status',env['env:Ollama'])
+        env['env:Ollama']['model']=''
+        self.assertEqual(core.merge_discovered(env,probe)['env:Ollama']['model'],'probed')
+        for url in ('http://127.0.0.1:11435/v1','https://127.0.0.1:11434/v1','http://127.0.0.1:11434/custom/v1','http://192.168.1.2:11434/v1'):
+            with self.subTest(url=url):
+                self.assertEqual(len(core.merge_discovered(env,{'probe':{'url':url}})),2)
+        self.assertEqual(len(core.merge_discovered({'a':{'url':'bad url'}},{'probe':{'url':'bad url'}})),2)
+
     def test_discovery_and_environment(self):
         with patch.dict('os.environ',{'AWS_BEARER_TOKEN_BEDROCK':'key','AWS_REGION':'us-east-1','OLLAMA_HOST':'localhost:11434'},clear=True):
             c=core.environment_connections(); self.assertEqual(c['env:Bedrock Mantle']['url'],'https://bedrock-mantle.us-east-1.api.aws/v1'); self.assertIn('env:Ollama',c)

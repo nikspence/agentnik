@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QScrollArea, QFrame, QFileDialog, QMessageBox, QInputDialog, QTableWidget, QTableWidgetItem,
     QHeaderView, QProgressBar, QStackedWidget, QAbstractItemView, QSizePolicy)
 
-from . import core, research
+from . import core, research, routing
+from .citations import cited_markdown
 from .research_ui import WebSettings, ResearchDetails
 from .storage import Store
 
@@ -73,7 +74,7 @@ def metrics_text(m):
         parts.append('Overall '+number(total_rate, ' tok/s')+' (input + output / elapsed)')
     parts.extend(['Thinking '+number(m.get('thinking_seconds_estimate'), ' s (arrival estimate)'), 'Total '+number(m.get('total_seconds'), ' s')])
     if 'model_requests' in m:
-        parts.extend([str(m['model_requests'])+' model request(s)', 'Tools '+number(m.get('tool_seconds'),' s')])
+        parts.extend([str(m['model_requests'])+' model request(s)', 'Managed tools '+number(m.get('tool_seconds'),' s')])
         if not m.get('usage_complete',False): parts.append('Known usage only')
     return ' · '.join(parts)
 
@@ -123,7 +124,7 @@ class MessageText(QTextBrowser):
 
 class MessageBubble(QFrame):
     def __init__(self,message,live=False):
-        super().__init__(); self.role = message['role']; self.live = live; self._thinking_seen = False
+        super().__init__(); self.research_data=message.get('research',{}); self.role = message['role']; self.live = live; self._thinking_seen = False
         self._initial_thinking_visible = message.get('thinking_visible',live)
         self.setObjectName('userBubble' if self.role == 'user' else 'assistantBubble')
         self.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Maximum)
@@ -143,14 +144,16 @@ class MessageBubble(QFrame):
         self.restyle()
     def toggle_thinking(self,visible):
         self.thinking_view.setVisible(visible); self.thinking_toggle.setText('Hide thinking' if visible else 'Show thinking')
-    def set_stream(self,text,thinking):
+    def set_stream(self,text,thinking,research_data=None):
+        if research_data is not None: self.research_data=research_data
         has_thinking = bool(thinking)
         self.thinking_toggle.setVisible(has_thinking)
         self.thinking_view.set_content(thinking)
         if has_thinking and not self._thinking_seen:
             self._thinking_seen = True; self.thinking_toggle.setChecked(self._initial_thinking_visible)
         self.thinking_view.setVisible(has_thinking and self.thinking_toggle.isChecked())
-        self.text.set_content(text,self.role == 'assistant')
+        display=cited_markdown(text,self.research_data) if self.role=='assistant' and self.research_data else text
+        self.text.set_content(display,self.role == 'assistant')
         self.text.setVisible(bool(text))
     def restyle(self):
         if getattr(self,'_restyling',False): return
@@ -333,7 +336,7 @@ class Connections(QDialog):
     def populate(self):
         selected = {x.data(Qt.ItemDataRole.UserRole) for x in self.list.selectedItems()}; self.list.clear()
         for name,c in self.window.connections.items():
-            item = QListWidgetItem(f'{name}\n{c.get("url", "")}  ·  {c.get("model") or "choose a model"}'); item.setData(Qt.ItemDataRole.UserRole,name); self.list.addItem(item); item.setSelected(name in selected)
+            item = QListWidgetItem(f'{name}\n{c.get("url", "")}  ·  {c.get("model") or "choose a model"}'); item.setData(Qt.ItemDataRole.UserRole,name); item.setToolTip(c.get("discovery_status","")); self.list.addItem(item); item.setSelected(name in selected)
     def scan(self):
         self.refresh_button.setEnabled(False); self.status.setText('Checking loopback endpoints…')
         def done(found):
@@ -415,10 +418,19 @@ class SessionTab(QWidget):
         self.info = QLabel(''); self.info.setTextFormat(Qt.TextFormat.PlainText); self.info.setWordWrap(True); layout.addWidget(self.info)
         if session['mode'] == 'chat':
             web_row = QHBoxLayout(); layout.addLayout(web_row)
-            self.web_access = QCheckBox('Web access · Agentnik managed (preview)')
+            self.web_access = QCheckBox('Web access')
             self.web_access.setChecked(session.get('research_options',{}).get('enabled',False))
             self.web_access.setToolTip('Search queries go to Ollama.com; page reads go directly to public websites.')
             web_row.addWidget(self.web_access)
+            self.route_policy=QComboBox(); self.route_policy.setAccessibleName('Research route policy')
+            self.route_policy.addItem('Connection default',None)
+            for policy in routing.POLICIES: self.route_policy.addItem(policy,policy)
+            options=session.get('research_options',{})
+            override=options.get('policy','Agentnik only' if options.get('route')=='managed' else None)
+            self.route_policy.setCurrentIndex(max(0,self.route_policy.findData(override)))
+            web_row.addWidget(self.route_policy)
+            self.route_policy.currentIndexChanged.connect(self.save_draft)
+
             self.web_settings = button('Web settings…',self.configure_web,web_row); web_row.addStretch()
             self.web_access.toggled.connect(self.save_draft)
 
@@ -463,16 +475,17 @@ class SessionTab(QWidget):
         self.loading = False; self.render(); self.update_current_star(); QTimer.singleShot(0,self.load_models)
     def configure_web(self):
         c = self.active_connection()
-        if not core.native_ollama(c): return error(self,'Managed research currently requires native Ollama chat.')
         if not c.get('model'): return error(self,'Select a model before configuring its tool capability.')
         dlg = WebSettings(self,c)
         while dlg.exec() == QDialog.DialogCode.Accepted:
             try:
-                self.store.save_web_key(dlg.key.text().strip(),dlg.plain.isChecked(),dlg.remove.isChecked())
-                previous = research.capability(self.store.config,c)
-                state = previous.state if dlg.allow.isChecked() and previous.state=='verified' else 'configured' if dlg.allow.isChecked() else 'unknown'
-                research.set_capability(self.store.config,c,state,'Enabled by user; no live verification' if state=='configured' else previous.evidence if state=='verified' else '')
-                self.store.flush(); self.info.setText('Web configuration saved. Tool capability: '+state); return
+                self.store.save_web_key(dlg.key.text().strip(),dlg.plain.isChecked(),dlg.remove.isChecked(),ident=dlg.backend_id)
+                for field,checkbox in [('managed_tools',dlg.allow),('hosted_search',dlg.allow_hosted)]:
+                    previous=research.capability(self.store.config,c,field)
+                    state=previous.state if checkbox.isChecked() and previous.state=='verified' else 'configured' if checkbox.isChecked() and checkbox.isEnabled() else 'unknown'
+                    research.set_capability(self.store.config,c,state,'Enabled by user; no live verification' if state=='configured' else previous.evidence if state=='verified' else '',field)
+                routing.save_defaults(self.store.config,self.session['connection_name'],c,dlg.default_policy.currentText(),dlg.access_policy.currentData())
+                self.store.flush(); self.info.setText('Research defaults and scoped capabilities saved.'); return
             except Exception as exc: error(self,exc)
 
     def complete_research(self,result):
@@ -483,11 +496,16 @@ class SessionTab(QWidget):
         self.session['messages'].extend([user,dict(role='assistant',**result)])
         if self.session['title']=='New chat': self.session['title']=(self.pending['text'] or 'Web research')[:60]
         capability_state = result['research'].get('capability_state')
-        if capability_state in ('verified','unsupported'):
-            research.set_capability(self.store.config,self.research_connection,capability_state,'Structured native tool calls observed at user request' if capability_state=='verified' else 'Native endpoint explicitly rejected tools with HTTP 400')
-            self.store.flush()
+        updates=result['research'].get('capability_updates')
+        if updates is None and capability_state in ('verified','unsupported'):
+            updates=[{'field':'managed_tools','state':capability_state,'evidence':'Structured managed request observed '+capability_state}]
+        for update in updates or []:
+            research.set_capability(self.store.config,self.research_connection,update['state'],update['evidence'],update['field'])
+        if updates: self.store.flush()
         if ok: self.composer.clear(); self.attachments.set_paths([])
-        self.info.setText('Research completed' if ok else result.get('error','Research stopped')+' · Partial work saved; restart explicitly.')
+        route_label='Provider hosted' if result['research'].get('route')=='hosted' else 'Agentnik managed'
+        switched=any(e.get('kind')=='route_switch' for e in result['research'].get('events',[]))
+        self.info.setText(('Research completed · '+route_label+(' · Route switched; see Research activity' if switched else '')) if ok else result.get('error','Research stopped')+' · Partial work saved; restart explicitly.')
         self.save_draft(); self.render(); self.updated.emit()
 
     def add_question(self,data=None):
@@ -559,7 +577,7 @@ class SessionTab(QWidget):
         if self.loading: return
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
         if self.session['mode'] == 'chat':
-            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),research_options={'enabled':self.web_access.isChecked(),'route':'managed'})
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData()})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -571,7 +589,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-            self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value)
+            self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.route_policy.setEnabled(not value)
     def submit(self):
         if self.job: return
         try:
@@ -589,13 +607,13 @@ class SessionTab(QWidget):
             else:
                 form = copy.deepcopy(self.form_value()); body = core.decision_body(c,form); self.pending = form
             self.research_running = mode=='chat' and self.web_access.isChecked()
-            key = ''
+            key = ''; backend_specs=[]; research_config={}; selected_policy=None; access_policy='public_fetch'
             if self.research_running:
-                if not core.native_ollama(c): raise ValueError('Managed research currently requires native Ollama chat.')
-                if research.capability(self.store.config,c).state not in ('configured','verified'):
-                    raise ValueError('Enable tool requests for this endpoint/model in Web settings first. No inference probe is run automatically.')
-                key = self.store.web_key()
-                if not key: raise ValueError('Configure a separate search API key in Web settings first.')
+                defaults=routing.connection_defaults(self.store.config,self.session['connection_name'],c)
+                selected_policy=self.route_policy.currentData() or defaults['policy']; access_policy=defaults['access_policy']
+                research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{}))}
+                backend_specs=self.store.web_backend_specs()
+                key=next((b['key'] for b in backend_specs if b.get('key')),'')
             self.partial = {'text':'','thinking':''}
             self.busy(True); self.info.setText('Running…'); self.render()
             token = uuid.uuid4().hex; self.request_token = token
@@ -607,7 +625,7 @@ class SessionTab(QWidget):
             request_messages = copy.deepcopy(self.session['messages']+[self.pending]) if research_enabled else []
             self.research_connection = c
             self.last_research_save = 0
-            self.job = Job(lambda emit,cancel:research.run(c,request_messages,key,emit,cancel,run_id=token) if research_enabled else core.run_request(c,mode,body,emit,cancel),
+            self.job = Job(lambda emit,cancel:research.run(c,request_messages,key,emit,cancel,run_id=token,config=research_config,policy=selected_policy,backends=backend_specs,access_policy=access_policy) if research_enabled else core.run_request(c,mode,body,emit,cancel),
                            lambda value:self.finished(value) if self.request_token == token else None,
                            lambda message:self.failed(message) if self.request_token == token else None,
                            lambda value:self.progress(value) if self.request_token == token else None)
@@ -617,6 +635,8 @@ class SessionTab(QWidget):
             self.partial = value
             if self.research_running and 'research' in value:
                 self.session['research_pending'] = {'user':self.pending,'result':value}
+                if value['research'].get('events'):
+                    latest=value['research']['events'][-1]; self.info.setText(latest.get('kind','Research')+': '+latest.get('detail','')[:180])
                 # Save bounded activity snapshots, including partial output, for interrupted sessions.
                 signature = (len(value['research'].get('events',[])),len(value['research'].get('sources',[])))
                 if signature != getattr(self,'last_research_signature',None) or time.monotonic()-self.last_research_save > .4:
@@ -625,7 +645,7 @@ class SessionTab(QWidget):
                     if not hasattr(self.live_bubble,'research_details'):
                         self.live_bubble.research_details = ResearchDetails(); self.live_bubble.layout().addWidget(self.live_bubble.research_details)
                     self.live_bubble.research_details.set_data(value['research'])
-            if hasattr(self,'live_bubble'): self.live_bubble.set_stream(value['text'],value['thinking'])
+            if hasattr(self,'live_bubble'): self.live_bubble.set_stream(value['text'],value['thinking'],value.get('research'))
             self.follow_stream()
     def finished(self,result):
         if self.research_running: return self.complete_research(result)
@@ -774,7 +794,7 @@ class Window(QMainWindow):
         dark = value == 'Dark' or (value == 'System' and QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark)
         window,base,text,edge = ('#20232b','#171a21','#eef0f5','#4a5261') if dark else ('#fafafa','#ffffff','#18202d','#c3c8d0')
         palette = QPalette(self._system_palette)
-        for role,color in [(QPalette.ColorRole.Window,window),(QPalette.ColorRole.Base,base),(QPalette.ColorRole.AlternateBase,window),(QPalette.ColorRole.WindowText,text),(QPalette.ColorRole.Text,text),(QPalette.ColorRole.Button,window),(QPalette.ColorRole.ButtonText,text),(QPalette.ColorRole.Highlight,'#c83545'),(QPalette.ColorRole.HighlightedText,'#ffffff')]: palette.setColor(role,QColor(color))
+        for role,color in [(QPalette.ColorRole.Window,window),(QPalette.ColorRole.Base,base),(QPalette.ColorRole.AlternateBase,window),(QPalette.ColorRole.WindowText,text),(QPalette.ColorRole.Text,text),(QPalette.ColorRole.Button,window),(QPalette.ColorRole.ButtonText,text),(QPalette.ColorRole.Highlight,'#c83545'),(QPalette.ColorRole.HighlightedText,'#ffffff'),(QPalette.ColorRole.Link,'#e34b59' if dark else '#c83545'),(QPalette.ColorRole.LinkVisited,'#d77a83' if dark else '#aa2938')]: palette.setColor(role,QColor(color))
         QApplication.setPalette(palette)
         size = self.store.config['settings'].get('font_size',max(8,self.font().pointSize()))
         colors = f'QWidget {{ font-size: {size}pt; background-color: {window}; color: {text}; }} QLabel {{ background: transparent; }} QLineEdit,QPlainTextEdit,QTextBrowser,QListWidget,QTableWidget {{ background-color: {base}; border: 1px solid {edge}; selection-background-color: #c83545; }} QPushButton,QComboBox {{ border: 1px solid {edge}; border-radius: 4px; }} QPushButton:disabled {{ color: #808795; }} QTabWidget::pane {{ border: 1px solid {edge}; }} QTabBar::tab:selected {{ background-color: {base}; }}'
@@ -808,7 +828,7 @@ class Window(QMainWindow):
         icon = QIcon(str(assets/'agentnik-icon.svg'))
         self.setWindowIcon(icon); QApplication.setWindowIcon(icon)
     def reload_connections(self):
-        self.connections = {**core.environment_connections(),**self.local,**self.store.connections()}
+        self.connections = {**core.merge_discovered(core.environment_connections(),self.local),**self.store.connections()}
         for i in range(self.tabs.count()):
             widget = self.tabs.widget(i)
             if isinstance(widget,SessionTab): widget.refresh_connections()

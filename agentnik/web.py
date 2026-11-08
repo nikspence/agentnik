@@ -13,6 +13,7 @@ import ssl
 import time
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from .tools import AccessError, LimitError, ResearchError, Source, utc_now
+from .core import EndpointError
 
 
 def public_url(url):
@@ -113,7 +114,7 @@ class PublicTransport:
                     continue
                 if r.status!=200:
                     # Avoid echoing upstream error bodies, query strings, or credentials.
-                    raise ResearchError(f'Web service HTTP {r.status}; no automatic retry was made')
+                    raise EndpointError(r.status,json.dumps({'error':{'message':'Web service rejected the request'}}),r.getheader('Retry-After'))
                 ctype=r.getheader('Content-Type','').split(';')[0].strip().lower()
                 allowed=('application/json',) if body is not None else ('text/html','text/plain','application/xhtml+xml')
                 if ctype not in allowed: raise AccessError('Unsupported web content type')
@@ -183,3 +184,56 @@ class OllamaWeb:
         text=re.sub(r'[ \t]+',' ',text); text=re.sub(r'\n\s*\n','\n\n',text).strip()
         text,truncated=excerpt(text,8000)
         return [Source('',title[:300],final,text,utc_now(),ctype,truncated,'public-fetch')]
+
+
+class OrderedSearch:
+    """Resolve one logical search call across an explicit ordered backend list."""
+    def __init__(self,specs,allow_fallback=True):
+        self.specs=specs; self.allow_fallback=allow_fallback; self.attempts=[]
+        self.secret_values=[s.get('key','') for s in specs]
+
+    def notify(self,runtime,kind,detail):
+        callback=getattr(runtime,'notify',None)
+        if callback: callback(kind,detail)
+
+    def search(self,query,runtime):
+        from dataclasses import replace
+        from .failures import classify
+        last=None; seen_ids=set(); seen_credentials=set()
+        for spec in self.specs:
+            runtime.check()
+            ident=spec.get('id',''); name=spec.get('name',ident)
+            record={'backend':ident,'name':name,'status':'running','started_at':utc_now()}
+            self.attempts.append(record)
+            credential=(spec.get('kind'),spec.get('key'))
+            if ident in seen_ids or (spec.get('key') and credential in seen_credentials):
+                record.update(status='skipped',reason='Duplicate backend/profile credential',ended_at=utc_now())
+                self.notify(runtime,'backend_skipped',name+': duplicate profile'); continue
+            seen_ids.add(ident)
+            if spec.get('key'): seen_credentials.add(credential)
+            if spec.get('kind')!='ollama' or not spec.get('key'):
+                record.update(status='skipped',reason='Unsupported backend or missing credential',ended_at=utc_now())
+                self.notify(runtime,'backend_skipped',name+': '+record['reason']); continue
+            self.notify(runtime,'backend_selected',name)
+            try:
+                result=OllamaWeb(spec['key']).search(query,runtime)
+                record.update(status='completed',ended_at=utc_now())
+                # An empty result is evidence, not a reason to try another backend.
+                return [replace(source,backend=ident) for source in result]
+            except Exception as exc:
+                failure=classify(exc,False); last=exc
+                record.update(status='failed',error=str(exc)[:500],failure=failure,ended_at=utc_now())
+                self.notify(runtime,'backend_failed',name+': '+failure['kind'])
+                if not self.allow_fallback or not failure['fallback_allowed']: raise
+                if failure['kind'] in ('rate_limit','temporary'):
+                    delay=failure['retry_after'] or 0
+                    self.notify(runtime,'backend_wait',f'{delay:g}s retry guidance from '+name)
+                    runtime.pause(delay)
+                self.notify(runtime,'backend_switch','Considering the next configured search backend')
+        if last: raise last
+        raise ResearchError('No eligible managed search backend')
+
+    def fetch(self,url,runtime):
+        # The direct reader has no backend account fallback and no service key forwarding.
+        key=next((s['key'] for s in self.specs if s.get('key')),'')
+        return OllamaWeb(key).fetch(url,runtime)

@@ -3,6 +3,7 @@ import base64
 import json
 import mimetypes
 import os
+import re
 import socket
 import time
 import urllib.error
@@ -23,6 +24,12 @@ PROVIDERS = [
 ]
 PROTOCOLS = ('responses', 'chat', 'messages')
 
+def environment_host(url):
+    """Use loopback when an environment URL specifies an IPv4 wildcard bind."""
+    return re.sub(r'^(https?://)?0\.0\.0\.0(?=[:/?#]|$)',
+                  lambda m:(m[1] or '')+'127.0.0.1',url.strip(),flags=re.IGNORECASE)
+
+
 def environment_connections():
     first = lambda names: next((os.environ[n] for n in names if os.environ.get(n)), '')
     found = {}
@@ -35,6 +42,7 @@ def environment_connections():
     region = first(('AWS_REGION', 'AWS_DEFAULT_REGION'))
     if key or url:
         found['env:Bedrock Mantle'] = dict(url=url or (f'https://bedrock-mantle.{region}.api.aws/v1' if region else ''), api_key=key, model=os.getenv('BEDROCK_MODEL', ''), protocol='responses')
+    for connection in found.values(): connection['url']=environment_host(connection['url'])
     return found
 
 def base_url(url):
@@ -68,6 +76,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, hdrs, newurl):
         raise ValueError('Endpoint redirected the request. Use its final URL in the connection settings.')
 
+class EndpointError(ValueError):
+    """An explicit HTTP rejection, distinct from an uncertain transport failure."""
+    def __init__(self,status,detail='',retry_after=None):
+        self.status=status; self.detail=detail; self.retry_after=retry_after
+        try: self.payload=json.loads(detail)
+        except (ValueError,TypeError): self.payload={}
+        super().__init__(f'HTTP {status}: {detail}')
+
+
 def open_request(c, url, body=None, timeout=120):
     req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, headers=headers(c))
     try:
@@ -75,7 +92,7 @@ def open_request(c, url, body=None, timeout=120):
     except urllib.error.HTTPError as e:
         detail = e.read(2048).decode('utf-8', 'replace')
         if c.get('api_key'): detail = detail.replace(c['api_key'], '[redacted]')
-        raise ValueError(f'HTTP {e.code}: {detail}') from None
+        raise EndpointError(e.code,detail,e.headers.get('Retry-After') if e.headers else None) from None
 
 def get_json(c, url, timeout=10):
     with open_request(c, url, timeout=timeout) as r: return json.load(r)
@@ -110,6 +127,33 @@ def discover():
             found[f'local:{name} :{port} ({status})'] = c
     return found
 
+def discovery_identity(connection):
+    """Compare discovered destinations without DNS requests or credential matching."""
+    try:
+        parsed=urllib.parse.urlsplit(base_url(connection['url']))
+        host=parsed.hostname.lower().rstrip('.')
+        if any(ch.isspace() for ch in host): return None
+        if host=='localhost': host='127.0.0.1'
+        return parsed.scheme.lower(),host,parsed.port or (443 if parsed.scheme=='https' else 80),parsed.path.rstrip('/')
+    except (ValueError,KeyError,AttributeError): return None
+
+
+def merge_discovered(environment,probed):
+    """Keep stable environment names/settings, enriching them with matching probes."""
+    result={name:dict(c) for name,c in environment.items()}
+    for probe_name,probe in probed.items():
+        identity=discovery_identity(probe)
+        matches=[name for name,c in environment.items() if identity is not None and discovery_identity(c)==identity]
+        if not matches:
+            result[probe_name]=dict(probe); continue
+        for name in matches:
+            combined=dict(probe); combined.update(environment[name])
+            if not combined.get('model'): combined['model']=probe.get('model','')
+            combined['discovery_status']=probe_name
+            result[name]=combined
+    return result
+
+
 def image_block(path, protocol, role='user'):
     mime = mimetypes.guess_type(path)[0]
     if mime not in ('image/png', 'image/jpeg', 'image/webp', 'image/gif'):
@@ -121,9 +165,16 @@ def image_block(path, protocol, role='user'):
 
 def chat_body(c, messages):
     protocol = c.get('protocol', 'chat')
-    history = []
+    history = []; response_context_bytes=0
     for m in messages:
         if m.get('status', 'ok') != 'ok': continue
+        if protocol=='responses' and m['role']=='assistant' and m.get('research',{}).get('response_items'):
+            import copy
+            saved=m['research']['response_items']
+            response_context_bytes+=len(json.dumps(saved).encode())
+            if response_context_bytes>128_000:
+                raise ValueError('Saved Responses context exceeds 128 KB; open a new chat')
+            history.extend(copy.deepcopy(saved)); continue
         text_type = 'output_text' if m['role'] == 'assistant' else 'input_text'
         content = m['text']
         if m.get('images'):

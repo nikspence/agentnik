@@ -46,7 +46,7 @@ class ResearchDesktop(unittest.TestCase):
             finally: w.close(); self.app.processEvents(); store.db.close()
 
     def test_managed_completion_sources_reopen_and_credential_free_export(self):
-        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]),patch('agentnik.research.OllamaWeb',return_value=Backend()),patch.object(core,'open_request',side_effect=[Response([answer('',[call()])]),Response([answer()])]):
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]),patch('agentnik.web.OllamaWeb',return_value=Backend()),patch.object(core,'open_request',side_effect=[Response([answer('',[call()])]),Response([answer()])]):
             store=Store(root); store.save_web_key('private-web-key',plaintext=True)
             research.set_capability(store.config,C,'configured','user')
             w=Window(store); w.connections={'test':dict(C)}

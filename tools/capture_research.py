@@ -40,7 +40,7 @@ def main():
     c={'url':'http://127.0.0.1:11434/v1','protocol':'chat','model':'offline-demo'}
     responses=[Response({'role':'assistant','content':'','tool_calls':[{'function':{'index':0,'name':'web_search','arguments':{'query':'Agentnik research interface demonstration'}}}]}),
                Response({'role':'assistant','content':'This offline demo shows how Agentnik records tool activity and sources. The source below is simulated for interface review [S1].\n\nExpand **Research** to inspect the recorded activity, source link, and saved excerpt.'})]
-    with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]),patch.object(core,'open_request',side_effect=responses),patch.object(research,'OllamaWeb',return_value=DemoBackend()):
+    with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]),patch.object(core,'open_request',side_effect=responses),patch('agentnik.web.OllamaWeb',return_value=DemoBackend()):
         store=Store(root); store.save_web_key('offline-demo-key',plaintext=True); research.set_capability(store.config,c,'configured','Offline demo')
         w=Window(store); w.resize(1440,1000); w.connections={'Offline demo':c}; w.new_session('chat','Offline demo'); w.show(); app.processEvents()
         try:
