@@ -55,7 +55,7 @@ class ReleaseTooling(unittest.TestCase):
     def test_build_manifest_keeps_revision_when_documentation_images_are_copied(self):
         with tempfile.TemporaryDirectory() as directory:
             repo=Path(directory)/'source';repo.mkdir()
-            for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','MILESTONE_D_LIVE_TEST_PLAN.md','MILESTONE_D_LIVE_RESULTS.md'):
+            for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','MILESTONE_D_LIVE_TEST_PLAN.md','MILESTONE_D_LIVE_RESULTS.md','CODING_BACKEND_PLAN.md'):
                 (repo/name).write_text('fixture')
             for assets in (repo/'assets',repo/'agentnik'/'assets'):
                 assets.mkdir(parents=True);(assets/'fixture.png').write_bytes(b'fixture')

@@ -35,6 +35,10 @@ def validate_session(value, ident=None):
         require(data.get('version')==4)
         for field in ('project_id','project_name','path_snapshot'): require(isinstance(data.get(field),str) and bool(data[field]))
         require(not data['messages'] and not data['runs'] and 'research_pending' not in data)
+        bindings=data.get('coding_models',{});require(isinstance(bindings,dict) and not set(bindings)-{'heavy','light'})
+        for binding in bindings.values():
+            require(isinstance(binding,dict) and set(binding)=={'connection','model'})
+            require(all(isinstance(v,str) and len(v)<=1000 for v in binding.values()))
         activity=data.get('code_activity',[])
         require(isinstance(activity,list) and len(activity)<=32)
         require(all(isinstance(e,dict) and isinstance(e.get('kind'),str) and isinstance(e.get('text'),str) and len(e['text'])<=2048 for e in activity))
