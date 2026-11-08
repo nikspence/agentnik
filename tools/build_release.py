@@ -110,10 +110,10 @@ def main(argv=None):
         for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','MILESTONE_D_LIVE_TEST_PLAN.md','MILESTONE_D_LIVE_RESULTS.md'):
             shutil.copy2(ROOT/name,bundle/name)
         # Keep the bundled README's relative image links usable.
-        for source,target in ((ROOT/'assets',bundle/'assets'),(ROOT/'agentnik'/'assets',bundle/'agentnik'/'assets')):
-            target.mkdir(parents=True,exist_ok=True)
-            for image in source.iterdir():
-                if image.suffix in ('.png','.svg','.ico'):shutil.copy2(image,target/image.name)
+        for asset_source,asset_target in ((ROOT/'assets',bundle/'assets'),(ROOT/'agentnik'/'assets',bundle/'agentnik'/'assets')):
+            asset_target.mkdir(parents=True,exist_ok=True)
+            for image in asset_source.iterdir():
+                if image.suffix in ('.png','.svg','.ico'):shutil.copy2(image,asset_target/image.name)
         notices=copy_notices(bundle)
         manifest={'schema_version':1,'timestamp':datetime.now(timezone.utc).isoformat(),'application_version':__version__,'artifact_label':args.label,
                   'source':source,'python':sys.version,'os':platform.platform(),'architecture':platform.machine(),
