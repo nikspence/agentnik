@@ -886,6 +886,8 @@ Saved excerpt; not a fresh or complete page.
         <message>
             <location filename="../ui.py" line="475" />
             <location filename="../ui.py" line="603" />
+            <location filename="../ui.py" line="740" />
+            <location filename="../ui.py" line="758" />
             <source>☆ Save prompt</source>
             <translation>☆ 프롬프트 저장</translation>
         </message>
@@ -925,17 +927,35 @@ Saved excerpt; not a fresh or complete page.
             <translation>사용 가능한 모델 {count}개.</translation>
         </message>
         <message>
+            <location filename="../ui.py" line="576" />
+            <source>Enter a prompt or attach an image first.</source>
+            <translation>먼저 프롬프트를 입력하거나 이미지를 첨부하세요.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="578" />
+            <source>Enter decision context, a question, or attach an image first.</source>
+            <translation>먼저 결정 컨텍스트나 질문을 입력하거나 이미지를 첨부하세요.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="581" />
+            <source>Wait for the current request to finish before replacing the prompt.</source>
+            <translation>프롬프트를 바꾸기 전에 현재 요청이 끝날 때까지 기다리세요.</translation>
+        </message>
+        <message>
             <location filename="../ui.py" line="588" />
             <source>Replace the current prompt and attachments?</source>
             <translation>현재 프롬프트와 첨부 파일을 바꾸시겠습니까?</translation>
         </message>
         <message>
             <location filename="../ui.py" line="603" />
+            <location filename="../ui.py" line="740" />
+            <location filename="../ui.py" line="758" />
             <source>★ Saved prompt</source>
             <translation>★ 저장된 프롬프트</translation>
         </message>
         <message>
             <location filename="../ui.py" line="635" />
+            <location filename="../ui.py" line="750" />
             <source>Running…</source>
             <translation>실행 중…</translation>
         </message>
@@ -948,6 +968,70 @@ Saved excerpt; not a fresh or complete page.
             <location filename="../ui.py" line="689" />
             <source>Cancelled. The server may still finish processing.</source>
             <translation>취소되었습니다. 서버에서는 처리가 계속될 수 있습니다.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="716" />
+            <source>Edit and resend prompt</source>
+            <translation>프롬프트 수정 후 다시 보내기</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="716" />
+            <source>Edit this prompt and its images in the composer, then send again</source>
+            <translation>작성창에서 이 프롬프트와 이미지를 수정한 후 다시 보내기</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="720" />
+            <location filename="../ui.py" line="760" />
+            <source>Remove saved prompt</source>
+            <translation>저장된 프롬프트 제거</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="720" />
+            <location filename="../ui.py" line="760" />
+            <source>Save prompt</source>
+            <translation>프롬프트 저장</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="720" />
+            <location filename="../ui.py" line="759" />
+            <source>Remove from Prompts</source>
+            <translation>프롬프트 목록에서 제거</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="720" />
+            <location filename="../ui.py" line="759" />
+            <source>Save to Prompts</source>
+            <translation>프롬프트 목록에 저장</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="738" />
+            <source>Run {number}</source>
+            <translation>실행 {number}</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="742" />
+            <source>Restore query to form</source>
+            <translation>쿼리를 입력 양식으로 복원</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="745" />
+            <source>Inspect query and response</source>
+            <translation>쿼리와 응답 확인</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="745" />
+            <source>Decision run</source>
+            <translation>결정 실행</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="752" />
+            <source>Build a decision query on the left.</source>
+            <translation>왼쪽에서 결정 쿼리를 작성하세요.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="752" />
+            <source>Start a conversation. Attach images or paste them into the composer.</source>
+            <translation>대화를 시작하세요. 이미지를 첨부하거나 작성창에 붙여넣을 수 있습니다.</translation>
         </message>
     </context>
     <context>

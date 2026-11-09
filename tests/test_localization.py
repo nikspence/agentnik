@@ -57,6 +57,7 @@ class Localization(unittest.TestCase):
 
     def test_korean_chat_controls_preserve_user_text(self):
         from agentnik.ui import Window,MessageBubble
+        from PySide6.QtWidgets import QPushButton
         translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
         try:
             with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
@@ -67,6 +68,12 @@ class Localization(unittest.TestCase):
                     self.assertEqual(tab.send_button.text(),'전송');self.assertEqual(tab.cancel_button.text(),'취소')
                     self.assertEqual(tab.web_access.text(),'웹 접근');self.assertEqual(tab.reasoning.placeholderText(),'추론 수준')
                     tab.composer.setPlainText('User text');tab.save_draft();self.assertEqual(store.list_sessions()[0]['draft'],'User text')
+                    tab.session['messages']=[{'role':'user','text':'Earlier prompt'}];tab.composer.clear();tab.render()
+                    message=tab.findChildren(MessageBubble)[0]
+                    edit=next(b for b in message.findChildren(QPushButton) if b.accessibleName()=='프롬프트 수정 후 다시 보내기')
+                    edit.click();self.assertEqual(tab.composer.toPlainText(),'Earlier prompt');self.assertEqual(len(tab.session['messages']),1)
+                    star=next(b for b in message.findChildren(QPushButton) if b.accessibleName()=='프롬프트 저장')
+                    star.click();self.assertEqual(star.accessibleName(),'저장된 프롬프트 제거')
                     bubble=MessageBubble({'role':'assistant','text':'Answer','thinking':'Reasoning'})
                     bubble.thinking_toggle.setChecked(True);self.assertEqual(bubble.thinking_toggle.text(),'사고 과정 숨기기')
                     bubble.close()

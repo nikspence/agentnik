@@ -573,12 +573,12 @@ class SessionTab(QWidget):
     def star_draft(self):
         payload = self.current_prompt()
         if self.session['mode'] == 'chat' and not payload['text'].strip() and not payload['images']:
-            return error(self,'Enter a prompt or attach an image first.')
+            return error(self,self.tr('Enter a prompt or attach an image first.'))
         if self.session['mode'] == 'decision' and not payload['state'].strip() and not payload['images'] and not any(q['instructions'].strip() for q in payload['questions']):
-            return error(self,'Enter decision context, a question, or attach an image first.')
+            return error(self,self.tr('Enter decision context, a question, or attach an image first.'))
         self.window.toggle_prompt(self.session['mode'],payload)
     def copy_prompt(self,payload):
-        if self.job: return error(self,'Wait for the current request to finish before replacing the prompt.')
+        if self.job: return error(self,self.tr('Wait for the current request to finish before replacing the prompt.'))
         current = self.current_prompt()
         if self.session['mode'] == 'chat':
             occupied = bool(current['text'].strip() or current['images'])
@@ -713,11 +713,11 @@ class SessionTab(QWidget):
         line.setContentsMargins(64 if message['role']=='user' else 4,0,4 if message['role']=='user' else 64,0)
         bubble = MessageBubble(message,live); line.addWidget(bubble); self.results.addWidget(row)
         if message['role'] == 'user':
-            edit = QPushButton('✎'); edit.setAccessibleName('Edit and resend prompt'); edit.setToolTip('Edit this prompt and its images in the composer, then send again')
+            edit = QPushButton('✎'); edit.setAccessibleName(self.tr('Edit and resend prompt')); edit.setToolTip(self.tr('Edit this prompt and its images in the composer, then send again'))
             bubble.header.addWidget(edit)
             edit.clicked.connect(lambda checked=False,m=message:self.copy_prompt(m))
             saved = bool(self.store.prompt_id('chat',message))
-            star = QPushButton('★' if saved else '☆'); star.setAccessibleName('Remove saved prompt' if saved else 'Save prompt'); star.setToolTip('Remove from Prompts' if saved else 'Save to Prompts')
+            star = QPushButton('★' if saved else '☆'); star.setAccessibleName(self.tr('Remove saved prompt') if saved else self.tr('Save prompt')); star.setToolTip(self.tr('Remove from Prompts') if saved else self.tr('Save to Prompts'))
             bubble.header.addWidget(star)
             star.clicked.connect(lambda checked=False,m=message:self.window.toggle_prompt('chat',m)); self.prompt_stars.append((star,'chat',message,True))
         if message.get('research'):
@@ -735,29 +735,29 @@ class SessionTab(QWidget):
                 self.add_bubble(m)
         else:
             for i,run in enumerate(self.session['runs']):
-                self.results.addWidget(QLabel(f'<b>Run {i+1}</b>'))
+                self.results.addWidget(QLabel(self.tr('Run {number}').format(number=i+1)))
                 saved = bool(self.store.prompt_id('decision',run['form']))
-                star = button('★ Saved prompt' if saved else '☆ Save prompt',lambda checked=False,r=run:self.window.toggle_prompt('decision',r['form']),self.results)
+                star = button(self.tr('★ Saved prompt') if saved else self.tr('☆ Save prompt'),lambda checked=False,r=run:self.window.toggle_prompt('decision',r['form']),self.results)
                 self.prompt_stars.append((star,'decision',run['form'],False))
-                button('Restore query to form',lambda checked=False,r=run:self.restore(r['form']),self.results)
+                button(self.tr('Restore query to form'),lambda checked=False,r=run:self.restore(r['form']),self.results)
                 self.results.addWidget(DecisionResult(run['result']['raw']))
                 label = QLabel(metrics_text(run['result']['metrics'])); label.setObjectName('metrics'); label.setWordWrap(True); self.results.addWidget(label)
-                button('Inspect query and response',lambda checked=False,r=run:self.show_text('Decision run',json.dumps(r,indent=2)),self.results)
+                button(self.tr('Inspect query and response'),lambda checked=False,r=run:self.show_text(self.tr('Decision run'),json.dumps(r,indent=2)),self.results)
         if self.partial is not None:
             if self.session['mode'] == 'chat':
                 self.add_bubble(self.pending)
                 self.live_bubble = self.add_bubble(dict(role='assistant',**self.partial),live=True)
-            else: self.results.addWidget(QLabel('Running…'))
+            else: self.results.addWidget(QLabel(self.tr('Running…')))
         elif not self.session['messages'] and not self.session['runs']:
-            hint = QLabel('Build a decision query on the left.' if self.session['mode']=='decision' else 'Start a conversation. Attach images or paste them into the composer.'); hint.setWordWrap(True); self.results.addWidget(hint)
+            hint = QLabel(self.tr('Build a decision query on the left.') if self.session['mode']=='decision' else self.tr('Start a conversation. Attach images or paste them into the composer.')); hint.setWordWrap(True); self.results.addWidget(hint)
         self.results.addStretch(); self._follow_stream = True; QTimer.singleShot(0,self.follow_stream)
     def refresh_prompt_stars(self):
         self.update_current_star()
         for star,mode,payload,compact in self.prompt_stars:
             saved = bool(self.store.prompt_id(mode,payload))
-            star.setText(('★' if saved else '☆') if compact else ('★ Saved prompt' if saved else '☆ Save prompt'))
-            star.setToolTip('Remove from Prompts' if saved else 'Save to Prompts')
-            star.setAccessibleName('Remove saved prompt' if saved else 'Save prompt')
+            star.setText(('★' if saved else '☆') if compact else (self.tr('★ Saved prompt') if saved else self.tr('☆ Save prompt')))
+            star.setToolTip(self.tr('Remove from Prompts') if saved else self.tr('Save to Prompts'))
+            star.setAccessibleName(self.tr('Remove saved prompt') if saved else self.tr('Save prompt'))
     def restore(self,form):
         self.loading = True; self.state.setPlainText(form['state']); self.json_state.setChecked(form.get('json_state',False)); self.attachments.set_paths(form.get('images',[])); clear_layout(self.question_layout); self.questions = []
         for q in form['questions']: self.add_question(q)
