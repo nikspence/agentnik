@@ -75,6 +75,35 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_custom_round_limit_stops_before_second_tool_batch(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as directory:
+            limits=coding_limits();limits['rounds']=1;events=[];requests=[]
+            def send(c,url,body,timeout):
+                requests.append(body);return Wire(chat(calls=[call('list_files',{'path':'.'})],finish='tool_calls'),False)
+            run=CodingRun(dict(C,stream=False),directory,'Inspect',limits=limits)
+            limits['rounds']=8
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(len(requests),2)
+            self.assertEqual(events[-1]['status'],'failed')
+            self.assertIn('tool round limit',events[-1]['text'])
+
+    def test_coding_limits_reject_invalid_values(self):
+        from agentnik.code_limits import coding_limits
+        for bad in ({},{**coding_limits(),'calls':0},{**coding_limits(),'requests':True},{**coding_limits(),'turn_seconds':99999}):
+            with self.assertRaises(ValueError):coding_limits(bad)
+
+    def test_shared_request_budget_stops_before_followup_model_call(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as directory:
+            limits=coding_limits();limits['requests']=1;events=[];requests=[]
+            def send(c,url,body,timeout):
+                requests.append(body);return Wire(chat(calls=[call('list_files',{'path':'.'})],finish='tool_calls'),False)
+            with patch.object(core,'open_request',side_effect=send):
+                CodingRun(dict(C,stream=False),directory,'Inspect',limits=limits).run(events.append)
+            self.assertEqual(len(requests),1);self.assertEqual(events[-1]['status'],'failed')
+            self.assertIn('requests limit',events[-1]['text'])
+
     def test_web_research_is_opt_in_and_returns_untrusted_sources(self):
         from agentnik.tools import Source
         with tempfile.TemporaryDirectory() as directory:

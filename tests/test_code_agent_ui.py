@@ -13,6 +13,26 @@ from test_compat_tools import chat
 from test_code_agent import call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_limits_dialog_persists_per_session_and_can_reset(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog
+        from agentnik.ui import Window
+        from agentnik.code_ui import CodingLimitsDialog
+        from agentnik.code_limits import coding_limits
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
+                tab=window.tabs.currentWidget();values=coding_limits();values['rounds']=12;values['turn_seconds']=600
+                with patch('agentnik.code_ui.CodingLimitsDialog') as dialog:
+                    dialog.return_value.exec.return_value=QDialog.DialogCode.Accepted;dialog.return_value.values.return_value=values
+                    tab.configure_limits()
+                self.assertEqual(store.list_sessions()[0]['coding_limits'],values)
+                dialog=CodingLimitsDialog(tab,values);dialog.reset();self.assertEqual(dialog.values(),coding_limits());dialog.close()
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(store.list_sessions()[0]);self.assertEqual(window.tabs.currentWidget().session['coding_limits'],values)
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_close_prompts_during_pending_coding_approval(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtGui import QCloseEvent

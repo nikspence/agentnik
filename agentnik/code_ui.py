@@ -4,11 +4,12 @@ import json
 import re
 import threading
 from PySide6.QtCore import Qt,Signal,QObject
-from PySide6.QtWidgets import QWidget,QDialog,QVBoxLayout,QHBoxLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox
+from PySide6.QtWidgets import QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox
 from .repositories import RepositoryRegistry
 from .coding import SimulationRun,plain
 from .code_agent import CodingRun
 from .research import scrub
+from .code_limits import FIELDS,coding_limits
 from . import core
 
 
@@ -75,6 +76,24 @@ class CodeEvents(QObject):
     event=Signal(object)
 
 
+class CodingLimitsDialog(QDialog):
+    def __init__(self,parent,values):
+        super().__init__(parent);self.setWindowTitle(self.tr('Coding run limits'))
+        layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form);self.fields={}
+        labels={'rounds':self.tr('Tool rounds'),'requests':self.tr('Model requests'),'calls':self.tr('Tool calls'),'turn_seconds':self.tr('Time (seconds)'),'context_bytes':self.tr('Retained context (bytes)')}
+        for key,(_,minimum,maximum) in FIELDS.items():
+            box=QSpinBox();box.setRange(minimum,maximum);box.setValue(values[key]);form.addRow(labels[key],box);self.fields[key]=box
+        hint=QLabel(self.tr('Limits are shared by Heavy, Light, and web research for each run.'));hint.setWordWrap(True);layout.addWidget(hint)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.RestoreDefaults)
+        buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject)
+        buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults).clicked.connect(self.reset);layout.addWidget(buttons)
+
+    def reset(self):
+        for key,value in coding_limits().items():self.fields[key].setValue(value)
+
+    def values(self):return coding_limits({key:box.value() for key,box in self.fields.items()})
+
+
 class CodeTab(QWidget):
     updated=Signal()
     def __init__(self,window,session):
@@ -125,6 +144,7 @@ class CodeTab(QWidget):
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search queries go to Ollama.com; pages are read from public websites.'))
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));options.addWidget(self.web_enabled)
         self.web_enabled.toggled.connect(self.save_web_enabled)
+        self.limits_button=QPushButton(self.tr('Limits…'));self.limits_button.clicked.connect(self.configure_limits);options.addWidget(self.limits_button)
         run_row=QHBoxLayout();layout.addLayout(run_row)
         self.send=QPushButton(self.tr('Run'));self.send.clicked.connect(self.start_coding);run_row.addWidget(self.send)
         self.simulate=QPushButton(self.tr('Simulate'));self.simulate.clicked.connect(self.start_simulation);run_row.addWidget(self.simulate)
@@ -176,6 +196,12 @@ class CodeTab(QWidget):
     def save_web_enabled(self,enabled):
         self.session['coding_web_enabled']=enabled;self.store.save(self.session)
 
+    def configure_limits(self):
+        if self.job:return
+        dialog=CodingLimitsDialog(self,coding_limits(self.session.get('coding_limits')))
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            self.session['coding_limits']=dialog.values();self.store.save(self.session)
+
     def role_connection(self,role):
         name=self.roles[role][0].currentData()
         if not name:return None
@@ -192,14 +218,14 @@ class CodeTab(QWidget):
             context=self.session.get('coding_context') if self.use_context.isChecked() else None
             backends=self.store.web_backend_specs() if self.web_enabled.isChecked() else []
             if self.web_enabled.isChecked() and not any(b.get('key') for b in backends):raise ValueError(self.tr('Configure an Ollama web-search key in Web settings before enabling research.'))
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends)
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'))
         except ValueError as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
 
     def launch(self,run,notice):
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False)
+        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -291,7 +317,7 @@ class CodeTab(QWidget):
         self.approval_panel.hide()
         for button in (self.approve,self.reject,self.cancel_button):button.setEnabled(False)
         self.simulate.setEnabled(True);self.send.setEnabled(True)
-        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True)
+        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 

@@ -12,7 +12,8 @@ import threading
 import time
 import uuid
 from . import core,compat_tools,responses_tools,ollama_tools
-from .tools import Limits,Runtime,Registry,DEFINITIONS,ToolCall,ToolResult,Source,ResearchError
+from .tools import Limits,Runtime,Registry,DEFINITIONS,ToolCall,ToolResult,Source,ResearchError,LimitError
+from .code_limits import coding_limits
 from .web import OrderedSearch
 from .research import scrub
 
@@ -170,11 +171,12 @@ class ProjectFiles:
 
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None):
+    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None):
         self.connection=dict(connection);self.light=dict(light) if light else None;self.root=root;self.prompt=prompt;self.run_id=uuid.uuid4().hex
         if context is not None and (not isinstance(context,dict) or set(context)!={'task','answer'} or any(not isinstance(v,str) or len(v)>2048 for v in context.values())):raise ValueError('Invalid previous coding context')
         self.context=dict(context) if context else None
         self.web_backends=[dict(item) for item in web_backends] if web_backends else []
+        self.limits=coding_limits(limits)
         self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self.denied=set()
 
     def stop(self):
@@ -201,7 +203,7 @@ class CodingRun:
             with self.lock:self.pending=None
 
     def run(self,emit):
-        runtime=Runtime(self.cancel,Limits(rounds=8,calls=16,requests=9,argument_bytes=40000,context_bytes=100000,turn_seconds=300))
+        runtime=Runtime(self.cancel,Limits(argument_bytes=40000,**self.limits))
         next_source=1;research_action=None
         secrets=[self.connection.get('api_key',''),(self.light or {}).get('api_key','')]+[item.get('key','') for item in self.web_backends]
         usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('Heavy','Light')}
@@ -257,7 +259,7 @@ class CodingRun:
             elif protocol=='messages':body.update(system=instructions,tools=compat_tools.wire_tools(available_tools,protocol))
             else:body['messages'].insert(0,{'role':'system','content':instructions});body['tools']=[t.wire() for t in available_tools]
             adapter=responses_tools if protocol=='responses' else ollama_tools if native else compat_tools
-            for _ in range(9):
+            for round_number in range(runtime.limits.rounds+1):
                 runtime.charge('requests',1,runtime.limits.requests);state={}
                 event('output',text='Heavy task: requesting '+c['model']+' through the selected connection.')
                 assistant,calls=request('Heavy',adapter,c,body,state)
@@ -266,6 +268,7 @@ class CodingRun:
                 else:body['messages'].append(assistant)
                 if not calls:
                     event('finished',status='completed',text=state.get('text','') or 'Coding turn completed.',usage=usage_text());return
+                if round_number>=runtime.limits.rounds:raise LimitError('Coding tool round limit reached')
                 validated=[]
                 for call in calls:
                     args=json.loads(call.arguments) if isinstance(call.arguments,str) else call.arguments
@@ -313,6 +316,8 @@ class CodingRun:
                             runtime.check()
                             if allowed:files.apply(proposal,runtime.check);event('output',text='Applied approved edit: '+args['path'])
                             result={'applied':allowed,'path':args['path']}
+                    except LimitError:
+                        raise
                     except (OSError,ValueError,UnicodeError):
                         if call.name in ('delegate_light','web_search','web_fetch'):raise
                         result={'error':'File operation unavailable or conflicted. Read/inspect the path before proposing another edit.'}
@@ -325,7 +330,7 @@ class CodingRun:
         except Exception as exc:
             if not self.cancel.is_set():
                 status=' HTTP '+str(exc.status) if isinstance(exc,core.EndpointError) else ' '+type(exc).__name__
-                reason=('Web research' if research_action else 'Coding')+' stopped ('+status.strip()+'). Approved edits already applied are retained.'
+                reason=('Web research' if research_action else 'Coding')+' stopped ('+(str(exc) if isinstance(exc,LimitError) else status.strip())+'). Approved edits already applied are retained.'
                 event('finished',status='failed',text=reason,usage=usage_text())
         finally:
             runtime.closed=True
