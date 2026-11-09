@@ -19,7 +19,7 @@ from agentnik import __version__
 from tools.live_compat import revision
 from tools.frozen_smoke import smoke
 
-PINNED={'PySide6':'6.12.0','keyring':'25.7.0','pyinstaller':'6.22.3','pyinstaller-hooks-contrib':'2026.9'}
+PINNED={'PySide6':'6.12.0','keyring':'25.7.0','dulwich':'0.25.2','pyinstaller':'6.22.3','pyinstaller-hooks-contrib':'2026.9'}
 
 
 def clean_environment():
@@ -111,7 +111,7 @@ def main(argv=None):
         run.mkdir(parents=True)
         subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean','--distpath',str(run/'dist'),'--workpath',str(run/'work'),str(ROOT/'Agentnik.spec')],cwd=ROOT,check=True)
         bundle=run/'dist'/'Agentnik'
-        for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','CODING_BACKEND_PLAN.md','CODING_GUIDE.md'):
+        for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','CODING_BACKEND_PLAN.md','CODING_GUIDE.md','FEATURES.md'):
             shutil.copy2(ROOT/name,bundle/name)
         # Keep the bundled README's relative image links usable.
         for asset_source,asset_target in ((ROOT/'assets',bundle/'assets'),(ROOT/'agentnik'/'assets',bundle/'agentnik'/'assets')):

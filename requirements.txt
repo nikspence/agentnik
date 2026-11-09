@@ -1,2 +1,3 @@
 PySide6>=6.8,<7
 keyring>=25,<26
+dulwich>=0.25,<0.26

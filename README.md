@@ -13,6 +13,7 @@ Agentnik runs its own coding loop using your configured connections and models, 
 
 - **Heavy and Light delegation:** Heavy leads the task, inspects the project, and proposes changes. Enable **Allow light model delegation** to let it delegate bounded routine analysis to a separately selected Light model within the same workflow. The roles can use different connections and providers.
 - **File and shell tools:** inspect project files, propose UTF-8 edits, delete individual files, create directories, and run shell commands. Review the diff or exact operation and approve or reject each proposed change or command. Existing files must be read before modification; conflicting changes stop the operation.
+- **Structured Git tools:** inspect tracked status, working and staged file diffs, recent commits, and local branches without shell commands. Stage or unstage explicit files, create a branch without switching, and commit selected working files or the reviewed staged snapshot. Each mutation requires approval; commits display the full diff, message, identity, and parent. Unstaging and staged commits preserve working-file edits. This local preview requires an existing repository with a commit and configured Git identity; hooks and signing are disabled. Remote Git tools remain planned.
 - **Research while coding:** enable **Allow web research** to look up APIs, read documentation, and follow discovered public documentation links as part of the task. Sources and excerpts appear in the run activity and Sources view.
 - **Adjustable run limits:** the **Limits…** dialog controls loop rounds, model requests, tool calls, elapsed time, and continuation context. Heavy, Light, and research share the run budget.
 - **Compact workflow controls:** Run, Simulate, and Cancel sit above a collapsible Models panel containing Heavy, Light, and Decision assignments. Approval controls appear when a proposal needs review. Optionally include the bounded previous task and answer in a follow-up.
@@ -139,7 +140,7 @@ The [project plan](AGENTNIK_PLAN.md) tracks coding hardening, compatibility, loc
 
 ## Packaging
 
-The Windows x64 release is **v0.3.2**. Extract the complete `Agentnik-v0.3.2-windows-x64.zip` archive and run `Agentnik/Agentnik.exe`; keep its `_internal` folder beside it. Python is bundled. See [release notes](RELEASE_NOTES.md) and the bundled `BUILD-MANIFEST.json` for changes and build evidence. The build is unsigned. Research remains a preview with scoped live compatibility results; full native workflow, clean-machine, and macOS/Linux validation remain pending. Earlier release tags and archives are preserved.
+The Windows x64 release is **v0.4.0**. Extract the complete `Agentnik-v0.4.0-windows-x64.zip` archive and run `Agentnik/Agentnik.exe`; keep its `_internal` folder beside it. Python is bundled. See [release notes](RELEASE_NOTES.md) and the bundled `BUILD-MANIFEST.json` for changes and build evidence. The build is unsigned. Research remains a preview with scoped live compatibility results; full native workflow, clean-machine, and macOS/Linux validation remain pending. Earlier release tags and archives are preserved.
 
 The Python wheel has been built and installed locally; see [validation results](VALIDATION.md). To build a wheel without resolving runtime dependencies:
 

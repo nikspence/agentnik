@@ -89,6 +89,25 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_git_mutations_require_separate_approvals(self):
+        from dulwich import porcelain
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);repo=porcelain.init(directory)
+            (root/'one.txt').write_text('old');porcelain.add(repo,['one.txt']);porcelain.commit(repo,message=b'Initial',author=b'Test <test@example.invalid>',committer=b'Test <test@example.invalid>',no_verify=True,sign=False)
+            (root/'one.txt').write_text('new');events=[]
+            replies=[Wire(chat(calls=[call('git_stage',{'paths':'["one.txt"]'}),call('git_unstage',{'paths':'["one.txt"]'},'unstage'),call('git_create_branch',{'name':'feature/model'},'branch')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Stage and branch')
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':
+                    run.decide(event['fingerprint'],event['proposal']['operation']!='git_unstage')
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual(len([e for e in events if e['kind']=='operation_proposal']),3)
+            self.assertIn(b'refs/heads/feature/model',repo.refs)
+            from agentnik.git_service import GitService
+            self.assertEqual(GitService(ProjectFiles(root)).inspect('git_status')['staged'],['one.txt'])
+            self.assertEqual(events[-1]['status'],'completed');repo.close()
+
     def test_new_filesystem_operations_require_separate_approvals(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);(root/'old.txt').write_text('old\n');events=[]

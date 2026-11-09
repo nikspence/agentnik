@@ -49,3 +49,22 @@ Keep the **Allow Light model delegation** checkbox visible in the normal Code pa
 Hide the command/operation approval preview, approve/reject buttons, and content below them while there is no pending approval. Show that review area only for the current pending approval, and clear or hide it immediately after approval, rejection, cancellation, or run completion. Keep run cancellation available while a run is active; it is a run control rather than an approval action. Do not make the ordinary activity feed, task composer, or always-visible delegation/context controls depend on approval state.
 
 Acceptance: verify initial collapsed state, expand/collapse behavior, persistence of model assignments, optional Decision model selection, and the paired delegation/context row in offscreen Qt. Verify approval content appears only during a pending approval and disappears after every resolution path, including cancellation and interruption/reopen. Confirm the active-run cancel control remains reachable without a pending approval.
+
+
+## Structured Git tools — local preview
+
+Agentnik uses Dulwich for local Git operations without shell commands. The coding agent can inspect tracked status, working-file diffs against HEAD, staged diffs against HEAD, recent history, and local branches. Status checks at most 128 tracked paths and does not enumerate untracked files; use project listing for those.
+
+Every mutation has its own approval:
+
+- `git_stage`: stage explicitly named UTF-8 files or tracked deletions; review the index-to-working-file diff. Ignored untracked files and sensitive/excluded project paths are rejected.
+- `git_unstage`: restore selected index entries to HEAD without changing working files or other staged entries.
+- `git_commit`: commit explicitly named working files from a clean index.
+- `git_commit_staged`: commit the reviewed index snapshot; the explicit paths must name every staged change, so unrelated staged entries cannot slip in. Later working-file edits remain untouched.
+- `git_create_branch`: create a local branch at the reviewed HEAD without switching branches or overwriting an existing branch.
+
+Path lists are JSON arrays encoded as strings, limited to 32 files. Diffs and UTF-8 file reads are bounded. Commit approvals show the full diff, message, configured identity, and parent commit. Approvals bind to the branch reference, HEAD, index fingerprint, and applicable file snapshots; changed state requires a fresh proposal. Index writes are locked, and reference publication uses compare-and-swap. A rare failure publishing the index after a successful commit reports the commit hash and stops the coding run for inspection rather than repeating the commit.
+
+This preview requires an existing HEAD and a registered repository root with a local `.git` directory. Unborn repositories, linked worktrees, in-progress merges/rebases/cherry-picks, hooks, signing, content filters/LFS, and remote operations are outside the supported slice. Files are staged as raw UTF-8 bytes; no attributes-based transformations or external programs run. External filesystem writers are not an OS-level transaction; avoid concurrent repository writes during execution. Korean approval framing is included; model-facing tool descriptions and activity remain English.
+
+Next: credential-safe remote inspection, then fetch and push with explicit destination/branch/commit previews and transport qualification. Branch switching, merge/rebase, signing, submodules, worktrees, and LFS need separate design and compatibility checks. Current evidence is offline temporary-repository tests, mocked coding-loop approvals, and offscreen Qt checks; live-model Git execution and native visual review remain unverified.

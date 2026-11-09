@@ -14,6 +14,25 @@ from test_compat_tools import chat
 from test_code_agent import call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_git_approval_previews_show_only_while_pending(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.job=MagicMock();tab.run_id='git-run'
+                for operation,label in [('git_stage','STAGE FILES'),('git_unstage','UNSTAGE FILES'),('git_create_branch','CREATE BRANCH'),('git_commit_staged','GIT COMMIT')]:
+                    proposal={'operation':operation,'cwd':str(project),'path':'one.txt','paths':['one.txt'],'diff':'-old\n+new\n','head':'a'*40,'name':'feature/review','identity':'Test <test@example.invalid>','message':'Reviewed snapshot'}
+                    tab.receive({'run_id':'git-run','kind':'operation_proposal','fingerprint':operation,'proposal':proposal})
+                    self.assertFalse(tab.approval_panel.isHidden());self.assertIn(label,tab.approval.toPlainText())
+                    self.assertEqual(tab.diff.isHidden(),operation=='git_create_branch');self.assertTrue(tab.advice_label.isHidden())
+                    tab.decide(False);self.assertTrue(tab.approval_panel.isHidden())
+                tab.job=None;tab.run_id=None
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_advice_does_not_send_decision_credential_in_command(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

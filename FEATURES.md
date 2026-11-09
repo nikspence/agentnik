@@ -71,7 +71,8 @@
 - Coding runs use your existing connections: Heavy plans and proposes edits, and can delegate bounded routine analysis to an independent Light model.
 - **Run coding task** inspects project files and proposes UTF-8 file edits; review the full diff, then approve or reject each edit.
 - Read-before-write enforced; conflicting changes stop the write; cancellation retains drafts and applied approvals.
-- No commands, deletion, directory creation, commits, or pushes; reopening never restarts a run.
+- Approved single-file deletion, directory creation, and bounded shell commands; reopening never restarts a run.
+- Structured Dulwich Git tools: status, working/staged diffs, recent history, local branches, reviewed staging/unstaging, explicit-file or staged-snapshot commits, and branch creation without switching. Remote Git tools remain planned.
 - Optional **Try simulated workflow (no execution)** mode.
 
 ## Validation and build tooling

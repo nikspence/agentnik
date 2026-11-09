@@ -410,6 +410,52 @@ Advisory only; you decide.</source><translation>안전 권고: {label} · {detai
         <message><source>Safety advice: UNKNOWN · The proposal contains a configured credential; no request was made.</source><translation>안전 권고: 알 수 없음 · 제안에 설정된 자격 증명이 있어 요청을 보내지 않았습니다.</translation></message>
         <message><source>Decision endpoint: {destination}</source><translation>Decision 엔드포인트: {destination}</translation></message>
         <message><source>Safety advice: UNKNOWN · The decision check failed or timed out. Review the command yourself.</source><translation>안전 권고: 알 수 없음 · 확인에 실패했거나 시간이 초과되었습니다. 명령을 직접 검토하세요.</translation></message>
+        <message>
+            <source>STAGE FILES</source>
+            <translation>파일 스테이징</translation>
+        </message>
+        <message>
+            <source>UNSTAGE FILES</source>
+            <translation>파일 스테이징 취소</translation>
+        </message>
+        <message>
+            <source>{operation}
+Project: {cwd}
+Files: {path}
+Working files will remain unchanged. Review the index diff below.</source>
+            <translation>{operation}
+프로젝트: {cwd}
+파일: {path}
+작업 파일은 변경되지 않습니다. 아래 인덱스 차이를 검토하세요.</translation>
+        </message>
+        <message>
+            <source>CREATE BRANCH
+Project: {cwd}
+Branch: {name}
+Starting commit: {head}
+The current branch will remain selected.</source>
+            <translation>브랜치 생성
+프로젝트: {cwd}
+브랜치: {name}
+시작 커밋: {head}
+현재 브랜치를 유지합니다.</translation>
+        </message>
+        <message>
+            <source>GIT COMMIT
+Project: {cwd}
+Files: {path}
+Identity: {identity}
+Parent: {head}
+Message: {message}
+Hooks and signing are disabled. Review the complete diff below.</source>
+            <translation>Git 커밋
+프로젝트: {cwd}
+파일: {path}
+작성자: {identity}
+부모 커밋: {head}
+메시지: {message}
+훅과 서명은 사용하지 않습니다. 아래 전체 차이를 검토하세요.</translation>
+        </message>
     </context>
     <context>
         <name>ConnectionDialog</name>

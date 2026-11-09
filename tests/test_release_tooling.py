@@ -58,7 +58,7 @@ class ReleaseTooling(unittest.TestCase):
     def test_build_manifest_keeps_revision_when_documentation_images_are_copied(self):
         with tempfile.TemporaryDirectory() as directory:
             repo=Path(directory)/'source';repo.mkdir()
-            for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','MILESTONE_D_LIVE_TEST_PLAN.md','MILESTONE_D_LIVE_RESULTS.md','CODING_BACKEND_PLAN.md','CODING_GUIDE.md'):
+            for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','MILESTONE_D_LIVE_TEST_PLAN.md','MILESTONE_D_LIVE_RESULTS.md','CODING_BACKEND_PLAN.md','CODING_GUIDE.md','FEATURES.md'):
                 (repo/name).write_text('fixture')
             for assets in (repo/'assets',repo/'agentnik'/'assets'):
                 assets.mkdir(parents=True);(assets/'fixture.png').write_bytes(b'fixture')
@@ -72,6 +72,7 @@ class ReleaseTooling(unittest.TestCase):
                 self.assertEqual(build_release.main(['--label','v0.2.0','--build']),0)
             manifest=json.loads((repo/'dist'/'build-v0.2.0'/'dist'/'Agentnik'/'BUILD-MANIFEST.json').read_text())
             self.assertEqual(manifest['source'],revision)
+            self.assertTrue((repo/'dist'/'build-v0.2.0'/'dist'/'Agentnik'/'FEATURES.md').is_file())
             self.assertTrue((repo/'dist'/'build-v0.2.0'/'Agentnik-v0.2.0-windows-x64.zip').is_file())
 
     def test_missing_assets_and_unexpected_local_data_fail_before_archiving(self):

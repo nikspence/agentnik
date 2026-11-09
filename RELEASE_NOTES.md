@@ -1,4 +1,19 @@
-# Agentnik v0.3.2
+# Agentnik v0.4.0
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.3.2
+
+- Agentnik-owned coding research with opt-in public documentation reads, bounded link discovery, and visible sources. LiteLLM and other connections use Google HTML search; direct Ollama Cloud can use a separately configured Ollama search key. Public fetch remains usable when Google requires a browser challenge.
+- Adjustable coding-loop rounds, requests, tool calls, elapsed time, and context limits shared across Heavy, Light, and research.
+- Approved file deletion, directory creation, and bounded shell execution. Commands run with your account permissions, including network and access outside the project; they are not sandboxed.
+- Optional System One advice for shell approvals with category badges and reported confidence. Advice requires explicit enablement and a selected compatible Decision endpoint; the user still approves or rejects each command.
+- Structured Dulwich Git tools for status, working/staged diffs, history, branches, reviewed staging/unstaging, explicit-file or staged-snapshot commits, and branch creation without switching. Commits bind approval to repository state and preserve later working edits. No Git subprocess, hooks, signing, filters, or remote Git tools are used by these structured operations.
+- Compact Chat and Code layouts, named saved prompts, improved model-count placement, Korean approval translations, and a feature-focused README.
+
+Git tools require an existing commit and a repository root with a local `.git` directory. Content filters/LFS, worktrees, in-progress history operations, and remote fetch/push remain outside the supported structured Git slice. Google HTML search availability depends on external page format and access policy. Live-model Git operations and the new shell-advice integration have not been qualified; offline and build-host evidence is recorded in VALIDATION.md and BUILD-MANIFEST.json. Clean-machine, full native workflow, macOS/Linux, signing, and full bundled-library license review remain open.
+
+## Earlier release: v0.3.2
 
 Windows x64 onedir release; extract the complete archive and run `Agentnik/Agentnik.exe`. The build is unsigned. Verify the SHA-256 sidecar.
 

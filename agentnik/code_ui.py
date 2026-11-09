@@ -410,8 +410,15 @@ class CodeTab(QWidget):
             self.advice_fingerprint=self.pending_fingerprint if operation=='run_shell' else None
             if operation=='run_shell':self.show_advice()
             else:self.advice_label.hide()
-            self.diff.setPlainText(proposal.get('diff',''));self.diff.setVisible(operation=='delete_file')
-            if operation=='run_shell':
+            self.diff.setPlainText(proposal.get('diff',''));self.diff.setVisible(operation in ('delete_file','git_commit','git_commit_staged','git_stage','git_unstage'))
+            if operation in ('git_commit','git_commit_staged'):
+                text=self.tr('GIT COMMIT\nProject: {cwd}\nFiles: {path}\nIdentity: {identity}\nParent: {head}\nMessage: {message}\nHooks and signing are disabled. Review the complete diff below.').format(**proposal)
+            elif operation in ('git_stage','git_unstage'):
+                label=self.tr('STAGE FILES') if operation=='git_stage' else self.tr('UNSTAGE FILES')
+                text=self.tr('{operation}\nProject: {cwd}\nFiles: {path}\nWorking files will remain unchanged. Review the index diff below.').format(operation=label,cwd=proposal['cwd'],path=proposal['path'])
+            elif operation=='git_create_branch':
+                text=self.tr('CREATE BRANCH\nProject: {cwd}\nBranch: {name}\nStarting commit: {head}\nThe current branch will remain selected.').format(**proposal)
+            elif operation=='run_shell':
                 text=self.tr('SHELL COMMAND\nWorking directory: {cwd}\nShell: {shell}\nTime limit: up to {seconds} seconds; output limit: {size} bytes.\nThe command runs with your account permissions, including network and access outside the project. It is not sandboxed.\nInherited environment variables: {environment}\n\nCommand:\n{command}').format(cwd=proposal['cwd'],shell=proposal['shell'],seconds=proposal['max_seconds'],size=proposal['max_output_bytes'],environment=', '.join(proposal['environment_keys']),command=proposal['command'])
             else:
                 label=self.tr('DELETE FILE') if operation=='delete_file' else self.tr('CREATE DIRECTORY')
