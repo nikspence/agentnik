@@ -347,6 +347,14 @@ Recommendation: {recommendation}</source>
             <source>Sources ({count})</source>
             <translation>출처 ({count})</translation>
         </message>
+        <message><source>Search settings…</source><translation>검색 설정…</translation></message>
+        <message><source>Manage search profiles shared with Chat</source><translation>채팅과 공유하는 검색 프로필 관리</translation></message>
+        <message><source>Configure an Ollama web-search key in Search settings before enabling research.</source><translation>조사를 활성화하기 전에 검색 설정에서 Ollama 웹 검색 키를 설정하세요.</translation></message>
+        <message><source>The Heavy connection uses strict public-only navigation, which cannot be enforced inside the search service. Change that connection’s navigation policy in Chat Web settings to allow managed search.</source><translation>Heavy 연결은 검색 서비스 내부에서 강제할 수 없는 엄격한 공개 전용 탐색 정책을 사용합니다. 관리형 검색을 허용하려면 채팅 웹 설정에서 해당 연결의 탐색 정책을 변경하세요.</translation></message>
+        <message><source>Run</source><translation>실행</translation></message>
+        <message><source>Simulate</source><translation>시뮬레이션</translation></message>
+        <message><source>Cancel</source><translation>취소</translation></message>
+        <message><source>Search queries go to Google or direct Ollama Cloud; pages are read from public websites.</source><translation>검색어는 Google 또는 직접 연결된 Ollama Cloud로 전송되며, 페이지는 공개 웹사이트에서 직접 읽습니다.</translation></message>
     </context>
     <context>
         <name>ConnectionDialog</name>

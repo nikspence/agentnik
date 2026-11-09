@@ -11,7 +11,7 @@ import re
 import socket
 import ssl
 import time
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit, urlencode, parse_qs
 from .tools import AccessError, LimitError, ResearchError, Source, utc_now
 from .core import EndpointError
 from . import __version__
@@ -166,18 +166,104 @@ class ReadableText(HTMLParser):
             else: self.parts.append(data)
 
 
+class PageLinks(HTMLParser):
+    """Collect a bounded set of same-host documentation links, without fetching them."""
+    def __init__(self,base):
+        super().__init__(convert_charrefs=True);self.base=base;self.host=urlsplit(base).hostname;self.links=[];self.seen=set();self.current=None
+    def handle_starttag(self,tag,attrs):
+        if tag!='a' or len(self.links)>=64:return
+        href=dict(attrs).get('href','')
+        try:
+            url=public_url(urljoin(self.base,href))
+            if not href or urlsplit(url).hostname!=self.host or url==self.base or url in self.seen:return
+        except (TypeError,ValueError):return
+        self.current=[url,[]]
+    def handle_data(self,data):
+        if self.current is not None:self.current[1].append(data[:300])
+    def handle_endtag(self,tag):
+        if tag=='a' and self.current:
+            url,parts=self.current;self.current=None
+            title=' '.join(''.join(parts).split())[:200]
+            if title and url not in self.seen:self.seen.add(url);self.links.append((title,url))
+
+
+class GoogleResults(HTMLParser):
+    """Extract result links with headings from Google's public HTML response."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True);self.anchor=None;self.heading=False;self.results=[]
+    def handle_starttag(self,tag,attrs):
+        if tag=='a':self.anchor=[dict(attrs).get('href',''),[]]
+        elif tag=='h3' and self.anchor is not None:self.heading=True
+    def handle_data(self,data):
+        if self.heading and self.anchor is not None:self.anchor[1].append(data[:300])
+    def handle_endtag(self,tag):
+        if tag=='h3':self.heading=False
+        elif tag=='a' and self.anchor is not None:
+            href,parts=self.anchor;self.anchor=None;title=' '.join(''.join(parts).split())[:200]
+            if title:self.results.append((title,href))
+
+
 def excerpt(text,size):
     raw=text.encode('utf-8'); clipped=raw[:size].decode('utf-8','ignore')
     return clipped,len(raw)>size
 
 
-class OllamaWeb:
+class PublicWeb:
+    """Read public pages without any search credential."""
+    def __init__(self,transport=None,include_links=False):self.transport=transport or PublicTransport();self.include_links=include_links
+    def fetch(self,url,runtime):
+        final,ctype,payload=self.transport.request(url,runtime)
+        text=payload.decode('utf-8','replace');title=final;links=[]
+        if ctype in ('text/html','application/xhtml+xml'):
+            parser=ReadableText();parser.feed(text)
+            if self.include_links:
+                link_parser=PageLinks(final);link_parser.feed(text);links=link_parser.links
+            text=''.join(parser.parts);title=''.join(parser.title).strip() or final
+        text=re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]','',text)
+        text=re.sub(r'[ \t]+',' ',text);text=re.sub(r'\n\s*\n','\n\n',text).strip()
+        text,truncated=excerpt(text,8000)
+        result=[Source('',title[:300],final,text,utc_now(),ctype,truncated,'public-fetch')]
+        for link_title,link in links[:max(0,runtime.limits.results-1)]:
+            result.append(Source('',link_title,link,'Link found on the fetched page; not yet fetched.',utc_now(),backend='public-link'))
+        return result
+
+
+class GoogleWeb(PublicWeb):
+    """Search the public Google HTML page without cookies or challenge bypass."""
+    def search(self,query,runtime):
+        url='https://www.google.com/search?'+urlencode({'q':query})
+        try:_,ctype,payload=self.transport.request(url,runtime,redirects=False)
+        except AccessError:
+            raise ResearchError('Google Search blocked the request or requires a browser challenge') from None
+        except EndpointError as exc:
+            if exc.status in (403,429):raise ResearchError('Google Search blocked the request or requires a browser challenge') from None
+            raise
+        if ctype not in ('text/html','application/xhtml+xml'):raise ResearchError('Google Search returned an unsupported response')
+        parser=GoogleResults();parser.feed(payload.decode('utf-8','replace'));results=[];seen=set()
+        for title,href in parser.results:
+            runtime.check()
+            try:
+                parsed=urlsplit(href)
+                if parsed.path=='/url' and (not parsed.hostname or parsed.hostname in ('google.com','www.google.com')):
+                    href=parse_qs(parsed.query).get('q',[''])[0]
+                target=public_url(href);host=urlsplit(target).hostname
+                if host=='google.com' or host.endswith('.google.com') or target in seen:continue
+                target,_=resolve_public(target,runtime)
+            except (LimitError,InterruptedError):raise
+            except (ValueError,OSError):continue
+            seen.add(target);results.append(Source('',title,target,'Google search result; fetch the page to inspect it.',utc_now(),backend='google-search'))
+            if len(results)>=runtime.limits.results:break
+        if not results:raise ResearchError('Google Search returned no recognizable results or requires a browser challenge')
+        return results
+
+
+class OllamaWeb(PublicWeb):
     """Queries only are sent to Ollama search. Page reads use PublicTransport."""
     def __init__(self,key,transport=None):
         if not isinstance(key,str) or not key.strip(): raise ResearchError('Configure a separate Ollama web-search key first')
         if len(key)>4096 or any(not 33<=ord(ch)<=126 for ch in key):
             raise ResearchError('Search credential must be a single visible ASCII token')
-        self.key=key; self.transport=transport or PublicTransport()
+        super().__init__(transport);self.key=key
 
     def search(self,query,runtime):
         body=json.dumps({'query':query,'max_results':min(runtime.limits.results,10)}).encode()
@@ -196,18 +282,6 @@ class OllamaWeb:
             text,truncated=excerpt(item['content'],3000)
             result.append(Source('',item['title'][:300],url,text,utc_now(),truncated=truncated,backend='ollama-search'))
         return result
-
-    def fetch(self,url,runtime):
-        final,ctype,payload=self.transport.request(url,runtime)
-        text=payload.decode('utf-8','replace'); title=final
-        if ctype in ('text/html','application/xhtml+xml'):
-            parser=ReadableText(); parser.feed(text)
-            text=''.join(parser.parts); title=''.join(parser.title).strip() or final
-        text=re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]','',text)
-        text=re.sub(r'[ \t]+',' ',text); text=re.sub(r'\n\s*\n','\n\n',text).strip()
-        text,truncated=excerpt(text,8000)
-        return [Source('',title[:300],final,text,utc_now(),ctype,truncated,'public-fetch')]
-
 
 class OrderedSearch:
     """Resolve one logical search call across an explicit ordered backend list."""
@@ -258,5 +332,4 @@ class OrderedSearch:
 
     def fetch(self,url,runtime):
         # The direct reader has no backend account fallback and no service key forwarding.
-        key=next((s['key'] for s in self.specs if s.get('key')),'')
-        return OllamaWeb(key).fetch(url,runtime)
+        return PublicWeb().fetch(url,runtime)

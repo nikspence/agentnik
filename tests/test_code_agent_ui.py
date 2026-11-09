@@ -13,6 +13,36 @@ from test_compat_tools import chat
 from test_code_agent import call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_search_settings_and_strict_navigation_policy(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik import routing
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
+            connection={'url':'https://gateway.example/v1','protocol':'chat','model':'heavy','stream':False}
+            store.config['connections']={'Gateway':connection};routing.save_defaults(store.config,'Gateway',connection,'Agentnik only','strict_public')
+            window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
+                tab=window.tabs.currentWidget();tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Gateway'))
+                with patch('agentnik.code_ui.SearchBackends') as dialog:
+                    tab.search_settings.click();dialog.assert_called_once_with(tab,store);dialog.return_value.exec.assert_called_once()
+                tab.composer.setPlainText('Research API');tab.web_enabled.setChecked(True)
+                with patch('agentnik.code_ui.CodingRun') as run,patch.object(tab,'launch'):
+                    tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'none')
+                    self.assertTrue(run.call_args.kwargs['web_enabled'])
+                    routing.save_defaults(store.config,'Gateway',connection,'Agentnik only','public_fetch')
+                    with patch.object(store,'web_backend_specs',side_effect=AssertionError('Gateway must not use Ollama search credentials')):
+                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'google')
+                    tab.roles['heavy'][0].addItem('Ollama direct','Ollama direct');window.connections['Ollama direct']={'url':'https://ollama.com','protocol':'chat','model':'cloud'}
+                    tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Ollama direct'))
+                    with patch.object(store,'web_backend_specs',return_value=[{'id':'ollama-search','kind':'ollama','key':'secret'}]):
+                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'ollama')
+                self.assertIsNone(tab.job)
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_research_sources_are_saved_and_opened_only_on_request(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

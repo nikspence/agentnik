@@ -75,6 +75,18 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_keyless_fetch_only_exposes_no_search_tool(self):
+        from agentnik.tools import Source
+        with tempfile.TemporaryDirectory() as directory:
+            bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('web_fetch',{'url':'https://example.com/docs'})],finish='tool_calls'),False),Wire(chat('Read docs'),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch('agentnik.code_agent.PublicWeb') as reader,patch.object(core,'open_request',side_effect=send):
+                reader.return_value.fetch.return_value=[Source('','Docs','https://example.com/docs','text','now')]
+                CodingRun(dict(C,stream=False),directory,'Read docs',web_enabled=True,search_provider='none').run(events.append)
+            self.assertEqual(events[-1]['status'],'completed')
+            self.assertIn('web_fetch',json.dumps(bodies[0]['tools']));self.assertNotIn('web_search',json.dumps(bodies[0]['tools']))
+
     def test_custom_round_limit_stops_before_second_tool_batch(self):
         from agentnik.code_limits import coding_limits
         with tempfile.TemporaryDirectory() as directory:
@@ -111,8 +123,8 @@ class ModelCoding(unittest.TestCase):
             replies=[Wire(chat(calls=[call('web_search',{'query':'library API'})],finish='tool_calls'),False),Wire(chat(calls=[call('web_fetch',{'url':'https://example.com/docs'},'call-2')],finish='tool_calls'),False),Wire(chat('Found documentation [S2]'),False)]
             def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
             source=Source('','API reference','https://example.com/docs','untrusted page text search-secret','now')
-            with patch('agentnik.code_agent.OrderedSearch') as backend,patch.object(core,'open_request',side_effect=send):
-                backend.return_value.search.return_value=[source];backend.return_value.fetch.return_value=[source]
+            with patch('agentnik.code_agent.OrderedSearch') as backend,patch('agentnik.code_agent.PublicWeb') as reader,patch.object(core,'open_request',side_effect=send):
+                backend.return_value.search.return_value=[source];reader.return_value.fetch.return_value=[source]
                 run=CodingRun(dict(C,stream=False),directory,'Research',web_backends=[{'id':'search','kind':'ollama','key':'search-secret'}]);run.run(events.append)
             self.assertEqual(events[-1]['status'],'completed')
             self.assertIn('web_search',json.dumps(bodies[0]['tools']))

@@ -15,6 +15,26 @@ MESSAGES=[{'role':'user','text':'Find evidence','images':[]}]
 PUBLIC=[(socket.AF_INET,socket.SOCK_STREAM,6,'',('93.184.216.34',443))]
 PRIVATE=[(socket.AF_INET,socket.SOCK_STREAM,6,'',('127.0.0.1',80))]
 
+class KeylessResearch(unittest.TestCase):
+    def test_google_results_are_bounded_and_use_no_search_key(self):
+        transport=MagicMock();transport.request.return_value=('https://www.google.com/search','text/html',b'<a href="/url?q=https%3A%2F%2Fexample.com%2Fdocs"><h3>API docs</h3></a><a href="http://127.0.0.1/"><h3>Private</h3></a>')
+        with patch.object(web,'resolve_public',side_effect=lambda url,runtime:(url,PUBLIC)):
+            sources=web.GoogleWeb(transport).search('library & API',Runtime())
+        self.assertEqual([s.url for s in sources],['https://example.com/docs'])
+        args,kwargs=transport.request.call_args;self.assertIn('q=library+%26+API',args[0]);self.assertFalse(kwargs['redirects']);self.assertNotIn('headers',kwargs)
+        with patch.object(web,'resolve_public',side_effect=LimitError('Request time limit reached')):
+            with self.assertRaisesRegex(LimitError,'time limit'):web.GoogleWeb(transport).search('API',Runtime())
+        transport.request.return_value=('https://www.google.com/search','text/html',b'<html>challenge</html>')
+        with self.assertRaisesRegex(ValueError,'browser challenge'):web.GoogleWeb(transport).search('API',Runtime())
+        transport.request.side_effect=AccessError('redirect')
+        with self.assertRaisesRegex(ValueError,'blocked.*browser challenge'):web.GoogleWeb(transport).search('API',Runtime())
+
+    def test_public_fetch_discovers_bounded_same_host_links_without_key(self):
+        transport=MagicMock();transport.request.return_value=('https://example.com/docs/','text/html',b'<title>Docs</title><p>Hello</p><a href="guide">Guide</a><a href="https://other.com/">External</a><a href="http://127.0.0.1/">Private</a>')
+        sources=web.PublicWeb(transport,include_links=True).fetch('https://example.com/docs/',Runtime())
+        self.assertEqual([source.url for source in sources],['https://example.com/docs/','https://example.com/docs/guide'])
+        self.assertEqual(sources[1].backend,'public-link');self.assertNotIn('headers',transport.request.call_args.kwargs)
+
 class Response(io.BytesIO):
     def __init__(self,objects,stream=True):
         data=b''.join(json.dumps(o).encode()+b'\n' for o in objects) if stream else json.dumps(objects[0]).encode()

@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import re
 import threading
+from urllib.parse import urlsplit
 from PySide6.QtCore import Qt,Signal,QObject,QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox
@@ -12,7 +13,8 @@ from .code_agent import CodingRun
 from .research import scrub
 from .code_limits import FIELDS,coding_limits
 from .web import public_url
-from . import core
+from . import core,routing
+from .research_ui import SearchBackends
 
 
 class RepositoryPicker(QDialog):
@@ -141,12 +143,14 @@ class CodeTab(QWidget):
         title=QLabel(session['project_name']);title.setTextFormat(Qt.TextFormat.PlainText);header.addWidget(title)
         path=QLabel(self.tr('Working directory snapshot: {path}').format(path=session['path_snapshot']));path.setTextFormat(Qt.TextFormat.PlainText);path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse);path.setToolTip(session['path_snapshot']);header.addWidget(path,1)
         current=window.repositories.get(session['project_id'])
-        note=self.tr('Agentnik coding uses your selected models. File reads are sent to the selected endpoint. Edits require approval; shell execution is unavailable. A configured light model may receive delegated context at its own endpoint.')
+        note=''
         if not Path(session['path_snapshot']).is_dir():note+=' '+self.tr('The saved folder is missing or unavailable.')
         if current is None:note+=' '+self.tr('This project was removed from the registry; its history is retained.')
         elif current['path']!=session['path_snapshot']:note+=' '+self.tr('The registered folder moved. This session retains its original path; open a new Code pane to use the relocated folder.')
+        if note:
+            warning=QLabel(note.strip());warning.setWordWrap(True);warning.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(warning)
         self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])) or self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
-        self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));layout.addWidget(self.composer)
+        self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);layout.addWidget(self.composer)
         context=session.get('coding_context')
         self.context_view=QPlainTextEdit(self.context_text(context))
         self.context_view.setReadOnly(True);self.context_view.setMaximumHeight(110);layout.addWidget(self.context_view)
@@ -173,7 +177,7 @@ class CodeTab(QWidget):
             model.editingFinished.connect(self.save_models)
         self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
-        self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search queries go to Ollama.com; pages are read from public websites.'))
+        self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search queries go to Google or direct Ollama Cloud; pages are read from public websites.'))
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));options.addWidget(self.web_enabled)
         self.web_enabled.toggled.connect(self.save_web_enabled)
         self.limits_button=QPushButton(self.tr('Limits…'));self.limits_button.clicked.connect(self.configure_limits);options.addWidget(self.limits_button)
@@ -183,6 +187,7 @@ class CodeTab(QWidget):
         self.simulate=QPushButton(self.tr('Simulate'));self.simulate.clicked.connect(self.start_simulation);run_row.addWidget(self.simulate)
         self.cancel_button=QPushButton(self.tr('Cancel'));self.cancel_button.setEnabled(False);self.cancel_button.clicked.connect(self.cancel);run_row.addWidget(self.cancel_button)
         run_row.addWidget(self.model_toggle)
+        self.search_settings=QPushButton(self.tr('Search settings…'));self.search_settings.setToolTip(self.tr('Manage search profiles shared with Chat'));self.search_settings.clicked.connect(self.configure_search);run_row.addWidget(self.search_settings)
         run_row.addWidget(self.sources_button);self.update_sources_button()
         self.approval_panel=QWidget();review=QVBoxLayout(self.approval_panel);layout.addWidget(self.approval_panel);self.approval_panel.hide()
         self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText(self.tr('Command approval preview'));review.addWidget(self.approval)
@@ -236,6 +241,9 @@ class CodeTab(QWidget):
         if dialog.exec()==QDialog.DialogCode.Accepted:
             self.session['coding_limits']=dialog.values();self.store.save(self.session)
 
+    def configure_search(self):
+        if not self.job:SearchBackends(self,self.store).exec()
+
     def update_sources_button(self):
         count=len(self.session.get('coding_sources',[]));self.sources_button.setText(self.tr('Sources ({count})').format(count=count));self.sources_button.setVisible(count>0)
 
@@ -256,17 +264,23 @@ class CodeTab(QWidget):
             self.save_models();heavy=self.role_connection('heavy');light=self.role_connection('light') if self.light_enabled.isChecked() else None
             if not heavy or not self.composer.toPlainText().strip():raise ValueError(self.tr('Choose a heavy model and enter a coding task'))
             context=self.session.get('coding_context') if self.use_context.isChecked() else None
-            backends=self.store.web_backend_specs() if self.web_enabled.isChecked() else []
-            if self.web_enabled.isChecked() and not any(b.get('key') for b in backends):raise ValueError(self.tr('Configure an Ollama web-search key in Web settings before enabling research.'))
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'))
+            enabled=self.web_enabled.isChecked();backends=[];provider='none'
+            if enabled:
+                strict=routing.connection_defaults(self.store.config,self.roles['heavy'][0].currentData(),heavy)['access_policy']=='strict_public'
+                parsed=urlsplit(heavy['url']);direct=parsed.scheme=='https' and parsed.hostname=='ollama.com' and parsed.port in (None,443)
+                if not strict:
+                    backends=self.store.web_backend_specs() if direct else []
+                    provider='ollama' if any(b.get('kind')=='ollama' and b.get('key') for b in backends) else 'google'
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider)
         except ValueError as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
+        if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.'}[provider])
 
     def launch(self,run,notice):
         if isinstance(run,CodingRun):self.session['coding_sources']=[];self.update_sources_button()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False)
+        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -367,7 +381,7 @@ class CodeTab(QWidget):
         self.approval_panel.hide()
         for button in (self.approve,self.reject,self.cancel_button):button.setEnabled(False)
         self.simulate.setEnabled(True);self.send.setEnabled(True)
-        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True)
+        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 
