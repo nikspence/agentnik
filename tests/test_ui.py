@@ -12,6 +12,20 @@ HAS_QT = importlib.util.find_spec('PySide6') is not None
 
 @unittest.skipUnless(HAS_QT,'PySide6 is not installed')
 class Desktop(unittest.TestCase):
+    def test_model_count_only_appears_in_status_bar(self):
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]):
+            store=Store(root);store.config['connections']={'first':{'url':'http://localhost:11434/v1','model':'one'}};window=Window(store)
+            try:
+                window.new_session('chat','first');tab=window.tabs.currentWidget();window.show();self.app.processEvents()
+                tab.info.setText('123 model(s) available.')
+                self.assertTrue(tab.info.isHidden())
+                self.assertEqual(window.session_status.text(),'123 model(s) available.')
+                self.assertTrue(tab.connection.isVisible())
+            finally:
+                window.close();self.app.processEvents();store.db.close()
+
     @classmethod
     def setUpClass(cls):
         from PySide6.QtWidgets import QApplication

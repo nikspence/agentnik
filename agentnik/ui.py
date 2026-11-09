@@ -407,7 +407,7 @@ class Connections(QDialog):
 
 class SessionStatus(QLabel):
     def __init__(self, tab):
-        super().__init__('', tab); self.tab = tab
+        super().__init__('', tab); self.tab = tab; self.hide()
     def setText(self, text):
         super().setText(text)
         window = self.tab.window
