@@ -99,11 +99,16 @@ class CodeTab(QWidget):
         context=session.get('coding_context')
         self.context_view=QPlainTextEdit(self.context_text(context))
         self.context_view.setReadOnly(True);self.context_view.setMaximumHeight(110);layout.addWidget(self.context_view)
-        self.use_context=QCheckBox(self.tr('Send previous task and answer with next run (up to 2,048 characters each)'));self.use_context.setEnabled(bool(context));layout.addWidget(self.use_context)
+        self.use_context=QCheckBox(self.tr('Send previous task and answer with next run (up to 2,048 characters each)'));self.use_context.setEnabled(bool(context))
+        options=QHBoxLayout();layout.addLayout(options)
         self.roles={}
-        bindings=session.get('coding_models',{})
-        for role in ('heavy','light'):
-            row=QHBoxLayout();layout.addLayout(row);row.addWidget(QLabel(self.tr('Heavy model') if role=='heavy' else self.tr('Light model')))
+        bindings=dict(session.get('coding_models',{}));bindings['decision']=session.get('coding_decision_model',{})
+        self.model_toggle=QPushButton(self.tr('Models'));self.model_toggle.setCheckable(True);layout.addWidget(self.model_toggle)
+        self.model_panel=QWidget();model_layout=QVBoxLayout(self.model_panel);layout.addWidget(self.model_panel);self.model_panel.hide()
+        self.model_toggle.toggled.connect(self.model_panel.setVisible)
+        model_layout.addWidget(QLabel(self.tr('Decision model safety checks are not connected yet.')))
+        for role in ('heavy','light','decision'):
+            row=QHBoxLayout();model_layout.addLayout(row);row.addWidget(QLabel({'heavy':self.tr('Heavy model'),'light':self.tr('Light model'),'decision':self.tr('Decision model')}[role]))
             connection=QComboBox();connection.addItem(self.tr('Not configured'),'');
             for name in window.connections:connection.addItem(name,name)
             model=QLineEdit();model.setPlaceholderText(self.tr('Model alias (any supported coding model)'))
@@ -115,16 +120,18 @@ class CodeTab(QWidget):
             choose=QPushButton(self.tr('Choose model…'));choose.clicked.connect(lambda _,r=role:self.choose_model(r));row.addWidget(choose)
             connection.currentIndexChanged.connect(lambda _,r=role:self.role_changed(r))
             model.editingFinished.connect(self.save_models)
-        self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);layout.addWidget(self.light_enabled)
+        self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
         self.send=QPushButton(self.tr('Run coding task'));self.send.clicked.connect(self.start_coding);layout.addWidget(self.send)
         self.simulate=QPushButton(self.tr('Try simulated workflow (no execution)'));self.simulate.clicked.connect(self.start_simulation);layout.addWidget(self.simulate)
-        self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText(self.tr('Command approval preview'));layout.addWidget(self.approval)
-        actions=QHBoxLayout();layout.addLayout(actions)
-        self.approve=QPushButton(self.tr('Approve proposed step'));self.reject=QPushButton(self.tr('Reject proposed step'));self.cancel_button=QPushButton(self.tr('Cancel run'))
-        for button in (self.approve,self.reject,self.cancel_button):actions.addWidget(button);button.setEnabled(False)
-        self.approve.clicked.connect(lambda:self.decide(True));self.reject.clicked.connect(lambda:self.decide(False));self.cancel_button.clicked.connect(self.cancel)
-        self.diff=QPlainTextEdit();self.diff.setReadOnly(True);self.diff.setPlaceholderText(self.tr('Review the complete proposed file diff before approving'));layout.addWidget(self.diff)
+        self.cancel_button=QPushButton(self.tr('Cancel run'));self.cancel_button.setEnabled(False);self.cancel_button.clicked.connect(self.cancel);layout.addWidget(self.cancel_button)
+        self.approval_panel=QWidget();review=QVBoxLayout(self.approval_panel);layout.addWidget(self.approval_panel);self.approval_panel.hide()
+        self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText(self.tr('Command approval preview'));review.addWidget(self.approval)
+        actions=QHBoxLayout();review.addLayout(actions)
+        self.approve=QPushButton(self.tr('Approve proposed step'));self.reject=QPushButton(self.tr('Reject proposed step'))
+        for button in (self.approve,self.reject):actions.addWidget(button);button.setEnabled(False)
+        self.approve.clicked.connect(lambda:self.decide(True));self.reject.clicked.connect(lambda:self.decide(False))
+        self.diff=QPlainTextEdit();self.diff.setReadOnly(True);self.diff.setPlaceholderText(self.tr('Review the complete proposed file diff before approving'));review.addWidget(self.diff)
         self.composer.textChanged.connect(self.save_draft)
 
     def choose_model(self,role):
@@ -137,7 +144,7 @@ class CodeTab(QWidget):
             self.model_jobs.pop(role,None)
             if self._closed or self.job or self.roles[role][0].currentData()!=name:return
             choices=[value for value in names if isinstance(value,str) and len(value)<=512][:2000]
-            title=self.tr('Choose Heavy model') if role=='heavy' else self.tr('Choose Light model')
+            title={'heavy':self.tr('Choose Heavy model'),'light':self.tr('Choose Light model'),'decision':self.tr('Choose Decision model')}[role]
             model,ok=QInputDialog.getItem(self,title,self.tr('Model alias:'),choices,0,True)
             if ok:self.roles[role][1].setText(model);self.save_models()
         def failed(_):
@@ -154,7 +161,8 @@ class CodeTab(QWidget):
         model.setText(c.get('model',''));self.save_models()
 
     def save_models(self):
-        self.session['coding_models']={role:{'connection':widgets[0].currentData(),'model':widgets[1].text().strip()} for role,widgets in self.roles.items()}
+        self.session['coding_models']={role:{'connection':self.roles[role][0].currentData(),'model':self.roles[role][1].text().strip()} for role in ('heavy','light')}
+        widgets=self.roles['decision'];self.session['coding_decision_model']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()}
         self.store.save(self.session)
 
     def save_light_enabled(self,enabled):
@@ -244,12 +252,12 @@ class CodeTab(QWidget):
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
             proposal=event['proposal'];self.diff.setPlainText(proposal['diff'])
             self.approval.setPlainText(self.tr('FILE EDIT\nProject: {project}\nPath: {path}\nReview the full diff below.\nSafety recommendation: Not checked; no System One request was made.').format(project=proposal['cwd'],path=proposal['path']))
-            self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval for file edit: '+proposal['path'])
+            self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval for file edit: '+proposal['path'])
         elif kind=='proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
             proposal=event['proposal']
             self.approval.setPlainText(self.tr('SIMULATION ONLY\nDirectory: {directory}\nArguments: {arguments}\nRecommendation: {recommendation}').format(directory=proposal['cwd'],arguments=json.dumps(proposal['argv']),recommendation=event['recommendation']))
-            self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting explicit approval for simulated step.')
+            self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting explicit approval for simulated step.')
         elif kind=='diff':self.diff.setPlainText(plain(event['text']));self.record(kind,event['text'])
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='finished':
@@ -265,10 +273,12 @@ class CodeTab(QWidget):
     def decide(self,allowed):
         if self.job and self.pending_fingerprint and self.job.decide(self.pending_fingerprint,allowed):
             decision=self.pending_fingerprint;self.approve.setEnabled(False);self.reject.setEnabled(False);self.pending_fingerprint=None
+            self.approval_panel.hide();self.approval.clear();self.diff.clear()
             self.session['code_state']='running';self.record('decision',('Approved' if allowed else 'Rejected')+' proposal '+decision)
 
     def finish(self):
         self.run_id=None;self.job=None;self.pending_fingerprint=None
+        self.approval_panel.hide()
         for button in (self.approve,self.reject,self.cancel_button):button.setEnabled(False)
         self.simulate.setEnabled(True);self.send.setEnabled(True)
         self.light_enabled.setEnabled(True)
