@@ -19,14 +19,14 @@ def policy_label(policy):
 
 class SearchBackends(QDialog):
     def __init__(self,parent,store):
-        super().__init__(parent); self.store=store; self.setWindowTitle('Search backends'); self.resize(580,360)
+        super().__init__(parent); self.store=store; self.setWindowTitle(self.tr('Search backends')); self.resize(580,360)
         layout=QVBoxLayout(self)
-        label=QLabel('Saved profiles run in this order. Each has a separate key; the initial adapter is Ollama search. Changes are saved immediately. OLLAMA_WEB_API_KEY supplies an environment profile after saved profiles when needed.'); label.setWordWrap(True); layout.addWidget(label)
+        label=QLabel(self.tr('Saved profiles run in this order. Each has a separate key; the initial adapter is Ollama search. Changes are saved immediately. OLLAMA_WEB_API_KEY supplies an environment profile after saved profiles when needed.')); label.setWordWrap(True); layout.addWidget(label)
         self.list=QListWidget(); layout.addWidget(self.list)
         row=QHBoxLayout(); layout.addLayout(row)
-        for text,fn in [('Add',lambda:self.edit(True)),('Edit',lambda:self.edit(False)),('Remove',self.remove),('↑',lambda:self.move(-1)),('↓',lambda:self.move(1))]:
+        for text,fn in [(self.tr('Add'),lambda:self.edit(True)),(self.tr('Edit'),lambda:self.edit(False)),(self.tr('Remove'),self.remove),('↑',lambda:self.move(-1)),('↓',lambda:self.move(1))]:
             b=QPushButton(text); b.clicked.connect(fn); row.addWidget(b)
-        close=QPushButton('Close'); close.clicked.connect(self.accept); layout.addWidget(close); self.refresh()
+        close=QPushButton(self.tr('Close')); close.clicked.connect(self.accept); layout.addWidget(close); self.refresh()
 
     def refresh(self,selected=0):
         self.list.clear()
@@ -38,29 +38,29 @@ class SearchBackends(QDialog):
         entries=self.store.config.get('web_backends',[]); index=self.list.currentRow()
         if not add and not 0<=index<len(entries): return
         entry={} if add else entries[index]
-        if add and len(entries)>=5: return QMessageBox.warning(self,'Search backends','At most five saved profiles are supported.')
-        dlg=QDialog(self); dlg.setWindowTitle('Search backend profile'); form=QFormLayout(dlg)
-        name=QLineEdit(entry.get('name','Ollama search')); form.addRow('Name',name)
-        key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText('Blank keeps an existing key'); form.addRow('Ollama search API key',key)
-        plain=QCheckBox('Store as plaintext (explicit fallback)'); form.addRow(plain)
+        if add and len(entries)>=5: return QMessageBox.warning(self,self.tr('Search backends'),self.tr('At most five saved profiles are supported.'))
+        dlg=QDialog(self); dlg.setWindowTitle(self.tr('Search backend profile')); form=QFormLayout(dlg)
+        name=QLineEdit(entry.get('name','Ollama search')); form.addRow(self.tr('Name'),name)
+        key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText(self.tr('Blank keeps an existing key')); form.addRow(self.tr('Ollama search API key'),key)
+        plain=QCheckBox(self.tr('Store as plaintext (explicit fallback)')); form.addRow(plain)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dlg.accept); buttons.rejected.connect(dlg.reject); form.addRow(buttons)
         while dlg.exec()==QDialog.DialogCode.Accepted:
             try:
                 label=name.text().strip()
-                if not label or len(label)>80: raise ValueError('Enter a profile name of 1–80 characters')
-                if add and not key.text().strip(): raise ValueError('Enter a search key for the new profile')
+                if not label or len(label)>80: raise ValueError(self.tr('Enter a profile name of 1–80 characters'))
+                if add and not key.text().strip(): raise ValueError(self.tr('Enter a search key for the new profile'))
                 ident=entry.get('id') or 'search-'+uuid.uuid4().hex
                 if key.text().strip(): self.store.save_web_key(key.text().strip(),plain.isChecked(),ident=ident,name=label)
                 else:
                     entry['name']=label; self.store.flush()
                 self.refresh(index if not add else self.list.count()); return
-            except Exception as exc: QMessageBox.warning(self,'Search backends',str(exc))
+            except Exception as exc: QMessageBox.warning(self,self.tr('Search backends'),str(exc))
 
     def remove(self):
         entries=self.store.config.get('web_backends',[]); index=self.list.currentRow()
         if not 0<=index<len(entries): return
-        if QMessageBox.question(self,'Search backends','Remove this profile and its saved credential?',QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)!=QMessageBox.StandardButton.Yes: return
+        if QMessageBox.question(self,self.tr('Search backends'),self.tr('Remove this profile and its saved credential?'),QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)!=QMessageBox.StandardButton.Yes: return
         self.store.save_web_key(remove=True,ident=entries[index]['id']); self.refresh(max(0,index-1))
 
     def move(self,offset):

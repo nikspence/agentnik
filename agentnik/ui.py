@@ -355,33 +355,35 @@ class Connections(QDialog):
         while dlg.exec() == QDialog.DialogCode.Accepted:
             try:
                 new,c = dlg.value()
-                if new in self.window.store.config['connections'] and not confirm(self,f'Replace saved connection “{new}”?'): continue
+                if new in self.window.store.config['connections'] and not confirm(self,self.tr('Replace saved connection “{name}”?').format(name=new)): continue
                 self.window.store.save_connection(new,c,dlg.plain.isChecked()); self.window.reload_connections(); self.populate(); return
             except Exception as exc: error(self,exc)
     def delete(self):
         names = [x.data(Qt.ItemDataRole.UserRole) for x in self.list.selectedItems()]
         names = [n for n in names if n in self.window.store.config['connections']]
-        if names and confirm(self,f'Delete {len(names)} saved connection(s)?'):
+        if names and confirm(self,self.tr('Delete {count} saved connection(s)?').format(count=len(names))):
             for n in names: self.window.store.delete_connection(n)
             self.window.reload_connections(); self.populate()
     def import_file(self):
-        path,_ = QFileDialog.getOpenFileName(self,'Import connections','','JSON (*.json)')
+        path,_ = QFileDialog.getOpenFileName(self,self.tr('Import connections'),'','JSON (*.json)')
         if not path: return
         try:
             incoming = core.validate_connections(json.loads(Path(path).read_text('utf-8-sig')))
             preview = '\n'.join(f'{n}: {c["url"]}' for n,c in incoming.items())
-            if not confirm(self,'Import these connections?\n\n'+preview): return
+            if not confirm(self,self.tr('Import these connections?')+'\n\n'+preview): return
             for name,c in incoming.items():
                 if name in self.window.store.config['connections']:
-                    choice,ok = QInputDialog.getItem(self,'Duplicate connection',name,['Skip','Replace','Rename'],0,False)
-                    if not ok or choice == 'Skip': continue
-                    if choice == 'Rename':
-                        name,ok = QInputDialog.getText(self,'Rename connection','New name:')
+                    labels=[self.tr('Skip'),self.tr('Replace'),self.tr('Rename')]
+                    if len(set(labels))!=len(labels): raise ValueError(self.tr('Duplicate translated actions; import stopped.'))
+                    choice,ok = QInputDialog.getItem(self,self.tr('Duplicate connection'),name,labels,0,False)
+                    if not ok or choice not in labels or choice == labels[0]: continue
+                    if choice == labels[2]:
+                        name,ok = QInputDialog.getText(self,self.tr('Rename connection'),self.tr('New name:'))
                         if not ok: continue
-                        if not name.strip() or name in self.window.store.config['connections']: raise ValueError('New name must be unique and nonempty.')
+                        if not name.strip() or name in self.window.store.config['connections']: raise ValueError(self.tr('New name must be unique and nonempty.'))
                 try: self.window.store.save_connection(name,c)
                 except Exception as exc:
-                    if not confirm(self,f'Credential store unavailable: {exc}\nStore “{name}” with a plaintext key?'): continue
+                    if not confirm(self,self.tr('Credential store unavailable: {error}\nStore “{name}” with a plaintext key?').format(error=exc,name=name)): continue
                     self.window.store.save_connection(name,c,True)
             self.window.reload_connections(); self.populate()
         except Exception as exc: error(self,exc)
@@ -389,8 +391,8 @@ class Connections(QDialog):
     def export_file(self):
         names = [x.data(Qt.ItemDataRole.UserRole) for x in self.list.selectedItems()]
         if not names: names = list(self.window.connections)
-        include = confirm(self,'Include API keys in the export?\nChoose No to export connection settings without keys.')
-        path,_ = QFileDialog.getSaveFileName(self,'Export connections','connections.json','JSON (*.json)')
+        include = confirm(self,self.tr('Include API keys in the export?\nChoose No to export connection settings without keys.'))
+        path,_ = QFileDialog.getSaveFileName(self,self.tr('Export connections'),'connections.json','JSON (*.json)')
         if not path: return
         try:
             result = {n:{k:v for k,v in self.window.connections[n].items() if k != 'credential_id' and (include or k != 'api_key')} for n in names}
@@ -554,11 +556,11 @@ class SessionTab(QWidget):
         return c
     def load_models(self):
         if self._closed: return
-        c = self.active_connection(); self.models_button.setEnabled(False); self.info.setText('Loading models…')
+        c = self.active_connection(); self.models_button.setEnabled(False); self.info.setText(self.tr('Loading models…'))
         def done(names):
             from shiboken6 import isValid
             if not isValid(self) or self._closed: return
-            current = self.model.currentText(); self.model.blockSignals(True); self.model.clear(); self.model.addItems(names); self.model.setEditText(current or (names[0] if names else '')); self.model.blockSignals(False); self.save_draft(); self.models_button.setEnabled(True); self.info.setText(f'{len(names)} model(s) available.')
+            current = self.model.currentText(); self.model.blockSignals(True); self.model.clear(); self.model.addItems(names); self.model.setEditText(current or (names[0] if names else '')); self.model.blockSignals(False); self.save_draft(); self.models_button.setEnabled(True); self.info.setText(self.tr('{count} model(s) available.').format(count=len(names)))
         def failed(e):
             from shiboken6 import isValid
             if isValid(self) and not self._closed: self.models_button.setEnabled(True); self.info.setText(e)
@@ -583,7 +585,7 @@ class SessionTab(QWidget):
         else:
             occupied = bool(current['state'].strip() or current['images'] or any(q['instructions'].strip() for q in current['questions']))
         if occupied and self.store.prompt_json(self.session['mode'],current) != self.store.prompt_json(self.session['mode'],payload):
-            if not confirm(self,'Replace the current prompt and attachments?'): return
+            if not confirm(self,self.tr('Replace the current prompt and attachments?')): return
         if self.session['mode'] == 'chat':
             self.loading = True; self.composer.setPlainText(payload['text']); self.attachments.set_paths(payload.get('images',[])); self.loading = False; self.save_draft()
             self.composer.setFocus()
@@ -630,7 +632,7 @@ class SessionTab(QWidget):
                 backend_specs=self.store.web_backend_specs()
                 key=next((b['key'] for b in backend_specs if b.get('key')),'')
             self.partial = {'text':'','thinking':''}
-            self.busy(True); self.info.setText('Running…'); self.render()
+            self.busy(True); self.info.setText(self.tr('Running…')); self.render()
             token = uuid.uuid4().hex; self.request_token = token
             if self.research_running:
                 self.partial['research'] = {'version':1,'run_id':token,'status':'running','sources':[],'events':[],'exchanges':[]}
@@ -674,7 +676,7 @@ class SessionTab(QWidget):
         else:
             self.session['runs'].append(dict(form=self.pending,result=result))
             if self.session['title'] == 'New decision': self.session['title'] = str(self.pending['state'])[:60]
-        self.info.setText('Completed'); self.save_draft(); self.render(); self.updated.emit()
+        self.info.setText(self.tr('Completed')); self.save_draft(); self.render(); self.updated.emit()
     def failed(self,message):
         if self.research_running:
             value = copy.deepcopy(self.partial or {'text':'','thinking':''})
@@ -684,7 +686,7 @@ class SessionTab(QWidget):
             value.update(status='failed',error=message,metrics=value.get('metrics',{}))
             return self.complete_research(value)
         cancelled = self.job and self.job.cancel.is_set(); self.job = None; self.busy(False); self.partial = None
-        self.info.setText('Cancelled. The server may still finish processing.' if cancelled else message)
+        self.info.setText(self.tr('Cancelled. The server may still finish processing.') if cancelled else message)
         if not cancelled and ('401' in message or '403' in message):
             key,ok = QInputDialog.getText(self,'Endpoint authentication','API key for this tab (not saved):',QLineEdit.EchoMode.Password)
             if ok:
@@ -801,7 +803,7 @@ class Window(QMainWindow):
         self.prompts_panel.setVisible(store.config['settings'].get('prompts_visible',True))
         self.sidebar.setVisible(store.config['settings'].get('history_visible',True)); self.reload_connections(); self.refresh_history(); self.apply_theme()
         self.apply_font_size(store.config['settings'].get('font_size',max(8,self.font().pointSize())))
-        self.statusBar().showMessage('Discovering local endpoints…')
+        self.statusBar().showMessage(self.tr('Discovering local endpoints…'))
         self.discovery = Job(lambda *_:core.discover(),self.discovered,lambda e:self.statusBar().showMessage(e))
         QShortcut(QKeySequence('Ctrl+N'),self,activated=lambda:self.new_session('chat'))
         QShortcut(QKeySequence('Ctrl+B'),self,activated=self.toggle_history)
@@ -918,7 +920,7 @@ class Window(QMainWindow):
         if prompt: self.tabs.currentWidget().copy_prompt(prompt['payload'])
     def remove_selected_prompt(self):
         prompt = self.selected_prompt()
-        if prompt and confirm(self,'Remove this saved prompt?'):
+        if prompt and confirm(self,self.tr('Remove this saved prompt?')):
             self.store.delete_prompt(prompt['id']); self.prompts_changed()
     def new_session(self,mode,name=None):
         if not self.connections:
@@ -983,15 +985,15 @@ class Window(QMainWindow):
         self.store.delete(ids); self.refresh_history(); self.stats()
     def delete(self):
         item = self.history.currentItem()
-        if item and confirm(self,'Delete this session and its unshared stored images?'): self.delete_ids([item.data(Qt.ItemDataRole.UserRole)])
+        if item and confirm(self,self.tr('Delete this session and its unshared stored images?')): self.delete_ids([item.data(Qt.ItemDataRole.UserRole)])
     def clear_all(self):
-        if confirm(self,'Delete ALL chat and decision history, including drafts and stored images? Saved connections will remain.'):
+        if confirm(self,self.tr('Delete ALL chat and decision history, including drafts and stored images? Saved connections will remain.')):
             self.delete_ids([s['id'] for s in self.store.list_sessions()])
     def stats(self,*_):
         self.refresh_prompts()
         tab = self.tabs.currentWidget()
-        if isinstance(tab,CodeTab): self.statusBar().showMessage('Code · '+tab.session['project_name']+' · '+('Running' if tab.job else 'Ready')); return
-        if not isinstance(tab,SessionTab): self.statusBar().showMessage('Ready · New chat: Ctrl+N · Toggle history: Ctrl+B'); return
+        if isinstance(tab,CodeTab): self.statusBar().showMessage(self.tr('Code · {project} · {state}').format(project=tab.session['project_name'],state=self.tr('Running') if tab.job else self.tr('Ready'))); return
+        if not isinstance(tab,SessionTab): self.statusBar().showMessage(self.tr('Ready · New chat: Ctrl+N · Toggle history: Ctrl+B')); return
         s = tab.session; measurements = [m['metrics'] for m in s['messages'] if 'metrics' in m] if s['mode']=='chat' else [r['result']['metrics'] for r in s['runs']]
         total_in = sum(m.get('input_tokens',0) for m in measurements); total_out = sum(m.get('output_tokens',0) for m in measurements)
         unknown = any('input_tokens' not in m or 'output_tokens' not in m or m.get('usage_complete') is False for m in measurements)
@@ -1001,7 +1003,7 @@ class Window(QMainWindow):
         self.statusBar().showMessage(text+f' tokens   ·   Total in: {number(total_in)}   ·   Total out: {number(total_out)}'+(' (known usage only)' if unknown else '')+'   ·   '+s['connection_name'])
     def closeEvent(self,event):
         running = [self.tabs.widget(i) for i in range(self.tabs.count()) if isinstance(self.tabs.widget(i),(SessionTab,CodeTab)) and self.tabs.widget(i).job]
-        if running and not confirm(self,'Requests are running. Close Agentnik and stop receiving responses?'): event.ignore(); return
+        if running and not confirm(self,self.tr('Requests are running. Close Agentnik and stop receiving responses?')): event.ignore(); return
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
             if isinstance(tab,(SessionTab,CodeTab)): tab.cancel(); tab.save_draft(); tab._closed = True

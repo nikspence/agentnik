@@ -81,8 +81,11 @@ class Localization(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
                 root=Path(tmp);folder=root/'project';folder.mkdir();store=Store(root/'data');window=Window(store)
                 try:
-                    ident=window.repositories.put(folder);session=window.repositories.session(ident);store.save(session);window.open_session(session)
+                    ident=window.repositories.put(folder);session=window.repositories.session(ident)
+                    session['coding_context']={'task':'Keep {user} text','answer':'Original answer'};store.save(session);window.open_session(session)
                     tab=window.tabs.currentWidget();self.assertEqual(tab.send.text(),'코딩 작업 실행');self.assertEqual(tab.approve.text(),'제안된 단계 승인')
+                    self.assertIn('이전 작업:',tab.context_view.toPlainText());self.assertIn('Keep {user} text',tab.context_view.toPlainText())
+                    window.stats();self.assertIn('준비됨',window.statusBar().currentMessage());self.assertIn(session['project_name'],window.statusBar().currentMessage())
                     run=CodingRun({'model':'test'},str(folder),'task');tab.job=run;tab.run_id=run.run_id
                     tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':{'cwd':str(folder),'path':'src/file.py','diff':'+exact text'}})
                     text=tab.approval.toPlainText();self.assertIn('확인되지 않음',text);self.assertIn(str(folder),text);self.assertIn('src/file.py',text)
@@ -152,6 +155,65 @@ class Localization(unittest.TestCase):
                         self.assertIn('Agentnik 관리형',details.toggle.text());self.assertIn('확인할 수 없습니다',details.excerpts.toPlainText());details.close()
                     finally:dialog.close()
                 finally:window.close();self.app.processEvents();store.db.close()
+        finally:self.app.removeTranslator(translator)
+
+    def test_korean_backend_removal_confirmation_preserves_profile_on_no(self):
+        from PySide6.QtWidgets import QMessageBox,QPushButton
+        from agentnik.research_ui import SearchBackends
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                store=Store(tmp);store.save_web_key('test-key',plaintext=True,ident='test',name='User profile')
+                manager=SearchBackends(None,store)
+                try:
+                    self.assertEqual(manager.windowTitle(),'검색 백엔드');self.assertEqual(manager.list.item(0).text(),'User profile')
+                    self.assertIn('제거',[b.text() for b in manager.findChildren(QPushButton)])
+                    with patch('agentnik.research_ui.QMessageBox.question',return_value=QMessageBox.StandardButton.No) as question:
+                        manager.remove()
+                    self.assertIn('자격 증명',question.call_args.args[2]);self.assertEqual(store.web_key('test'),'test-key')
+                    self.assertEqual(store.config['web_backends'][0]['name'],'User profile')
+                finally:manager.close();store.db.close()
+        finally:self.app.removeTranslator(translator)
+
+    def test_korean_history_confirmation_decline_preserves_history(self):
+        from agentnik.ui import Window
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+                store=Store(tmp);session=store.new_session('chat','Example',{});session['draft']='Keep';store.save(session);window=Window(store)
+                try:
+                    with patch('agentnik.ui.confirm',return_value=False) as confirm:window.clear_all()
+                    self.assertIn('모든 채팅',confirm.call_args.args[1]);self.assertEqual(store.list_sessions()[0]['draft'],'Keep')
+                finally:window.close();self.app.processEvents();store.db.close()
+        finally:self.app.removeTranslator(translator)
+
+    def test_korean_catalog_preserves_named_placeholders(self):
+        import string
+        import xml.etree.ElementTree as ET
+        path=Path(__file__).resolve().parents[1]/'agentnik'/'translations'/'agentnik_ko.ts'
+        formatter=string.Formatter()
+        def fields(text):return sorted(field for _,field,_,_ in formatter.parse(text or '') if field is not None)
+        for message in ET.parse(path).findall('.//message'):
+            source=message.findtext('source');translation=message.find('translation')
+            if translation.get('type') not in ('unfinished','vanished','obsolete'):
+                self.assertEqual(fields(source),fields(translation.text),source)
+
+    def test_korean_import_duplicate_actions(self):
+        import json
+        from agentnik.ui import Window,Connections
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            for choice in ('건너뛰기','바꾸기','이름 바꾸기'):
+                with self.subTest(choice=choice),tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+                    root=Path(tmp);source=root/'import.json';source.write_text(json.dumps({'connections':{'Example':{'url':'https://new.test/v1','protocol':'chat'}}}),encoding='utf-8')
+                    store=Store(root/'data');store.save_connection('Example',{'url':'https://old.test/v1','protocol':'chat'});window=Window(store);dialog=Connections(window)
+                    try:
+                        with patch('agentnik.ui.QFileDialog.getOpenFileName',return_value=(str(source),'')),patch('agentnik.ui.confirm',return_value=True),patch('agentnik.ui.QInputDialog.getItem',return_value=(choice,True)),patch('agentnik.ui.QInputDialog.getText',return_value=('New name',True)):
+                            dialog.import_file()
+                        saved=store.config['connections']
+                        self.assertEqual(saved['Example']['url'],'https://new.test/v1' if choice=='바꾸기' else 'https://old.test/v1')
+                        self.assertEqual('New name' in saved,choice=='이름 바꾸기')
+                    finally:dialog.close();window.close();self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 
     def test_language_setting_persists_and_does_not_change_history(self):

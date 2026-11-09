@@ -93,10 +93,10 @@ class CodeTab(QWidget):
         if current is None:note+=' '+self.tr('This project was removed from the registry; its history is retained.')
         elif current['path']!=session['path_snapshot']:note+=' '+self.tr('The registered folder moved. This session retains its original path; open a new Code pane to use the relocated folder.')
         info=QLabel(note);info.setWordWrap(True);layout.addWidget(info)
-        self.activity=QPlainTextEdit('\n'.join(plain(e.get('text',e.get('kind',''))) for e in session.get('code_activity',[])) or 'No commands have been run.');self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
+        self.activity=QPlainTextEdit('\n'.join(plain(e.get('text',e.get('kind',''))) for e in session.get('code_activity',[])) or self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
         self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));layout.addWidget(self.composer)
         context=session.get('coding_context')
-        self.context_view=QPlainTextEdit(('Previous task:\n'+context['task']+'\n\nPrevious answer:\n'+context['answer']) if context else 'No completed coding task available.')
+        self.context_view=QPlainTextEdit(self.context_text(context))
         self.context_view.setReadOnly(True);self.context_view.setMaximumHeight(110);layout.addWidget(self.context_view)
         self.use_context=QCheckBox(self.tr('Send previous task and answer with next run (up to 2,048 characters each)'));self.use_context.setEnabled(bool(context));layout.addWidget(self.use_context)
         self.roles={}
@@ -142,6 +142,10 @@ class CodeTab(QWidget):
             self.model_jobs.pop(role,None)
             if not self._closed:QMessageBox.warning(self,'Coding models','Model listing failed. You can enter an alias manually.')
         self.model_jobs[role]=Job(lambda *_:core.models(c),done,failed)
+
+    def context_text(self,context):
+        if not context:return self.tr('No completed coding task available.')
+        return self.tr('Previous task:\n{task}\n\nPrevious answer:\n{answer}').format(task=context['task'],answer=context['answer'])
 
     def role_changed(self,role):
         connection,model=self.roles[role];c=self.window.connections.get(connection.currentData(),{})
@@ -216,7 +220,7 @@ class CodeTab(QWidget):
                 secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key','')]
                 context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
                 self.session['coding_context']=context
-                self.context_view.setPlainText('Previous task:\n'+context['task']+'\n\nPrevious answer:\n'+context['answer'])
+                self.context_view.setPlainText(self.context_text(context))
                 self.use_context.setChecked(False)
             self.session['code_state']=event['status'];self.finish();self.record(kind,event['text'])
             if event.get('usage'):self.record('usage',event['usage'])
