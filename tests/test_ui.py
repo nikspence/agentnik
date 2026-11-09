@@ -18,6 +18,23 @@ class Desktop(unittest.TestCase):
         cls.app=QApplication.instance() or QApplication([])
     def setUp(self):
         font=self.app.font(); font.setPointSize(9); self.app.setFont(font)
+    def test_copy_assistant_response_from_history_and_stream(self):
+        from agentnik.storage import Store
+        from agentnik.ui import Window,MessageBubble
+        previous=self.app.clipboard().text()
+        with tempfile.TemporaryDirectory() as root,patch('agentnik.core.discover',return_value={}),patch('agentnik.core.environment_connections',return_value={}),patch('agentnik.core.models',return_value=[]):
+            store=Store(root);window=Window(store)
+            try:
+                session=store.new_session('chat','Test',{});session['messages']=[{'role':'user','text':'Question'},{'role':'assistant','text':'**Answer**\nSecond line','thinking':'Private thinking'}];store.save(session)
+                window.open_session(store.list_sessions()[0]);tab=window.tabs.currentWidget();bubbles=tab.findChildren(MessageBubble)
+                self.assertFalse(hasattr(bubbles[0],'copy_button'));bubbles[1].copy_button.click()
+                self.assertEqual(self.app.clipboard().text(),'**Answer**\nSecond line')
+                live=MessageBubble({'role':'assistant','text':'','thinking':'Reasoning'},live=True)
+                self.assertFalse(live.copy_button.isEnabled());live.set_stream('Partial','Reasoning');live.copy_button.click()
+                self.assertEqual(self.app.clipboard().text(),'Partial');live.set_stream('Complete','Reasoning');live.copy_button.click()
+                self.assertEqual(self.app.clipboard().text(),'Complete');live.close()
+            finally:
+                window.close();self.app.processEvents();store.db.close();self.app.clipboard().setText(previous)
     def test_forms_tabs_charts_and_history(self):
         from agentnik.storage import Store
         from agentnik.ui import Window, SessionTab, Connections, DecisionResult

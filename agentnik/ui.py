@@ -134,6 +134,9 @@ class MessageBubble(QFrame):
         layout = QVBoxLayout(self); layout.setContentsMargins(14,10,14,10); layout.setSpacing(6)
         heading = QLabel(self.tr('You') if self.role == 'user' else self.tr('Assistant')); heading.setStyleSheet('font-weight: bold;')
         self.header = QHBoxLayout(); self.header.addWidget(heading); self.header.addStretch(); layout.addLayout(self.header)
+        if self.role == 'assistant':
+            self.copy_button = QPushButton('⧉'); self.copy_button.setAccessibleName(self.tr('Copy response')); self.copy_button.setToolTip(self.tr('Copy response'))
+            self.copy_button.clicked.connect(lambda:QApplication.clipboard().setText(self.response_text)); self.header.addWidget(self.copy_button)
         self.thinking_toggle = QPushButton(self.tr('Show thinking')); self.thinking_toggle.setCheckable(True)
         self.thinking_toggle.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Fixed)
         self.thinking_toggle.toggled.connect(self.toggle_thinking); layout.addWidget(self.thinking_toggle)
@@ -148,6 +151,8 @@ class MessageBubble(QFrame):
     def toggle_thinking(self,visible):
         self.thinking_view.setVisible(visible); self.thinking_toggle.setText(self.tr('Hide thinking') if visible else self.tr('Show thinking'))
     def set_stream(self,text,thinking,research_data=None):
+        self.response_text=text
+        if self.role == 'assistant': self.copy_button.setEnabled(bool(text))
         if research_data is not None: self.research_data=research_data
         has_thinking = bool(thinking)
         self.thinking_toggle.setVisible(has_thinking)

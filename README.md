@@ -71,6 +71,8 @@ Chat supports OpenAI-compatible Chat Completions, Responses, and Anthropic Messa
 
 Chat uses rounded message cards: your prompts sit to the right and assistant replies to the left. Each card grows to hold the complete message, with one outer scrollbar for the conversation. Assistant Markdown renders during streaming as well as after completion, including wrapped code blocks. **Show thinking / Hide thinking** expands reasoning inline in the same card; streamed reasoning is initially visible and respects your toggle choice.
 
+Use the **⧉** icon on an assistant message to copy its response text, including its original Markdown, to the clipboard. While a response is streaming, the icon copies the text received so far; thinking text is not included.
+
 The composer starts at a compact height. Drag the divider above it to resize it; Agentnik remembers the chosen height. **A− / A+**, beside the **Theme** dropdown, decrease or increase the application's font size from 8 to 32 points. Font changes apply immediately to existing conversations, editors, and controls, and are remembered between launches. Hover over either font button to see the current size.
 
 The toolbar, welcome screen, and window icon use the robot mark recolored to match the red wordmark. The lowercase **agentnik** wordmark uses dark/light `agent` lettering and red `nik` lettering. Themes use matching red interface accents. Packaged SVGs contain paths, with transparent PNG fallbacks and a Windows ICO. `assets/robot.svg` is the reusable robot source; `tools/build_branding.py` builds the wordmarks using PySide6 and Pillow. Pillow is a build-only dependency. Generated assets require no installed font at runtime.
