@@ -90,6 +90,25 @@ class Localization(unittest.TestCase):
                 finally:window.close();self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 
+    def test_korean_decision_form_preserves_request_values(self):
+        from agentnik.ui import Window,DecisionResult
+        from PySide6.QtWidgets import QLabel
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+                store=Store(tmp);store.config['connections']={'Example':{'url':'https://example.test/v1','model':'model','protocol':'chat'}};window=Window(store)
+                try:
+                    window.new_session('decision','Example');tab=window.tabs.currentWidget();question=tab.questions[0]
+                    self.assertEqual(tab.send_button.text(),'결정 실행');self.assertEqual(question.kind.itemText(1),'객관식')
+                    question.name.setText('priority');question.kind.setCurrentIndex(1);question.instructions.setPlainText('Choose');question.add_option(['a','First']);question.add_option(['b','Second']);tab.state.setPlainText('Context')
+                    body=core.decision_body({'model':'model'},tab.form_value())
+                    self.assertEqual(list(body['questions']['priority']['criteria'].items()),[('a','First'),('b','Second')])
+                    result=DecisionResult({'answers':{'q':{'noul':0.7,'confidence':0.8}}})
+                    labels=[label.text() for label in result.findChildren(QLabel)]
+                    self.assertIn('예',labels);self.assertIn('아니요',labels);self.assertIn('신뢰도: 80.00%',labels);result.close()
+                finally:window.close();self.app.processEvents();store.db.close()
+        finally:self.app.removeTranslator(translator)
+
     def test_language_setting_persists_and_does_not_change_history(self):
         from agentnik.ui import Window
         with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):

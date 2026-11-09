@@ -257,18 +257,20 @@ class DecisionResult(QWidget):
                 safe = {str(k):float(v) for k,v in values.items() if isinstance(v, (int,float)) and 0 <= v <= 1}
                 legend = answer.get('legend',{})
                 if isinstance(legend,dict): safe = {str(legend.get(k,k)):v for k,v in safe.items()}
+                if 'noul' in answer:
+                    safe = {(self.tr('No') if k=='No' else self.tr('Yes') if k=='Yes' else k):v for k,v in safe.items()}
                 stack = QStackedWidget(); bars = QWidget(); bar_layout = QVBoxLayout(bars)
                 for label, probability in safe.items():
                     row = QHBoxLayout(); row.addWidget(QLabel(label)); bar = QProgressBar(); bar.setRange(0,10000); bar.setValue(round(probability*10000)); bar.setFormat(f'{probability:.2%}'); row.addWidget(bar, 1); bar_layout.addLayout(row)
                 stack.addWidget(bars)
                 if answer.get('type') == 'choice' and abs(sum(safe.values())-1) < .02 and len(safe) <= 26:
                     pie = Pie(safe); pie.setMinimumHeight(max(220, len(safe)*23+20)); stack.addWidget(pie)
-                    toggle = QPushButton('Show pie chart'); toggle.setCheckable(True)
+                    toggle = QPushButton(self.tr('Show pie chart')); toggle.setCheckable(True)
                     def switch(checked, stack=stack, toggle=toggle):
-                        stack.setCurrentIndex(1 if checked else 0); toggle.setText('Show probability bars' if checked else 'Show pie chart')
+                        stack.setCurrentIndex(1 if checked else 0); toggle.setText(self.tr('Show probability bars') if checked else self.tr('Show pie chart'))
                     toggle.toggled.connect(switch); layout.addWidget(toggle)
                 layout.addWidget(stack)
-            if 'confidence' in answer: layout.addWidget(QLabel(f'Confidence: {answer["confidence"]:.2%}'))
+            if 'confidence' in answer: layout.addWidget(QLabel(self.tr('Confidence: {value}').format(value=f'{answer["confidence"]:.2%}')))
 
 class WheelGuardCombo(QComboBox):
     def wheelEvent(self,event):
@@ -281,13 +283,13 @@ class QuestionEditor(QFrame):
     def __init__(self, data=None):
         super().__init__(); self.setObjectName('questionCard'); outer = QVBoxLayout(self)
         row = QHBoxLayout(); outer.addLayout(row)
-        self.name = QLineEdit(); self.name.setPlaceholderText('Question name, e.g. urgency'); row.addWidget(self.name)
-        self.kind = WheelGuardCombo(); self.kind.setFocusPolicy(Qt.FocusPolicy.ClickFocus); self.kind.addItem('Yes / No', 'noul'); self.kind.addItem('Multiple choice', 'choice'); self.kind.addItem('Ordered score', 'score'); row.addWidget(self.kind)
-        button('Remove question', lambda: self.removed.emit(self), row)
-        self.instructions = QPlainTextEdit(); self.instructions.setPlaceholderText('What should the model decide?'); self.instructions.setMaximumHeight(75); outer.addWidget(self.instructions)
+        self.name = QLineEdit(); self.name.setPlaceholderText(self.tr('Question name, e.g. urgency')); row.addWidget(self.name)
+        self.kind = WheelGuardCombo(); self.kind.setFocusPolicy(Qt.FocusPolicy.ClickFocus); self.kind.addItem(self.tr('Yes / No'), 'noul'); self.kind.addItem(self.tr('Multiple choice'), 'choice'); self.kind.addItem(self.tr('Ordered score'), 'score'); row.addWidget(self.kind)
+        button(self.tr('Remove question'), lambda: self.removed.emit(self), row)
+        self.instructions = QPlainTextEdit(); self.instructions.setPlaceholderText(self.tr('What should the model decide?')); self.instructions.setMaximumHeight(75); outer.addWidget(self.instructions)
         self.criteria = QWidget(); criteria_layout = QVBoxLayout(self.criteria); criteria_layout.setContentsMargins(0,0,0,0)
-        self.table = QTableWidget(0,2); self.table.setHorizontalHeaderLabels(['Label', 'Description / scoring level (lowest first)']); self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch); self.table.setMaximumHeight(180); criteria_layout.addWidget(self.table)
-        buttons = QHBoxLayout(); criteria_layout.addLayout(buttons); button('Add option', self.add_option, buttons); button('Remove option', self.remove_option, buttons); buttons.addStretch(); outer.addWidget(self.criteria)
+        self.table = QTableWidget(0,2); self.table.setHorizontalHeaderLabels([self.tr('Label'), self.tr('Description / scoring level (lowest first)')]); self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch); self.table.setMaximumHeight(180); criteria_layout.addWidget(self.table)
+        buttons = QHBoxLayout(); criteria_layout.addLayout(buttons); button(self.tr('Add option'), self.add_option, buttons); button(self.tr('Remove option'), self.remove_option, buttons); buttons.addStretch(); outer.addWidget(self.criteria)
         self.kind.currentIndexChanged.connect(self.type_changed)
         self.name.textChanged.connect(self.changed); self.instructions.textChanged.connect(self.changed); self.table.itemChanged.connect(self.changed)
         if data:
@@ -455,16 +457,16 @@ class SessionTab(QWidget):
         else:
             split = QSplitter(Qt.Orientation.Horizontal); layout.addWidget(split,1)
             form_scroll = QScrollArea(); form_scroll.setWidgetResizable(True); form_widget = QWidget(); form_layout = QVBoxLayout(form_widget); form_scroll.setWidget(form_widget); split.addWidget(form_scroll); split.addWidget(self.scroll); split.setSizes([520,460])
-            form_layout.addWidget(QLabel('<b>State / context</b>'))
-            self.state = Composer(); self.state.setPlaceholderText('Describe the situation, paste JSON, or drop images…'); self.state.setMinimumHeight(100); self.state.setMaximumHeight(200); self.state.setPlainText(session['form'].get('state','')); form_layout.addWidget(self.state)
-            self.json_state = QCheckBox('Interpret state as JSON'); self.json_state.setChecked(session['form'].get('json_state',False)); form_layout.addWidget(self.json_state)
+            form_layout.addWidget(QLabel(self.tr('State / context')))
+            self.state = Composer(); self.state.setPlaceholderText(self.tr('Describe the situation, paste JSON, or drop images…')); self.state.setMinimumHeight(100); self.state.setMaximumHeight(200); self.state.setPlainText(session['form'].get('state','')); form_layout.addWidget(self.state)
+            self.json_state = QCheckBox(self.tr('Interpret state as JSON')); self.json_state.setChecked(session['form'].get('json_state',False)); form_layout.addWidget(self.json_state)
             self.attachments = AttachmentBox(self.store); self.attachments.set_paths(session['form'].get('images',[])); form_layout.addWidget(self.attachments)
             self.state.attach.connect(self.attach_mime)
-            form_layout.addWidget(QLabel('<b>Questions</b> · evaluated against the same state'))
+            form_layout.addWidget(QLabel(self.tr('Questions · evaluated against the same state')))
             self.question_layout = QVBoxLayout(); form_layout.addLayout(self.question_layout)
             for q in session['form'].get('questions',[]): self.add_question(q)
             if not self.questions: self.add_question({'name':'question_1','instructions':'','type':'noul','choices':[]})
-            button('＋ Add question',lambda:self.add_question(),form_layout); form_layout.addStretch()
+            button(self.tr('＋ Add question'),lambda:self.add_question(),form_layout); form_layout.addStretch()
             self.state.textChanged.connect(self.save_draft); self.json_state.toggled.connect(self.save_draft)
         self.attachments.changed.connect(self.save_draft)
         bottom = QHBoxLayout(); layout.addLayout(bottom)

@@ -135,6 +135,35 @@ Safety recommendation: Not checked; no System One request was made.</source>
         </message>
     </context>
     <context>
+        <name>DecisionResult</name>
+        <message>
+            <location filename="../ui.py" line="261" />
+            <source>No</source>
+            <translation>아니요</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="261" />
+            <source>Yes</source>
+            <translation>예</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="268" />
+            <location filename="../ui.py" line="270" />
+            <source>Show pie chart</source>
+            <translation>원형 차트 표시</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="270" />
+            <source>Show probability bars</source>
+            <translation>확률 막대 표시</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="273" />
+            <source>Confidence: {value}</source>
+            <translation>신뢰도: {value}</translation>
+        </message>
+    </context>
+    <context>
         <name>MessageBubble</name>
         <message>
             <location filename="../ui.py" line="135" />
@@ -156,6 +185,59 @@ Safety recommendation: Not checked; no System One request was made.</source>
             <location filename="../ui.py" line="149" />
             <source>Hide thinking</source>
             <translation>사고 과정 숨기기</translation>
+        </message>
+    </context>
+    <context>
+        <name>QuestionEditor</name>
+        <message>
+            <location filename="../ui.py" line="286" />
+            <source>Question name, e.g. urgency</source>
+            <translation>질문 이름 (예: urgency)</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="287" />
+            <source>Yes / No</source>
+            <translation>예 / 아니요</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="287" />
+            <source>Multiple choice</source>
+            <translation>객관식</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="287" />
+            <source>Ordered score</source>
+            <translation>순서형 점수</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="288" />
+            <source>Remove question</source>
+            <translation>질문 제거</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="289" />
+            <source>What should the model decide?</source>
+            <translation>모델이 무엇을 결정해야 하나요?</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="291" />
+            <source>Label</source>
+            <translation>레이블</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="291" />
+            <source>Description / scoring level (lowest first)</source>
+            <translation>설명 / 점수 수준 (낮은 순)</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="292" />
+            <source>Add option</source>
+            <translation>선택지 추가</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="292" />
+            <source>Remove option</source>
+            <translation>선택지 제거</translation>
         </message>
     </context>
     <context>
@@ -245,83 +327,108 @@ Safety recommendation: Not checked; no System One request was made.</source>
     <context>
         <name>SessionTab</name>
         <message>
-            <location filename="../ui.py" line="416" />
+            <location filename="../ui.py" line="418" />
             <source>Refresh models</source>
             <translation>모델 새로고침</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="417" />
+            <location filename="../ui.py" line="419" />
             <source>Reasoning effort</source>
             <translation>추론 수준</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="419" />
+            <location filename="../ui.py" line="421" />
             <source>Stream</source>
             <translation>스트리밍</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="424" />
+            <location filename="../ui.py" line="426" />
             <source>Web access</source>
             <translation>웹 접근</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="426" />
+            <location filename="../ui.py" line="428" />
             <source>Search queries go to Ollama.com; page reads go directly to public websites.</source>
             <translation>검색어는 Ollama.com으로 전송되며 페이지는 공개 웹사이트에서 직접 읽습니다.</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="428" />
+            <location filename="../ui.py" line="430" />
             <source>Research route policy</source>
             <translation>검색 경로 정책</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="429" />
+            <location filename="../ui.py" line="431" />
             <source>Connection default</source>
             <translation>연결 기본값</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="437" />
+            <location filename="../ui.py" line="439" />
             <source>Web settings…</source>
             <translation>웹 설정…</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="448" />
+            <location filename="../ui.py" line="450" />
             <source>Message · Ctrl+Enter to send · paste or drop images</source>
             <translation>메시지 · Ctrl+Enter로 전송 · 이미지를 붙여넣거나 놓으세요</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="471" />
-            <location filename="../ui.py" line="599" />
+            <location filename="../ui.py" line="460" />
+            <source>State / context</source>
+            <translation>상태 / 컨텍스트</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="461" />
+            <source>Describe the situation, paste JSON, or drop images…</source>
+            <translation>상황을 설명하거나 JSON을 붙여넣거나 이미지를 놓으세요…</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="462" />
+            <source>Interpret state as JSON</source>
+            <translation>상태를 JSON으로 해석</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="465" />
+            <source>Questions · evaluated against the same state</source>
+            <translation>질문 · 동일한 상태를 기준으로 평가</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="469" />
+            <source>＋ Add question</source>
+            <translation>＋ 질문 추가</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="473" />
+            <location filename="../ui.py" line="601" />
             <source>☆ Save prompt</source>
             <translation>☆ 프롬프트 저장</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="471" />
+            <location filename="../ui.py" line="473" />
             <source>Save the current prompt to Prompts</source>
             <translation>현재 프롬프트를 프롬프트 목록에 저장</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="472" />
+            <location filename="../ui.py" line="474" />
             <source>Run decision</source>
             <translation>결정 실행</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="472" />
+            <location filename="../ui.py" line="474" />
             <source>Send</source>
             <translation>전송</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="473" />
+            <location filename="../ui.py" line="475" />
             <source>Cancel</source>
             <translation>취소</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="474" />
+            <location filename="../ui.py" line="476" />
             <source>Export session…</source>
             <translation>세션 내보내기…</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="599" />
+            <location filename="../ui.py" line="601" />
             <source>★ Saved prompt</source>
             <translation>★ 저장된 프롬프트</translation>
         </message>
@@ -329,119 +436,119 @@ Safety recommendation: Not checked; no System One request was made.</source>
     <context>
         <name>Window</name>
         <message>
-            <location filename="../ui.py" line="776" />
+            <location filename="../ui.py" line="778" />
             <source>☰ History</source>
             <translation>☰ 기록</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="776" />
+            <location filename="../ui.py" line="778" />
             <source>☆ Prompts</source>
             <translation>☆ 프롬프트</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="776" />
+            <location filename="../ui.py" line="778" />
             <source>＋ Chat</source>
             <translation>＋ 채팅</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="776" />
+            <location filename="../ui.py" line="778" />
             <source>＋ Decision</source>
             <translation>＋ 결정</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="776" />
+            <location filename="../ui.py" line="778" />
             <source>＋ Code</source>
             <translation>＋ 코드</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="776" />
+            <location filename="../ui.py" line="778" />
             <source>Repositories</source>
             <translation>저장소</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="776" />
+            <location filename="../ui.py" line="778" />
             <source>Connections</source>
             <translation>연결</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="778" />
+            <location filename="../ui.py" line="780" />
             <source>Theme: </source>
             <translation>테마: </translation>
         </message>
         <message>
-            <location filename="../ui.py" line="779" />
+            <location filename="../ui.py" line="781" />
             <source>Language: </source>
             <translation>언어: </translation>
         </message>
         <message>
-            <location filename="../ui.py" line="779" />
+            <location filename="../ui.py" line="781" />
             <source>Language changes take effect after restarting Agentnik.</source>
             <translation>언어 변경은 Agentnik을 다시 시작한 후 적용됩니다.</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="780" />
+            <location filename="../ui.py" line="782" />
             <source>System default</source>
             <translation>시스템 기본값</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="788" />
+            <location filename="../ui.py" line="790" />
             <source>History</source>
             <translation>기록</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="789" />
+            <location filename="../ui.py" line="791" />
             <source>Search conversations</source>
             <translation>대화 검색</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="791" />
+            <location filename="../ui.py" line="793" />
             <source>Rename</source>
             <translation>이름 바꾸기</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="791" />
+            <location filename="../ui.py" line="793" />
             <source>Delete</source>
             <translation>삭제</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="791" />
+            <location filename="../ui.py" line="793" />
             <source>Clear all</source>
             <translation>모두 지우기</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="793" />
+            <location filename="../ui.py" line="795" />
             <source>Prompts</source>
             <translation>프롬프트</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="794" />
+            <location filename="../ui.py" line="796" />
             <source>Search prompts</source>
             <translation>프롬프트 검색</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="797" />
+            <location filename="../ui.py" line="799" />
             <source>Copy to tab</source>
             <translation>탭으로 복사</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="797" />
+            <location filename="../ui.py" line="799" />
             <source>Remove</source>
             <translation>제거</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="808" />
+            <location filename="../ui.py" line="810" />
             <source>Open a chat or decision tab to begin.
 Connections are discovered from your environment and local servers.</source>
             <translation>시작하려면 채팅 또는 결정 탭을 여세요.
 환경과 로컬 서버에서 연결을 검색합니다.</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="809" />
+            <location filename="../ui.py" line="811" />
             <source>Welcome</source>
             <translation>시작</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="813" />
+            <location filename="../ui.py" line="815" />
             <source>Language choice saved; restart Agentnik to apply it.</source>
             <translation>언어 설정이 저장되었습니다. 적용하려면 Agentnik을 다시 시작하세요.</translation>
         </message>
