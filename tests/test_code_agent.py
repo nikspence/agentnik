@@ -16,6 +16,20 @@ def call(name,args,ident='call-1'):
     return {'id':ident,'type':'function','function':{'name':name,'arguments':json.dumps(args)}}
 
 class ProjectBoundaries(unittest.TestCase):
+    def test_delete_and_directory_creation_recheck_approved_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);path=root/'file.txt';path.write_text('before\n');files=ProjectFiles(directory)
+            with self.assertRaises(ValueError):files.delete_proposal('file.txt')
+            files.read('file.txt');proposal=files.delete_proposal('file.txt');path.write_text('changed\n')
+            with self.assertRaises(ValueError):files.apply_operation(proposal)
+            self.assertEqual(path.read_text(),'changed\n')
+            files.read('file.txt');files.apply_operation(files.delete_proposal('file.txt'));self.assertFalse(path.exists())
+            proposal=files.directory_proposal('new');(root/'new').mkdir()
+            with self.assertRaises(ValueError):files.apply_operation(proposal)
+            files.apply_operation(files.directory_proposal('other'));self.assertTrue((root/'other').is_dir())
+            for name in ('../outside','.git/new','nested/child'):
+                with self.assertRaises(ValueError):files.directory_proposal(name)
+
     def test_project_search_is_bounded_and_respects_file_boundaries(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);(root/'src').mkdir();(root/'src'/'code.py').write_text('needle here\n',encoding='utf-8')
@@ -75,6 +89,58 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_new_filesystem_operations_require_separate_approvals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'old.txt').write_text('old\n');events=[]
+            replies=[Wire(chat(calls=[call('read_file',{'path':'old.txt'}),call('delete_file',{'path':'old.txt'},'delete'),call('create_directory',{'path':'new'},'mkdir')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Change files')
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':
+                    proposal=event['proposal']
+                    if proposal['operation']=='delete_file':self.assertTrue((root/'old.txt').exists())
+                    else:self.assertFalse((root/'new').exists())
+                    self.assertTrue(run.decide(event['fingerprint'],proposal['operation']=='delete_file'))
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertFalse((root/'old.txt').exists());self.assertFalse((root/'new').exists())
+            self.assertEqual(len([e for e in events if e['kind']=='operation_proposal']),2)
+            self.assertEqual(events[-1]['status'],'completed')
+
+    def test_shell_runs_only_after_approval_and_redacts_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events=[];bodies=[];replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo hello'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            run=CodingRun(dict(C,stream=False,api_key='model-secret'),directory,'Run a command')
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.shell.execute',return_value={'exit_code':0,'output':'model-secret','truncated':False}) as execute:
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':
+                        execute.assert_not_called();self.assertEqual(event['proposal']['command'],'echo hello');run.decide(event['fingerprint'],True)
+                run.run(emit);execute.assert_called_once()
+            self.assertEqual(events[-1]['status'],'completed')
+            self.assertNotIn('model-secret',json.dumps(events)+json.dumps(bodies))
+            self.assertIn('[redacted]',json.dumps(bodies[1]))
+
+    def test_rejected_shell_command_does_not_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events=[];replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo denied'})],finish='tool_calls'),False),Wire(chat('Not run'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Run a command')
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],False)
+            with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute') as execute:
+                run.run(emit);execute.assert_not_called()
+            self.assertEqual(events[-1]['status'],'completed')
+
+    def test_shell_rejects_visual_direction_controls_before_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events=[];reply=Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo \u202eevil'})],finish='tool_calls'),False)
+            with patch.object(core,'open_request',return_value=reply),patch('agentnik.shell.execute') as execute:
+                CodingRun(dict(C,stream=False),directory,'Run a command').run(events.append)
+                execute.assert_not_called()
+            self.assertFalse(any(event['kind']=='operation_proposal' for event in events))
+            self.assertEqual(events[-1]['status'],'failed')
+
     def test_google_block_allows_fetch_without_repeating_search(self):
         from agentnik.tools import ResearchError,Source
         with tempfile.TemporaryDirectory() as directory:

@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock,patch
 from agentnik import core
 from agentnik.storage import Store
 from test_routing import Wire
@@ -13,6 +13,25 @@ from test_compat_tools import chat
 from test_code_agent import call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_shell_and_delete_approval_display_scope_and_diff(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
+                tab=window.tabs.currentWidget();tab.job=MagicMock();tab.run_id='run';window.show();app.processEvents()
+                proposal={'operation':'run_shell','cwd':str(project),'path':'.','command':'echo test','shell':'powershell.exe','environment_keys':['PATH'],'max_seconds':45,'max_output_bytes':32000}
+                tab.receive({'run_id':'run','kind':'operation_proposal','fingerprint':'one','proposal':proposal})
+                self.assertIn('echo test',tab.approval.toPlainText());self.assertIn('network',tab.approval.toPlainText());self.assertIn('not sandboxed',tab.approval.toPlainText());self.assertFalse(tab.diff.isVisible())
+                tab.job.decide.return_value=True;tab.decide(False)
+                tab.receive({'run_id':'run','kind':'operation_proposal','fingerprint':'two','proposal':{'operation':'delete_file','cwd':str(project),'path':'old.txt','diff':'-old text'}})
+                self.assertIn('DELETE FILE',tab.approval.toPlainText());self.assertIn('-old text',tab.diff.toPlainText());self.assertTrue(tab.diff.isVisible())
+                tab.job=None;tab.run_id=None
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_search_settings_and_strict_navigation_policy(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

@@ -350,12 +350,21 @@ class CodeTab(QWidget):
             except (KeyError,TypeError,ValueError):return
         elif kind=='edit_proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
-            proposal=event['proposal'];self.diff.setPlainText(proposal['diff'])
+            proposal=event['proposal'];self.diff.setVisible(True);self.diff.setPlainText(proposal['diff'])
             self.approval.setPlainText(self.tr('FILE EDIT\nProject: {project}\nPath: {path}\nReview the full diff below.\nSafety recommendation: Not checked; no System One request was made.').format(project=proposal['cwd'],path=proposal['path']))
             self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval for file edit: '+proposal['path'])
+        elif kind=='operation_proposal':
+            self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval';proposal=event['proposal'];operation=proposal['operation']
+            self.diff.setPlainText(proposal.get('diff',''));self.diff.setVisible(operation=='delete_file')
+            if operation=='run_shell':
+                text=self.tr('SHELL COMMAND\nWorking directory: {cwd}\nShell: {shell}\nTime limit: up to {seconds} seconds; output limit: {size} bytes.\nThe command runs with your account permissions, including network and access outside the project. It is not sandboxed.\nInherited environment variables: {environment}\nSafety recommendation: Not checked.\n\nCommand:\n{command}').format(cwd=proposal['cwd'],shell=proposal['shell'],seconds=proposal['max_seconds'],size=proposal['max_output_bytes'],environment=', '.join(proposal['environment_keys']),command=proposal['command'])
+            else:
+                label=self.tr('DELETE FILE') if operation=='delete_file' else self.tr('CREATE DIRECTORY')
+                text=self.tr('{operation}\nProject: {project}\nPath: {path}\nSafety recommendation: Not checked.').format(operation=label,project=proposal['cwd'],path=proposal['path'])
+            self.approval.setPlainText(text);self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval: '+operation+' '+proposal.get('path',''))
         elif kind=='proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
-            proposal=event['proposal']
+            proposal=event['proposal'];self.diff.setVisible(True)
             self.approval.setPlainText(self.tr('SIMULATION ONLY\nDirectory: {directory}\nArguments: {arguments}\nRecommendation: {recommendation}').format(directory=proposal['cwd'],arguments=json.dumps(proposal['argv']),recommendation=event['recommendation']))
             self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting explicit approval for simulated step.')
         elif kind=='diff':self.diff.setPlainText(plain(event['text']));self.record(kind,event['text'])

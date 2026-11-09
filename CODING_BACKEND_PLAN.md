@@ -12,7 +12,7 @@ Delegation is visible in activity and shares the run's request/time/context budg
 
 ## First runnable coding slice
 
-The model can list project directories, read bounded UTF-8 files and propose complete file content. Existing files must be read before editing. Each edit displays the full diff and waits for explicit one-shot approval bound to the run, path, original content hash and proposed content. Rejected proposals cannot silently become applied edits. Conflicting user edits cause the write to stop; already approved/applied changes are retained on cancellation or later failure. Optional managed web research is available; reset, clean, commit, push, deletion, directory creation and shell tools are unavailable.
+The model can list project directories, read bounded UTF-8 files and propose complete file content. Existing files must be read before editing. Each edit displays the full diff and waits for explicit one-shot approval bound to the run, path, original content hash and proposed content. Rejected proposals cannot silently become applied edits. Conflicting user edits cause the write to stop; already approved/applied changes are retained on cancellation or later failure. Optional managed web research, approved single-file deletion, directory creation and shell commands are available. Shell commands are not sandboxed and can access the network or run Git with the user's permissions.
 
 Project operations reject traversal, absolute/drive paths, symlinks/junctions, hard-linked files, common credential locations and reserved paths. Reads and writes are limited to 32 KB per file. Changes use temporary files and atomic replacement/new-file publication, preserve existing permission bits, and recheck the original hash before committing. A process-local edit lock serializes Agentnik's own edits. These checks are not an OS sandbox or a guarantee against a hostile external process racing filesystem changes. User approval and a selected working directory do not grant broader execution rights.
 
@@ -24,11 +24,11 @@ The earlier no-execution simulation remains available for trying the UI. Its app
 
 Completed and failed runs report Heavy and Light request counts and provider-reported input/output tokens separately; missing counts are marked unknown or known usage only. Cancelled runs may lack a final summary. Next: validate more tool-capable models through explicitly authorized checks, improve task routing controls, and add tests for longer multi-file work.
 
-## Planned filesystem and shell tools
+## Filesystem and shell tools
 
-Add approved single-file deletion and workspace-contained directory creation, with exact path previews and separate approvals. Recursive deletion, if supported, needs its own conspicuous scope review and must not follow links outside the selected project.
+Single-file deletion requires a prior read, shows a deletion diff, and rechecks the content hash after approval. Directory creation is limited to one directory with an existing parent. Each action uses a separate approval and project path checks; recursive deletion is not provided as a filesystem tool.
 
-Shell tools require a dedicated executor that displays and binds approval to the exact command, arguments, working directory, environment, and network policy. Bound execution time, process trees, output, and concurrency; redact credentials from UI, model context, logs, and stored activity. Test a fake executor before native execution and validate platform-specific process cleanup. Application path checks do not constitute an OS sandbox, so investigate stronger isolation before accepting untrusted projects or arbitrary commands. System One may provide an advisory about the exact command but never supplies authorization. Any scope or command change requires fresh approval. Git commit/push and other remote-changing actions are excluded unless separately planned. MCP and Skills must use the same execution and approval boundaries.
+The shell executor binds approval to the exact command, shell, working directory and inherited environment snapshot. The preview discloses unrestricted user-level filesystem and network access; shell commands can execute Git or other programs. PowerShell on Windows runs in a kill-on-close process job; POSIX uses a process group, which does not contain detached processes. Command time and output are bounded, known keys are redacted, and cancellation retains completed effects. A Windows build-host smoke check covered PowerShell and child-process cancellation; POSIX and live model compatibility remain open. System One is not connected. Stronger OS isolation, interactive command support, and MCP/Skills integration remain future work.
 
 ## Planned web research and adjustable run limits
 

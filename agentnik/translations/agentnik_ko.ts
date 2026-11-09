@@ -355,6 +355,34 @@ Recommendation: {recommendation}</source>
         <message><source>Simulate</source><translation>시뮬레이션</translation></message>
         <message><source>Cancel</source><translation>취소</translation></message>
         <message><source>Search queries go to Google or direct Ollama Cloud; pages are read from public websites.</source><translation>검색어는 Google 또는 직접 연결된 Ollama Cloud로 전송되며, 페이지는 공개 웹사이트에서 직접 읽습니다.</translation></message>
+        <message><source>DELETE FILE</source><translation>파일 삭제</translation></message>
+        <message><source>CREATE DIRECTORY</source><translation>디렉터리 생성</translation></message>
+        <message><source>{operation}
+Project: {project}
+Path: {path}
+Safety recommendation: Not checked.</source><translation>{operation}
+프로젝트: {project}
+경로: {path}
+안전 권장 사항: 확인되지 않음.</translation></message>
+        <message><source>SHELL COMMAND
+Working directory: {cwd}
+Shell: {shell}
+Time limit: up to {seconds} seconds; output limit: {size} bytes.
+The command runs with your account permissions, including network and access outside the project. It is not sandboxed.
+Inherited environment variables: {environment}
+Safety recommendation: Not checked.
+
+Command:
+{command}</source><translation>셸 명령
+작업 디렉터리: {cwd}
+셸: {shell}
+시간 제한: 최대 {seconds}초; 출력 제한: {size}바이트.
+명령은 네트워크와 프로젝트 외부 접근을 포함하여 사용자 계정 권한으로 실행됩니다. 샌드박스에서 실행되지 않습니다.
+상속된 환경 변수: {environment}
+안전 권장 사항: 확인되지 않음.
+
+명령:
+{command}</translation></message>
     </context>
     <context>
         <name>ConnectionDialog</name>
