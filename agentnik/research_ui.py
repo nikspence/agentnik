@@ -1,5 +1,5 @@
 """Research controls and safe source/activity rendering for Qt chat tabs."""
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import QUrl, Qt, QCoreApplication
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QCheckBox,QDialog,QDialogButtonBox,QFormLayout,QLabel,
                                QLineEdit,QPlainTextEdit,QPushButton,QToolButton,QVBoxLayout,QWidget,
@@ -7,6 +7,14 @@ from PySide6.QtWidgets import (QCheckBox,QDialog,QDialogButtonBox,QFormLayout,QL
 from . import research, routing, hosted
 from .tools import Limits
 from .web import public_url
+
+
+def policy_label(policy):
+    labels={'Provider first':QCoreApplication.translate('ResearchPolicy','Provider first'),
+            'Agentnik first':QCoreApplication.translate('ResearchPolicy','Agentnik first'),
+            'Provider only':QCoreApplication.translate('ResearchPolicy','Provider only'),
+            'Agentnik only':QCoreApplication.translate('ResearchPolicy','Agentnik only')}
+    return labels.get(policy,policy)
 
 
 class SearchBackends(QDialog):
@@ -63,23 +71,25 @@ class SearchBackends(QDialog):
 
 class WebSettings(QDialog):
     def __init__(self,parent,c):
-        super().__init__(parent); self.store=parent.store; self.setWindowTitle('Web research'); self.resize(650,600)
+        super().__init__(parent); self.store=parent.store; self.setWindowTitle(self.tr('Web research')); self.resize(650,600)
         layout=QFormLayout(self)
-        notice=QLabel('Hosted search browses inside the model provider using the submitted conversation. Managed search sends generated queries to a separate search service, even with local inference, and reads pages directly. Agentnik cannot enforce service/provider internal navigation. The strict navigation policy disables these external search routes.'); notice.setWordWrap(True); layout.addRow(notice)
+        notice=QLabel(self.tr('Hosted search browses inside the model provider using the submitted conversation. Managed search sends generated queries to a separate search service, even with local inference, and reads pages directly. Agentnik cannot enforce service/provider internal navigation. The strict navigation policy disables these external search routes.')); notice.setWordWrap(True); layout.addRow(notice)
         defaults=routing.connection_defaults(self.store.config,parent.session['connection_name'],c)
-        self.default_policy=QComboBox(); self.default_policy.addItems(routing.POLICIES); self.default_policy.setCurrentText(defaults['policy']); layout.addRow('Default for this connection',self.default_policy)
-        self.access_policy=QComboBox(); self.access_policy.addItem('Public page reads; external search navigation disclosed','public_fetch'); self.access_policy.addItem('Enforce public-only navigation everywhere','strict_public'); self.access_policy.setCurrentIndex(self.access_policy.findData(defaults['access_policy'])); layout.addRow('Navigation policy',self.access_policy)
-        manage=QPushButton('Manage ordered search backends…'); manage.clicked.connect(self.manage_backends); layout.addRow(manage)
-        self.backend_label=QLabel(); layout.addRow('Key for first saved backend',self.backend_label); self.select_backend()
-        self.key=QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password); self.key.setPlaceholderText('Blank keeps saved key / OLLAMA_WEB_API_KEY for default profile')
-        layout.addRow('Separate search API key',self.key)
-        self.remove=QCheckBox('Remove this saved search key'); layout.addRow(self.remove)
-        self.plain=QCheckBox('Store new search key as plaintext (explicit fallback)'); layout.addRow(self.plain)
+        self.default_policy=QComboBox()
+        for policy in routing.POLICIES:self.default_policy.addItem(policy_label(policy),policy)
+        self.default_policy.setCurrentIndex(self.default_policy.findData(defaults['policy'])); layout.addRow(self.tr('Default for this connection'),self.default_policy)
+        self.access_policy=QComboBox(); self.access_policy.addItem(self.tr('Public page reads; external search navigation disclosed'),'public_fetch'); self.access_policy.addItem(self.tr('Enforce public-only navigation everywhere'),'strict_public'); self.access_policy.setCurrentIndex(self.access_policy.findData(defaults['access_policy'])); layout.addRow(self.tr('Navigation policy'),self.access_policy)
+        manage=QPushButton(self.tr('Manage ordered search backends…')); manage.clicked.connect(self.manage_backends); layout.addRow(manage)
+        self.backend_label=QLabel(); layout.addRow(self.tr('Key for first saved backend'),self.backend_label); self.select_backend()
+        self.key=QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password); self.key.setPlaceholderText(self.tr('Blank keeps saved key / OLLAMA_WEB_API_KEY for default profile'))
+        layout.addRow(self.tr('Separate search API key'),self.key)
+        self.remove=QCheckBox(self.tr('Remove this saved search key')); layout.addRow(self.remove)
+        self.plain=QCheckBox(self.tr('Store new search key as plaintext (explicit fallback)')); layout.addRow(self.plain)
         current=research.capability(self.store.config,c)
-        self.allow=QCheckBox('Enable managed tool requests for this endpoint/model')
+        self.allow=QCheckBox(self.tr('Enable managed tool requests for this endpoint/model'))
         self.allow.setEnabled(core_managed(c)); self.allow.setChecked(current.state in ('configured','verified')); layout.addRow(self.allow)
         hosted_cap=research.capability(self.store.config,c,'hosted_search')
-        self.allow_hosted=QCheckBox('Enable OpenAI-hosted web_search for this endpoint/model')
+        self.allow_hosted=QCheckBox(self.tr('Enable OpenAI-hosted web_search for this endpoint/model'))
         self.allow_hosted.setEnabled(hosted.supported_endpoint(c)); self.allow_hosted.setChecked(hosted_cap.state in ('configured','verified')); layout.addRow(self.allow_hosted)
         label=QLabel(f'Model: {c.get("model", "")} · managed: {current.state} · hosted: {hosted_cap.state}\nEnabling is configuration, not verification. Hosted search requires the official OpenAI Responses endpoint and a model that supports web_search. No background inference probes are run.'); label.setTextFormat(Qt.TextFormat.PlainText); label.setWordWrap(True); layout.addRow(label)
         bounds=Limits()
@@ -119,8 +129,8 @@ class ResearchDetails(QWidget):
         signature=(data.get('status'),len(events),len(sources),tuple(data.get('unverified_citations',[])),data.get('unverified_annotations',0))
         if signature==self.signature: return
         self.signature=signature
-        route={'hosted':'Provider hosted','managed':'Agentnik managed'}.get(data.get('route'),'Selecting route')
-        self.toggle.setText(f'Research · {route} · {data.get("status","running")} · {len(sources)} source(s)')
+        route={'hosted':self.tr('Provider hosted'),'managed':self.tr('Agentnik managed')}.get(data.get('route'),self.tr('Selecting route'))
+        self.toggle.setText(self.tr('Research · {route} · {status} · {count} source(s)').format(route=route,status=data.get('status','running'),count=len(sources)))
         self.activity.setPlainText('\n'.join(f'{e.get("kind", "")}: {e.get("detail", "")}' for e in events))
         while self.links_layout.count():
             item=self.links_layout.takeAt(0)
@@ -137,7 +147,7 @@ class ResearchDetails(QWidget):
             else:
                 excerpts.append(f'[{source["id"]}] {url}\nRetrieved: {source["retrieved_at"]} · {source.get("backend","")}\nSaved excerpt'+(' (truncated)' if source.get('truncated') else '')+'; not a fresh or complete page.\n'+source['excerpt'])
         text='\n\n'.join(excerpts)
-        if sources: text+='\n\nSource links identify retrieved evidence; they do not verify that every claim is supported.'
-        if data.get('unverified_annotations'): text+='\nSome provider citation annotations could not be validated.'
-        if data.get('unverified_citations'): text+='\nUnverified citation IDs: '+', '.join(data['unverified_citations'])
+        if sources: text+='\n\n'+self.tr('Source links identify retrieved evidence; they do not verify that every claim is supported.')
+        if data.get('unverified_annotations'): text+='\n'+self.tr('Some provider citation annotations could not be validated.')
+        if data.get('unverified_citations'): text+='\n'+self.tr('Unverified citation IDs: {ids}').format(ids=', '.join(data['unverified_citations']))
         self.excerpts.setPlainText(text); self.excerpts.setVisible(bool(text))

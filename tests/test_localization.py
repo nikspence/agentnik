@@ -109,6 +109,51 @@ class Localization(unittest.TestCase):
                 finally:window.close();self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 
+    def test_korean_connection_editor_preserves_connection_values(self):
+        from agentnik.ui import ConnectionDialog
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            dialog=ConnectionDialog(None,'Example',{'url':'https://example.test/v1','api_key':'test-key','model':'alias','protocol':'messages','context_limit':4096,'stream':False})
+            try:
+                self.assertEqual(dialog.windowTitle(),'연결')
+                self.assertEqual(dialog.layout().labelForField(dialog.fields['url']).text(),'엔드포인트 URL')
+                self.assertIn('일반 텍스트',dialog.plain.text());self.assertFalse(dialog.plain.isChecked())
+                name,value=dialog.value();self.assertEqual(name,'Example')
+                self.assertEqual(value['url'],'https://example.test/v1');self.assertEqual(value['api_key'],'test-key')
+                self.assertEqual(value['model'],'alias');self.assertEqual(value['protocol'],'messages')
+                self.assertEqual(value['context_limit'],4096);self.assertFalse(value['stream'])
+            finally:dialog.close()
+        finally:self.app.removeTranslator(translator)
+
+    def test_korean_web_settings_preserve_navigation_policy_values(self):
+        from agentnik.ui import Window
+        from agentnik.research_ui import WebSettings,ResearchDetails
+        from agentnik import routing
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+                store=Store(tmp);connection={'url':'https://example.test/v1','model':'model','protocol':'chat'}
+                store.config['connections']={'Example':connection};window=Window(store)
+                try:
+                    window.new_session('chat','Example');tab=window.tabs.currentWidget();dialog=WebSettings(tab,connection)
+                    try:
+                        self.assertEqual(dialog.windowTitle(),'웹 조사')
+                        dialog.access_policy.setCurrentIndex(dialog.access_policy.findData('strict_public'))
+                        self.assertIn('공개',dialog.access_policy.currentText());self.assertEqual(dialog.access_policy.currentData(),'strict_public')
+                        self.assertEqual(dialog.default_policy.currentText(),'제공자 우선');self.assertEqual(dialog.default_policy.currentData(),'Provider first')
+                        dialog.default_policy.setCurrentIndex(dialog.default_policy.findData('Agentnik only'))
+                        routing.save_defaults(store.config,'Example',connection,dialog.default_policy.currentData(),dialog.access_policy.currentData())
+                        defaults=routing.connection_defaults(store.config,'Example',connection)
+                        self.assertEqual(defaults['policy'],'Agentnik only');self.assertEqual(defaults['access_policy'],'strict_public')
+                        tab.route_policy.setCurrentIndex(tab.route_policy.findData('Provider only'));tab.save_draft()
+                        self.assertEqual(tab.session['research_options']['policy'],'Provider only')
+                        self.assertFalse(dialog.plain.isChecked());self.assertFalse(dialog.allow.isChecked())
+                        details=ResearchDetails({'route':'managed','status':'completed','sources':[],'events':[],'unverified_annotations':1})
+                        self.assertIn('Agentnik 관리형',details.toggle.text());self.assertIn('확인할 수 없습니다',details.excerpts.toPlainText());details.close()
+                    finally:dialog.close()
+                finally:window.close();self.app.processEvents();store.db.close()
+        finally:self.app.removeTranslator(translator)
+
     def test_language_setting_persists_and_does_not_change_history(self):
         from agentnik.ui import Window
         with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):

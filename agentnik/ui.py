@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 
 from . import core, research, routing
 from .citations import cited_markdown
-from .research_ui import WebSettings, ResearchDetails
+from .research_ui import WebSettings, ResearchDetails, policy_label
 from .storage import Store
 from .repositories import RepositoryRegistry
 from .code_ui import RepositoryPicker, CodeTab
@@ -310,15 +310,15 @@ class QuestionEditor(QFrame):
 
 class ConnectionDialog(QDialog):
     def __init__(self, parent, name='', data=None):
-        super().__init__(parent); self.setWindowTitle('Connection'); self.resize(560,420); c = data or {}; layout = QFormLayout(self)
+        super().__init__(parent); self.setWindowTitle(self.tr('Connection')); self.resize(560,420); c = data or {}; layout = QFormLayout(self)
         self.fields = {}
-        for key, label in [('name','Name'),('url','Endpoint URL'),('api_key','API key'),('model','Default model'),('reasoning','Reasoning effort (optional)')]:
+        for key, label in [('name',self.tr('Name')),('url',self.tr('Endpoint URL')),('api_key',self.tr('API key')),('model',self.tr('Default model')),('reasoning',self.tr('Reasoning effort (optional)'))]:
             edit = QLineEdit(name if key == 'name' else c.get(key, '')); self.fields[key] = edit; layout.addRow(label, edit)
         self.fields['api_key'].setEchoMode(QLineEdit.EchoMode.Password)
-        self.protocol = QComboBox(); self.protocol.addItems(core.PROTOCOLS); self.protocol.setCurrentText(c.get('protocol','responses')); layout.addRow('Chat protocol',self.protocol)
-        self.context = QSpinBox(); self.context.setRange(0,100000000); self.context.setSpecialValueText('Unknown'); self.context.setValue(c.get('context_limit',0)); layout.addRow('Context limit (tokens)',self.context)
-        self.stream = QCheckBox('Stream chat responses'); self.stream.setChecked(c.get('stream',True)); layout.addRow(self.stream)
-        self.plain = QCheckBox('Store API key in plaintext instead of OS credential store'); layout.addRow(self.plain)
+        self.protocol = QComboBox(); self.protocol.addItems(core.PROTOCOLS); self.protocol.setCurrentText(c.get('protocol','responses')); layout.addRow(self.tr('Chat protocol'),self.protocol)
+        self.context = QSpinBox(); self.context.setRange(0,100000000); self.context.setSpecialValueText(self.tr('Unknown')); self.context.setValue(c.get('context_limit',0)); layout.addRow(self.tr('Context limit (tokens)'),self.context)
+        self.stream = QCheckBox(self.tr('Stream chat responses')); self.stream.setChecked(c.get('stream',True)); layout.addRow(self.stream)
+        self.plain = QCheckBox(self.tr('Store API key in plaintext instead of OS credential store')); layout.addRow(self.plain)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel); buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addRow(buttons)
     def value(self):
         c = {k:e.text().strip() for k,e in self.fields.items()}; name = c.pop('name')
@@ -330,22 +330,22 @@ class ConnectionDialog(QDialog):
 class Connections(QDialog):
     changed = Signal()
     def __init__(self, window):
-        super().__init__(window); self.window = window; self.setWindowTitle('Connections'); self.resize(800,520)
-        layout = QVBoxLayout(self); layout.addWidget(QLabel('Saved, environment, and local connections · select an entry to edit or save a copy'))
+        super().__init__(window); self.window = window; self.setWindowTitle(self.tr('Connections')); self.resize(800,520)
+        layout = QVBoxLayout(self); layout.addWidget(QLabel(self.tr('Saved, environment, and local connections · select an entry to edit or save a copy')))
         self.list = QListWidget(); self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); layout.addWidget(self.list)
         row = QHBoxLayout(); layout.addLayout(row)
-        button('Add…', lambda:self.edit(False),row); button('Edit / Save copy…',lambda:self.edit(True),row); button('Delete saved',self.delete,row)
-        self.refresh_button = button('Refresh discovery',self.scan,row); button('Import…',self.import_file,row); button('Export…',self.export_file,row)
-        self.status = QLabel(''); layout.addWidget(self.status); button('Close',self.accept,layout)
+        button(self.tr('Add…'), lambda:self.edit(False),row); button(self.tr('Edit / Save copy…'),lambda:self.edit(True),row); button(self.tr('Delete saved'),self.delete,row)
+        self.refresh_button = button(self.tr('Refresh discovery'),self.scan,row); button(self.tr('Import…'),self.import_file,row); button(self.tr('Export…'),self.export_file,row)
+        self.status = QLabel(''); layout.addWidget(self.status); button(self.tr('Close'),self.accept,layout)
         self.populate()
     def populate(self):
         selected = {x.data(Qt.ItemDataRole.UserRole) for x in self.list.selectedItems()}; self.list.clear()
         for name,c in self.window.connections.items():
-            item = QListWidgetItem(f'{name}\n{c.get("url", "")}  ·  {c.get("model") or "choose a model"}'); item.setData(Qt.ItemDataRole.UserRole,name); item.setToolTip(c.get("discovery_status","")); self.list.addItem(item); item.setSelected(name in selected)
+            item = QListWidgetItem(f'{name}\n{c.get("url", "")}  ·  {c.get("model") or self.tr("choose a model")}'); item.setData(Qt.ItemDataRole.UserRole,name); item.setToolTip(c.get("discovery_status","")); self.list.addItem(item); item.setSelected(name in selected)
     def scan(self):
-        self.refresh_button.setEnabled(False); self.status.setText('Checking loopback endpoints…')
+        self.refresh_button.setEnabled(False); self.status.setText(self.tr('Checking loopback endpoints…'))
         def done(found):
-            self.window.local = found; self.window.reload_connections(); self.populate(); self.refresh_button.setEnabled(True); self.status.setText(f'{len(found)} local endpoint(s) found.')
+            self.window.local = found; self.window.reload_connections(); self.populate(); self.refresh_button.setEnabled(True); self.status.setText(self.tr('{count} local endpoint(s) found.').format(count=len(found)))
         self.job = Job(lambda *_:core.discover(),done,lambda e:(self.refresh_button.setEnabled(True),self.status.setText(e)))
     def edit(self, selected):
         item = self.list.currentItem(); name = item.data(Qt.ItemDataRole.UserRole) if selected and item else ''
@@ -429,7 +429,7 @@ class SessionTab(QWidget):
             web_row.addWidget(self.web_access)
             self.route_policy=QComboBox(); self.route_policy.setAccessibleName(self.tr('Research route policy'))
             self.route_policy.addItem(self.tr('Connection default'),None)
-            for policy in routing.POLICIES: self.route_policy.addItem(policy,policy)
+            for policy in routing.POLICIES: self.route_policy.addItem(policy_label(policy),policy)
             options=session.get('research_options',{})
             override=options.get('policy','Agentnik only' if options.get('route')=='managed' else None)
             self.route_policy.setCurrentIndex(max(0,self.route_policy.findData(override)))
@@ -489,7 +489,7 @@ class SessionTab(QWidget):
                     previous=research.capability(self.store.config,c,field)
                     state=previous.state if checkbox.isChecked() and previous.state=='verified' else 'configured' if checkbox.isChecked() and checkbox.isEnabled() else 'unknown'
                     research.set_capability(self.store.config,c,state,'Enabled by user; no live verification' if state=='configured' else previous.evidence if state=='verified' else '',field)
-                routing.save_defaults(self.store.config,self.session['connection_name'],c,dlg.default_policy.currentText(),dlg.access_policy.currentData())
+                routing.save_defaults(self.store.config,self.session['connection_name'],c,dlg.default_policy.currentData(),dlg.access_policy.currentData())
                 self.store.flush(); self.info.setText('Research defaults and scoped capabilities saved.'); return
             except Exception as exc: error(self,exc)
 

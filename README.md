@@ -61,7 +61,7 @@ Agentnik now owns its coding loop using your existing connections and models, wi
 
 The separate **Try simulated workflow (no execution)** option remains available. The coding backend has offline protocol/Qt/file-operation coverage; live coding model compatibility is not yet established. These changes are newer than the v0.2.0 archive. Follow the [coding guide](CODING_GUIDE.md) to set up a project, select models and review edits; see [the coding backend plan](CODING_BACKEND_PLAN.md) for implementation boundaries and remaining execution gates.
 
-Localization is in preparation. Select **한국어 (미리보기)** in the language selector and restart to try the Korean preview; a Korean system locale also selects it. The main window, repository picker, common chat and attachment controls, coding controls and file approval view, and core decision form and result controls have an initial translation. Much of chat and coding activity, settings, and error text remains English. See [the localization milestone](AGENTNIK_PLAN.md#8-l--interface-localization).
+Localization is in preparation. Select **한국어 (미리보기)** in the language selector and restart to try the Korean preview; a Korean system locale also selects it. The main window, repository picker, common chat and attachment controls, coding controls and file approval view, core decision form and result controls, connection controls, and parts of web research settings and routing have an initial translation. Much of chat and coding activity, settings, confirmation dialogs, and error text remains English. See [the localization milestone](AGENTNIK_PLAN.md#8-l--interface-localization).
 
 ## Conversations
 

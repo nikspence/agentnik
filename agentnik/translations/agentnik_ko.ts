@@ -135,6 +135,122 @@ Safety recommendation: Not checked; no System One request was made.</source>
         </message>
     </context>
     <context>
+        <name>ConnectionDialog</name>
+        <message>
+            <location filename="../ui.py" line="313" />
+            <source>Connection</source>
+            <translation>연결</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="315" />
+            <source>Name</source>
+            <translation>이름</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="315" />
+            <source>Endpoint URL</source>
+            <translation>엔드포인트 URL</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="315" />
+            <source>API key</source>
+            <translation>API 키</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="315" />
+            <source>Default model</source>
+            <translation>기본 모델</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="315" />
+            <source>Reasoning effort (optional)</source>
+            <translation>추론 수준 (선택 사항)</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="318" />
+            <source>Chat protocol</source>
+            <translation>채팅 프로토콜</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="319" />
+            <source>Unknown</source>
+            <translation>알 수 없음</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="319" />
+            <source>Context limit (tokens)</source>
+            <translation>컨텍스트 제한 (토큰)</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="320" />
+            <source>Stream chat responses</source>
+            <translation>채팅 응답 스트리밍</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="321" />
+            <source>Store API key in plaintext instead of OS credential store</source>
+            <translation>OS 자격 증명 저장소 대신 API 키를 일반 텍스트로 저장</translation>
+        </message>
+    </context>
+    <context>
+        <name>Connections</name>
+        <message>
+            <location filename="../ui.py" line="333" />
+            <source>Connections</source>
+            <translation>연결</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="334" />
+            <source>Saved, environment, and local connections · select an entry to edit or save a copy</source>
+            <translation>저장된 연결, 환경 연결 및 로컬 연결 · 항목을 선택하여 편집하거나 사본 저장</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="337" />
+            <source>Add…</source>
+            <translation>추가…</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="337" />
+            <source>Edit / Save copy…</source>
+            <translation>편집 / 사본 저장…</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="337" />
+            <source>Delete saved</source>
+            <translation>저장된 연결 삭제</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="338" />
+            <source>Refresh discovery</source>
+            <translation>검색 새로고침</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="338" />
+            <source>Import…</source>
+            <translation>가져오기…</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="338" />
+            <source>Export…</source>
+            <translation>내보내기…</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="339" />
+            <source>Close</source>
+            <translation>닫기</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="346" />
+            <source>Checking loopback endpoints…</source>
+            <translation>루프백 엔드포인트 확인 중…</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="348" />
+            <source>{count} local endpoint(s) found.</source>
+            <translation>로컬 엔드포인트 {count}개를 찾았습니다.</translation>
+        </message>
+    </context>
+    <context>
         <name>DecisionResult</name>
         <message>
             <location filename="../ui.py" line="261" />
@@ -325,6 +441,67 @@ Safety recommendation: Not checked; no System One request was made.</source>
         </message>
     </context>
     <context>
+        <name>ResearchDetails</name>
+        <message>
+            <location filename="../research_ui.py" line="132" />
+            <source>Provider hosted</source>
+            <translation>제공자 호스팅</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="132" />
+            <source>Agentnik managed</source>
+            <translation>Agentnik 관리형</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="132" />
+            <source>Selecting route</source>
+            <translation>경로 선택 중</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="133" />
+            <source>Research · {route} · {status} · {count} source(s)</source>
+            <translation>조사 · {route} · {status} · 출처 {count}개</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="150" />
+            <source>Source links identify retrieved evidence; they do not verify that every claim is supported.</source>
+            <translation>출처 링크는 검색된 근거를 나타내며 모든 주장이 뒷받침되는지 확인하지는 않습니다.</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="151" />
+            <source>Some provider citation annotations could not be validated.</source>
+            <translation>일부 제공자 인용 주석을 확인할 수 없습니다.</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="152" />
+            <source>Unverified citation IDs: {ids}</source>
+            <translation>확인되지 않은 인용 ID: {ids}</translation>
+        </message>
+    </context>
+    <context>
+        <name>ResearchPolicy</name>
+        <message>
+            <location filename="../research_ui.py" line="13" />
+            <source>Provider first</source>
+            <translation>제공자 우선</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="14" />
+            <source>Agentnik first</source>
+            <translation>Agentnik 우선</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="15" />
+            <source>Provider only</source>
+            <translation>제공자만</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="16" />
+            <source>Agentnik only</source>
+            <translation>Agentnik만</translation>
+        </message>
+    </context>
+    <context>
         <name>SessionTab</name>
         <message>
             <location filename="../ui.py" line="418" />
@@ -431,6 +608,79 @@ Safety recommendation: Not checked; no System One request was made.</source>
             <location filename="../ui.py" line="601" />
             <source>★ Saved prompt</source>
             <translation>★ 저장된 프롬프트</translation>
+        </message>
+    </context>
+    <context>
+        <name>WebSettings</name>
+        <message>
+            <location filename="../research_ui.py" line="74" />
+            <source>Web research</source>
+            <translation>웹 조사</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="76" />
+            <source>Hosted search browses inside the model provider using the submitted conversation. Managed search sends generated queries to a separate search service, even with local inference, and reads pages directly. Agentnik cannot enforce service/provider internal navigation. The strict navigation policy disables these external search routes.</source>
+            <translation>호스팅 검색은 제출된 대화를 사용하여 모델 제공자 내부에서 탐색합니다. 관리형 검색은 로컬 추론을 사용하는 경우에도 생성된 검색어를 별도의 검색 서비스로 보내고 페이지를 직접 읽습니다. Agentnik은 서비스나 제공자 내부의 탐색을 제한할 수 없습니다. 엄격한 탐색 정책은 이러한 외부 검색 경로를 비활성화합니다.</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="80" />
+            <source>Default for this connection</source>
+            <translation>이 연결의 기본값</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="81" />
+            <source>Public page reads; external search navigation disclosed</source>
+            <translation>공개 페이지 읽기; 외부 검색 탐색 고지</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="81" />
+            <source>Enforce public-only navigation everywhere</source>
+            <translation>모든 곳에서 공개 대상만 탐색하도록 제한</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="81" />
+            <source>Navigation policy</source>
+            <translation>탐색 정책</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="82" />
+            <source>Manage ordered search backends…</source>
+            <translation>검색 백엔드 순서 관리…</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="83" />
+            <source>Key for first saved backend</source>
+            <translation>첫 번째 저장된 백엔드의 키</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="84" />
+            <source>Blank keeps saved key / OLLAMA_WEB_API_KEY for default profile</source>
+            <translation>비워 두면 저장된 키 또는 기본 프로필의 OLLAMA_WEB_API_KEY 사용</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="85" />
+            <source>Separate search API key</source>
+            <translation>별도의 검색 API 키</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="86" />
+            <source>Remove this saved search key</source>
+            <translation>이 저장된 검색 키 제거</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="87" />
+            <source>Store new search key as plaintext (explicit fallback)</source>
+            <translation>새 검색 키를 일반 텍스트로 저장 (명시적 대체 방법)</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="89" />
+            <source>Enable managed tool requests for this endpoint/model</source>
+            <translation>이 엔드포인트/모델의 관리형 도구 요청 활성화</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="92" />
+            <source>Enable OpenAI-hosted web_search for this endpoint/model</source>
+            <translation>이 엔드포인트/모델의 OpenAI 호스팅 web_search 활성화</translation>
         </message>
     </context>
     <context>
