@@ -79,21 +79,59 @@ class ModelCoding(unittest.TestCase):
         from agentnik.tools import Source
         with tempfile.TemporaryDirectory() as directory:
             bodies=[];events=[]
-            replies=[Wire(chat(calls=[call('web_search',{'query':'library API'})],finish='tool_calls'),False),Wire(chat('Found documentation'),False)]
+            replies=[Wire(chat(calls=[call('web_search',{'query':'library API'})],finish='tool_calls'),False),Wire(chat(calls=[call('web_fetch',{'url':'https://example.com/docs'},'call-2')],finish='tool_calls'),False),Wire(chat('Found documentation [S2]'),False)]
             def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
-            source=Source('','API reference','https://example.com/docs','untrusted page text','now')
+            source=Source('','API reference','https://example.com/docs','untrusted page text search-secret','now')
             with patch('agentnik.code_agent.OrderedSearch') as backend,patch.object(core,'open_request',side_effect=send):
-                backend.return_value.search.return_value=[source]
+                backend.return_value.search.return_value=[source];backend.return_value.fetch.return_value=[source]
                 run=CodingRun(dict(C,stream=False),directory,'Research',web_backends=[{'id':'search','kind':'ollama','key':'search-secret'}]);run.run(events.append)
             self.assertEqual(events[-1]['status'],'completed')
             self.assertIn('web_search',json.dumps(bodies[0]['tools']))
             self.assertIn('untrusted evidence',json.dumps(bodies[1]))
+            self.assertEqual(json.loads(bodies[1]['messages'][-1]['content'])['sources'][0]['id'],'S1')
+            self.assertEqual(json.loads(bodies[2]['messages'][-1]['content'])['sources'][0]['id'],'S2')
+            self.assertTrue(any('Source S1:' in event.get('text','') for event in events))
+            self.assertTrue(any('Source S2:' in event.get('text','') for event in events))
             self.assertIn('https://example.com/docs',json.dumps(events))
             self.assertNotIn('search-secret',json.dumps(bodies)+json.dumps(events))
             bodies.clear();events.clear()
             with patch.object(core,'open_request',side_effect=lambda c,url,body,timeout:(bodies.append(body) or Wire(chat('Done'),False))):
                 CodingRun(dict(C,stream=False),directory,'No research').run(events.append)
             self.assertNotIn('web_search',json.dumps(bodies[0]['tools']))
+
+    def test_cancel_during_web_search_discards_late_results(self):
+        from agentnik.tools import Source
+        with tempfile.TemporaryDirectory() as directory:
+            started=threading.Event();release=threading.Event();events=[];requests=[]
+            def send(c,url,body,timeout):
+                requests.append(body);return Wire(chat(calls=[call('web_search',{'query':'API'})],finish='tool_calls'),False)
+            def search(*args,**kwargs):
+                started.set();release.wait(3)
+                return [Source('','Late source','https://example.com/late','text','now')]
+            with patch('agentnik.code_agent.OrderedSearch') as backend,patch.object(core,'open_request',side_effect=send):
+                backend.return_value.search.side_effect=search
+                run=CodingRun(dict(C,stream=False),directory,'Research',web_backends=[{'id':'search','kind':'ollama','key':'secret'}])
+                thread=threading.Thread(target=run.run,args=(events.append,));thread.start()
+                try:
+                    self.assertTrue(started.wait(2));run.stop();thread.join(2)
+                    self.assertFalse(thread.is_alive())
+                finally:
+                    release.set();thread.join(3)
+            self.assertEqual(len(requests),1)
+            self.assertFalse(any('Late source' in event.get('text','') for event in events))
+
+    def test_web_failure_stops_without_exposing_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events=[];requests=[]
+            def send(c,url,body,timeout):
+                requests.append(body);return Wire(chat(calls=[call('web_search',{'query':'API'})],finish='tool_calls'),False)
+            with patch('agentnik.code_agent.OrderedSearch') as backend,patch.object(core,'open_request',side_effect=send):
+                backend.return_value.search.side_effect=ValueError('search-secret')
+                CodingRun(dict(C,stream=False),directory,'Research',web_backends=[{'id':'search','kind':'ollama','key':'search-secret'}]).run(events.append)
+            self.assertEqual(len(requests),1)
+            self.assertEqual(events[-1]['status'],'failed')
+            self.assertIn('Web research stopped',events[-1]['text'])
+            self.assertNotIn('search-secret',json.dumps(events))
 
     def test_explicit_previous_context_is_plain_messages(self):
         with tempfile.TemporaryDirectory() as directory:
