@@ -44,6 +44,10 @@ def package_bundle(bundle, archive, metadata):
     assets=bundle/'_internal'/'agentnik'/'assets'
     for asset in (ROOT/'agentnik'/'assets').iterdir():
         if asset.suffix in ('.svg','.png','.ico') and not (assets/asset.name).is_file(): raise ValueError('Missing packaged branding asset')
+    catalogs=bundle/'_internal'/'agentnik'/'translations'
+    for catalog in (ROOT/'agentnik'/'translations').glob('*.qm'):
+        packaged=catalogs/catalog.name
+        if not packaged.is_file() or packaged.read_bytes()!=catalog.read_bytes(): raise ValueError('Missing or mismatched packaged translation catalog: '+catalog.name)
     if not (bundle/'_internal'/'PySide6'/'plugins'/'platforms'/'qwindows.dll').is_file(): raise ValueError('Missing Qt Windows platform plugin')
     files=list(bundle.rglob('*'))
     if any(path.is_symlink() for path in files): raise ValueError('Symlink in release bundle')

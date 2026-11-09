@@ -1,4 +1,14 @@
-# Agentnik v0.3.0
+# Agentnik v0.3.1
+
+Windows x64 onedir release. Extract the whole ZIP and launch `Agentnik/Agentnik.exe`, keeping `_internal` alongside it. Verify the SHA-256 sidecar. This build is unsigned.
+
+## Changes since v0.3.0
+
+- Release packaging now checks that every compiled translation catalog is present in the frozen application with identical contents. This prevents a build from silently omitting or altering the Korean catalog.
+
+The catalog packaging check does not establish Korean rendering inside the frozen application. See VALIDATION.md and BUILD-MANIFEST.json for build evidence and remaining validation limits.
+
+## Earlier release: v0.3.0
 
 Windows x64 onedir release. Extract the whole ZIP and launch `Agentnik/Agentnik.exe`, keeping `_internal` alongside it. Verify the SHA-256 sidecar. This build is unsigned.
 

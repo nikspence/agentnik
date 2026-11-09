@@ -31,6 +31,8 @@ The build refuses system-site-package environments and mismatched top-level buil
 
 Assembly copies README, VALIDATION and the MIT LICENSE alongside the executable, collects available installed distribution notices and Python's license, and records Python/OS/architecture, package versions, source revision and optional smoke result in `BUILD-MANIFEST.json`. Packaging checks the executable, documentation, all branding assets and Qt Windows plugin; checks ZIP integrity/contents; and writes a SHA-256 sidecar. The whole Agentnik directory must be distributed. The build environment has no user configuration or key files copied into it.
 
+Packaging also checks that each compiled `.qm` translation catalog in the source tree is present in the frozen bundle with identical bytes before creating the archive. Missing or altered catalogs fail the build. This checks inclusion and identity; language rendering still requires a separate UI check.
+
 `--smoke` uses `tools/frozen_smoke.py` (Windows API calls through Python, without changing PowerShell execution policy) to wait for the real process-owned Qt window and temporary SQLite database, request a graceful close and require exit code 0. This is a startup smoke check on the build host, not clean-machine, full native workflow, credential-store, TLS/provider, or macOS/Linux validation. It does not issue inference; normal startup may perform read-only local endpoint discovery.
 
 Top-level build versions are pinned to the tested Windows environment. Transitive versions are recorded in each manifest rather than fully locked. Collected notices are not a completed license audit of every bundled library; that audit and per-platform signing/distribution requirements remain release gates.

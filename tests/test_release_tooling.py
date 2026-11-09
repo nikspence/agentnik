@@ -37,6 +37,8 @@ class ReleaseTooling(unittest.TestCase):
         assets=bundle/'_internal'/'agentnik'/'assets';assets.mkdir(parents=True)
         for item in (build_release.ROOT/'agentnik'/'assets').iterdir():
             if item.suffix in ('.svg','.png','.ico'): (assets/item.name).write_bytes(b'fixture')
+        catalogs=bundle/'_internal'/'agentnik'/'translations';catalogs.mkdir(parents=True)
+        for item in (build_release.ROOT/'agentnik'/'translations').glob('*.qm'): (catalogs/item.name).write_bytes(item.read_bytes())
         qt=bundle/'_internal'/'PySide6'/'plugins'/'platforms';qt.mkdir(parents=True);(qt/'qwindows.dll').write_bytes(b'fixture')
         return bundle
 
@@ -48,6 +50,7 @@ class ReleaseTooling(unittest.TestCase):
             self.assertIn(digest,archive.with_suffix('.zip.sha256').read_text())
             with zipfile.ZipFile(archive) as z:
                 self.assertIsNone(z.testzip());self.assertIn('Agentnik/LICENSE',z.namelist())
+                self.assertEqual(z.read('Agentnik/_internal/agentnik/translations/agentnik_ko.qm'),(build_release.ROOT/'agentnik'/'translations'/'agentnik_ko.qm').read_bytes())
             original=archive.read_bytes()
             with self.assertRaises(ValueError):build_release.package_bundle(bundle,archive,{})
             self.assertEqual(archive.read_bytes(),original)
@@ -59,6 +62,7 @@ class ReleaseTooling(unittest.TestCase):
                 (repo/name).write_text('fixture')
             for assets in (repo/'assets',repo/'agentnik'/'assets'):
                 assets.mkdir(parents=True);(assets/'fixture.png').write_bytes(b'fixture')
+            (repo/'agentnik'/'translations').mkdir();(repo/'agentnik'/'translations'/'agentnik_ko.qm').write_bytes(b'catalog')
             revision={'commit':'release-source','dirty':False}
             def build(*args,**kwargs):
                 destination=repo/'dist'/'build-v0.2.0'/'dist';destination.mkdir(parents=True)
@@ -78,6 +82,15 @@ class ReleaseTooling(unittest.TestCase):
             self.assertFalse(archive.exists());plugin.write_bytes(b'fixture')
             (bundle/'history.sqlite3').write_bytes(b'private')
             with self.assertRaisesRegex(ValueError,'local data'):build_release.package_bundle(bundle,archive,{})
+            self.assertFalse(archive.exists())
+
+    def test_missing_or_mismatched_catalog_fails_before_archiving(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle=self.bundle(directory);archive=Path(directory)/'fixture.zip'
+            catalog=bundle/'_internal'/'agentnik'/'translations'/'agentnik_ko.qm';catalog.unlink()
+            with self.assertRaisesRegex(ValueError,'translation catalog'):build_release.package_bundle(bundle,archive,{})
+            self.assertFalse(archive.exists());catalog.write_bytes(b'wrong')
+            with self.assertRaisesRegex(ValueError,'translation catalog'):build_release.package_bundle(bundle,archive,{})
             self.assertFalse(archive.exists())
 
 
