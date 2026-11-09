@@ -3,13 +3,15 @@ from pathlib import Path
 import json
 import re
 import threading
-from PySide6.QtCore import Qt,Signal,QObject
-from PySide6.QtWidgets import QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox
+from PySide6.QtCore import Qt,Signal,QObject,QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox
 from .repositories import RepositoryRegistry
 from .coding import SimulationRun,plain
 from .code_agent import CodingRun
 from .research import scrub
 from .code_limits import FIELDS,coding_limits
+from .web import public_url
 from . import core
 
 
@@ -94,6 +96,36 @@ class CodingLimitsDialog(QDialog):
     def values(self):return coding_limits({key:box.value() for key,box in self.fields.items()})
 
 
+class CodingSourcesDialog(QDialog):
+    def __init__(self,parent,sources):
+        super().__init__(parent);self.setWindowTitle(self.tr('Research sources'));self.resize(680,380)
+        layout=QVBoxLayout(self);hint=QLabel(self.tr('Sources from the most recent coding run. Review each source before relying on it.'));hint.setWordWrap(True);layout.addWidget(hint)
+        self.items=QListWidget();layout.addWidget(self.items)
+        for source in sources:
+            try:url=public_url(source['url'])
+            except (KeyError,ValueError):continue
+            item=QListWidgetItem(source['id']+' · '+source['title']+'\n'+url);item.setData(Qt.ItemDataRole.UserRole,url);item.setToolTip(url);self.items.addItem(item)
+        row=QHBoxLayout();layout.addLayout(row)
+        open_button=QPushButton(self.tr('Open in browser'));open_button.clicked.connect(self.open_source);row.addWidget(open_button)
+        copy_button=QPushButton(self.tr('Copy link'));copy_button.clicked.connect(self.copy_source);row.addWidget(copy_button)
+        close_button=QPushButton(self.tr('Close'));close_button.clicked.connect(self.accept);row.addWidget(close_button)
+        if self.items.count():self.items.setCurrentRow(0)
+
+    def selected_url(self):
+        item=self.items.currentItem()
+        if not item:return None
+        try:return public_url(item.data(Qt.ItemDataRole.UserRole))
+        except ValueError:return None
+
+    def open_source(self):
+        url=self.selected_url()
+        if url:QDesktopServices.openUrl(QUrl(url))
+
+    def copy_source(self):
+        url=self.selected_url()
+        if url:QApplication.clipboard().setText(url)
+
+
 class CodeTab(QWidget):
     updated=Signal()
     def __init__(self,window,session):
@@ -145,11 +177,13 @@ class CodeTab(QWidget):
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));options.addWidget(self.web_enabled)
         self.web_enabled.toggled.connect(self.save_web_enabled)
         self.limits_button=QPushButton(self.tr('Limits…'));self.limits_button.clicked.connect(self.configure_limits);options.addWidget(self.limits_button)
+        self.sources_button=QPushButton();self.sources_button.clicked.connect(self.show_sources)
         run_row=QHBoxLayout();layout.addLayout(run_row)
         self.send=QPushButton(self.tr('Run'));self.send.clicked.connect(self.start_coding);run_row.addWidget(self.send)
         self.simulate=QPushButton(self.tr('Simulate'));self.simulate.clicked.connect(self.start_simulation);run_row.addWidget(self.simulate)
         self.cancel_button=QPushButton(self.tr('Cancel'));self.cancel_button.setEnabled(False);self.cancel_button.clicked.connect(self.cancel);run_row.addWidget(self.cancel_button)
         run_row.addWidget(self.model_toggle)
+        run_row.addWidget(self.sources_button);self.update_sources_button()
         self.approval_panel=QWidget();review=QVBoxLayout(self.approval_panel);layout.addWidget(self.approval_panel);self.approval_panel.hide()
         self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText(self.tr('Command approval preview'));review.addWidget(self.approval)
         actions=QHBoxLayout();review.addLayout(actions)
@@ -202,6 +236,12 @@ class CodeTab(QWidget):
         if dialog.exec()==QDialog.DialogCode.Accepted:
             self.session['coding_limits']=dialog.values();self.store.save(self.session)
 
+    def update_sources_button(self):
+        count=len(self.session.get('coding_sources',[]));self.sources_button.setText(self.tr('Sources ({count})').format(count=count));self.sources_button.setVisible(count>0)
+
+    def show_sources(self):
+        CodingSourcesDialog(self,self.session.get('coding_sources',[])).exec()
+
     def role_connection(self,role):
         name=self.roles[role][0].currentData()
         if not name:return None
@@ -223,6 +263,7 @@ class CodeTab(QWidget):
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
 
     def launch(self,run,notice):
+        if isinstance(run,CodingRun):self.session['coding_sources']=[];self.update_sources_button()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
         self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False)
@@ -284,7 +325,16 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
-        if kind=='edit_proposal':
+        if kind=='source':
+            source=event.get('source',{})
+            try:
+                ident=source['id'];title=source['title'];url=public_url(source['url'])
+                if not isinstance(ident,str) or not re.fullmatch(r'S[1-9][0-9]{0,14}',ident) or not isinstance(title,str):return
+                sources=self.session.setdefault('coding_sources',[])
+                if len(sources)>=32:return
+                sources.append({'id':ident,'title':plain(title)[:200],'url':url});self.store.save(self.session);self.update_sources_button()
+            except (KeyError,TypeError,ValueError):return
+        elif kind=='edit_proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
             proposal=event['proposal'];self.diff.setPlainText(proposal['diff'])
             self.approval.setPlainText(self.tr('FILE EDIT\nProject: {project}\nPath: {path}\nReview the full diff below.\nSafety recommendation: Not checked; no System One request was made.').format(project=proposal['cwd'],path=proposal['path']))

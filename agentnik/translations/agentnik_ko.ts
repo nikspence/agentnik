@@ -343,6 +343,10 @@ Recommendation: {recommendation}</source>
 인수: {arguments}
 권고: {recommendation}</translation>
         </message>
+        <message>
+            <source>Sources ({count})</source>
+            <translation>출처 ({count})</translation>
+        </message>
     </context>
     <context>
         <name>ConnectionDialog</name>
@@ -1629,5 +1633,13 @@ Connections are discovered from your environment and local servers.</source>
             <source>Requests are running. Close Agentnik and stop receiving responses?</source>
             <translation>요청이 실행 중입니다. Agentnik을 닫고 응답 수신을 중지하시겠습니까?</translation>
         </message>
+    </context>
+    <context>
+        <name>CodingSourcesDialog</name>
+        <message><source>Research sources</source><translation>조사 출처</translation></message>
+        <message><source>Sources from the most recent coding run. Review each source before relying on it.</source><translation>최근 코딩 실행의 출처입니다. 사용하기 전에 각 출처를 확인하세요.</translation></message>
+        <message><source>Open in browser</source><translation>브라우저에서 열기</translation></message>
+        <message><source>Copy link</source><translation>링크 복사</translation></message>
+        <message><source>Close</source><translation>닫기</translation></message>
     </context>
 </TS>

@@ -13,6 +13,32 @@ from test_compat_tools import chat
 from test_code_agent import call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_research_sources_are_saved_and_opened_only_on_request(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.code_ui import CodingSourcesDialog
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
+                tab=window.tabs.currentWidget();tab.job=object();tab.run_id='run'
+                tab.receive({'run_id':'run','kind':'source','source':{'id':'S1','title':'API docs','url':'https://example.com/docs'}})
+                tab.receive({'run_id':'run','kind':'source','source':{'id':'S2','title':'Private','url':'http://127.0.0.1/'}})
+                tab.receive({'run_id':'old','kind':'source','source':{'id':'S3','title':'Late','url':'https://example.com/late'}})
+                tab.job=None;tab.run_id=None
+                saved=store.list_sessions()[0];self.assertEqual(len(saved['coding_sources']),1)
+                self.assertEqual(saved['coding_sources'][0]['id'],'S1')
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
+                self.assertEqual(tab.sources_button.text(),'Sources (1)')
+                dialog=CodingSourcesDialog(tab,tab.session['coding_sources'])
+                with patch('agentnik.code_ui.QDesktopServices.openUrl') as open_url:
+                    open_url.assert_not_called();dialog.open_source();open_url.assert_called_once()
+                    self.assertEqual(open_url.call_args.args[0].toString(),'https://example.com/docs')
+                dialog.copy_source();self.assertEqual(app.clipboard().text(),'https://example.com/docs');dialog.close()
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_limits_dialog_persists_per_session_and_can_reset(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication,QDialog

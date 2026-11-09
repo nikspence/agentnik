@@ -304,6 +304,7 @@ class CodingRun:
                             for source in sources[:runtime.limits.results]:
                                 source=replace(source,id=f'S{next_source}');next_source+=1;labeled.append(source)
                                 event('output',text='Source '+source.id+': '+source.title[:160]+' '+source.url[:500])
+                                event('source',source={'id':source.id,'title':source.title[:200],'url':source.url})
                             if not labeled:event('output',text='Web research returned no sources.')
                             result=ToolResult(call.id,call.name,tuple(labeled)).wire();research_action=None
                         elif call.name=='list_files':result={'entries':files.listing(args['path'])}

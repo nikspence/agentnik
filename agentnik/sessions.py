@@ -44,6 +44,12 @@ def validate_session(value, ident=None):
         require(all(isinstance(e,dict) and isinstance(e.get('kind'),str) and isinstance(e.get('text'),str) and len(e['text'])<=2048 for e in activity))
         if 'coding_light_enabled' in data: require(type(data['coding_light_enabled']) is bool)
         if 'coding_web_enabled' in data: require(type(data['coding_web_enabled']) is bool)
+        if 'coding_sources' in data:
+            sources=data['coding_sources'];require(isinstance(sources,list) and len(sources)<=32)
+            for source in sources:
+                require(isinstance(source,dict) and set(source)=={'id','title','url'})
+                require(all(isinstance(source[key],str) for key in source))
+                require(0<len(source['id'])<=16 and len(source['title'])<=200 and len(source['url'])<=2048)
         if 'coding_limits' in data:
             from .code_limits import coding_limits
             try: coding_limits(data['coding_limits'])

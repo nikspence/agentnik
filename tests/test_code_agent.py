@@ -121,6 +121,7 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(json.loads(bodies[2]['messages'][-1]['content'])['sources'][0]['id'],'S2')
             self.assertTrue(any('Source S1:' in event.get('text','') for event in events))
             self.assertTrue(any('Source S2:' in event.get('text','') for event in events))
+            self.assertEqual([event['source']['id'] for event in events if event.get('kind')=='source'],['S1','S2'])
             self.assertIn('https://example.com/docs',json.dumps(events))
             self.assertNotIn('search-secret',json.dumps(bodies)+json.dumps(events))
             bodies.clear();events.clear()
