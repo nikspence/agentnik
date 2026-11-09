@@ -204,11 +204,11 @@ class AttachmentBox(QWidget):
         paths, _ = QFileDialog.getOpenFileNames(self, 'Attach images', '', 'Images (*.png *.jpg *.jpeg *.webp *.gif)'); self.add(paths)
     def paste(self):
         image = QApplication.clipboard().image()
-        if image.isNull(): return error(self, 'The clipboard does not contain an image.')
+        if image.isNull(): return error(self, self.tr('The clipboard does not contain an image.'))
         self.add_image(image)
     def add_image(self, image):
         if isinstance(image, QPixmap): image = image.toImage()
-        if image.isNull(): return error(self, 'The supplied image could not be read.')
+        if image.isNull(): return error(self, self.tr('The supplied image could not be read.'))
         buf = QBuffer(); buf.open(QIODevice.OpenModeFlag.WriteOnly); image.save(buf, 'PNG')
         self.paths.append(self.store.attach(data=bytes(buf.data()))); self.refresh(); self.changed.emit()
     def remove(self):
@@ -482,7 +482,7 @@ class SessionTab(QWidget):
         self.loading = False; self.render(); self.update_current_star(); QTimer.singleShot(0,self.load_models)
     def configure_web(self):
         c = self.active_connection()
-        if not c.get('model'): return error(self,'Select a model before configuring its tool capability.')
+        if not c.get('model'): return error(self,self.tr('Select a model before configuring its tool capability.'))
         dlg = WebSettings(self,c)
         while dlg.exec() == QDialog.DialogCode.Accepted:
             try:
@@ -601,7 +601,7 @@ class SessionTab(QWidget):
         if not hasattr(self,'star_current'): return
         saved = bool(self.store.prompt_id(self.session['mode'],self.current_prompt()))
         self.star_current.setText(self.tr('★ Saved prompt') if saved else self.tr('☆ Save prompt'))
-        self.star_current.setToolTip('Remove from Prompts' if saved else 'Save the current prompt to Prompts')
+        self.star_current.setToolTip(self.tr('Remove from Prompts') if saved else self.tr('Save the current prompt to Prompts'))
     def busy(self, value):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
@@ -786,8 +786,8 @@ class Window(QMainWindow):
         if self.language.findData(saved_language)<0:self.language.addItem(saved_language+' (unavailable)',saved_language)
         self.language.setCurrentIndex(self.language.findData(saved_language));toolbar.addWidget(self.language)
         self.language.currentIndexChanged.connect(self.save_language)
-        self.font_smaller = QPushButton('A−'); self.font_smaller.setAccessibleName('Decrease font size'); self.font_smaller.setToolTip('Decrease font size'); self.font_smaller.clicked.connect(lambda:self.adjust_font_size(-1)); toolbar.addWidget(self.font_smaller)
-        self.font_larger = QPushButton('A+'); self.font_larger.setAccessibleName('Increase font size'); self.font_larger.setToolTip('Increase font size'); self.font_larger.clicked.connect(lambda:self.adjust_font_size(1)); toolbar.addWidget(self.font_larger)
+        self.font_smaller = QPushButton('A−'); self.font_smaller.setAccessibleName(self.tr('Decrease font size')); self.font_smaller.setToolTip(self.tr('Decrease font size')); self.font_smaller.clicked.connect(lambda:self.adjust_font_size(-1)); toolbar.addWidget(self.font_smaller)
+        self.font_larger = QPushButton('A+'); self.font_larger.setAccessibleName(self.tr('Increase font size')); self.font_larger.setToolTip(self.tr('Increase font size')); self.font_larger.clicked.connect(lambda:self.adjust_font_size(1)); toolbar.addWidget(self.font_larger)
         self.split = QSplitter(); self.setCentralWidget(self.split)
         self.sidebar = QWidget(); side = QVBoxLayout(self.sidebar); side.addWidget(QLabel(self.tr('History')))
         self.search = QLineEdit(); self.search.setPlaceholderText(self.tr('Search conversations')); self.search.textChanged.connect(self.refresh_history); side.addWidget(self.search)
@@ -834,7 +834,7 @@ class Window(QMainWindow):
         font = QApplication.font(); font.setPointSize(size); QApplication.setFont(font)
         self.store.config['settings']['font_size'] = size; self.apply_theme()
         self.font_smaller.setEnabled(size>8); self.font_larger.setEnabled(size<32)
-        self.font_smaller.setToolTip(f'Decrease font size (currently {size} pt)'); self.font_larger.setToolTip(f'Increase font size (currently {size} pt)')
+        self.font_smaller.setToolTip(self.tr('Decrease font size (currently {size} pt)').format(size=size)); self.font_larger.setToolTip(self.tr('Increase font size (currently {size} pt)').format(size=size))
     def adjust_font_size(self,delta):
         self.apply_font_size(self.store.config['settings'].get('font_size',self.font().pointSize())+delta)
     def system_theme_changed(self,*_):
@@ -931,7 +931,7 @@ class Window(QMainWindow):
             if not ok: return
         session = self.store.new_session(mode,name,self.connections[name]); self.store.save(session); self.open_session(session); self.refresh_history()
     def open_session(self,session):
-        if session.get('_unavailable'): return error(self,'This saved session cannot be opened with the current version. Its original data is preserved in history.sqlite3. Repair or restore the record, or use a compatible Agentnik version.')
+        if session.get('_unavailable'): return error(self,self.tr('This saved session cannot be opened with the current version. Its original data is preserved in history.sqlite3. Repair or restore the record, or use a compatible Agentnik version.'))
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
             if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id'] == session['id']: self.tabs.setCurrentIndex(i); return
@@ -958,7 +958,7 @@ class Window(QMainWindow):
     def close_tab(self,index):
         tab = self.tabs.widget(index)
         if isinstance(tab,(SessionTab,CodeTab)):
-            if tab.job: return error(self,'Cancel the running request and wait for it to finish before closing this tab.')
+            if tab.job: return error(self,self.tr('Cancel the running request and wait for it to finish before closing this tab.'))
             tab.save_draft()
             tab._closed = True
         self.tabs.removeTab(index); tab.deleteLater(); self.stats()
@@ -966,7 +966,7 @@ class Window(QMainWindow):
         item = self.history.currentItem()
         if not item: return
         session = next(s for s in self.store.list_sessions() if s['id']==item.data(Qt.ItemDataRole.UserRole))
-        if session.get('_unavailable'): return error(self,'This session cannot be renamed until its stored data is repaired. The original record is preserved.')
+        if session.get('_unavailable'): return error(self,self.tr('This session cannot be renamed until its stored data is repaired. The original record is preserved.'))
         name,ok = QInputDialog.getText(self,'Rename session','Title:',text=session['title'])
         if ok and name.strip():
             session['title'] = name.strip()
@@ -978,7 +978,7 @@ class Window(QMainWindow):
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
             if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id'] in ids and tab.job:
-                return error(self,'Cancel running requests before deleting their sessions.')
+                return error(self,self.tr('Cancel running requests before deleting their sessions.'))
         for i in reversed(range(self.tabs.count())):
             tab = self.tabs.widget(i)
             if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id'] in ids: tab._closed = True; self.tabs.removeTab(i); tab.deleteLater()

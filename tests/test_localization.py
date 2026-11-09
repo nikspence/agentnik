@@ -52,6 +52,10 @@ class Localization(unittest.TestCase):
                     self.assertEqual(window.search.placeholderText(),'대화 검색')
                     self.assertEqual(window.tabs.tabText(0),'시작')
                     self.assertGreaterEqual(window.language.findData('ko'),0)
+                    self.assertEqual(window.font_smaller.accessibleName(),'글꼴 크기 줄이기')
+                    window.apply_font_size(15);self.assertIn('15포인트',window.font_larger.toolTip())
+                    with patch('agentnik.ui.error') as error:window.open_session({'_unavailable':True})
+                    self.assertIn('원본 데이터',error.call_args.args[1]);self.assertIn('history.sqlite3',error.call_args.args[1])
                 finally:window.close();self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 

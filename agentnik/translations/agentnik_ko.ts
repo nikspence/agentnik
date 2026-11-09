@@ -17,6 +17,16 @@
             <source>Remove selected</source>
             <translation>선택 항목 제거</translation>
         </message>
+        <message>
+            <location filename="../ui.py" line="207" />
+            <source>The clipboard does not contain an image.</source>
+            <translation>클립보드에 이미지가 없습니다.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="211" />
+            <source>The supplied image could not be read.</source>
+            <translation>제공된 이미지를 읽을 수 없습니다.</translation>
+        </message>
     </context>
     <context>
         <name>CodeTab</name>
@@ -893,6 +903,7 @@ Saved excerpt; not a fresh or complete page.
         </message>
         <message>
             <location filename="../ui.py" line="475" />
+            <location filename="../ui.py" line="604" />
             <source>Save the current prompt to Prompts</source>
             <translation>현재 프롬프트를 프롬프트 목록에 저장</translation>
         </message>
@@ -915,6 +926,11 @@ Saved excerpt; not a fresh or complete page.
             <location filename="../ui.py" line="478" />
             <source>Export session…</source>
             <translation>세션 내보내기…</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="485" />
+            <source>Select a model before configuring its tool capability.</source>
+            <translation>도구 기능을 설정하기 전에 모델을 선택하세요.</translation>
         </message>
         <message>
             <location filename="../ui.py" line="559" />
@@ -992,6 +1008,7 @@ Saved excerpt; not a fresh or complete page.
             <translation>프롬프트 저장</translation>
         </message>
         <message>
+            <location filename="../ui.py" line="604" />
             <location filename="../ui.py" line="720" />
             <location filename="../ui.py" line="759" />
             <source>Remove from Prompts</source>
@@ -1197,6 +1214,16 @@ Enabling is configuration, not verification. Hosted search requires the official
             <translation>시스템 기본값</translation>
         </message>
         <message>
+            <location filename="../ui.py" line="789" />
+            <source>Decrease font size</source>
+            <translation>글꼴 크기 줄이기</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="790" />
+            <source>Increase font size</source>
+            <translation>글꼴 크기 늘리기</translation>
+        </message>
+        <message>
             <location filename="../ui.py" line="792" />
             <source>History</source>
             <translation>기록</translation>
@@ -1264,9 +1291,39 @@ Connections are discovered from your environment and local servers.</source>
             <translation>언어 설정이 저장되었습니다. 적용하려면 Agentnik을 다시 시작하세요.</translation>
         </message>
         <message>
+            <location filename="../ui.py" line="837" />
+            <source>Decrease font size (currently {size} pt)</source>
+            <translation>글꼴 크기 줄이기 (현재 {size}포인트)</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="837" />
+            <source>Increase font size (currently {size} pt)</source>
+            <translation>글꼴 크기 늘리기 (현재 {size}포인트)</translation>
+        </message>
+        <message>
             <location filename="../ui.py" line="923" />
             <source>Remove this saved prompt?</source>
             <translation>이 저장된 프롬프트를 제거하시겠습니까?</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="934" />
+            <source>This saved session cannot be opened with the current version. Its original data is preserved in history.sqlite3. Repair or restore the record, or use a compatible Agentnik version.</source>
+            <translation>현재 버전에서는 이 저장된 세션을 열 수 없습니다. 원본 데이터는 history.sqlite3에 보존되어 있습니다. 레코드를 복구 또는 복원하거나 호환되는 Agentnik 버전을 사용하세요.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="961" />
+            <source>Cancel the running request and wait for it to finish before closing this tab.</source>
+            <translation>이 탭을 닫기 전에 실행 중인 요청을 취소하고 완료될 때까지 기다리세요.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="969" />
+            <source>This session cannot be renamed until its stored data is repaired. The original record is preserved.</source>
+            <translation>저장된 데이터를 복구하기 전에는 이 세션의 이름을 바꿀 수 없습니다. 원본 레코드는 보존됩니다.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="981" />
+            <source>Cancel running requests before deleting their sessions.</source>
+            <translation>세션을 삭제하기 전에 실행 중인 요청을 취소하세요.</translation>
         </message>
         <message>
             <location filename="../ui.py" line="988" />
