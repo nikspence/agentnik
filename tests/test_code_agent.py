@@ -75,6 +75,26 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_google_block_allows_fetch_without_repeating_search(self):
+        from agentnik.tools import ResearchError,Source
+        with tempfile.TemporaryDirectory() as directory:
+            bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('web_search',{'query':'library API'})],finish='tool_calls'),False),
+                     Wire(chat(calls=[call('web_search',{'query':'try again'},'call-2'),call('web_fetch',{'url':'https://example.com/docs'},'call-3')],finish='tool_calls'),False),
+                     Wire(chat('Reviewed documentation [S1]'),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch('agentnik.code_agent.GoogleWeb') as google,patch('agentnik.code_agent.PublicWeb') as reader,patch.object(core,'open_request',side_effect=send):
+                google.return_value.search.side_effect=ResearchError('Google Search blocked the request or requires a browser challenge')
+                reader.return_value.fetch.return_value=[Source('','Docs','https://example.com/docs','documentation','now')]
+                CodingRun(dict(C,stream=False),directory,'Research',web_enabled=True,search_provider='google').run(events.append)
+                self.assertEqual(google.return_value.search.call_count,1);reader.return_value.fetch.assert_called_once()
+            self.assertEqual(events[-1]['status'],'completed')
+            first=json.loads(bodies[1]['messages'][-1]['content'])
+            self.assertIn('unavailable for this run',first['error'])
+            self.assertIn('do not retry',first['error'])
+            self.assertTrue(any('direct public page reads remain available' in event.get('text','') for event in events))
+            self.assertTrue(any('Source S1:' in event.get('text','') for event in events))
+
     def test_keyless_fetch_only_exposes_no_search_tool(self):
         from agentnik.tools import Source
         with tempfile.TemporaryDirectory() as directory:

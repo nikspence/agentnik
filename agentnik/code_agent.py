@@ -207,7 +207,7 @@ class CodingRun:
 
     def run(self,emit):
         runtime=Runtime(self.cancel,Limits(argument_bytes=40000,**self.limits))
-        next_source=1;research_action=None
+        next_source=1;research_action=None;google_unavailable=False
         secrets=[self.connection.get('api_key',''),(self.light or {}).get('api_key','')]+[item.get('key','') for item in self.web_backends]
         usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('Heavy','Light')}
         def request(role,adapter,connection,body,state):
@@ -304,17 +304,29 @@ class CodingRun:
                             research_action=call.name
                             value=next(iter(args.values()))
                             event('output',text=('Searching web: ' if call.name=='web_search' else 'Reading web page: ')+value[:200])
-                            sources=runtime.wait(lambda:web_registry.handlers[call.name](runtime=runtime,**args));runtime.check()
-                            if not isinstance(sources,(list,tuple)) or any(not isinstance(source,Source) for source in sources):raise ResearchError('Invalid web source records')
-                            labeled=[]
-                            for source in sources[:runtime.limits.results]:
-                                source=replace(source,id=f'S{next_source}');next_source+=1;labeled.append(source)
-                                status=' [link, not fetched]' if source.backend=='public-link' else ' [search result, not fetched]' if call.name=='web_search' else ''
-                                display_title=source.title[:160]+status
-                                event('output',text='Source '+source.id+': '+display_title+' '+source.url[:500])
-                                event('source',source={'id':source.id,'title':display_title[:200],'url':source.url})
-                            if not labeled:event('output',text='Web research returned no sources.')
-                            result=ToolResult(call.id,call.name,tuple(labeled)).wire();research_action=None
+                            blocked='Google search is unavailable for this run. Use a known public documentation URL with web_fetch; do not retry search.'
+                            if call.name=='web_search' and self.search_provider=='google' and google_unavailable:
+                                sources=None
+                            else:
+                                try:sources=runtime.wait(lambda:web_registry.handlers[call.name](runtime=runtime,**args));runtime.check()
+                                except ResearchError as exc:
+                                    unavailable=('Google Search blocked the request or requires a browser challenge','Google Search returned no recognizable results or requires a browser challenge','Google Search returned an unsupported response')
+                                    if call.name!='web_search' or self.search_provider!='google' or str(exc) not in unavailable:raise
+                                    google_unavailable=True;sources=None
+                                    event('output',text='Google search is unavailable; direct public page reads remain available.')
+                            if sources is None:
+                                result=ToolResult(call.id,call.name,error=blocked).wire();research_action=None
+                            else:
+                                if not isinstance(sources,(list,tuple)) or any(not isinstance(source,Source) for source in sources):raise ResearchError('Invalid web source records')
+                                labeled=[]
+                                for source in sources[:runtime.limits.results]:
+                                    source=replace(source,id=f'S{next_source}');next_source+=1;labeled.append(source)
+                                    status=' [link, not fetched]' if source.backend=='public-link' else ' [search result, not fetched]' if call.name=='web_search' else ''
+                                    display_title=source.title[:160]+status
+                                    event('output',text='Source '+source.id+': '+display_title+' '+source.url[:500])
+                                    event('source',source={'id':source.id,'title':display_title[:200],'url':source.url})
+                                if not labeled:event('output',text='Web research returned no sources.')
+                                result=ToolResult(call.id,call.name,tuple(labeled)).wire();research_action=None
                         elif call.name=='list_files':result={'entries':files.listing(args['path'])}
                         elif call.name=='read_file':result={'text':files.read(args['path'])}
                         elif call.name=='search_file':result=files.search(args['path'],args['query'])
