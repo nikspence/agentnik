@@ -76,6 +76,7 @@ class Localization(unittest.TestCase):
     def test_korean_coding_approval_preserves_paths_and_diff(self):
         from agentnik.ui import Window
         from agentnik.code_agent import CodingRun
+        from agentnik.coding import SimulationRun
         translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
         try:
             with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
@@ -90,6 +91,10 @@ class Localization(unittest.TestCase):
                     tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':{'cwd':str(folder),'path':'src/file.py','diff':'+exact text'}})
                     text=tab.approval.toPlainText();self.assertIn('확인되지 않음',text);self.assertIn(str(folder),text);self.assertIn('src/file.py',text)
                     self.assertEqual(tab.diff.toPlainText(),'+exact text');tab.cancel()
+                    simulated=SimulationRun(str(folder));tab.job=simulated;tab.run_id=simulated.run_id
+                    tab.receive({'run_id':simulated.run_id,'kind':'proposal','fingerprint':'sim','proposal':{'cwd':str(folder),'argv':['git','status']},'recommendation':'Not checked'})
+                    self.assertIn('시뮬레이션 전용',tab.approval.toPlainText());self.assertIn(str(folder),tab.approval.toPlainText())
+                    self.assertIn('"git", "status"',tab.approval.toPlainText());self.assertIn('Not checked',tab.approval.toPlainText());tab.cancel()
                 finally:window.close();self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 
@@ -132,6 +137,7 @@ class Localization(unittest.TestCase):
         from agentnik.ui import Window
         from agentnik.research_ui import WebSettings,ResearchDetails
         from agentnik import routing
+        from PySide6.QtWidgets import QLabel
         translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
         try:
             with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
@@ -141,6 +147,9 @@ class Localization(unittest.TestCase):
                     window.new_session('chat','Example');tab=window.tabs.currentWidget();dialog=WebSettings(tab,connection)
                     try:
                         self.assertEqual(dialog.windowTitle(),'웹 조사')
+                        texts=[label.text() for label in dialog.findChildren(QLabel)]
+                        self.assertTrue(any('모델: model' in text and '설정일 뿐 검증이 아닙니다' in text for text in texts))
+                        self.assertTrue(any('429/503' in text and '요청당 45초' in text for text in texts))
                         dialog.access_policy.setCurrentIndex(dialog.access_policy.findData('strict_public'))
                         self.assertIn('공개',dialog.access_policy.currentText());self.assertEqual(dialog.access_policy.currentData(),'strict_public')
                         self.assertEqual(dialog.default_policy.currentText(),'제공자 우선');self.assertEqual(dialog.default_policy.currentData(),'Provider first')
@@ -173,6 +182,23 @@ class Localization(unittest.TestCase):
                     self.assertIn('자격 증명',question.call_args.args[2]);self.assertEqual(store.web_key('test'),'test-key')
                     self.assertEqual(store.config['web_backends'][0]['name'],'User profile')
                 finally:manager.close();store.db.close()
+        finally:self.app.removeTranslator(translator)
+
+    def test_korean_research_sources_preserve_evidence(self):
+        from agentnik.research_ui import ResearchDetails
+        from PySide6.QtWidgets import QPushButton
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            data={'route':'managed','status':'completed','events':[],'sources':[
+                {'id':'S1','url':'https://example.com/page','title':'Original title','retrieved_at':'2026-01-01','backend':'search','excerpt':'Original {evidence}','truncated':True},
+                {'id':'S2','url':'https://example.com/metadata','title':'Other title','reported_at':'2026-01-02','backend':'hosted','metadata_only':True}]}
+            details=ResearchDetails(data)
+            try:
+                self.assertIn('완료',details.toggle.text());text=details.excerpts.toPlainText()
+                self.assertIn('일부 생략',text);self.assertIn('메타데이터만',text);self.assertIn('Original {evidence}',text)
+                self.assertIn('2026-01-01',text);self.assertIn('https://example.com/page',text)
+                self.assertEqual(details.links.findChildren(QPushButton)[0].text(),'[S1] Original title')
+            finally:details.close()
         finally:self.app.removeTranslator(translator)
 
     def test_korean_history_confirmation_decline_preserves_history(self):

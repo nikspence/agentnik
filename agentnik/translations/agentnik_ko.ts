@@ -126,12 +126,47 @@
             <translation>승인하기 전에 제안된 파일 변경 내용 전체를 검토하세요</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="147" />
+            <location filename="../code_ui.py" line="132" />
+            <source>Coding model</source>
+            <translation>코딩 모델</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="132" />
+            <source>Choose a connection first, or enter an alias manually.</source>
+            <translation>먼저 연결을 선택하거나 별칭을 직접 입력하세요.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="139" />
+            <source>Choose Heavy model</source>
+            <translation>고성능 모델 선택</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="139" />
+            <source>Choose Light model</source>
+            <translation>경량 모델 선택</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="140" />
+            <source>Model alias:</source>
+            <translation>모델 별칭:</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="144" />
+            <source>Coding models</source>
+            <translation>코딩 모델</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="144" />
+            <source>Model listing failed. You can enter an alias manually.</source>
+            <translation>모델 목록을 불러오지 못했습니다. 별칭을 직접 입력할 수 있습니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="148" />
             <source>No completed coding task available.</source>
             <translation>완료된 코딩 작업이 없습니다.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="148" />
+            <location filename="../code_ui.py" line="149" />
             <source>Previous task:
 {task}
 
@@ -144,7 +179,27 @@ Previous answer:
 {answer}</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="209" />
+            <location filename="../code_ui.py" line="167" />
+            <source>Choose a connection and model alias for Heavy.</source>
+            <translation>고성능 모델의 연결과 모델 별칭을 선택하세요.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="167" />
+            <source>Choose a connection and model alias for Light.</source>
+            <translation>경량 모델의 연결과 모델 별칭을 선택하세요.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="174" />
+            <source>Choose a heavy model and enter a coding task</source>
+            <translation>고성능 모델을 선택하고 코딩 작업을 입력하세요</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="177" />
+            <source>Coding settings</source>
+            <translation>코딩 설정</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="211" />
             <source>FILE EDIT
 Project: {project}
 Path: {path}
@@ -155,6 +210,17 @@ Safety recommendation: Not checked; no System One request was made.</source>
 경로: {path}
 아래의 전체 변경 내용을 검토하세요.
 안전 권고: 확인되지 않음. System One 요청이 수행되지 않았습니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="216" />
+            <source>SIMULATION ONLY
+Directory: {directory}
+Arguments: {arguments}
+Recommendation: {recommendation}</source>
+            <translation>시뮬레이션 전용
+디렉터리: {directory}
+인수: {arguments}
+권고: {recommendation}</translation>
         </message>
     </context>
     <context>
@@ -545,37 +611,98 @@ Choose No to export connection settings without keys.</source>
     <context>
         <name>ResearchDetails</name>
         <message>
-            <location filename="../research_ui.py" line="132" />
+            <location filename="../research_ui.py" line="135" />
             <source>Provider hosted</source>
             <translation>제공자 호스팅</translation>
         </message>
         <message>
-            <location filename="../research_ui.py" line="132" />
+            <location filename="../research_ui.py" line="135" />
             <source>Agentnik managed</source>
             <translation>Agentnik 관리형</translation>
         </message>
         <message>
-            <location filename="../research_ui.py" line="132" />
+            <location filename="../research_ui.py" line="135" />
             <source>Selecting route</source>
             <translation>경로 선택 중</translation>
         </message>
         <message>
-            <location filename="../research_ui.py" line="133" />
+            <location filename="../research_ui.py" line="137" />
+            <source>Running</source>
+            <translation>실행 중</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="137" />
+            <source>Completed</source>
+            <translation>완료</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="137" />
+            <source>Failed</source>
+            <translation>실패</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="137" />
+            <source>Cancelled</source>
+            <translation>취소됨</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="137" />
+            <source>Limited</source>
+            <translation>제한됨</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="137" />
+            <source>Interrupted</source>
+            <translation>중단됨</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="138" />
             <source>Research · {route} · {status} · {count} source(s)</source>
             <translation>조사 · {route} · {status} · 출처 {count}개</translation>
         </message>
         <message>
-            <location filename="../research_ui.py" line="150" />
+            <location filename="../research_ui.py" line="151" />
+            <source>[{id}] {url}
+Reported: {time} · {backend}
+Provider metadata only; page retrieval time and excerpt were not supplied.</source>
+            <translation>[{id}] {url}
+보고 시각: {time} · {backend}
+제공자 메타데이터만 있습니다. 페이지 검색 시각과 발췌문은 제공되지 않았습니다.</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="153" />
+            <source>[{id}] {url}
+Retrieved: {time} · {backend}
+Saved excerpt (truncated); not a fresh or complete page.
+</source>
+            <translation>[{id}] {url}
+검색 시각: {time} · {backend}
+저장된 발췌문 (일부 생략); 최신 또는 전체 페이지가 아닙니다.
+</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="153" />
+            <source>[{id}] {url}
+Retrieved: {time} · {backend}
+Saved excerpt; not a fresh or complete page.
+</source>
+            <translation>[{id}] {url}
+검색 시각: {time} · {backend}
+저장된 발췌문; 최신 또는 전체 페이지가 아닙니다.
+</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="156" />
             <source>Source links identify retrieved evidence; they do not verify that every claim is supported.</source>
             <translation>출처 링크는 검색된 근거를 나타내며 모든 주장이 뒷받침되는지 확인하지는 않습니다.</translation>
         </message>
         <message>
-            <location filename="../research_ui.py" line="151" />
+            <location filename="../research_ui.py" line="157" />
             <source>Some provider citation annotations could not be validated.</source>
             <translation>일부 제공자 인용 주석을 확인할 수 없습니다.</translation>
         </message>
         <message>
-            <location filename="../research_ui.py" line="152" />
+            <location filename="../research_ui.py" line="158" />
             <source>Unverified citation IDs: {ids}</source>
             <translation>확인되지 않은 인용 ID: {ids}</translation>
         </message>
@@ -894,6 +1021,38 @@ Choose No to export connection settings without keys.</source>
             <location filename="../research_ui.py" line="92" />
             <source>Enable OpenAI-hosted web_search for this endpoint/model</source>
             <translation>이 엔드포인트/모델의 OpenAI 호스팅 web_search 활성화</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="94" />
+            <source>unknown</source>
+            <translation>알 수 없음</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="94" />
+            <source>configured</source>
+            <translation>설정됨</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="94" />
+            <source>verified</source>
+            <translation>검증됨</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="94" />
+            <source>unsupported</source>
+            <translation>지원되지 않음</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="95" />
+            <source>Model: {model} · managed: {managed} · hosted: {hosted}
+Enabling is configuration, not verification. Hosted search requires the official OpenAI Responses endpoint and a model that supports web_search. No background inference probes are run.</source>
+            <translation>모델: {model} · 관리형: {managed} · 호스팅: {hosted}
+활성화는 설정일 뿐 검증이 아닙니다. 호스팅 검색에는 공식 OpenAI Responses 엔드포인트와 web_search를 지원하는 모델이 필요합니다. 백그라운드 추론 테스트는 실행되지 않습니다.</translation>
+        </message>
+        <message>
+            <location filename="../research_ui.py" line="98" />
+            <source>Limits: {rounds} managed rounds, {calls} tool calls, {requests} model requests across attempts; {request_seconds}s/request, {turn_seconds}s/turn. One retry per route on explicit 429/503 rejection, with bounded Retry-After. Partial or uncertain work always requires explicit restart.</source>
+            <translation>제한: 관리형 라운드 {rounds}회, 도구 호출 {calls}회, 전체 시도에 걸친 모델 요청 {requests}회; 요청당 {request_seconds}초, 턴당 {turn_seconds}초. 명시적인 429/503 거부 시 경로당 한 번 재시도하며 Retry-After 대기 시간은 제한됩니다. 부분적으로 수행되었거나 결과가 불확실한 작업은 항상 명시적으로 다시 시작해야 합니다.</translation>
         </message>
     </context>
     <context>

@@ -129,18 +129,19 @@ class CodeTab(QWidget):
     def choose_model(self,role):
         if self.job or role in self.model_jobs:return
         name=self.roles[role][0].currentData()
-        if not name:return QMessageBox.information(self,'Coding model','Choose a connection first, or enter an alias manually.')
+        if not name:return QMessageBox.information(self,self.tr('Coding model'),self.tr('Choose a connection first, or enter an alias manually.'))
         c=dict(self.window.connections.get(name,{}))
         from .ui import Job
         def done(names):
             self.model_jobs.pop(role,None)
             if self._closed or self.job or self.roles[role][0].currentData()!=name:return
             choices=[value for value in names if isinstance(value,str) and len(value)<=512][:2000]
-            model,ok=QInputDialog.getItem(self,'Choose '+role+' model','Model alias:',choices,0,True)
+            title=self.tr('Choose Heavy model') if role=='heavy' else self.tr('Choose Light model')
+            model,ok=QInputDialog.getItem(self,title,self.tr('Model alias:'),choices,0,True)
             if ok:self.roles[role][1].setText(model);self.save_models()
         def failed(_):
             self.model_jobs.pop(role,None)
-            if not self._closed:QMessageBox.warning(self,'Coding models','Model listing failed. You can enter an alias manually.')
+            if not self._closed:QMessageBox.warning(self,self.tr('Coding models'),self.tr('Model listing failed. You can enter an alias manually.'))
         self.model_jobs[role]=Job(lambda *_:core.models(c),done,failed)
 
     def context_text(self,context):
@@ -162,17 +163,18 @@ class CodeTab(QWidget):
         name=self.roles[role][0].currentData()
         if not name:return None
         c=dict(self.window.connections.get(name,{}));c['model']=self.roles[role][1].text().strip()
-        if not c.get('url') or not c.get('model'):raise ValueError('Choose a connection and model alias for '+role)
+        if not c.get('url') or not c.get('model'):
+            raise ValueError(self.tr('Choose a connection and model alias for Heavy.') if role=='heavy' else self.tr('Choose a connection and model alias for Light.'))
         return c
 
     def start_coding(self):
         if self.job or self._closed:return
         try:
             self.save_models();heavy=self.role_connection('heavy');light=self.role_connection('light') if self.light_enabled.isChecked() else None
-            if not heavy or not self.composer.toPlainText().strip():raise ValueError('Choose a heavy model and enter a coding task')
+            if not heavy or not self.composer.toPlainText().strip():raise ValueError(self.tr('Choose a heavy model and enter a coding task'))
             context=self.session.get('coding_context') if self.use_context.isChecked() else None
             run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context)
-        except ValueError as exc:QMessageBox.warning(self,'Coding settings',str(exc));return
+        except ValueError as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
 
     def launch(self,run,notice):
@@ -211,7 +213,7 @@ class CodeTab(QWidget):
         elif kind=='proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
             proposal=event['proposal']
-            self.approval.setPlainText('SIMULATION ONLY\nDirectory: '+proposal['cwd']+'\nArguments: '+json.dumps(proposal['argv'])+'\nRecommendation: '+event['recommendation'])
+            self.approval.setPlainText(self.tr('SIMULATION ONLY\nDirectory: {directory}\nArguments: {arguments}\nRecommendation: {recommendation}').format(directory=proposal['cwd'],arguments=json.dumps(proposal['argv']),recommendation=event['recommendation']))
             self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting explicit approval for simulated step.')
         elif kind=='diff':self.diff.setPlainText(plain(event['text']));self.record(kind,event['text'])
         elif kind=='output':self.record(kind,event['text'])

@@ -91,9 +91,12 @@ class WebSettings(QDialog):
         hosted_cap=research.capability(self.store.config,c,'hosted_search')
         self.allow_hosted=QCheckBox(self.tr('Enable OpenAI-hosted web_search for this endpoint/model'))
         self.allow_hosted.setEnabled(hosted.supported_endpoint(c)); self.allow_hosted.setChecked(hosted_cap.state in ('configured','verified')); layout.addRow(self.allow_hosted)
-        label=QLabel(f'Model: {c.get("model", "")} · managed: {current.state} · hosted: {hosted_cap.state}\nEnabling is configuration, not verification. Hosted search requires the official OpenAI Responses endpoint and a model that supports web_search. No background inference probes are run.'); label.setTextFormat(Qt.TextFormat.PlainText); label.setWordWrap(True); layout.addRow(label)
+        states={'unknown':self.tr('unknown'),'configured':self.tr('configured'),'verified':self.tr('verified'),'unsupported':self.tr('unsupported')}
+        status=self.tr('Model: {model} · managed: {managed} · hosted: {hosted}\nEnabling is configuration, not verification. Hosted search requires the official OpenAI Responses endpoint and a model that supports web_search. No background inference probes are run.')
+        label=QLabel(status.format(model=c.get('model',''),managed=states[current.state],hosted=states[hosted_cap.state])); label.setTextFormat(Qt.TextFormat.PlainText); label.setWordWrap(True); layout.addRow(label)
         bounds=Limits()
-        info=QLabel(f'Limits: {bounds.rounds} managed rounds, {bounds.calls} tool calls, {bounds.requests} model requests across attempts; {bounds.request_seconds:g}s/request, {bounds.turn_seconds:g}s/turn. One retry per route on explicit 429/503 rejection, with bounded Retry-After. Partial or uncertain work always requires explicit restart.'); info.setWordWrap(True); layout.addRow(info)
+        limits=self.tr('Limits: {rounds} managed rounds, {calls} tool calls, {requests} model requests across attempts; {request_seconds}s/request, {turn_seconds}s/turn. One retry per route on explicit 429/503 rejection, with bounded Retry-After. Partial or uncertain work always requires explicit restart.')
+        info=QLabel(limits.format(rounds=bounds.rounds,calls=bounds.calls,requests=bounds.requests,request_seconds=f'{bounds.request_seconds:g}',turn_seconds=f'{bounds.turn_seconds:g}')); info.setWordWrap(True); layout.addRow(info)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addRow(buttons)
 
@@ -130,7 +133,9 @@ class ResearchDetails(QWidget):
         if signature==self.signature: return
         self.signature=signature
         route={'hosted':self.tr('Provider hosted'),'managed':self.tr('Agentnik managed')}.get(data.get('route'),self.tr('Selecting route'))
-        self.toggle.setText(self.tr('Research · {route} · {status} · {count} source(s)').format(route=route,status=data.get('status','running'),count=len(sources)))
+        status=data.get('status','running')
+        status_labels={'running':self.tr('Running'),'completed':self.tr('Completed'),'failed':self.tr('Failed'),'cancelled':self.tr('Cancelled'),'limited':self.tr('Limited'),'interrupted':self.tr('Interrupted')}
+        self.toggle.setText(self.tr('Research · {route} · {status} · {count} source(s)').format(route=route,status=status_labels.get(status,status),count=len(sources)))
         self.activity.setPlainText('\n'.join(f'{e.get("kind", "")}: {e.get("detail", "")}' for e in events))
         while self.links_layout.count():
             item=self.links_layout.takeAt(0)
@@ -143,9 +148,10 @@ class ResearchDetails(QWidget):
             link.clicked.connect(lambda checked=False,u=url:QDesktopServices.openUrl(QUrl(u)))
             self.links_layout.addWidget(link)
             if source.get('metadata_only'):
-                excerpts.append(f'[{source["id"]}] {url}\nReported: {source.get("reported_at","unknown")} · {source.get("backend","")}\nProvider metadata only; page retrieval time and excerpt were not supplied.')
+                excerpts.append(self.tr('[{id}] {url}\nReported: {time} · {backend}\nProvider metadata only; page retrieval time and excerpt were not supplied.').format(id=source['id'],url=url,time=source.get('reported_at','unknown'),backend=source.get('backend','')))
             else:
-                excerpts.append(f'[{source["id"]}] {url}\nRetrieved: {source["retrieved_at"]} · {source.get("backend","")}\nSaved excerpt'+(' (truncated)' if source.get('truncated') else '')+'; not a fresh or complete page.\n'+source['excerpt'])
+                prefix=self.tr('[{id}] {url}\nRetrieved: {time} · {backend}\nSaved excerpt (truncated); not a fresh or complete page.\n') if source.get('truncated') else self.tr('[{id}] {url}\nRetrieved: {time} · {backend}\nSaved excerpt; not a fresh or complete page.\n')
+                excerpts.append(prefix.format(id=source['id'],url=url,time=source['retrieved_at'],backend=source.get('backend',''))+source['excerpt'])
         text='\n\n'.join(excerpts)
         if sources: text+='\n\n'+self.tr('Source links identify retrieved evidence; they do not verify that every claim is supported.')
         if data.get('unverified_annotations'): text+='\n'+self.tr('Some provider citation annotations could not be validated.')
