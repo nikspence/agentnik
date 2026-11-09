@@ -122,6 +122,9 @@ class CodeTab(QWidget):
             model.editingFinished.connect(self.save_models)
         self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
+        self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search queries go to Ollama.com; pages are read from public websites.'))
+        self.web_enabled.setChecked(session.get('coding_web_enabled',False));options.addWidget(self.web_enabled)
+        self.web_enabled.toggled.connect(self.save_web_enabled)
         run_row=QHBoxLayout();layout.addLayout(run_row)
         self.send=QPushButton(self.tr('Run'));self.send.clicked.connect(self.start_coding);run_row.addWidget(self.send)
         self.simulate=QPushButton(self.tr('Simulate'));self.simulate.clicked.connect(self.start_simulation);run_row.addWidget(self.simulate)
@@ -170,6 +173,9 @@ class CodeTab(QWidget):
     def save_light_enabled(self,enabled):
         self.session['coding_light_enabled']=enabled;self.store.save(self.session)
 
+    def save_web_enabled(self,enabled):
+        self.session['coding_web_enabled']=enabled;self.store.save(self.session)
+
     def role_connection(self,role):
         name=self.roles[role][0].currentData()
         if not name:return None
@@ -184,14 +190,16 @@ class CodeTab(QWidget):
             self.save_models();heavy=self.role_connection('heavy');light=self.role_connection('light') if self.light_enabled.isChecked() else None
             if not heavy or not self.composer.toPlainText().strip():raise ValueError(self.tr('Choose a heavy model and enter a coding task'))
             context=self.session.get('coding_context') if self.use_context.isChecked() else None
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context)
+            backends=self.store.web_backend_specs() if self.web_enabled.isChecked() else []
+            if self.web_enabled.isChecked() and not any(b.get('key') for b in backends):raise ValueError(self.tr('Configure an Ollama web-search key in Web settings before enabling research.'))
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends)
         except ValueError as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
 
     def launch(self,run,notice):
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.light_enabled.setEnabled(False)
+        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -283,7 +291,7 @@ class CodeTab(QWidget):
         self.approval_panel.hide()
         for button in (self.approve,self.reject,self.cancel_button):button.setEnabled(False)
         self.simulate.setEnabled(True);self.send.setEnabled(True)
-        self.light_enabled.setEnabled(True)
+        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 

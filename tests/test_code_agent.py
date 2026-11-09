@@ -75,6 +75,26 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_web_research_is_opt_in_and_returns_untrusted_sources(self):
+        from agentnik.tools import Source
+        with tempfile.TemporaryDirectory() as directory:
+            bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('web_search',{'query':'library API'})],finish='tool_calls'),False),Wire(chat('Found documentation'),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            source=Source('','API reference','https://example.com/docs','untrusted page text','now')
+            with patch('agentnik.code_agent.OrderedSearch') as backend,patch.object(core,'open_request',side_effect=send):
+                backend.return_value.search.return_value=[source]
+                run=CodingRun(dict(C,stream=False),directory,'Research',web_backends=[{'id':'search','kind':'ollama','key':'search-secret'}]);run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed')
+            self.assertIn('web_search',json.dumps(bodies[0]['tools']))
+            self.assertIn('untrusted evidence',json.dumps(bodies[1]))
+            self.assertIn('https://example.com/docs',json.dumps(events))
+            self.assertNotIn('search-secret',json.dumps(bodies)+json.dumps(events))
+            bodies.clear();events.clear()
+            with patch.object(core,'open_request',side_effect=lambda c,url,body,timeout:(bodies.append(body) or Wire(chat('Done'),False))):
+                CodingRun(dict(C,stream=False),directory,'No research').run(events.append)
+            self.assertNotIn('web_search',json.dumps(bodies[0]['tools']))
+
     def test_explicit_previous_context_is_plain_messages(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Follow up',context={'task':'Earlier task','answer':'Earlier answer'})
