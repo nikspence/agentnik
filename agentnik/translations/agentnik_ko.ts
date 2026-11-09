@@ -370,7 +370,6 @@ Shell: {shell}
 Time limit: up to {seconds} seconds; output limit: {size} bytes.
 The command runs with your account permissions, including network and access outside the project. It is not sandboxed.
 Inherited environment variables: {environment}
-Safety recommendation: Not checked.
 
 Command:
 {command}</source><translation>셸 명령
@@ -379,10 +378,38 @@ Command:
 시간 제한: 최대 {seconds}초; 출력 제한: {size}바이트.
 명령은 네트워크와 프로젝트 외부 접근을 포함하여 사용자 계정 권한으로 실행됩니다. 샌드박스에서 실행되지 않습니다.
 상속된 환경 변수: {environment}
-안전 권장 사항: 확인되지 않음.
 
 명령:
 {command}</translation></message>
+        <message><source>Safety advice: NOT CHECKED · No System One request was made.</source><translation>안전 권고: 확인되지 않음 · System One 요청이 수행되지 않았습니다.</translation></message>
+        <message><source>SAFE</source><translation>안전</translation></message>
+        <message><source>WARNING</source><translation>주의</translation></message>
+        <message><source>RISKY</source><translation>위험 가능</translation></message>
+        <message><source>PRIVACY</source><translation>개인정보</translation></message>
+        <message><source>DANGER</source><translation>위험</translation></message>
+        <message><source>UNKNOWN</source><translation>알 수 없음</translation></message>
+        <message><source>Confidence unavailable</source><translation>신뢰도 없음</translation></message>
+        <message><source>Confidence: {value}</source><translation>신뢰도: {value}</translation></message>
+        <message><source>Safety advice: {label} · {detail} · Advisory only; you decide.</source><translation>안전 권고: {label} · {detail} · 참고용이며 사용자가 결정합니다.</translation></message>
+        <message><source>Low apparent risk; review before approving.</source><translation>위험이 낮아 보이지만 승인하기 전에 검토하세요.</translation></message>
+        <message><source>Uncertain or requires closer review.</source><translation>불확실하거나 더 자세한 검토가 필요합니다.</translation></message>
+        <message><source>May change files or system state.</source><translation>파일이나 시스템 상태를 변경할 수 있습니다.</translation></message>
+        <message><source>May expose private information.</source><translation>개인정보가 노출될 수 있습니다.</translation></message>
+        <message><source>May cause severe or irreversible effects.</source><translation>심각하거나 되돌릴 수 없는 영향을 초래할 수 있습니다.</translation></message>
+        <message><source>No valid category was returned.</source><translation>유효한 분류를 받지 못했습니다.</translation></message>
+        <message><source>Safety advice: {label} · {detail}
+Category guide: {guide}
+Advisory only; you decide.</source><translation>안전 권고: {label} · {detail}
+분류 안내: {guide}
+참고용이며 사용자가 결정합니다.</translation></message>
+        <message><source>Check shell approvals with Decision model</source><translation>Decision 모델로 셸 승인 안전성 확인</translation></message>
+        <message><source>When enabled, each shell proposal sends its command, working directory, shell, and environment variable names to the selected Decision endpoint. Environment values are not sent. Advice never approves a command.</source><translation>활성화하면 각 셸 제안의 명령, 작업 디렉터리, 셸 및 환경 변수 이름이 선택한 Decision 엔드포인트로 전송됩니다. 환경 변수 값은 전송되지 않습니다. 권고가 명령을 승인하지는 않습니다.</translation></message>
+        <message><source>Choose a connection and model alias for Decision.</source><translation>Decision 연결과 모델 별칭을 선택하세요.</translation></message>
+        <message><source>Choose a Decision model before enabling safety advice.</source><translation>안전 권고를 활성화하기 전에 Decision 모델을 선택하세요.</translation></message>
+        <message><source>Checking safety advice with {destination}…</source><translation>{destination}에서 안전 권고를 확인하는 중…</translation></message>
+        <message><source>Safety advice: UNKNOWN · The proposal contains a configured credential; no request was made.</source><translation>안전 권고: 알 수 없음 · 제안에 설정된 자격 증명이 있어 요청을 보내지 않았습니다.</translation></message>
+        <message><source>Decision endpoint: {destination}</source><translation>Decision 엔드포인트: {destination}</translation></message>
+        <message><source>Safety advice: UNKNOWN · The decision check failed or timed out. Review the command yourself.</source><translation>안전 권고: 알 수 없음 · 확인에 실패했거나 시간이 초과되었습니다. 명령을 직접 검토하세요.</translation></message>
     </context>
     <context>
         <name>ConnectionDialog</name>

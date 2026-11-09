@@ -11,6 +11,8 @@ from .repositories import RepositoryRegistry
 from .coding import SimulationRun,plain
 from .code_agent import CodingRun
 from .research import scrub
+from . import decision_advice
+from .decision_advice import parse_advice
 from .code_limits import FIELDS,coding_limits
 from .web import public_url
 from . import core,routing
@@ -131,7 +133,7 @@ class CodingSourcesDialog(QDialog):
 class CodeTab(QWidget):
     updated=Signal()
     def __init__(self,window,session):
-        super().__init__();self.window=window;self.store=window.store;self.session=session;self.job=None;self.model_jobs={};self._closed=False;self.run_id=None;self.pending_fingerprint=None
+        super().__init__();self.window=window;self.store=window.store;self.session=session;self.job=None;self.model_jobs={};self._closed=False;self.run_id=None;self.pending_fingerprint=None;self.advice_fingerprint=None;self.advice_job=None;self.advice_connection=None;self.advice_destination=''
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
         if session.get("code_state") in ("running","awaiting_approval"):
             session["code_state"]="interrupted"
@@ -161,7 +163,6 @@ class CodeTab(QWidget):
         self.model_toggle=QPushButton(self.tr('Models'));self.model_toggle.setCheckable(True);layout.addWidget(self.model_toggle)
         self.model_panel=QWidget();model_layout=QVBoxLayout(self.model_panel);layout.addWidget(self.model_panel);self.model_panel.hide()
         self.model_toggle.toggled.connect(self.model_panel.setVisible)
-        model_layout.addWidget(QLabel(self.tr('Decision model safety checks are not connected yet.')))
         for role in ('heavy','light','decision'):
             row=QHBoxLayout();model_layout.addLayout(row);row.addWidget(QLabel({'heavy':self.tr('Heavy model'),'light':self.tr('Light model'),'decision':self.tr('Decision model')}[role]))
             connection=QComboBox();connection.addItem(self.tr('Not configured'),'');
@@ -175,6 +176,10 @@ class CodeTab(QWidget):
             choose=QPushButton(self.tr('Choose model…'));choose.clicked.connect(lambda _,r=role:self.choose_model(r));row.addWidget(choose)
             connection.currentIndexChanged.connect(lambda _,r=role:self.role_changed(r))
             model.editingFinished.connect(self.save_models)
+        self.advice_enabled=QCheckBox(self.tr('Check shell approvals with Decision model'))
+        self.advice_enabled.setChecked(session.get('coding_advice_enabled',False));self.advice_enabled.toggled.connect(self.save_advice_enabled);model_layout.addWidget(self.advice_enabled)
+        disclosure=QLabel(self.tr('When enabled, each shell proposal sends its command, working directory, shell, and environment variable names to the selected Decision endpoint. Environment values are not sent. Advice never approves a command.'))
+        disclosure.setWordWrap(True);model_layout.addWidget(disclosure)
         self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search queries go to Google or direct Ollama Cloud; pages are read from public websites.'))
@@ -191,6 +196,7 @@ class CodeTab(QWidget):
         run_row.addWidget(self.sources_button);self.update_sources_button()
         self.approval_panel=QWidget();review=QVBoxLayout(self.approval_panel);layout.addWidget(self.approval_panel);self.approval_panel.hide()
         self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText(self.tr('Command approval preview'));review.addWidget(self.approval)
+        self.advice_label=QLabel();self.advice_label.setWordWrap(True);self.advice_label.setTextFormat(Qt.TextFormat.PlainText);review.addWidget(self.advice_label);self.advice_label.hide()
         actions=QHBoxLayout();review.addLayout(actions)
         self.approve=QPushButton(self.tr('Approve proposed step'));self.reject=QPushButton(self.tr('Reject proposed step'))
         for button in (self.approve,self.reject):actions.addWidget(button);button.setEnabled(False)
@@ -235,6 +241,9 @@ class CodeTab(QWidget):
     def save_web_enabled(self,enabled):
         self.session['coding_web_enabled']=enabled;self.store.save(self.session)
 
+    def save_advice_enabled(self,enabled):
+        self.session['coding_advice_enabled']=enabled;self.store.save(self.session)
+
     def configure_limits(self):
         if self.job:return
         dialog=CodingLimitsDialog(self,coding_limits(self.session.get('coding_limits')))
@@ -250,18 +259,59 @@ class CodeTab(QWidget):
     def show_sources(self):
         CodingSourcesDialog(self,self.session.get('coding_sources',[])).exec()
 
+    def show_advice(self,raw=None,fingerprint=None):
+        if raw is None:
+            self.advice_label.setText(self.tr('Safety advice: NOT CHECKED · No System One request was made.'))
+        else:
+            if not self.job or not self.pending_fingerprint or fingerprint!=self.pending_fingerprint or fingerprint!=self.advice_fingerprint:return
+            result=parse_advice(raw);category=result['category']
+            labels={'safe':self.tr('SAFE'),'warning':self.tr('WARNING'),'risky':self.tr('RISKY'),'privacy':self.tr('PRIVACY'),'danger':self.tr('DANGER'),'unknown':self.tr('UNKNOWN')}
+            guides={'safe':self.tr('Low apparent risk; review before approving.'),'warning':self.tr('Uncertain or requires closer review.'),'risky':self.tr('May change files or system state.'),'privacy':self.tr('May expose private information.'),'danger':self.tr('May cause severe or irreversible effects.'),'unknown':self.tr('No valid category was returned.')}
+            confidence=result['confidence']
+            detail=self.tr('Confidence unavailable') if confidence is None else self.tr('Confidence: {value}').format(value=f'{confidence:.0%}')
+            self.advice_label.setText(self.tr('Safety advice: {label} · {detail}\nCategory guide: {guide}\nAdvisory only; you decide.').format(label=labels[category],detail=detail,guide=guides[category]))
+        self.advice_label.show()
+
+    def check_advice(self,proposal,fingerprint):
+        if not self.advice_connection:return
+        from .ui import Job
+        from shiboken6 import isValid
+        connection=dict(self.advice_connection);run_id=self.run_id
+        self.approve.setEnabled(False);self.reject.setEnabled(False)
+        self.advice_label.setText(self.tr('Checking safety advice with {destination}…').format(destination=self.advice_destination))
+        secret=connection.get('api_key','')
+        fields=[str(proposal.get(key,'')) for key in ('command','cwd','shell','environment_keys')]
+        if any('[redacted]' in value or (secret and secret in value) for value in fields):
+            self.advice_label.setText(self.tr('Safety advice: UNKNOWN · The proposal contains a configured credential; no request was made.'))
+            self.approve.setEnabled(True);self.reject.setEnabled(True);return
+        def active():
+            return isValid(self) and not self._closed and self.job is not None and self.run_id==run_id and self.pending_fingerprint==fingerprint and self.advice_fingerprint==fingerprint
+        def done(raw):
+            if not active():return
+            self.advice_job=None;self.show_advice(raw,fingerprint);self.advice_label.setText(self.advice_label.text()+'\n'+self.tr('Decision endpoint: {destination}').format(destination=self.advice_destination));self.approve.setEnabled(True);self.reject.setEnabled(True)
+            result=parse_advice(raw);confidence=(' confidence '+f'{result["confidence"]:.0%}') if result['confidence'] is not None else ' confidence unavailable'
+            self.record('advice','System One advice '+result['category'].upper()+confidence+' for proposal '+fingerprint[:12]+' via '+self.advice_destination)
+        def failed(_):
+            if not active():return
+            self.advice_job=None;self.advice_label.setText(self.tr('Safety advice: UNKNOWN · The decision check failed or timed out. Review the command yourself.')+'\n'+self.tr('Decision endpoint: {destination}').format(destination=self.advice_destination))
+            self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('advice','System One advice unavailable for proposal '+fingerprint[:12]+' via '+self.advice_destination)
+        self.advice_job=Job(lambda emit,cancel:decision_advice.request(connection,proposal,cancel),done,failed)
+
     def role_connection(self,role):
         name=self.roles[role][0].currentData()
         if not name:return None
         c=dict(self.window.connections.get(name,{}));c['model']=self.roles[role][1].text().strip()
         if not c.get('url') or not c.get('model'):
-            raise ValueError(self.tr('Choose a connection and model alias for Heavy.') if role=='heavy' else self.tr('Choose a connection and model alias for Light.'))
+            raise ValueError({'heavy':self.tr('Choose a connection and model alias for Heavy.'),'light':self.tr('Choose a connection and model alias for Light.'),'decision':self.tr('Choose a connection and model alias for Decision.')}[role])
         return c
 
     def start_coding(self):
         if self.job or self._closed:return
         try:
             self.save_models();heavy=self.role_connection('heavy');light=self.role_connection('light') if self.light_enabled.isChecked() else None
+            advice=self.role_connection('decision') if self.advice_enabled.isChecked() else None
+            if self.advice_enabled.isChecked() and not advice:raise ValueError(self.tr('Choose a Decision model before enabling safety advice.'))
+            destination=(self.roles['decision'][0].currentText()+' / '+advice['model']+' / '+core.endpoint(advice,'decision')) if advice else ''
             if not heavy or not self.composer.toPlainText().strip():raise ValueError(self.tr('Choose a heavy model and enter a coding task'))
             context=self.session.get('coding_context') if self.use_context.isChecked() else None
             enabled=self.web_enabled.isChecked();backends=[];provider='none'
@@ -273,6 +323,7 @@ class CodeTab(QWidget):
                     provider='ollama' if any(b.get('kind')=='ollama' and b.get('key') for b in backends) else 'google'
             run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider)
         except ValueError as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
+        self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
         if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.'}[provider])
 
@@ -280,7 +331,7 @@ class CodeTab(QWidget):
         if isinstance(run,CodingRun):self.session['coding_sources']=[];self.update_sources_button()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False)
+        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -350,20 +401,26 @@ class CodeTab(QWidget):
             except (KeyError,TypeError,ValueError):return
         elif kind=='edit_proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
+            self.advice_fingerprint=None;self.advice_label.hide()
             proposal=event['proposal'];self.diff.setVisible(True);self.diff.setPlainText(proposal['diff'])
             self.approval.setPlainText(self.tr('FILE EDIT\nProject: {project}\nPath: {path}\nReview the full diff below.\nSafety recommendation: Not checked; no System One request was made.').format(project=proposal['cwd'],path=proposal['path']))
             self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval for file edit: '+proposal['path'])
         elif kind=='operation_proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval';proposal=event['proposal'];operation=proposal['operation']
+            self.advice_fingerprint=self.pending_fingerprint if operation=='run_shell' else None
+            if operation=='run_shell':self.show_advice()
+            else:self.advice_label.hide()
             self.diff.setPlainText(proposal.get('diff',''));self.diff.setVisible(operation=='delete_file')
             if operation=='run_shell':
-                text=self.tr('SHELL COMMAND\nWorking directory: {cwd}\nShell: {shell}\nTime limit: up to {seconds} seconds; output limit: {size} bytes.\nThe command runs with your account permissions, including network and access outside the project. It is not sandboxed.\nInherited environment variables: {environment}\nSafety recommendation: Not checked.\n\nCommand:\n{command}').format(cwd=proposal['cwd'],shell=proposal['shell'],seconds=proposal['max_seconds'],size=proposal['max_output_bytes'],environment=', '.join(proposal['environment_keys']),command=proposal['command'])
+                text=self.tr('SHELL COMMAND\nWorking directory: {cwd}\nShell: {shell}\nTime limit: up to {seconds} seconds; output limit: {size} bytes.\nThe command runs with your account permissions, including network and access outside the project. It is not sandboxed.\nInherited environment variables: {environment}\n\nCommand:\n{command}').format(cwd=proposal['cwd'],shell=proposal['shell'],seconds=proposal['max_seconds'],size=proposal['max_output_bytes'],environment=', '.join(proposal['environment_keys']),command=proposal['command'])
             else:
                 label=self.tr('DELETE FILE') if operation=='delete_file' else self.tr('CREATE DIRECTORY')
                 text=self.tr('{operation}\nProject: {project}\nPath: {path}\nSafety recommendation: Not checked.').format(operation=label,project=proposal['cwd'],path=proposal['path'])
             self.approval.setPlainText(text);self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval: '+operation+' '+proposal.get('path',''))
+            if operation=='run_shell' and self.advice_connection:self.check_advice(proposal,self.pending_fingerprint)
         elif kind=='proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
+            self.advice_fingerprint=None;self.advice_label.hide()
             proposal=event['proposal'];self.diff.setVisible(True)
             self.approval.setPlainText(self.tr('SIMULATION ONLY\nDirectory: {directory}\nArguments: {arguments}\nRecommendation: {recommendation}').format(directory=proposal['cwd'],arguments=json.dumps(proposal['argv']),recommendation=event['recommendation']))
             self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting explicit approval for simulated step.')
@@ -380,17 +437,21 @@ class CodeTab(QWidget):
             if event.get('usage'):self.record('usage',event['usage'])
 
     def decide(self,allowed):
+        if self.advice_job:return
         if self.job and self.pending_fingerprint and self.job.decide(self.pending_fingerprint,allowed):
             decision=self.pending_fingerprint;self.approve.setEnabled(False);self.reject.setEnabled(False);self.pending_fingerprint=None
+            self.advice_fingerprint=None
             self.approval_panel.hide();self.approval.clear();self.diff.clear()
             self.session['code_state']='running';self.record('decision',('Approved' if allowed else 'Rejected')+' proposal '+decision)
 
     def finish(self):
-        self.run_id=None;self.job=None;self.pending_fingerprint=None
+        if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
+        self.advice_connection=None;self.advice_destination=''
+        self.run_id=None;self.job=None;self.pending_fingerprint=None;self.advice_fingerprint=None
         self.approval_panel.hide()
         for button in (self.approve,self.reject,self.cancel_button):button.setEnabled(False)
         self.simulate.setEnabled(True);self.send.setEnabled(True)
-        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True)
+        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 

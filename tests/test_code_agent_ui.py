@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import MagicMock,patch
@@ -13,6 +14,83 @@ from test_compat_tools import chat
 from test_code_agent import call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_advice_does_not_send_decision_credential_in_command(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.job=MagicMock();tab.run_id='run';tab.advice_connection={'url':'https://example.com','model':'safety','api_key':'decision-secret'};tab.advice_destination='Example / safety'
+                proposal={'operation':'run_shell','cwd':str(project),'path':'.','command':'echo decision-secret','shell':'powershell.exe','environment_keys':['PATH'],'max_seconds':45,'max_output_bytes':32000}
+                with patch('agentnik.decision_advice.request') as request:
+                    tab.receive({'run_id':'run','kind':'operation_proposal','fingerprint':'one','proposal':proposal});request.assert_not_called()
+                self.assertIn('UNKNOWN',tab.advice_label.text());self.assertIn('no request was made',tab.advice_label.text());self.assertTrue(tab.approve.isEnabled())
+                self.assertNotIn('decision-secret',json.dumps(store.list_sessions()))
+                tab.job=None;tab.run_id=None
+            finally:window.close();app.processEvents();store.db.close()
+
+    def test_advice_failure_is_unknown_and_late_result_is_ignored(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        def settle(predicate):
+            deadline=time.monotonic()+4
+            while not predicate() and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+            self.assertTrue(predicate())
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            release=threading.Event();started=threading.Event()
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.job=MagicMock();tab.run_id='run';tab.advice_connection={'url':'https://example.com','model':'safety','api_key':'secret'};tab.advice_destination='Example / safety'
+                proposal={'operation':'run_shell','cwd':str(project),'path':'.','command':'echo test','shell':'powershell.exe','environment_keys':['PATH'],'max_seconds':45,'max_output_bytes':32000}
+                with patch('agentnik.decision_advice.request',side_effect=ValueError('private error')):
+                    tab.receive({'run_id':'run','kind':'operation_proposal','fingerprint':'one','proposal':proposal});settle(lambda:tab.advice_job is None)
+                self.assertIn('UNKNOWN',tab.advice_label.text());self.assertTrue(tab.approve.isEnabled());self.assertNotIn('private error',json.dumps(tab.session))
+                def delayed(*args):started.set();release.wait(3);return {'answers':{'risk':{'choice':'safe'}}}
+                with patch('agentnik.decision_advice.request',side_effect=delayed):
+                    tab.receive({'run_id':'run','kind':'operation_proposal','fingerprint':'two','proposal':proposal});settle(started.is_set)
+                    tab.cancel();release.set()
+                    for _ in range(20):app.processEvents();time.sleep(.005)
+                self.assertIsNone(tab.job);self.assertNotIn('advice SAFE',json.dumps(tab.session))
+            finally:release.set();window.close();app.processEvents();store.db.close()
+
+    def test_enabled_decision_advice_waits_for_review_and_never_approves(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        def settle(predicate):
+            deadline=time.monotonic()+4
+            while not predicate() and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+            self.assertTrue(predicate())
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
+            store.config['connections']={'Heavy':{'url':'https://gateway.example/v1','protocol':'chat','model':'coder','stream':False},'Decision':{'url':'https://decision.example/v1','protocol':'chat','model':'safety','api_key':'decision-secret'}}
+            window=Window(store);started=threading.Event();release=threading.Event();seen=[]
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                for role,name in [('heavy','Heavy'),('decision','Decision')]:tab.roles[role][0].setCurrentIndex(tab.roles[role][0].findData(name))
+                self.assertFalse(tab.advice_enabled.isChecked());tab.advice_enabled.setChecked(True);tab.composer.setPlainText('Run a command')
+                replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo hello'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                def advice(connection,proposal,cancel):
+                    seen.append((connection,proposal));started.set();release.wait(3)
+                    return {'answers':{'risk':{'choice':'danger','confidence':.9}}}
+                with patch.object(core,'open_request',side_effect=replies),patch('agentnik.decision_advice.request',side_effect=advice),patch('agentnik.shell.execute',return_value={'exit_code':0,'output':'ok','truncated':False}) as execute:
+                    tab.start_coding();settle(started.is_set)
+                    self.assertFalse(tab.approve.isEnabled());self.assertFalse(tab.reject.isEnabled());self.assertTrue(tab.cancel_button.isEnabled())
+                    tab.decide(True);execute.assert_not_called()
+                    self.assertEqual(seen[0][0]['model'],'safety');self.assertEqual(seen[0][1]['command'],'echo hello')
+                    release.set();settle(lambda:tab.approve.isEnabled())
+                    self.assertIn('DANGER',tab.advice_label.text());self.assertIn('decision.example',tab.advice_label.text());execute.assert_not_called()
+                    tab.decide(True);settle(lambda:tab.job is None);execute.assert_called_once()
+                saved=store.list_sessions()[0];self.assertTrue(saved['coding_advice_enabled']);self.assertNotIn('decision-secret',json.dumps(saved))
+            finally:release.set();window.close();app.processEvents();store.db.close()
+
     def test_shell_and_delete_approval_display_scope_and_diff(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
@@ -24,8 +102,14 @@ class CodingWorkspace(unittest.TestCase):
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
                 tab=window.tabs.currentWidget();tab.job=MagicMock();tab.run_id='run';window.show();app.processEvents()
                 proposal={'operation':'run_shell','cwd':str(project),'path':'.','command':'echo test','shell':'powershell.exe','environment_keys':['PATH'],'max_seconds':45,'max_output_bytes':32000}
-                tab.receive({'run_id':'run','kind':'operation_proposal','fingerprint':'one','proposal':proposal})
+                with patch('agentnik.decision_advice.request') as request:
+                    tab.receive({'run_id':'run','kind':'operation_proposal','fingerprint':'one','proposal':proposal});request.assert_not_called()
                 self.assertIn('echo test',tab.approval.toPlainText());self.assertIn('network',tab.approval.toPlainText());self.assertIn('not sandboxed',tab.approval.toPlainText());self.assertFalse(tab.diff.isVisible())
+                self.assertIn('NOT CHECKED',tab.advice_label.text());self.assertTrue(tab.approve.isEnabled())
+                tab.show_advice({'answers':{'risk':{'choice':'danger','confidence':.9}}},'stale')
+                self.assertIn('NOT CHECKED',tab.advice_label.text())
+                tab.show_advice({'answers':{'risk':{'choice':'danger','confidence':.9}}},'one')
+                self.assertIn('DANGER',tab.advice_label.text());self.assertIn('90%',tab.advice_label.text());self.assertTrue(tab.approve.isEnabled())
                 tab.job.decide.return_value=True;tab.decide(False)
                 tab.receive({'run_id':'run','kind':'operation_proposal','fingerprint':'two','proposal':{'operation':'delete_file','cwd':str(project),'path':'old.txt','diff':'-old text'}})
                 self.assertIn('DELETE FILE',tab.approval.toPlainText());self.assertIn('-old text',tab.diff.toPlainText());self.assertTrue(tab.diff.isVisible())

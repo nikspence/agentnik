@@ -44,6 +44,10 @@ def validate_session(value, ident=None):
         require(all(isinstance(e,dict) and isinstance(e.get('kind'),str) and isinstance(e.get('text'),str) and len(e['text'])<=2048 for e in activity))
         if 'coding_light_enabled' in data: require(type(data['coding_light_enabled']) is bool)
         if 'coding_web_enabled' in data: require(type(data['coding_web_enabled']) is bool)
+        if 'coding_advice_enabled' in data: require(type(data['coding_advice_enabled']) is bool)
+        if 'coding_decision_model' in data:
+            decision=data['coding_decision_model'];require(isinstance(decision,dict) and set(decision)=={'connection','model'})
+            require(all(isinstance(value,str) and len(value)<=1000 for value in decision.values()))
         if 'coding_sources' in data:
             sources=data['coding_sources'];require(isinstance(sources,list) and len(sources)<=32)
             for source in sources:

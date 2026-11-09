@@ -20,7 +20,9 @@ The workflow shares limits of nine model requests (including light delegations),
 
 ## Approval and next steps
 
-The earlier no-execution simulation remains available for trying the UI. Its approvals cannot authorize real edits. Real edits show **Not checked** for safety recommendations; optional System One review is not yet connected and cannot grant approval. Heavy/light model outputs are untrusted proposals, not execution authority.
+The earlier no-execution simulation remains available for trying the UI. Its approvals cannot authorize real edits. Optional System One advice applies to shell approvals only; other operations show **Not checked**. Heavy/light model outputs and advisory results are not execution authority.
+
+Optional Decision advice sends the exact shell command, working directory, shell, and inherited environment variable names to the selected System One endpoint; environment values and file contents are not sent. The checkbox defaults off. A bounded asynchronous request validates known safety categories and optional confidence and displays an advisory badge tied to the pending shell approval. Unknown, malformed, failed, and timed-out responses remain unknown; a badge never approves a command. Cancellation invalidates late results. Offline fixtures cover the request and approval lifecycle; no real decision model has been verified for this feature.
 
 Completed and failed runs report Heavy and Light request counts and provider-reported input/output tokens separately; missing counts are marked unknown or known usage only. Cancelled runs may lack a final summary. Next: validate more tool-capable models through explicitly authorized checks, improve task routing controls, and add tests for longer multi-file work.
 
@@ -28,7 +30,7 @@ Completed and failed runs report Heavy and Light request counts and provider-rep
 
 Single-file deletion requires a prior read, shows a deletion diff, and rechecks the content hash after approval. Directory creation is limited to one directory with an existing parent. Each action uses a separate approval and project path checks; recursive deletion is not provided as a filesystem tool.
 
-The shell executor binds approval to the exact command, shell, working directory and inherited environment snapshot. The preview discloses unrestricted user-level filesystem and network access; shell commands can execute Git or other programs. PowerShell on Windows runs in a kill-on-close process job; POSIX uses a process group, which does not contain detached processes. Command time and output are bounded, known keys are redacted, and cancellation retains completed effects. A Windows build-host smoke check covered PowerShell and child-process cancellation; POSIX and live model compatibility remain open. System One is not connected. Stronger OS isolation, interactive command support, and MCP/Skills integration remain future work.
+The shell executor binds approval to the exact command, shell, working directory and inherited environment snapshot. The preview discloses unrestricted user-level filesystem and network access; shell commands can execute Git or other programs. PowerShell on Windows runs in a kill-on-close process job; POSIX uses a process group, which does not contain detached processes. Command time and output are bounded, known keys are redacted, and cancellation retains completed effects. A Windows build-host smoke check covered PowerShell and child-process cancellation; POSIX and live model compatibility remain open. Stronger OS isolation, interactive command support, and MCP/Skills integration remain future work.
 
 ## Planned web research and adjustable run limits
 
