@@ -11,7 +11,7 @@ import datetime
 import math
 import time
 
-from PySide6.QtCore import Qt, Signal, QObject, QTimer, QByteArray, QBuffer, QIODevice, QEvent
+from PySide6.QtCore import Qt, Signal, QObject, QTimer, QByteArray, QBuffer, QIODevice, QEvent, QCoreApplication
 from PySide6.QtGui import QAction, QColor, QPainter, QPixmap, QIcon, QDesktopServices, QPalette, QShortcut, QKeySequence, QTextCursor
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -69,16 +69,16 @@ def number(value, suffix=''):
     return '—' if value is None else f'{value:,.2f}{suffix}' if isinstance(value, float) else f'{value:,}{suffix}'
 
 def metrics_text(m):
-    parts = ['Prompt '+number(m.get('input_tokens'))+' tokens', 'Generation '+number(m.get('output_tokens'))+' tokens']
-    for label, key in [('Prompt', 'prompt_tps'), ('Generation', 'generation_tps')]:
-        if m.get(key) is not None: parts.append(label+' '+number(m[key], ' tok/s'))
+    parts = [QCoreApplication.translate('Metrics','Prompt {value} tokens').format(value=number(m.get('input_tokens'))),QCoreApplication.translate('Metrics','Generation {value} tokens').format(value=number(m.get('output_tokens')))]
+    for template, key in [(QCoreApplication.translate('Metrics','Prompt {value} tok/s'), 'prompt_tps'), (QCoreApplication.translate('Metrics','Generation {value} tok/s'), 'generation_tps')]:
+        if m.get(key) is not None: parts.append(template.format(value=number(m[key])))
     if m.get('prompt_tps') is None or m.get('generation_tps') is None:
         total_rate = core.total_token_rate(m)
-        parts.append('Overall '+number(total_rate, ' tok/s')+' (input + output / elapsed)')
-    parts.extend(['Thinking '+number(m.get('thinking_seconds_estimate'), ' s (arrival estimate)'), 'Total '+number(m.get('total_seconds'), ' s')])
+        parts.append(QCoreApplication.translate('Metrics','Overall {value} tok/s (input + output / elapsed)').format(value=number(total_rate)))
+    parts.extend([QCoreApplication.translate('Metrics','Thinking {value} s (arrival estimate)').format(value=number(m.get('thinking_seconds_estimate'))),QCoreApplication.translate('Metrics','Total {value} s').format(value=number(m.get('total_seconds')))])
     if 'model_requests' in m:
-        parts.extend([str(m['model_requests'])+' model request(s)', 'Managed tools '+number(m.get('tool_seconds'),' s')])
-        if not m.get('usage_complete',False): parts.append('Known usage only')
+        parts.extend([QCoreApplication.translate('Metrics','{count} model request(s)').format(count=m['model_requests']),QCoreApplication.translate('Metrics','Managed tools {value} s').format(value=number(m.get('tool_seconds')))])
+        if not m.get('usage_complete',False): parts.append(QCoreApplication.translate('Metrics','Known usage only'))
     return ' · '.join(parts)
 
 class MessageText(QTextBrowser):
@@ -193,20 +193,20 @@ class AttachmentBox(QWidget):
     def refresh(self):
         self.list.clear(); self.list.setVisible(bool(self.paths))
         for i, p in enumerate(self.paths):
-            item = QListWidgetItem(QIcon(p), f'Image {i+1}'); item.setToolTip(p); item.setData(Qt.ItemDataRole.UserRole, p); self.list.addItem(item)
+            item = QListWidgetItem(QIcon(p), self.tr('Image {number}').format(number=i+1)); item.setToolTip(p); item.setData(Qt.ItemDataRole.UserRole, p); self.list.addItem(item)
     def set_paths(self, paths): self.paths = list(paths); self.refresh()
     def add(self, paths):
         try:
             for path in paths:
                 image = QPixmap(path)
-                if image.isNull(): raise ValueError(f'Cannot read image: {Path(path).name}')
+                if image.isNull(): raise ValueError(self.tr('Cannot read image: {name}').format(name=Path(path).name))
                 core.image_block(path, 'chat')
                 stored = self.store.attach(path)
                 if stored not in self.paths: self.paths.append(stored)
             self.refresh(); self.changed.emit()
         except Exception as exc: error(self, exc)
     def choose(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, 'Attach images', '', 'Images (*.png *.jpg *.jpeg *.webp *.gif)'); self.add(paths)
+        paths, _ = QFileDialog.getOpenFileNames(self, self.tr('Attach images'), '', self.tr('Images (*.png *.jpg *.jpeg *.webp *.gif)')); self.add(paths)
     def paste(self):
         image = QApplication.clipboard().image()
         if image.isNull(): return error(self, self.tr('The clipboard does not contain an image.'))
@@ -693,7 +693,7 @@ class SessionTab(QWidget):
         cancelled = self.job and self.job.cancel.is_set(); self.job = None; self.busy(False); self.partial = None
         self.info.setText(self.tr('Cancelled. The server may still finish processing.') if cancelled else message)
         if not cancelled and ('401' in message or '403' in message):
-            key,ok = QInputDialog.getText(self,'Endpoint authentication','API key for this tab (not saved):',QLineEdit.EchoMode.Password)
+            key,ok = QInputDialog.getText(self,self.tr('Endpoint authentication'),self.tr('API key for this tab (not saved):'),QLineEdit.EchoMode.Password)
             if ok:
                 self.credentials['api_key'] = key
                 self.credentials['_capability_scope'] = uuid.uuid4().hex
@@ -768,9 +768,9 @@ class SessionTab(QWidget):
         for q in form['questions']: self.add_question(q)
         self.loading = False; self.save_draft()
     def show_text(self,title,text):
-        dlg = QDialog(self); dlg.setWindowTitle(title); dlg.resize(720,520); layout = QVBoxLayout(dlg); view = QPlainTextEdit(); view.setReadOnly(True); view.setPlainText(text); layout.addWidget(view); button('Close',dlg.accept,layout); dlg.exec()
+        dlg = QDialog(self); dlg.setWindowTitle(title); dlg.resize(720,520); layout = QVBoxLayout(dlg); view = QPlainTextEdit(); view.setReadOnly(True); view.setPlainText(text); layout.addWidget(view); button(self.tr('Close'),dlg.accept,layout); dlg.exec()
     def export_session(self):
-        path,_ = QFileDialog.getSaveFileName(self,'Export session','conversation.json','JSON (*.json)')
+        path,_ = QFileDialog.getSaveFileName(self,self.tr('Export session'),'conversation.json','JSON (*.json)')
         if path:
             try:
                 self.save_draft(); Path(path).write_text(json.dumps(self.session,indent=2)+'\n',encoding='utf-8')
@@ -932,7 +932,7 @@ class Window(QMainWindow):
             self.manage_connections()
             if not self.connections: return
         if name is None:
-            name,ok = QInputDialog.getItem(self,'New decision' if mode=='decision' else 'New chat','Connection:',list(self.connections),0,False)
+            name,ok = QInputDialog.getItem(self,self.tr('New decision') if mode=='decision' else self.tr('New chat'),self.tr('Connection:'),list(self.connections),0,False)
             if not ok: return
         session = self.store.new_session(mode,name,self.connections[name]); self.store.save(session); self.open_session(session); self.refresh_history()
     def open_session(self,session):
@@ -972,7 +972,7 @@ class Window(QMainWindow):
         if not item: return
         session = next(s for s in self.store.list_sessions() if s['id']==item.data(Qt.ItemDataRole.UserRole))
         if session.get('_unavailable'): return error(self,self.tr('This session cannot be renamed until its stored data is repaired. The original record is preserved.'))
-        name,ok = QInputDialog.getText(self,'Rename session','Title:',text=session['title'])
+        name,ok = QInputDialog.getText(self,self.tr('Rename session'),self.tr('Title:'),text=session['title'])
         if ok and name.strip():
             session['title'] = name.strip()
             for i in range(self.tabs.count()):
@@ -1003,9 +1003,10 @@ class Window(QMainWindow):
         total_in = sum(m.get('input_tokens',0) for m in measurements); total_out = sum(m.get('output_tokens',0) for m in measurements)
         unknown = any('input_tokens' not in m or 'output_tokens' not in m or m.get('usage_complete') is False for m in measurements)
         last = measurements[-1] if measurements else {}; context = last.get('last_input_tokens',last.get('input_tokens')); limit = last.get('context_limit') or s['connection'].get('context_limit')
-        text = f'Context (last input): {number(context)} / {number(limit or None)}'
+        text = self.tr('Context (last input): {current} / {limit}').format(current=number(context),limit=number(limit or None))
         if context is not None and limit: text += f' ({context/limit:.1%})'
-        self.statusBar().showMessage(text+f' tokens   ·   Total in: {number(total_in)}   ·   Total out: {number(total_out)}'+(' (known usage only)' if unknown else '')+'   ·   '+s['connection_name'])
+        totals=self.tr(' tokens   ·   Total in: {incoming}   ·   Total out: {outgoing}').format(incoming=number(total_in),outgoing=number(total_out))
+        self.statusBar().showMessage(text+totals+(self.tr(' (known usage only)') if unknown else '')+'   ·   '+s['connection_name'])
     def closeEvent(self,event):
         running = [self.tabs.widget(i) for i in range(self.tabs.count()) if isinstance(self.tabs.widget(i),(SessionTab,CodeTab)) and self.tabs.widget(i).job]
         if running and not confirm(self,self.tr('Requests are running. Close Agentnik and stop receiving responses?')): event.ignore(); return

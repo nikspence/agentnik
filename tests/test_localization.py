@@ -60,7 +60,7 @@ class Localization(unittest.TestCase):
         finally:self.app.removeTranslator(translator)
 
     def test_korean_chat_controls_preserve_user_text(self):
-        from agentnik.ui import Window,MessageBubble
+        from agentnik.ui import Window,MessageBubble,metrics_text
         from PySide6.QtWidgets import QPushButton
         translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
         try:
@@ -81,7 +81,27 @@ class Localization(unittest.TestCase):
                     bubble=MessageBubble({'role':'assistant','text':'Answer','thinking':'Reasoning'})
                     bubble.thinking_toggle.setChecked(True);self.assertEqual(bubble.thinking_toggle.text(),'사고 과정 숨기기')
                     bubble.close()
+                    metrics=metrics_text({'input_tokens':80,'output_tokens':20,'total_seconds':4,'model_requests':2,'usage_complete':False})
+                    self.assertIn('프롬프트 80 토큰',metrics);self.assertIn('전체 25.00 토큰/초',metrics)
+                    self.assertIn('알려진 사용량만',metrics);self.assertIn('—',metrics)
                 finally:window.close();self.app.processEvents();store.db.close()
+        finally:self.app.removeTranslator(translator)
+
+    def test_korean_attachments_keep_file_path_and_filter(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QImage,QColor
+        from agentnik.ui import AttachmentBox
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);image=QImage(8,8,QImage.Format.Format_RGB32);image.fill(QColor('red'))
+                path=root/'original.png';self.assertTrue(image.save(str(path)));store=Store(root/'data');box=AttachmentBox(store)
+                try:
+                    with patch('agentnik.ui.QFileDialog.getOpenFileNames',return_value=([str(path)],'')) as picker:box.choose()
+                    self.assertEqual(picker.call_args.args[1],'이미지 첨부');self.assertIn('*.png',picker.call_args.args[3])
+                    self.assertEqual(box.list.item(0).text(),'이미지 1')
+                    self.assertEqual(box.list.item(0).data(Qt.ItemDataRole.UserRole),box.paths[0]);self.assertTrue(Path(box.paths[0]).exists())
+                finally:box.close();store.db.close()
         finally:self.app.removeTranslator(translator)
 
     def test_korean_coding_approval_preserves_paths_and_diff(self):
@@ -142,6 +162,23 @@ class Localization(unittest.TestCase):
                 self.assertEqual(value['model'],'alias');self.assertEqual(value['protocol'],'messages')
                 self.assertEqual(value['context_limit'],4096);self.assertFalse(value['stream'])
             finally:dialog.close()
+        finally:self.app.removeTranslator(translator)
+
+    def test_korean_session_dialogs_preserve_selected_names(self):
+        from agentnik.ui import Window
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+                store=Store(tmp);store.config['connections']={'My connection':{'url':'https://example.test/v1','model':'alias','protocol':'chat'}};window=Window(store)
+                try:
+                    with patch('agentnik.ui.QInputDialog.getItem',return_value=('My connection',True)) as picker:window.new_session('chat')
+                    self.assertEqual(picker.call_args.args[1:3],('새 채팅','연결:'))
+                    self.assertEqual(window.tabs.currentWidget().session['connection_name'],'My connection')
+                    window.history.setCurrentRow(0)
+                    with patch('agentnik.ui.QInputDialog.getText',return_value=('My {title}',True)) as rename:window.rename()
+                    self.assertEqual(rename.call_args.args[1:3],('세션 이름 바꾸기','제목:'))
+                    self.assertEqual(store.list_sessions()[0]['title'],'My {title}')
+                finally:window.close();self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 
     def test_korean_web_settings_preserve_navigation_policy_values(self):

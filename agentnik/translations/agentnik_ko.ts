@@ -18,6 +18,26 @@
             <translation>선택 항목 제거</translation>
         </message>
         <message>
+            <location filename="../ui.py" line="196" />
+            <source>Image {number}</source>
+            <translation>이미지 {number}</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="202" />
+            <source>Cannot read image: {name}</source>
+            <translation>이미지를 읽을 수 없습니다: {name}</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="209" />
+            <source>Attach images</source>
+            <translation>이미지 첨부</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="209" />
+            <source>Images (*.png *.jpg *.jpeg *.webp *.gif)</source>
+            <translation>이미지 (*.png *.jpg *.jpeg *.webp *.gif)</translation>
+        </message>
+        <message>
             <location filename="../ui.py" line="212" />
             <source>The clipboard does not contain an image.</source>
             <translation>클립보드에 이미지가 없습니다.</translation>
@@ -484,6 +504,59 @@ Choose No to export connection settings without keys.</source>
             <location filename="../ui.py" line="152" />
             <source>Hide thinking</source>
             <translation>사고 과정 숨기기</translation>
+        </message>
+    </context>
+    <context>
+        <name>Metrics</name>
+        <message>
+            <location filename="../ui.py" line="72" />
+            <source>Prompt {value} tokens</source>
+            <translation>프롬프트 {value} 토큰</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="72" />
+            <source>Generation {value} tokens</source>
+            <translation>생성 {value} 토큰</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="73" />
+            <source>Prompt {value} tok/s</source>
+            <translation>프롬프트 {value} 토큰/초</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="73" />
+            <source>Generation {value} tok/s</source>
+            <translation>생성 {value} 토큰/초</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="77" />
+            <source>Overall {value} tok/s (input + output / elapsed)</source>
+            <translation>전체 {value} 토큰/초 (입력 + 출력 / 경과 시간)</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="78" />
+            <source>Thinking {value} s (arrival estimate)</source>
+            <translation>사고 {value}초 (도착 시각 기준 추정)</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="78" />
+            <source>Total {value} s</source>
+            <translation>총 {value}초</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="80" />
+            <source>{count} model request(s)</source>
+            <translation>모델 요청 {count}회</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="80" />
+            <source>Managed tools {value} s</source>
+            <translation>관리형 도구 {value}초</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="81" />
+            <source>Known usage only</source>
+            <translation>알려진 사용량만</translation>
         </message>
     </context>
     <context>
@@ -991,6 +1064,16 @@ Saved excerpt; not a fresh or complete page.
             <translation>취소되었습니다. 서버에서는 처리가 계속될 수 있습니다.</translation>
         </message>
         <message>
+            <location filename="../ui.py" line="696" />
+            <source>Endpoint authentication</source>
+            <translation>엔드포인트 인증</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="696" />
+            <source>API key for this tab (not saved):</source>
+            <translation>이 탭의 API 키 (저장되지 않음):</translation>
+        </message>
+        <message>
             <location filename="../ui.py" line="721" />
             <source>Edit and resend prompt</source>
             <translation>프롬프트 수정 후 다시 보내기</translation>
@@ -1011,6 +1094,16 @@ Saved excerpt; not a fresh or complete page.
             <location filename="../ui.py" line="765" />
             <source>Save prompt</source>
             <translation>프롬프트 저장</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="771" />
+            <source>Close</source>
+            <translation>닫기</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="773" />
+            <source>Export session</source>
+            <translation>세션 내보내기</translation>
         </message>
         <message>
             <location filename="../ui.py" line="609" />
@@ -1311,6 +1404,21 @@ Connections are discovered from your environment and local servers.</source>
             <translation>이 저장된 프롬프트를 제거하시겠습니까?</translation>
         </message>
         <message>
+            <location filename="../ui.py" line="935" />
+            <source>New decision</source>
+            <translation>새 결정</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="935" />
+            <source>New chat</source>
+            <translation>새 채팅</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="935" />
+            <source>Connection:</source>
+            <translation>연결:</translation>
+        </message>
+        <message>
             <location filename="../ui.py" line="939" />
             <source>This saved session cannot be opened with the current version. Its original data is preserved in history.sqlite3. Repair or restore the record, or use a compatible Agentnik version.</source>
             <translation>현재 버전에서는 이 저장된 세션을 열 수 없습니다. 원본 데이터는 history.sqlite3에 보존되어 있습니다. 레코드를 복구 또는 복원하거나 호환되는 Agentnik 버전을 사용하세요.</translation>
@@ -1324,6 +1432,16 @@ Connections are discovered from your environment and local servers.</source>
             <location filename="../ui.py" line="974" />
             <source>This session cannot be renamed until its stored data is repaired. The original record is preserved.</source>
             <translation>저장된 데이터를 복구하기 전에는 이 세션의 이름을 바꿀 수 없습니다. 원본 레코드는 보존됩니다.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="975" />
+            <source>Rename session</source>
+            <translation>세션 이름 바꾸기</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="975" />
+            <source>Title:</source>
+            <translation>제목:</translation>
         </message>
         <message>
             <location filename="../ui.py" line="986" />
@@ -1361,7 +1479,22 @@ Connections are discovered from your environment and local servers.</source>
             <translation>준비됨 · 새 채팅: Ctrl+N · 기록 표시 전환: Ctrl+B</translation>
         </message>
         <message>
-            <location filename="../ui.py" line="1011" />
+            <location filename="../ui.py" line="1006" />
+            <source>Context (last input): {current} / {limit}</source>
+            <translation>컨텍스트 (마지막 입력): {current} / {limit}</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="1008" />
+            <source> tokens   ·   Total in: {incoming}   ·   Total out: {outgoing}</source>
+            <translation> 토큰   ·   총 입력: {incoming}   ·   총 출력: {outgoing}</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="1009" />
+            <source> (known usage only)</source>
+            <translation> (알려진 사용량만)</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="1012" />
             <source>Requests are running. Close Agentnik and stop receiving responses?</source>
             <translation>요청이 실행 중입니다. Agentnik을 닫고 응답 수신을 중지하시겠습니까?</translation>
         </message>
