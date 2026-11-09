@@ -69,6 +69,7 @@ class Store:
         self.db = sqlite3.connect(self.root/'history.sqlite3')
         self.db.execute('CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, updated REAL, payload TEXT)')
         self.db.execute('CREATE TABLE IF NOT EXISTS prompts (id TEXT PRIMARY KEY, mode TEXT NOT NULL, created REAL NOT NULL, payload TEXT NOT NULL, UNIQUE(mode, payload))')
+        if 'name' not in {row[1] for row in self.db.execute('PRAGMA table_info(prompts)')}: self.db.execute("ALTER TABLE prompts ADD COLUMN name TEXT NOT NULL DEFAULT ''")
 
     def flush(self):
         temp = self.config_path.with_suffix('.tmp')
@@ -192,18 +193,18 @@ class Store:
         row = self.db.execute('SELECT id FROM prompts WHERE mode=? AND payload=?',(mode,self.prompt_json(mode,payload))).fetchone()
         return row[0] if row else None
 
-    def save_prompt(self, mode, payload):
+    def save_prompt(self, mode, payload, name=""):
         data = self.prompt_json(mode,payload); existing = self.prompt_id(mode,payload)
         if existing: return existing
         ident = str(uuid.uuid4())
-        self.db.execute('INSERT INTO prompts VALUES (?, ?, ?, ?)',(ident,mode,time.time(),data)); self.db.commit()
+        self.db.execute('INSERT INTO prompts (id,mode,created,payload,name) VALUES (?, ?, ?, ?, ?)',(ident,mode,time.time(),data,name)); self.db.commit()
         return ident
 
     def list_prompts(self, mode=None):
         if mode:
-            rows = self.db.execute('SELECT id,mode,payload FROM prompts WHERE mode=? ORDER BY created DESC',(mode,))
-        else: rows = self.db.execute('SELECT id,mode,payload FROM prompts ORDER BY created DESC')
-        return [dict(id=ident,mode=kind,payload=json.loads(payload)) for ident,kind,payload in rows]
+            rows = self.db.execute('SELECT id,mode,payload,name FROM prompts WHERE mode=? ORDER BY created DESC',(mode,))
+        else: rows = self.db.execute('SELECT id,mode,payload,name FROM prompts ORDER BY created DESC')
+        return [dict(id=ident,mode=kind,payload=json.loads(payload),name=name) for ident,kind,payload,name in rows]
 
     def delete_prompt(self, ident):
         self.db.execute('DELETE FROM prompts WHERE id=?',(ident,)); self.db.commit(); self.collect_attachments()

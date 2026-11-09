@@ -253,7 +253,7 @@ class Desktop(unittest.TestCase):
     def test_prompts_panel_saves_filters_and_copies_both_types(self):
         from agentnik.storage import Store
         from agentnik.ui import Window, MessageBubble
-        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]), patch('agentnik.ui.confirm',return_value=True):
+        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]), patch('agentnik.ui.confirm',return_value=True), patch('agentnik.ui.QInputDialog.getText',return_value=('',True)):
             store=Store(root); store.config['connections']={'first':{'url':'http://localhost:11434/v1','model':'one'},'second':{'url':'http://localhost:11434/v1','model':'two'}}; w=Window(store)
             try:
                 w.new_session('chat','first'); first=w.tabs.currentWidget(); w.show(); self.app.processEvents()

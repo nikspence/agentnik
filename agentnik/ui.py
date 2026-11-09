@@ -140,7 +140,7 @@ class MessageBubble(QFrame):
         self.thinking_toggle = QPushButton(self.tr('Show thinking')); self.thinking_toggle.setCheckable(True)
         self.thinking_toggle.setSizePolicy(QSizePolicy.Policy.Maximum,QSizePolicy.Policy.Fixed)
         self.thinking_toggle.toggled.connect(self.toggle_thinking); layout.addWidget(self.thinking_toggle)
-        self.thinking_view = MessageText(); layout.addWidget(self.thinking_view)
+        self.thinking_view = MessageText(); self.thinking_view.setObjectName('thinkingText'); layout.addWidget(self.thinking_view)
         self.text = MessageText(); layout.addWidget(self.text)
         for path in message.get('images',[]):
             label = QLabel(); label.setPixmap(QPixmap(path).scaled(280,180,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)); layout.addWidget(label)
@@ -170,14 +170,15 @@ class MessageBubble(QFrame):
         tint = palette.color(QPalette.ColorRole.Highlight if self.role == 'user' else QPalette.ColorRole.Text)
         weight = .15 if self.role == 'user' else .055
         color = QColor(*[round((1-weight)*a+weight*b) for a,b in zip(base.getRgb()[:3],tint.getRgb()[:3])])
-        style = f'QFrame#{self.objectName()} {{ background-color: {color.name()}; border: 1px solid palette(mid); border-radius: 12px; }}'
+        text_color=palette.color(QPalette.ColorRole.Text); subdued=QColor(*[round(.7*a+.3*b) for a,b in zip(text_color.getRgb()[:3],color.getRgb()[:3])])
+        style = f'QFrame#{self.objectName()} {{ background-color: {color.name()}; border: 1px solid palette(mid); border-radius: 12px; }} QTextEdit#thinkingText {{ color: {subdued.name()}; font-size: {max(1, QApplication.font().pointSizeF() * .9):.1f}pt; }}'
         if self.styleSheet() != style:
             self._restyling = True
             try: self.setStyleSheet(style)
             finally: self._restyling = False
     def changeEvent(self,event):
         super().changeEvent(event)
-        if event.type() in (QEvent.Type.PaletteChange,QEvent.Type.ApplicationPaletteChange) and hasattr(self,'role'): self.restyle()
+        if event.type() in (QEvent.Type.PaletteChange,QEvent.Type.ApplicationPaletteChange,QEvent.Type.ApplicationFontChange) and hasattr(self,'role'): self.restyle()
 
 class AttachmentBox(QWidget):
     changed = Signal()
@@ -185,7 +186,7 @@ class AttachmentBox(QWidget):
         super().__init__(); self.store = store; self.paths = []; self.setAcceptDrops(True)
         outer = QVBoxLayout(self); outer.setContentsMargins(0,0,0,0)
         self.list = QListWidget(); self.list.setViewMode(QListWidget.ViewMode.IconMode)
-        self.list.setIconSize(__import__('PySide6.QtCore', fromlist=['QSize']).QSize(70,55)); self.list.setMaximumHeight(106)
+        self.list.setIconSize(__import__('PySide6.QtCore', fromlist=['QSize']).QSize(70,55)); self.list.setMaximumHeight(88)
         self.list.itemDoubleClicked.connect(lambda item: QDesktopServices.openUrl(QUrl.fromLocalFile(item.data(Qt.ItemDataRole.UserRole))))
         outer.addWidget(self.list); row = QHBoxLayout(); outer.addLayout(row)
         button(self.tr('Attach images…'), self.choose, row); button(self.tr('Paste image'), self.paste, row); button(self.tr('Remove selected'), self.remove, row)
@@ -404,6 +405,14 @@ class Connections(QDialog):
             Path(path).write_text(json.dumps({'connections':result},indent=2)+'\n',encoding='utf-8')
         except Exception as exc: error(self,exc)
 
+class SessionStatus(QLabel):
+    def __init__(self, tab):
+        super().__init__('', tab); self.tab = tab
+    def setText(self, text):
+        super().setText(text)
+        window = self.tab.window
+        if hasattr(window, 'tabs') and window.tabs.currentWidget() is self.tab: window.stats()
+
 class SessionTab(QWidget):
     updated = Signal()
     def __init__(self, window, session):
@@ -427,9 +436,9 @@ class SessionTab(QWidget):
         if session['mode'] == 'chat': top.addWidget(self.reasoning)
         self.stream = QCheckBox(self.tr('Stream')); self.stream.setChecked(session['connection'].get('stream',True))
         if session['mode'] == 'chat': top.addWidget(self.stream)
-        self.info = QLabel(''); self.info.setTextFormat(Qt.TextFormat.PlainText); self.info.setWordWrap(True); layout.addWidget(self.info)
+        self.info = SessionStatus(self); self.info.setTextFormat(Qt.TextFormat.PlainText)
         if session['mode'] == 'chat':
-            web_row = QHBoxLayout(); layout.addLayout(web_row)
+            web_row = QHBoxLayout()
             self.web_access = QCheckBox(self.tr('Web access'))
             self.web_access.setChecked(session.get('research_options',{}).get('enabled',False))
             self.web_access.setToolTip(self.tr('Search queries go to Ollama.com; page reads go directly to public websites.'))
@@ -481,6 +490,7 @@ class SessionTab(QWidget):
         self.send_button = button(self.tr('Run decision') if session['mode'] == 'decision' else self.tr('Send'),self.submit,bottom); self.send_button.setObjectName('primary')
         self.cancel_button = button(self.tr('Cancel'),self.cancel,bottom); self.cancel_button.setEnabled(False); bottom.addStretch()
         button(self.tr('Export session…'),self.export_session,bottom)
+        if session['mode'] == 'chat': bottom.addLayout(web_row)
         self.refresh_connections(); self.model.setEditText(session['connection'].get('model',''))
         self.connection.currentIndexChanged.connect(self.change_connection)
         self.model.currentTextChanged.connect(self.save_draft); self.reasoning.textChanged.connect(self.save_draft); self.stream.toggled.connect(self.save_draft)
@@ -901,15 +911,19 @@ class Window(QMainWindow):
         for prompt in self.store.list_prompts(tab.session['mode']):
             payload = prompt['payload']; text = payload.get('text',payload.get('state',''))
             questions = ' '.join(q.get('instructions','')+' '+' '.join(' '.join(choice) for choice in q.get('choices',[])) for q in payload.get('questions',[]))
-            if needle not in (text+' '+questions).casefold(): continue
-            title = ' '.join(text.split()) or ' '.join(questions.split()) or 'Image prompt'
+            if needle not in (prompt.get('name','')+' '+text+' '+questions).casefold(): continue
+            title = prompt.get('name') or ' '.join(text.split()) or ' '.join(questions.split()) or self.tr('Image prompt')
             count = len(payload.get('images',[])); item = QListWidgetItem(title[:100]+(f'  ·  {count} image(s)' if count else ''))
             item.setToolTip(text or questions); item.setData(Qt.ItemDataRole.UserRole,prompt['id']); self.prompts_list.addItem(item)
             if prompt['id'] == selected: self.prompts_list.setCurrentItem(item)
     def toggle_prompt(self,mode,payload):
         ident = self.store.prompt_id(mode,payload)
         if ident: self.store.delete_prompt(ident)
-        else: self.store.save_prompt(mode,payload)
+        else:
+            default = ' '.join((payload.get('text') or payload.get('state') or '').split())[:100] or self.tr('Saved prompt')
+            name,ok = QInputDialog.getText(self,self.tr('Save prompt'),self.tr('Prompt name:'),text=default)
+            if not ok: return
+            self.store.save_prompt(mode,payload,name.strip() or default)
         self.prompts_changed()
     def prompts_changed(self):
         self.refresh_prompts()
@@ -997,6 +1011,9 @@ class Window(QMainWindow):
     def stats(self,*_):
         self.refresh_prompts()
         tab = self.tabs.currentWidget()
+        if not hasattr(self,'session_status'):
+            self.session_status=QLabel(); self.session_status.setTextFormat(Qt.TextFormat.PlainText); self.statusBar().addPermanentWidget(self.session_status)
+        self.session_status.setText(tab.info.text() if isinstance(tab,SessionTab) else '')
         if isinstance(tab,CodeTab): self.statusBar().showMessage(self.tr('Code · {project} · {state}').format(project=tab.session['project_name'],state=self.tr('Running') if tab.job else self.tr('Ready'))); return
         if not isinstance(tab,SessionTab): self.statusBar().showMessage(self.tr('Ready · New chat: Ctrl+N · Toggle history: Ctrl+B')); return
         s = tab.session; measurements = [m['metrics'] for m in s['messages'] if 'metrics' in m] if s['mode']=='chat' else [r['result']['metrics'] for r in s['runs']]
