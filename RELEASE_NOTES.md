@@ -1,4 +1,13 @@
-# Agentnik v0.3.1
+# Agentnik v0.3.2
+
+Windows x64 onedir release; extract the complete archive and run `Agentnik/Agentnik.exe`. The build is unsigned. Verify the SHA-256 sidecar.
+
+## Changes since v0.3.1
+
+- Compact Code pane with grouped model selectors and approval controls shown when needed.
+- Decision model selection is available; System One safety checks are not yet connected.
+
+## Earlier release: v0.3.1
 
 Windows x64 onedir release. Extract the whole ZIP and launch `Agentnik/Agentnik.exe`, keeping `_internal` alongside it. Verify the SHA-256 sidecar. This build is unsigned.
 

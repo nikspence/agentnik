@@ -51,7 +51,7 @@ See [DEVELOPMENT_VALIDATION.md](DEVELOPMENT_VALIDATION.md) for the opt-in live c
 
 ## Project status
 
-Milestones B and C provide a bounded research preview with native Ollama and Responses managed tools, OpenAI Responses hosted search, all four route policies, visible fallback, sources, persistence, and shared accounting. Scoped live LiteLLM checks passed streamed chat and tool continuation for selected ChatGPT/Ollama Cloud aliases, plus real managed search and page retrieval using `chatgpt/gpt-6-luna`; see [live results](MILESTONE_D_LIVE_RESULTS.md). Other models/routes remain unverified. Milestone D now includes Chat Completions and Messages managed adapters; live compatibility, broader platform checks, and distribution readiness remain outstanding; see `AGENTNIK_PLAN.md`.
+Milestones B and C provide a bounded research preview with native Ollama and Responses managed tools, OpenAI Responses hosted search, all four route policies, visible fallback, sources, persistence, and shared accounting. Scoped live LiteLLM checks passed streamed chat and tool continuation for selected ChatGPT/Ollama Cloud aliases, plus real managed search and page retrieval using `chatgpt/gpt-6-luna`; see VALIDATION.md. Other models/routes remain unverified. Milestone D now includes Chat Completions and Messages managed adapters; live compatibility, broader platform checks, and distribution readiness remain outstanding; see `AGENTNIK_PLAN.md`.
 
 Post-v0.2.0 development includes **Repositories** for local Git repositories or ordinary folders, a searchable **＋ Code** picker, and independent coding panes. Removing or relocating a registry entry preserves files/history and each pane's original directory snapshot.
 
@@ -227,7 +227,7 @@ Windows source and offscreen Qt checks are recorded in `VALIDATION.md`. macOS/Li
 
 ## Packaging
 
-The Windows x64 release is **v0.3.1**. Extract the complete `Agentnik-v0.3.1-windows-x64.zip` archive and run `Agentnik/Agentnik.exe`; keep its `_internal` folder beside it. Python is bundled. See [release notes](RELEASE_NOTES.md) and the bundled `BUILD-MANIFEST.json` for changes and build evidence. The build is unsigned. Research remains a preview with scoped live compatibility results; full native workflow, clean-machine, and macOS/Linux validation remain pending. Earlier release tags and archives are preserved.
+The Windows x64 release is **v0.3.2**. Extract the complete `Agentnik-v0.3.2-windows-x64.zip` archive and run `Agentnik/Agentnik.exe`; keep its `_internal` folder beside it. Python is bundled. See [release notes](RELEASE_NOTES.md) and the bundled `BUILD-MANIFEST.json` for changes and build evidence. The build is unsigned. Research remains a preview with scoped live compatibility results; full native workflow, clean-machine, and macOS/Linux validation remain pending. Earlier release tags and archives are preserved.
 
 The Python wheel has been built and installed locally; see [validation results](VALIDATION.md). To build a wheel without resolving runtime dependencies:
 
