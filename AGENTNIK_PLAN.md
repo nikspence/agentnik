@@ -220,6 +220,8 @@ Bind each session to its project; never silently change a running working direct
 
 ### E4: Approved filesystem and shell tools
 
+Also plan opt-in web research within the coding loop and per-pane controls for rounds, requests, tool calls, time, and context. A compact Limits control may share the Light delegation row; see [CODING_BACKEND_PLAN.md](CODING_BACKEND_PLAN.md) for routing, shared-budget, disclosure, and acceptance requirements.
+
 Extend the coding backend with file deletion, directory creation, and shell-command tools. Implement filesystem operations first, each with an exact path preview, workspace containment checks, link/traversal defenses, and a separate explicit approval. Deletion should default to a single file; recursive deletion requires a distinct, clearly scoped review and must never follow links outside the selected project. Directory creation must remain inside the selected project and report existing-path conflicts without modifying them.
 
 Add shell execution only through a dedicated executor, never by invoking a shell inline from the UI or trusting model-generated commands. Show the exact command and arguments, working directory, inherited/selected environment, and network policy before each approval. Enforce per-run and per-command time, process-tree, output, and concurrency limits; cancellation must stop scheduling and terminate the owned process tree where the platform permits. Keep credentials out of command display, logs, model context, and persisted activity. Network access and access outside the selected project require separate explicit policy and approval. Explain that application checks are not an operating-system sandbox; investigate stronger platform isolation before allowing untrusted projects or commands.

@@ -30,6 +30,14 @@ Add approved single-file deletion and workspace-contained directory creation, wi
 
 Shell tools require a dedicated executor that displays and binds approval to the exact command, arguments, working directory, environment, and network policy. Bound execution time, process trees, output, and concurrency; redact credentials from UI, model context, logs, and stored activity. Test a fake executor before native execution and validate platform-specific process cleanup. Application path checks do not constitute an OS sandbox, so investigate stronger isolation before accepting untrusted projects or arbitrary commands. System One may provide an advisory about the exact command but never supplies authorization. Any scope or command change requires fresh approval. Git commit/push and other remote-changing actions are excluded unless separately planned. MCP and Skills must use the same execution and approval boundaries.
 
+## Planned web research and adjustable run limits
+
+Allow the coding loop to use Agentnik's existing web research capabilities for documentation and other task research. Web access is opt-in per Code pane; disclose the selected search route, destinations, and information sent, and reuse existing credentials, navigation protections, bounded retrieval, cancellation, and source attribution. Keep retrieved content untrusted and prevent it from granting tool permissions or overriding the user's instructions. Heavy can use research tools; Light retains its current bounded delegation without independent tools. The current coding loop does not yet provide web tools.
+
+Add user-adjustable limits for coding rounds, model requests and tool calls, elapsed time, and retained context. Explain units and defaults, validate bounded values, persist choices per Code pane, and snapshot them at run start. Preserve shared budgets across Heavy, Light, and web work; show which limit stopped a run and retain already approved changes. Consider a compact Limits control on the same row as **Allow Light model delegation**, opening a settings panel if inline fields would crowd the pane. Keep sensible defaults and a reset action.
+
+Acceptance: cover disabled and enabled research, source attribution, untrusted page content, cancellation, and shared budget exhaustion with offline fixtures. Verify default and custom limits, validation, persistence, per-pane independence, and clear limit-reached messages; separately qualify live model and provider combinations when authorized.
+
 ## Planned Code pane controls and approval layout
 
 Keep the **Allow Light model delegation** checkbox visible in the normal Code pane. Place **Send previous task and answer with next run** on the same row. Put the Heavy, Light, and Decision model connection/alias selectors together in a collapsed-by-default panel that opens when clicked; preserve the current saved assignments and make it clear which Decision model is used for the optional System One safety recommendation.
