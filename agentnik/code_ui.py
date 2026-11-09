@@ -1,6 +1,7 @@
 """Repository picker and Agentnik-owned coding pane."""
 from pathlib import Path
 import json
+import re
 import threading
 from PySide6.QtCore import Qt,Signal,QObject
 from PySide6.QtWidgets import QWidget,QDialog,QVBoxLayout,QHBoxLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox
@@ -93,7 +94,7 @@ class CodeTab(QWidget):
         if current is None:note+=' '+self.tr('This project was removed from the registry; its history is retained.')
         elif current['path']!=session['path_snapshot']:note+=' '+self.tr('The registered folder moved. This session retains its original path; open a new Code pane to use the relocated folder.')
         info=QLabel(note);info.setWordWrap(True);layout.addWidget(info)
-        self.activity=QPlainTextEdit('\n'.join(plain(e.get('text',e.get('kind',''))) for e in session.get('code_activity',[])) or self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
+        self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])) or self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
         self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));layout.addWidget(self.composer)
         context=session.get('coding_context')
         self.context_view=QPlainTextEdit(self.context_text(context))
@@ -193,9 +194,43 @@ class CodeTab(QWidget):
     def save_draft(self):
         self.session['draft']=self.composer.toPlainText();self.store.save(self.session);self.updated.emit()
 
+    def activity_text(self,event):
+        kind=event.get('kind','');text=plain(event.get('text',kind))
+        fixed={('started','Agentnik coding started. Repository content goes to the selected models; edits await approval.'):self.tr('Agentnik coding started. Repository content goes to the selected models; edits await approval.'),
+               ('started','Simulation started; no commands or inference will run.'):self.tr('Simulation started; no commands or inference will run.'),
+               ('approval','Awaiting explicit approval for simulated step.'):self.tr('Awaiting explicit approval for simulated step.'),
+               ('cancelled','Run cancelled. No further tool work will be scheduled; already approved edits are retained.'):self.tr('Run cancelled. No further tool work will be scheduled; already approved edits are retained.'),
+               ('interrupted','Interrupted coding run; nothing resumes automatically.'):self.tr('Interrupted coding run; nothing resumes automatically.')}
+        if (kind,text) in fixed:return fixed[(kind,text)]
+        prefix='Awaiting approval for file edit: '
+        if kind=='approval' and text.startswith(prefix):return self.tr('Awaiting approval for file edit: {path}').format(path=text[len(prefix):])
+        for prefix,template in [('Approved proposal ',self.tr('Approved proposal {id}')),('Rejected proposal ',self.tr('Rejected proposal {id}'))]:
+            if kind=='decision' and text.startswith(prefix):return template.format(id=text[len(prefix):])
+        if kind=='output':
+            prefix='Heavy task: requesting ';suffix=' through the selected connection.'
+            if text.startswith(prefix) and text.endswith(suffix):return self.tr('Heavy task: requesting {model} through the selected connection.').format(model=text[len(prefix):-len(suffix)])
+            prefix='Light task delegated to ';suffix=' through its configured connection.'
+            if text.startswith(prefix) and text.endswith(suffix):return self.tr('Light task delegated to {model} through its configured connection.').format(model=text[len(prefix):-len(suffix)])
+            prefix='Applied approved edit: '
+            if text.startswith(prefix):return self.tr('Applied approved edit: {path}').format(path=text[len(prefix):])
+        if kind=='usage':
+            if text=='Usage: no model requests':return self.tr('Usage: no model requests')
+            if text.startswith('Usage: '):
+                parts=[]
+                for part in text[7:].split('; '):
+                    match=re.fullmatch(r'(Heavy|Light): (\d+) request\(s\), input (\d+(?:\.\d+)?|unknown)( \(known usage only\))?, output (\d+(?:\.\d+)?|unknown)( \(known usage only\))? tokens',part)
+                    if not match:return text
+                    role,count,incoming,in_partial,outgoing,out_partial=match.groups()
+                    incoming=self.tr('unknown') if incoming=='unknown' else incoming
+                    outgoing=self.tr('unknown') if outgoing=='unknown' else outgoing
+                    partial=self.tr(' (known usage only)')
+                    parts.append(self.tr('{role}: {count} request(s), input {incoming}{in_partial}, output {outgoing}{out_partial} tokens').format(role=self.tr('Heavy') if role=='Heavy' else self.tr('Light'),count=count,incoming=incoming,in_partial=partial if in_partial else '',outgoing=outgoing,out_partial=partial if out_partial else ''))
+                return self.tr('Usage: {details}').format(details='; '.join(parts))
+        return text
+
     def record(self,kind,text):
         history=self.session.setdefault('code_activity',[]);history.append({'kind':kind,'text':plain(text)})
-        self.session['code_activity']=history[-32:];self.activity.setPlainText('\n'.join(e['text'] for e in self.session['code_activity']))
+        self.session['code_activity']=history[-32:];self.activity.setPlainText('\n'.join(self.activity_text(e) for e in self.session['code_activity']))
         self.store.save(self.session);self.updated.emit()
 
     def start_simulation(self):

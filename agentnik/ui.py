@@ -497,7 +497,7 @@ class SessionTab(QWidget):
                     state=previous.state if checkbox.isChecked() and previous.state=='verified' else 'configured' if checkbox.isChecked() and checkbox.isEnabled() else 'unknown'
                     research.set_capability(self.store.config,c,state,'Enabled by user; no live verification' if state=='configured' else previous.evidence if state=='verified' else '',field)
                 routing.save_defaults(self.store.config,self.session['connection_name'],c,dlg.default_policy.currentData(),dlg.access_policy.currentData())
-                self.store.flush(); self.info.setText('Research defaults and scoped capabilities saved.'); return
+                self.store.flush(); self.info.setText(self.tr('Research defaults and scoped capabilities saved.')); return
             except Exception as exc: error(self,exc)
 
     def complete_research(self,result):
@@ -519,11 +519,11 @@ class SessionTab(QWidget):
             research.set_capability(self.store.config,self.research_connection,update['state'],update['evidence'],update['field'])
         if updates: self.store.flush()
         if ok: self.composer.clear(); self.attachments.set_paths([])
-        route_label='Provider hosted' if result['research'].get('route')=='hosted' else 'Agentnik managed'
+        route_label=self.tr('Provider hosted') if result['research'].get('route')=='hosted' else self.tr('Agentnik managed')
         switched=any(e.get('kind')=='route_switch' for e in result['research'].get('events',[]))
-        self.info.setText(('Research completed · '+route_label+(' · Route switched; see Research activity' if switched else '')) if ok else result.get('error','Research stopped')+' · Partial work saved; restart explicitly.')
+        self.info.setText((self.tr('Research completed · {route}').format(route=route_label)+(self.tr(' · Route switched; see Research activity') if switched else '')) if ok else result.get('error',self.tr('Research stopped'))+self.tr(' · Partial work saved; restart explicitly.'))
         if result['research'].get('retention',{}).get('truncated'):
-            self.info.setText(self.info.text()+' · Saved research detail limited; start a new chat to continue research.')
+            self.info.setText(self.info.text()+self.tr(' · Saved research detail limited; start a new chat to continue research.'))
         self.save_draft(); self.render(); self.updated.emit()
 
     def add_question(self,data=None):

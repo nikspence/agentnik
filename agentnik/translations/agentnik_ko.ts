@@ -51,152 +51,152 @@
     <context>
         <name>CodeTab</name>
         <message>
-            <location filename="../code_ui.py" line="89" />
+            <location filename="../code_ui.py" line="90" />
             <source>Working directory snapshot: {path}</source>
             <translation>작업 디렉터리 스냅샷: {path}</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="91" />
+            <location filename="../code_ui.py" line="92" />
             <source>Agentnik coding uses your selected models. File reads are sent to the selected endpoint. Edits require approval; shell execution is unavailable. A configured light model may receive delegated context at its own endpoint.</source>
             <translation>Agentnik 코딩은 선택한 모델을 사용합니다. 읽은 파일은 선택한 엔드포인트로 전송됩니다. 수정하려면 승인이 필요하며 셸 실행은 사용할 수 없습니다. 설정된 경량 모델의 엔드포인트로 위임된 컨텍스트가 전송될 수 있습니다.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="92" />
+            <location filename="../code_ui.py" line="93" />
             <source>The saved folder is missing or unavailable.</source>
             <translation>저장된 폴더가 없거나 사용할 수 없습니다.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="93" />
+            <location filename="../code_ui.py" line="94" />
             <source>This project was removed from the registry; its history is retained.</source>
             <translation>이 프로젝트는 목록에서 제거되었지만 기록은 유지됩니다.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="94" />
+            <location filename="../code_ui.py" line="95" />
             <source>The registered folder moved. This session retains its original path; open a new Code pane to use the relocated folder.</source>
             <translation>등록된 폴더가 이동했습니다. 이 세션은 원래 경로를 유지합니다. 이동한 폴더를 사용하려면 새 코드 창을 여세요.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="96" />
+            <location filename="../code_ui.py" line="97" />
             <source>No commands have been run.</source>
             <translation>실행된 명령이 없습니다.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="97" />
+            <location filename="../code_ui.py" line="98" />
             <source>Describe the coding task; repository files may be sent to the selected models</source>
             <translation>코딩 작업을 설명하세요. 저장소 파일이 선택한 모델로 전송될 수 있습니다</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="101" />
+            <location filename="../code_ui.py" line="102" />
             <source>Send previous task and answer with next run (up to 2,048 characters each)</source>
             <translation>다음 실행에 이전 작업과 응답 보내기 (각 최대 2,048자)</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="105" />
+            <location filename="../code_ui.py" line="106" />
             <source>Heavy model</source>
             <translation>고성능 모델</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="105" />
+            <location filename="../code_ui.py" line="106" />
             <source>Light model</source>
             <translation>경량 모델</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="106" />
+            <location filename="../code_ui.py" line="107" />
             <source>Not configured</source>
             <translation>설정되지 않음</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="108" />
+            <location filename="../code_ui.py" line="109" />
             <source>Model alias (any supported coding model)</source>
             <translation>모델 별칭 (지원되는 코딩 모델)</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="114" />
+            <location filename="../code_ui.py" line="115" />
             <source>Choose model…</source>
             <translation>모델 선택…</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="117" />
+            <location filename="../code_ui.py" line="118" />
             <source>Allow Light model delegation</source>
             <translation>경량 모델에 작업 위임 허용</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="119" />
+            <location filename="../code_ui.py" line="120" />
             <source>Run coding task</source>
             <translation>코딩 작업 실행</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="120" />
+            <location filename="../code_ui.py" line="121" />
             <source>Try simulated workflow (no execution)</source>
             <translation>시뮬레이션 체험 (실행 없음)</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="121" />
+            <location filename="../code_ui.py" line="122" />
             <source>Command approval preview</source>
             <translation>명령 승인 미리보기</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="123" />
+            <location filename="../code_ui.py" line="124" />
             <source>Approve proposed step</source>
             <translation>제안된 단계 승인</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="123" />
+            <location filename="../code_ui.py" line="124" />
             <source>Reject proposed step</source>
             <translation>제안된 단계 거부</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="123" />
+            <location filename="../code_ui.py" line="124" />
             <source>Cancel run</source>
             <translation>실행 취소</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="126" />
+            <location filename="../code_ui.py" line="127" />
             <source>Review the complete proposed file diff before approving</source>
             <translation>승인하기 전에 제안된 파일 변경 내용 전체를 검토하세요</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="132" />
+            <location filename="../code_ui.py" line="133" />
             <source>Coding model</source>
             <translation>코딩 모델</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="132" />
+            <location filename="../code_ui.py" line="133" />
             <source>Choose a connection first, or enter an alias manually.</source>
             <translation>먼저 연결을 선택하거나 별칭을 직접 입력하세요.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="139" />
+            <location filename="../code_ui.py" line="140" />
             <source>Choose Heavy model</source>
             <translation>고성능 모델 선택</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="139" />
+            <location filename="../code_ui.py" line="140" />
             <source>Choose Light model</source>
             <translation>경량 모델 선택</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="140" />
+            <location filename="../code_ui.py" line="141" />
             <source>Model alias:</source>
             <translation>모델 별칭:</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="144" />
+            <location filename="../code_ui.py" line="145" />
             <source>Coding models</source>
             <translation>코딩 모델</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="144" />
+            <location filename="../code_ui.py" line="145" />
             <source>Model listing failed. You can enter an alias manually.</source>
             <translation>모델 목록을 불러오지 못했습니다. 별칭을 직접 입력할 수 있습니다.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="148" />
+            <location filename="../code_ui.py" line="149" />
             <source>No completed coding task available.</source>
             <translation>완료된 코딩 작업이 없습니다.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="149" />
+            <location filename="../code_ui.py" line="150" />
             <source>Previous task:
 {task}
 
@@ -209,27 +209,118 @@ Previous answer:
 {answer}</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="167" />
+            <location filename="../code_ui.py" line="168" />
             <source>Choose a connection and model alias for Heavy.</source>
             <translation>고성능 모델의 연결과 모델 별칭을 선택하세요.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="167" />
+            <location filename="../code_ui.py" line="168" />
             <source>Choose a connection and model alias for Light.</source>
             <translation>경량 모델의 연결과 모델 별칭을 선택하세요.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="174" />
+            <location filename="../code_ui.py" line="175" />
             <source>Choose a heavy model and enter a coding task</source>
             <translation>고성능 모델을 선택하고 코딩 작업을 입력하세요</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="177" />
+            <location filename="../code_ui.py" line="178" />
             <source>Coding settings</source>
             <translation>코딩 설정</translation>
         </message>
         <message>
+            <location filename="../code_ui.py" line="199" />
+            <source>Agentnik coding started. Repository content goes to the selected models; edits await approval.</source>
+            <translation>Agentnik 코딩이 시작되었습니다. 저장소 내용은 선택한 모델로 전송되며 수정에는 승인이 필요합니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="200" />
+            <source>Simulation started; no commands or inference will run.</source>
+            <translation>시뮬레이션이 시작되었습니다. 명령이나 추론은 실행되지 않습니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="201" />
+            <source>Awaiting explicit approval for simulated step.</source>
+            <translation>시뮬레이션 단계에 대한 명시적 승인을 기다리는 중입니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="202" />
+            <source>Run cancelled. No further tool work will be scheduled; already approved edits are retained.</source>
+            <translation>실행이 취소되었습니다. 더 이상 도구 작업이 예약되지 않으며 이미 승인된 수정은 유지됩니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="203" />
+            <source>Interrupted coding run; nothing resumes automatically.</source>
+            <translation>코딩 실행이 중단되었습니다. 자동으로 재개되는 작업은 없습니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="206" />
+            <source>Awaiting approval for file edit: {path}</source>
+            <translation>파일 수정 승인 대기 중: {path}</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="207" />
+            <source>Approved proposal {id}</source>
+            <translation>제안 승인됨: {id}</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="207" />
+            <source>Rejected proposal {id}</source>
+            <translation>제안 거부됨: {id}</translation>
+        </message>
+        <message>
             <location filename="../code_ui.py" line="211" />
+            <source>Heavy task: requesting {model} through the selected connection.</source>
+            <translation>고성능 작업: 선택한 연결을 통해 {model} 모델에 요청 중입니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="213" />
+            <source>Light task delegated to {model} through its configured connection.</source>
+            <translation>경량 작업이 설정된 연결을 통해 {model} 모델에 위임되었습니다.</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="215" />
+            <source>Applied approved edit: {path}</source>
+            <translation>승인된 수정 적용됨: {path}</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="217" />
+            <source>Usage: no model requests</source>
+            <translation>사용량: 모델 요청 없음</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="224" />
+            <location filename="../code_ui.py" line="225" />
+            <source>unknown</source>
+            <translation>알 수 없음</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="226" />
+            <source> (known usage only)</source>
+            <translation> (알려진 사용량만)</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="227" />
+            <source>{role}: {count} request(s), input {incoming}{in_partial}, output {outgoing}{out_partial} tokens</source>
+            <translation>{role}: 요청 {count}회, 입력 {incoming}{in_partial}, 출력 {outgoing}{out_partial} 토큰</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="227" />
+            <source>Heavy</source>
+            <translation>고성능</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="227" />
+            <source>Light</source>
+            <translation>경량</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="228" />
+            <source>Usage: {details}</source>
+            <translation>사용량: {details}</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="246" />
             <source>FILE EDIT
 Project: {project}
 Path: {path}
@@ -242,7 +333,7 @@ Safety recommendation: Not checked; no System One request was made.</source>
 안전 권고: 확인되지 않음. System One 요청이 수행되지 않았습니다.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="216" />
+            <location filename="../code_ui.py" line="251" />
             <source>SIMULATION ONLY
 Directory: {directory}
 Arguments: {arguments}
@@ -615,83 +706,83 @@ Choose No to export connection settings without keys.</source>
     <context>
         <name>RepositoryPicker</name>
         <message>
-            <location filename="../code_ui.py" line="17" />
+            <location filename="../code_ui.py" line="18" />
             <source>Choose repository</source>
             <translation>저장소 선택</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="17" />
-            <location filename="../code_ui.py" line="42" />
+            <location filename="../code_ui.py" line="18" />
+            <location filename="../code_ui.py" line="43" />
             <source>Repositories</source>
             <translation>저장소</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="18" />
+            <location filename="../code_ui.py" line="19" />
             <source>Search project names and paths</source>
             <translation>프로젝트 이름 및 경로 검색</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="21" />
+            <location filename="../code_ui.py" line="22" />
             <source>Add folder</source>
             <translation>폴더 추가</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="21" />
+            <location filename="../code_ui.py" line="22" />
             <source>Rename</source>
             <translation>이름 바꾸기</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="21" />
+            <location filename="../code_ui.py" line="22" />
             <source>Locate folder</source>
             <translation>폴더 찾기</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="21" />
+            <location filename="../code_ui.py" line="22" />
             <source>Remove from list</source>
             <translation>목록에서 제거</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="23" />
+            <location filename="../code_ui.py" line="24" />
             <source>Git is optional. Removing an entry never deletes files. Add a folder to begin.</source>
             <translation>Git은 선택 사항입니다. 목록에서 제거해도 파일은 삭제되지 않습니다. 시작하려면 폴더를 추가하세요.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="36" />
+            <location filename="../code_ui.py" line="37" />
             <source>missing/unavailable</source>
             <translation>없거나 사용할 수 없음</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="45" />
+            <location filename="../code_ui.py" line="46" />
             <source>Add project folder</source>
             <translation>프로젝트 폴더 추가</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="51" />
+            <location filename="../code_ui.py" line="52" />
             <source>Rename project</source>
             <translation>프로젝트 이름 바꾸기</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="51" />
+            <location filename="../code_ui.py" line="52" />
             <source>Name:</source>
             <translation>이름:</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="57" />
+            <location filename="../code_ui.py" line="58" />
             <source>Locate project folder</source>
             <translation>프로젝트 폴더 찾기</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="62" />
+            <location filename="../code_ui.py" line="63" />
             <source>Remove project</source>
             <translation>프로젝트 제거</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="62" />
+            <location filename="../code_ui.py" line="63" />
             <source>Remove this entry from the list? Its files and history will remain.</source>
             <translation>이 항목을 목록에서 제거하시겠습니까? 파일과 기록은 유지됩니다.</translation>
         </message>
         <message>
-            <location filename="../code_ui.py" line="69" />
+            <location filename="../code_ui.py" line="70" />
             <source>Unavailable project</source>
             <translation>사용할 수 없는 프로젝트</translation>
         </message>
@@ -1009,6 +1100,46 @@ Saved excerpt; not a fresh or complete page.
             <location filename="../ui.py" line="490" />
             <source>Select a model before configuring its tool capability.</source>
             <translation>도구 기능을 설정하기 전에 모델을 선택하세요.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="500" />
+            <source>Research defaults and scoped capabilities saved.</source>
+            <translation>조사 기본값과 범위별 기능 설정이 저장되었습니다.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="522" />
+            <source>Provider hosted</source>
+            <translation>제공자 호스팅</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="522" />
+            <source>Agentnik managed</source>
+            <translation>Agentnik 관리형</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="524" />
+            <source>Research completed · {route}</source>
+            <translation>조사 완료 · {route}</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="524" />
+            <source> · Route switched; see Research activity</source>
+            <translation> · 경로가 변경되었습니다. 조사 활동을 확인하세요</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="524" />
+            <source>Research stopped</source>
+            <translation>조사가 중지되었습니다</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="524" />
+            <source> · Partial work saved; restart explicitly.</source>
+            <translation> · 부분 작업이 저장되었습니다. 명시적으로 다시 시작하세요.</translation>
+        </message>
+        <message>
+            <location filename="../ui.py" line="526" />
+            <source> · Saved research detail limited; start a new chat to continue research.</source>
+            <translation> · 저장된 조사 세부 정보가 제한되었습니다. 조사를 계속하려면 새 채팅을 시작하세요.</translation>
         </message>
         <message>
             <location filename="../ui.py" line="564" />

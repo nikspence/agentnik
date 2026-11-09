@@ -118,9 +118,20 @@ class Localization(unittest.TestCase):
                     tab=window.tabs.currentWidget();self.assertEqual(tab.send.text(),'코딩 작업 실행');self.assertEqual(tab.approve.text(),'제안된 단계 승인')
                     self.assertIn('이전 작업:',tab.context_view.toPlainText());self.assertIn('Keep {user} text',tab.context_view.toPlainText())
                     window.stats();self.assertIn('준비됨',window.statusBar().currentMessage());self.assertIn(session['project_name'],window.statusBar().currentMessage())
+                    self.assertIn('model/{x}',tab.activity_text({'kind':'output','text':'Heavy task: requesting model/{x} through the selected connection.'}))
+                    self.assertIn('위임',tab.activity_text({'kind':'output','text':'Light task delegated to model/light through its configured connection.'}))
+                    self.assertIn('src/{name}.py',tab.activity_text({'kind':'output','text':'Applied approved edit: src/{name}.py'}))
+                    self.assertEqual(tab.activity_text({'kind':'finished','text':'Applied approved edit: text'}),'Applied approved edit: text')
+                    usage='Usage: Heavy: 2 request(s), input 10 (known usage only), output unknown tokens; Light: 1 request(s), input 3, output 0 tokens'
+                    tab.record('usage',usage);display=tab.activity.toPlainText()
+                    self.assertIn('고성능: 요청 2회',display);self.assertIn('입력 10 (알려진 사용량만)',display);self.assertIn('출력 알 수 없음',display)
+                    self.assertIn('경량: 요청 1회',display);self.assertEqual(store.list_sessions()[0]['code_activity'][-1]['text'],usage)
+                    malformed='Usage: unexpected';self.assertEqual(tab.activity_text({'kind':'usage','text':malformed}),malformed)
                     run=CodingRun({'model':'test'},str(folder),'task');tab.job=run;tab.run_id=run.run_id
                     tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':{'cwd':str(folder),'path':'src/file.py','diff':'+exact text'}})
                     text=tab.approval.toPlainText();self.assertIn('확인되지 않음',text);self.assertIn(str(folder),text);self.assertIn('src/file.py',text)
+                    self.assertIn('파일 수정 승인 대기 중: src/file.py',tab.activity.toPlainText())
+                    self.assertEqual(store.list_sessions()[0]['code_activity'][-1]['text'],'Awaiting approval for file edit: src/file.py')
                     self.assertEqual(tab.diff.toPlainText(),'+exact text');tab.cancel()
                     simulated=SimulationRun(str(folder));tab.job=simulated;tab.run_id=simulated.run_id
                     tab.receive({'run_id':simulated.run_id,'kind':'proposal','fingerprint':'sim','proposal':{'cwd':str(folder),'argv':['git','status']},'recommendation':'Not checked'})
@@ -247,6 +258,22 @@ class Localization(unittest.TestCase):
                 self.assertIn('2026-01-01',text);self.assertIn('https://example.com/page',text)
                 self.assertEqual(details.links.findChildren(QPushButton)[0].text(),'[S1] Original title')
             finally:details.close()
+        finally:self.app.removeTranslator(translator)
+
+    def test_korean_research_completion_preserves_saved_result(self):
+        from agentnik.ui import Window
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+                store=Store(tmp);store.config['connections']={'Example':{'url':'https://example.test/v1','model':'model','protocol':'chat'}};window=Window(store)
+                try:
+                    window.new_session('chat','Example');tab=window.tabs.currentWidget();tab.pending={'role':'user','text':'Question','images':[]}
+                    tab.research_connection=tab.active_connection()
+                    result={'status':'ok','text':'Original answer','thinking':'','metrics':{},'research':{'version':2,'status':'completed','route':'managed','sources':[],'events':[{'kind':'route_switch','detail':'switch'}],'retention':{'truncated':True}}}
+                    tab.complete_research(result)
+                    self.assertIn('조사 완료',tab.info.text());self.assertIn('경로가 변경',tab.info.text());self.assertIn('새 채팅',tab.info.text())
+                    self.assertEqual(store.list_sessions()[0]['messages'][-1]['text'],'Original answer')
+                finally:window.close();self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 
     def test_korean_history_confirmation_decline_preserves_history(self):
