@@ -6,7 +6,7 @@ import threading
 from urllib.parse import urlsplit
 from PySide6.QtCore import Qt,Signal,QObject,QUrl
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox
+from PySide6.QtWidgets import QScrollArea,QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox
 from .repositories import RepositoryRegistry
 from .coding import SimulationRun,plain
 from .code_agent import CodingRun
@@ -188,6 +188,7 @@ class CodeTab(QWidget):
         self.advice_enabled.setChecked(session.get('coding_advice_enabled',False));self.advice_enabled.toggled.connect(self.save_advice_enabled);model_layout.addWidget(self.advice_enabled)
         disclosure=QLabel(self.tr('When enabled, each shell proposal sends its command, working directory, shell, and environment variable names to the selected Decision endpoint. Environment values are not sent. Advice never approves a command.'))
         disclosure.setWordWrap(True);model_layout.addWidget(disclosure)
+        self.skills_button=QPushButton();self.skills_button.clicked.connect(self.choose_skills);options.addWidget(self.skills_button);self.refresh_skills_button()
         self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.'))
@@ -330,6 +331,39 @@ class CodeTab(QWidget):
             raise ValueError({'heavy':self.tr('Choose a connection and model alias for Heavy.'),'light':self.tr('Choose a connection and model alias for Light.'),'decision':self.tr('Choose a connection and model alias for Decision.')}[role])
         return c
 
+    def refresh_skills_button(self):
+        names=self.session.get('coding_skills',[])
+        self.skills_button.setText(self.tr('Skills ({count})').format(count=len(names)) if names else self.tr('Skills…'))
+        self.skills_button.setToolTip(', '.join(names) if names else self.tr('Choose skills'))
+
+    def choose_skills(self):
+        if self.job: return
+        from .code_agent import ProjectFiles
+        from .project_skills import list_skills
+        try: skills=list_skills(ProjectFiles(self.session['path_snapshot']))
+        except (OSError,ValueError) as exc:
+            QMessageBox.warning(self,self.tr('Skills'),str(exc));return
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Choose skills'));layout=QVBoxLayout(dialog)
+        layout.addWidget(QLabel(self.tr('Selected skill instructions are sent to the model. Scripts still require approval.')))
+        scroll=QScrollArea();scroll.setWidgetResizable(True);container=QWidget();skill_layout=QVBoxLayout(container);scroll.setWidget(container);layout.addWidget(scroll);dialog.resize(720,500)
+        checks=[]
+        for skill in skills:
+            row=QHBoxLayout();skill_layout.addLayout(row)
+            check=QCheckBox(skill['name']+' ['+skill['source']+'] — '+skill['description']);check.setChecked(skill['id'] in self.session.get('coding_skills',[]));row.addWidget(check);checks.append((skill['id'],check))
+            preview=QPushButton(self.tr('Preview…'));row.addWidget(preview)
+            def show_skill(checked=False,name=skill['id']):
+                from .project_skills import read_skill
+                try: text=read_skill(ProjectFiles(self.session['path_snapshot']),name)['instructions']
+                except (OSError,ValueError) as exc: QMessageBox.warning(dialog,self.tr('Skills'),str(exc));return
+                viewer=QDialog(dialog);viewer.setWindowTitle(name);viewer.resize(700,500);box=QVBoxLayout(viewer);content=QPlainTextEdit();content.setReadOnly(True);content.setPlainText(text);box.addWidget(content);viewer.exec()
+            preview.clicked.connect(show_skill)
+        if not checks:layout.addWidget(QLabel(self.tr('No skills found in repository or user .agents/skills.')))
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            selected=[name for name,check in checks if check.isChecked()]
+            if len(selected)>5:QMessageBox.warning(self,self.tr('Skills'),self.tr('Select at most five skills.'));return
+            self.session['coding_skills']=selected;self.store.save(self.session);self.refresh_skills_button()
+
     def start_coding(self):
         if self.job or self._closed:return
         try:
@@ -346,7 +380,7 @@ class CodeTab(QWidget):
                 if not strict:
                     backends=[b for b in self.store.web_backend_specs() if b.get('kind') in SEARCH_KINDS and (b.get('kind')!='ollama' or direct)]
                     provider='managed'
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider)
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]))
         except ValueError as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
@@ -354,7 +388,7 @@ class CodeTab(QWidget):
 
     def launch(self,run,notice):
         if isinstance(run,CodingRun):
-            self.session['coding_sources']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
+            self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
         self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False)
@@ -416,6 +450,13 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
+        if kind=='skill_revision':
+            revision=event.get('skill',{})
+            if not isinstance(revision,dict) or set(revision)!={'id','source','sha256'}:return
+            if not isinstance(revision['id'],str) or not 0<len(revision['id'])<=69 or revision['source'] not in ('repository','user') or not isinstance(revision['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',revision['sha256']):return
+            revisions=self.session.setdefault('coding_skill_revisions',[])
+            if len(revisions)>=5 or any(item['id']==revision['id'] for item in revisions):return
+            revisions.append(dict(revision));self.store.save(self.session);self.updated.emit();return
         if kind=='plan':
             try:plan=validate_plan(event.get('plan'))
             except ValueError:return
