@@ -205,9 +205,64 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(events[-1]['status'],'failed')
             self.assertIn('tool round limit',events[-1]['text'])
 
+    def test_model_timeout_allows_slow_first_token_and_bounds_total_run(self):
+        from agentnik.code_limits import coding_limits
+        for seconds,total,expected in ((300,900,'completed'),(60,900,'failed'),(300,50,'failed')):
+            with self.subTest(model_seconds=seconds,total=total),tempfile.TemporaryDirectory() as directory:
+                limits=coding_limits();limits.update(model_seconds=seconds,turn_seconds=total)
+                now=[0.0];events=[];timeouts=[]
+                def send(c,url,body,timeout):
+                    timeouts.append(timeout);now[0]=70.0
+                    return Wire(chat('Local model finally replied'),False)
+                with patch('agentnik.tools.time.monotonic',side_effect=lambda:now[0]),patch.object(core,'open_request',side_effect=send) as request:
+                    CodingRun(dict(C,stream=False),directory,'Wait for local model',limits=limits).run(events.append)
+                self.assertEqual(events[-1]['status'],expected);self.assertEqual(request.call_count,1)
+                self.assertEqual(timeouts,[min(seconds,total)])
+
+    def test_heavy_and_light_have_model_timeout_while_web_keeps_its_deadline(self):
+        from agentnik.tools import Source
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as directory:
+            limits=coding_limits();limits['model_seconds']=240;timeouts=[];events=[]
+            replies=[Wire(chat(calls=[call('delegate_light',{'task':'Review API'}),call('web_fetch',{'url':'https://example.com/docs'},'web')],finish='tool_calls'),False),Wire(chat('Analysis'),False),Wire(chat('Done'),False)]
+            def send(c,url,body,timeout):timeouts.append((c['model'],timeout));return replies.pop(0)
+            def fetch(url,runtime):
+                self.assertEqual(runtime.limits.request_seconds,45)
+                return [Source('','Docs',url,'Documentation','now')]
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.code_agent.PublicWeb') as reader:
+                reader.return_value.fetch.side_effect=fetch
+                CodingRun(dict(C,stream=False),directory,'Research',light=dict(C,model='light',stream=False),limits=limits,web_enabled=True,search_provider='none').run(events.append)
+            self.assertEqual(events[-1]['status'],'completed')
+            self.assertEqual([name for name,_ in timeouts],['heavy','light','heavy'])
+            self.assertTrue(all(239<timeout<=240 for _,timeout in timeouts))
+
+    def test_cancel_waiting_model_discards_late_response(self):
+        with tempfile.TemporaryDirectory() as directory:
+            started=threading.Event();release=threading.Event();returned=threading.Event();events=[]
+            run=CodingRun(dict(C,stream=False),directory,'Wait')
+            def send(c,url,body,timeout):
+                started.set();release.wait(2);returned.set()
+                return Wire(chat('Late response'),False)
+            with patch.object(core,'open_request',side_effect=send) as request:
+                worker=threading.Thread(target=run.run,args=(events.append,));worker.start()
+                try:
+                    self.assertTrue(started.wait(1));run.stop();worker.join(1)
+                    self.assertFalse(worker.is_alive());snapshot=list(events)
+                    release.set();self.assertTrue(returned.wait(1))
+                    self.assertEqual(events,snapshot);self.assertEqual(request.call_count,1)
+                    self.assertFalse(any(e['kind']=='finished' for e in events))
+                finally:release.set();worker.join(2)
+
+    def test_legacy_coding_limits_inherit_model_timeout_without_mutation(self):
+        from agentnik.code_limits import coding_limits
+        legacy=coding_limits();legacy.pop('model_seconds');legacy['turn_seconds']=300
+        result=coding_limits(legacy)
+        self.assertEqual(result['model_seconds'],300);self.assertEqual(result['turn_seconds'],300)
+        self.assertNotIn('model_seconds',legacy)
+
     def test_coding_limits_reject_invalid_values(self):
         from agentnik.code_limits import coding_limits
-        for bad in ({},{**coding_limits(),'calls':0},{**coding_limits(),'requests':True},{**coding_limits(),'turn_seconds':99999}):
+        for bad in ({},{**coding_limits(),'calls':0},{**coding_limits(),'requests':True},{**coding_limits(),'turn_seconds':99999},{**coding_limits(),'model_seconds':0},{**coding_limits(),'model_seconds':True},{**coding_limits(),'model_seconds':3601}):
             with self.assertRaises(ValueError):coding_limits(bad)
 
     def test_shared_request_budget_stops_before_followup_model_call(self):

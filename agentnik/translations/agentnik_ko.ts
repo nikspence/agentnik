@@ -1751,4 +1751,43 @@ Connections are discovered from your environment and local servers.</source>
         <message><source>Copy link</source><translation>링크 복사</translation></message>
         <message><source>Close</source><translation>닫기</translation></message>
     </context>
+    <context>
+        <name>CodingLimitsDialog</name>
+        <message>
+            <source>Coding run limits</source>
+            <translation>코딩 실행 제한</translation>
+        </message>
+        <message>
+            <source>Tool rounds</source>
+            <translation>도구 실행 라운드</translation>
+        </message>
+        <message>
+            <source>Model requests</source>
+            <translation>모델 요청 수</translation>
+        </message>
+        <message>
+            <source>Tool calls</source>
+            <translation>도구 호출 수</translation>
+        </message>
+        <message>
+            <source>Total run time (seconds)</source>
+            <translation>전체 실행 시간(초)</translation>
+        </message>
+        <message>
+            <source>Model call timeout (seconds)</source>
+            <translation>모델 호출 제한 시간(초)</translation>
+        </message>
+        <message>
+            <source>Retained context (bytes)</source>
+            <translation>유지할 컨텍스트(바이트)</translation>
+        </message>
+        <message>
+            <source>Limits are shared by Heavy, Light, and web research for each run.</source>
+            <translation>각 실행의 제한은 Heavy, Light 모델과 웹 조사에서 공유합니다.</translation>
+        </message>
+        <message>
+            <source>Each model timeout covers waiting for the first token and generating the complete response. Total run time can end a request sooner.</source>
+            <translation>모델 제한 시간에는 첫 토큰 대기와 전체 응답 생성이 포함됩니다. 전체 실행 시간 제한에 따라 요청이 더 일찍 종료될 수 있습니다.</translation>
+        </message>
+    </context>
 </TS>

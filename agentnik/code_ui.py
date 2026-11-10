@@ -86,10 +86,10 @@ class CodingLimitsDialog(QDialog):
     def __init__(self,parent,values):
         super().__init__(parent);self.setWindowTitle(self.tr('Coding run limits'))
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form);self.fields={}
-        labels={'rounds':self.tr('Tool rounds'),'requests':self.tr('Model requests'),'calls':self.tr('Tool calls'),'turn_seconds':self.tr('Time (seconds)'),'context_bytes':self.tr('Retained context (bytes)')}
+        labels={'rounds':self.tr('Tool rounds'),'requests':self.tr('Model requests'),'calls':self.tr('Tool calls'),'turn_seconds':self.tr('Total run time (seconds)'),'model_seconds':self.tr('Model call timeout (seconds)'),'context_bytes':self.tr('Retained context (bytes)')}
         for key,(_,minimum,maximum) in FIELDS.items():
-            box=QSpinBox();box.setRange(minimum,maximum);box.setValue(values[key]);form.addRow(labels[key],box);self.fields[key]=box
-        hint=QLabel(self.tr('Limits are shared by Heavy, Light, and web research for each run.'));hint.setWordWrap(True);layout.addWidget(hint)
+            box=QSpinBox();box.setRange(minimum,maximum);box.setValue(coding_limits(values)[key]);form.addRow(labels[key],box);self.fields[key]=box
+        hint=QLabel(self.tr('Limits are shared by Heavy, Light, and web research for each run.')+'\n'+self.tr('Each model timeout covers waiting for the first token and generating the complete response. Total run time can end a request sooner.'));hint.setWordWrap(True);layout.addWidget(hint)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.RestoreDefaults)
         buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject)
         buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults).clicked.connect(self.reset);layout.addWidget(buttons)

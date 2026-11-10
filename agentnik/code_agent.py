@@ -248,17 +248,20 @@ class CodingRun:
             with self.lock:self.pending=None
 
     def run(self,emit):
-        runtime=Runtime(self.cancel,Limits(argument_bytes=40000,**self.limits))
+        runtime=Runtime(self.cancel,Limits(argument_bytes=40000,**{key:value for key,value in self.limits.items() if key!='model_seconds'}))
         next_source=1;research_action=None;google_unavailable=False
         secrets=[self.connection.get('api_key',''),(self.light or {}).get('api_key','')]+[item.get('key','') for item in self.web_backends]
         usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('Heavy','Light')}
         def request(role,adapter,connection,body,state):
             totals=usage[role];totals['requests']+=1
+            model_runtime=Runtime(self.cancel,replace(runtime.limits,request_seconds=self.limits['model_seconds']),self.run_id)
+            model_runtime.started=runtime.started
             try:
-                result=runtime.wait(lambda:adapter.request(connection,body,runtime,lambda _:None,state))
+                result=model_runtime.wait(lambda:adapter.request(connection,body,model_runtime,lambda _:None,state))
             except Exception:
                 totals['input_missing']+=1;totals['output_missing']+=1
                 raise
+            finally:model_runtime.closed=True
             metrics=state.get('metrics',{})
             for key in ('input_tokens','output_tokens'):
                 value=metrics.get(key)

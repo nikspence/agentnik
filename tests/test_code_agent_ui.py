@@ -202,12 +202,12 @@ class CodingWorkspace(unittest.TestCase):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
-                tab=window.tabs.currentWidget();values=coding_limits();values['rounds']=12;values['turn_seconds']=600
+                tab=window.tabs.currentWidget();values=coding_limits();values['rounds']=12;values['turn_seconds']=600;values['model_seconds']=480
                 with patch('agentnik.code_ui.CodingLimitsDialog') as dialog:
                     dialog.return_value.exec.return_value=QDialog.DialogCode.Accepted;dialog.return_value.values.return_value=values
                     tab.configure_limits()
                 self.assertEqual(store.list_sessions()[0]['coding_limits'],values)
-                dialog=CodingLimitsDialog(tab,values);dialog.reset();self.assertEqual(dialog.values(),coding_limits());dialog.close()
+                dialog=CodingLimitsDialog(tab,values);self.assertEqual(dialog.fields['model_seconds'].value(),480);dialog.reset();self.assertEqual(dialog.values(),coding_limits());dialog.close()
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(store.list_sessions()[0]);self.assertEqual(window.tabs.currentWidget().session['coding_limits'],values)
             finally:window.close();app.processEvents();store.db.close()
 
