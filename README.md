@@ -151,11 +151,11 @@ Optional key files can be supplied with `--litellm-key-file PATH` and `--ollama-
 
 See [DEVELOPMENT_VALIDATION.md](DEVELOPMENT_VALIDATION.md) for offline checks, opt-in live compatibility tools, and repeatable builds; [VALIDATION.md](VALIDATION.md) records evidence and limitations. Ordinary tests use temporary storage and do not issue live inference. Windows source and frozen startup checks are recorded; macOS/Linux native validation remains outstanding.
 
-The [project plan](AGENTNIK_PLAN.md) tracks coding hardening, compatibility, localization, and distribution. MCP servers and reusable Skills are planned extensions. Branding and offline screenshot tools live in `tools/`; Pillow is needed only to rebuild branding assets.
+The [project plan](AGENTNIK_PLAN.md) tracks coding hardening, compatibility, localization, and distribution. MCP servers remain planned; explicit repository and user Skills are available in Code. Branding and offline screenshot tools live in `tools/`; Pillow is needed only to rebuild branding assets.
 
 ## Packaging
 
-The Windows x64 release is **v0.4.0**. Extract the complete `Agentnik-v0.4.0-windows-x64.zip` archive and run `Agentnik/Agentnik.exe`; keep its `_internal` folder beside it. Python is bundled. See [release notes](RELEASE_NOTES.md) and the bundled `BUILD-MANIFEST.json` for changes and build evidence. The build is unsigned. Research remains a preview with scoped live compatibility results; full native workflow, clean-machine, and macOS/Linux validation remain pending. Earlier release tags and archives are preserved.
+The Windows x64 release is **v0.6.0**. Extract the complete `Agentnik-v0.6.0-windows-x64.zip` archive and run `Agentnik/Agentnik.exe`; keep its `_internal` folder beside it. Python is bundled. See [release notes](RELEASE_NOTES.md) and the bundled `BUILD-MANIFEST.json` for changes and build evidence. The build is unsigned. Research remains a preview with scoped live compatibility results; full native workflow, clean-machine, and macOS/Linux validation remain pending. Earlier release tags and archives are preserved.
 
 The Python wheel has been built and installed locally; see [validation results](VALIDATION.md). To build a wheel without resolving runtime dependencies:
 
@@ -174,9 +174,3 @@ Verify credential storage, TLS access, file dialogs, clipboard images, history, 
 ## License
 
 Apache-2.0. Copyright 2026 Nikolaus Spence. Sole author: Nikolaus Spence.
-
-
-Selected skill IDs, sources, and exact instruction-file SHA-256 hashes are retained as metadata for the latest real coding run. Starting another run replaces those records; reopening never executes skills. Common folded and literal multiline descriptions are supported; this parser is not a full YAML implementation.
-
-
-Code sessions retain skill revision metadata for the most recent 32 real coding runs. Each record identifies the run and selected skill sources and SHA-256 hashes; simulations do not add records. Older sessions remain readable. The hashes identify instruction-file contents without storing those contents in the revision history.
