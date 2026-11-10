@@ -219,8 +219,8 @@ class CodingRun:
         self.context=dict(context) if context else None
         self.web_backends=[dict(item) for item in web_backends] if web_backends else []
         self.web_enabled=bool(self.web_backends) if web_enabled is None else web_enabled
-        self.search_provider=search_provider or ('ollama' if self.web_backends else 'none')
-        if type(self.web_enabled) is not bool or self.search_provider not in ('ollama','google','none'):raise ValueError('Invalid coding research configuration')
+        self.search_provider=search_provider or ('managed' if self.web_backends else 'none')
+        if type(self.web_enabled) is not bool or self.search_provider not in ('ollama','managed','google','none'):raise ValueError('Invalid coding research configuration')
         self.limits=coding_limits(limits)
         self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self.denied=set()
 
@@ -295,7 +295,7 @@ class CodingRun:
             web_registry=None
             if self.web_enabled:
                 fetcher=PublicWeb(include_links=True)
-                service=OrderedSearch(self.web_backends) if self.search_provider=='ollama' else GoogleWeb() if self.search_provider=='google' else None
+                service=OrderedSearch(self.web_backends) if self.search_provider in ('ollama','managed') else GoogleWeb() if self.search_provider=='google' else None
                 web_registry=Registry(service.search if service else None,fetcher.fetch)
                 available_tools.extend(d for d in DEFINITIONS if d.name=='web_fetch' or service)
                 runtime.notify=lambda kind,detail:event('output',text='Web research: '+detail)

@@ -235,7 +235,7 @@ class Localization(unittest.TestCase):
                 store=Store(tmp);store.save_web_key('test-key',plaintext=True,ident='test',name='User profile')
                 manager=SearchBackends(None,store)
                 try:
-                    self.assertEqual(manager.windowTitle(),'검색 백엔드');self.assertEqual(manager.list.item(0).text(),'User profile')
+                    self.assertEqual(manager.windowTitle(),'검색 백엔드');self.assertEqual(manager.list.item(0).text(),'User profile · Ollama search')
                     self.assertIn('제거',[b.text() for b in manager.findChildren(QPushButton)])
                     with patch('agentnik.research_ui.QMessageBox.question',return_value=QMessageBox.StandardButton.No) as question:
                         manager.remove()

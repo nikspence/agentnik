@@ -1,6 +1,6 @@
 """Public-only page transport and replaceable managed search adapter.
 
-Ollama contract: https://docs.ollama.com/capabilities/web-search
+Search contracts and implemented scope: see SEARCH_PROVIDERS.md.
 Service-backed fetch is intentionally not used: its redirects cannot be pinned here.
 """
 from html.parser import HTMLParser
@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit, urlencode, parse_qs
 from .tools import AccessError, LimitError, ResearchError, Source, utc_now
 from .core import EndpointError
 from . import __version__
+from .search_providers import SEARCH_KINDS
 
 
 def public_url(url):
@@ -134,7 +135,8 @@ class PublicTransport:
                     # Avoid echoing upstream error bodies, query strings, or credentials.
                     raise EndpointError(r.status,json.dumps({'error':{'message':'Web service rejected the request'}}),r.getheader('Retry-After'))
                 ctype=r.getheader('Content-Type','').split(';')[0].strip().lower()
-                allowed=('application/json',) if body is not None else ('text/html','text/plain','application/xhtml+xml')
+                brave_json=(urlsplit(url).scheme=='https' and urlsplit(url).netloc=='api.search.brave.com' and urlsplit(url).path=='/res/v1/web/search' and not redirects)
+                allowed=('application/json',) if body is not None or brave_json else ('text/html','text/plain','application/xhtml+xml')
                 # Ollama's search API can label its JSON payload as text/html.
                 # Permit that label only for this fixed POST endpoint; OllamaWeb
                 # still requires valid JSON and the expected results schema.
@@ -283,6 +285,136 @@ class OllamaWeb(PublicWeb):
             result.append(Source('',item['title'][:300],url,text,utc_now(),truncated=truncated,backend='ollama-search'))
         return result
 
+class KeyedSearch(PublicWeb):
+    """Independent search credential, shared only with a fixed provider endpoint."""
+    provider_label='search provider'
+
+    def __init__(self,key,transport=None):
+        if not isinstance(key,str) or not key.strip():raise ResearchError('Configure a '+self.provider_label+' API key first')
+        if len(key)>4096 or any(not 33<=ord(ch)<=126 for ch in key):raise ResearchError('Search credential must be a single visible ASCII token')
+        super().__init__(transport);self.key=key
+
+
+class BraveWeb(KeyedSearch):
+    """Brave Web Search: query-only disclosure, fixed service and separate key."""
+    provider_label='Brave Search'
+
+    def search(self,query,runtime):
+        if not isinstance(query,str) or not query.strip() or len(query)>600 or len(query.split())>75:
+            raise ResearchError('Brave search requires at most 600 characters and 75 words')
+        if self.key in query:raise AccessError('Search credential transmission blocked')
+        url='https://api.search.brave.com/res/v1/web/search?'+urlencode({'q':query,'count':min(runtime.limits.results,20),'text_decorations':'false','result_filter':'web'})
+        _,_,payload=self.transport.request(url,runtime,headers={'Accept':'application/json','X-Subscription-Token':self.key},redirects=False)
+        try:data=json.loads(payload)
+        except (ValueError,RecursionError):raise ResearchError('Malformed Brave search response') from None
+        if not isinstance(data,dict) or data.get('type')=='ErrorResponse':raise ResearchError('Malformed Brave search response')
+        section=data.get('web')
+        if section is None:
+            if isinstance(data.get('query'),dict):return []
+            raise ResearchError('Malformed Brave search results')
+        if not isinstance(section,dict) or not isinstance(section.get('results'),list):raise ResearchError('Malformed Brave search results')
+        results=[]
+        for item in section['results'][:runtime.limits.results]:
+            runtime.check()
+            if not isinstance(item,dict) or not all(isinstance(item.get(k),str) for k in ('title','url')) or (item.get('description') is not None and not isinstance(item['description'],str)):raise ResearchError('Malformed Brave search result')
+            # Reject rather than publish private or credential-bearing destinations.
+            if self.key in json.dumps(item):raise AccessError('Search response contains a configured credential')
+            target,_=resolve_public(item['url'],runtime)
+            parser=ReadableText();parser.feed(item.get('description') or '')
+            text,truncated=excerpt(re.sub(r'\s+',' ',''.join(parser.parts)).strip(),3000)
+            results.append(Source('',item['title'][:300],target,text,utc_now(),truncated=truncated,backend='brave-search'))
+        return results
+
+
+class SnippetSearch(KeyedSearch):
+    """Fixed-endpoint JSON search; no crawl, scrape, or full-text expansion."""
+    def search(self,query,runtime):
+        if not isinstance(query,str) or not query.strip() or len(query)>500:raise ResearchError('Search query must contain 1–500 characters')
+        if self.key in query:raise AccessError('Search credential transmission blocked')
+        if self.provider_label=='LangSearch':
+            url='https://api.langsearch.com/v1/web-search'
+            body={'query':query,'count':min(runtime.limits.results,50),'contents':{'text':False}}
+        else:
+            url='https://api.firecrawl.dev/v2/search'
+            body={'query':query,'limit':min(runtime.limits.results,100),'sources':[{'type':'web'}]}
+        _,_,payload=self.transport.request(url,runtime,body=json.dumps(body).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+self.key},redirects=False)
+        try:
+            data=json.loads(payload)
+            if self.provider_label=='LangSearch':
+                if type(data.get('code')) is not int or data['code']!=200:raise ValueError()
+                items=data['data']['webPages']['value'];title_key='name';description_key='snippet'
+            else:
+                if data.get('success') is not True:raise ValueError()
+                items=data['data']['web'];title_key='title';description_key='description'
+            if not isinstance(items,list):raise ValueError()
+        except (ValueError,TypeError,KeyError,AttributeError,RecursionError):raise ResearchError('Malformed '+self.provider_label+' search response') from None
+        results=[]
+        for item in items[:runtime.limits.results]:
+            runtime.check()
+            if not isinstance(item,dict) or not all(isinstance(item.get(k),str) for k in (title_key,'url')) or (item.get(description_key) is not None and not isinstance(item[description_key],str)):raise ResearchError('Malformed search result')
+            if self.key in json.dumps(item):raise AccessError('Search response contains a configured credential')
+            target,_=resolve_public(item['url'],runtime)
+            parser=ReadableText();parser.feed(item.get(description_key) or '')
+            text,truncated=excerpt(re.sub(r'\s+',' ',''.join(parser.parts)).strip(),3000)
+            results.append(Source('',item[title_key][:300],target,text,utc_now(),truncated=truncated,backend=self.provider_label.lower()+'-search'))
+        return results
+
+
+class LangSearchWeb(SnippetSearch):
+    provider_label='LangSearch'
+
+
+class FirecrawlWeb(SnippetSearch):
+    provider_label='Firecrawl'
+
+
+
+class ExcerptSearch(KeyedSearch):
+    """Search plus provider excerpts, with no autonomous tasks or full-text mode."""
+    def search(self,query,runtime):
+        if not isinstance(query,str) or not query.strip() or len(query)>1000:raise ResearchError('Search query must contain 1–1000 characters')
+        if self.key in query:raise AccessError('Search credential transmission blocked')
+        runtime.check();body=self.request_body(query,runtime)
+        _,_,payload=self.transport.request(self.service_url,runtime,body=json.dumps(body).encode(),
+                    headers={'Content-Type':'application/json','Accept':'application/json','x-api-key':self.key},redirects=False)
+        runtime.check()
+        try:data=json.loads(payload)
+        except (ValueError,RecursionError):raise ResearchError('Malformed '+self.provider_label+' search response') from None
+        if not isinstance(data,dict) or 'error' in data or data.get('type')=='error' or not isinstance(data.get('results'),list):
+            raise ResearchError('Malformed '+self.provider_label+' search results')
+        results=[]
+        for item in data['results'][:runtime.limits.results]:
+            runtime.check()
+            if not isinstance(item,dict) or not all(isinstance(item.get(key),str) for key in ('title','url')):raise ResearchError('Malformed search result')
+            parts=item.get(self.excerpt_field,[])
+            if not isinstance(parts,list) or any(not isinstance(part,str) for part in parts):raise ResearchError('Malformed search excerpts')
+            if self.key in json.dumps(item):raise AccessError('Search response contains a configured credential')
+            target,_=resolve_public(item['url'],runtime)
+            text,truncated=excerpt('\n'.join(parts),3000)
+            results.append(Source('',item['title'][:300],target,text,utc_now(),truncated=truncated,backend=self.backend_name))
+        return results
+
+
+class ExaWeb(ExcerptSearch):
+    provider_label='Exa'
+    service_url='https://api.exa.ai/search'
+    excerpt_field='highlights'
+    backend_name='exa-search'
+
+    def request_body(self,query,runtime):
+        return {'query':query,'type':'auto','numResults':min(runtime.limits.results,100),'contents':{'highlights':True}}
+
+
+class ParallelWeb(ExcerptSearch):
+    provider_label='Parallel'
+    service_url='https://api.parallel.ai/v1/search'
+    excerpt_field='excerpts'
+    backend_name='parallel-search'
+
+    def request_body(self,query,runtime):
+        return {'search_queries':[query],'mode':'basic','max_chars_total':min(runtime.limits.context_bytes,runtime.limits.results*3000)}
+
+
 class OrderedSearch:
     """Resolve one logical search call across an explicit ordered backend list."""
     def __init__(self,specs,allow_fallback=True):
@@ -308,12 +440,13 @@ class OrderedSearch:
                 self.notify(runtime,'backend_skipped',name+': duplicate profile'); continue
             seen_ids.add(ident)
             if spec.get('key'): seen_credentials.add(credential)
-            if spec.get('kind')!='ollama' or not spec.get('key'):
+            if spec.get('kind') not in SEARCH_KINDS or not spec.get('key'):
                 record.update(status='skipped',reason='Unsupported backend or missing credential',ended_at=utc_now())
                 self.notify(runtime,'backend_skipped',name+': '+record['reason']); continue
             self.notify(runtime,'backend_selected',name)
             try:
-                result=OllamaWeb(spec['key']).search(query,runtime)
+                adapter={'brave':BraveWeb,'langsearch':LangSearchWeb,'firecrawl':FirecrawlWeb,'exa':ExaWeb,'parallel':ParallelWeb,'ollama':OllamaWeb}[spec['kind']]
+                result=adapter(spec['key']).search(query,runtime)
                 record.update(status='completed',ended_at=utc_now())
                 # An empty result is evidence, not a reason to try another backend.
                 return [replace(source,backend=ident) for source in result]

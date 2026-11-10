@@ -111,7 +111,7 @@ def main(argv=None):
         run.mkdir(parents=True)
         subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean','--distpath',str(run/'dist'),'--workpath',str(run/'work'),str(ROOT/'Agentnik.spec')],cwd=ROOT,check=True)
         bundle=run/'dist'/'Agentnik'
-        for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','CODING_BACKEND_PLAN.md','CODING_GUIDE.md','FEATURES.md'):
+        for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','CODING_BACKEND_PLAN.md','CODING_GUIDE.md','FEATURES.md','SEARCH_PROVIDERS.md'):
             shutil.copy2(ROOT/name,bundle/name)
         # Keep the bundled README's relative image links usable.
         for asset_source,asset_target in ((ROOT/'assets',bundle/'assets'),(ROOT/'agentnik'/'assets',bundle/'agentnik'/'assets')):

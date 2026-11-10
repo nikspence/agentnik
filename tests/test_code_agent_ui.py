@@ -156,12 +156,14 @@ class CodingWorkspace(unittest.TestCase):
                     tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'none')
                     self.assertTrue(run.call_args.kwargs['web_enabled'])
                     routing.save_defaults(store.config,'Gateway',connection,'Agentnik only','public_fetch')
-                    with patch.object(store,'web_backend_specs',side_effect=AssertionError('Gateway must not use Ollama search credentials')):
-                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'google')
+                    with patch.object(store,'web_backend_specs',return_value=[{'id':'ollama-search','kind':'ollama','key':'secret'}]):
+                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'google');self.assertEqual(run.call_args.args[5],[])
+                    with patch.object(store,'web_backend_specs',return_value=[{'id':'brave','kind':'brave','key':'brave-test-key'},{'id':'ollama','kind':'ollama','key':'ollama-test-key'}]):
+                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual([b['kind'] for b in run.call_args.args[5]],['brave'])
                     tab.roles['heavy'][0].addItem('Ollama direct','Ollama direct');window.connections['Ollama direct']={'url':'https://ollama.com','protocol':'chat','model':'cloud'}
                     tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Ollama direct'))
                     with patch.object(store,'web_backend_specs',return_value=[{'id':'ollama-search','kind':'ollama','key':'secret'}]):
-                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'ollama')
+                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed')
                 self.assertIsNone(tab.job)
             finally:window.close();app.processEvents();store.db.close()
 

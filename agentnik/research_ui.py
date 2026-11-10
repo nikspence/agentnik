@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QCheckBox,QDialog,QDialogButtonBox,QFormLayout,QL
 from . import research, routing, hosted
 from .tools import Limits
 from .web import public_url
+from .search_providers import SEARCH_PROVIDERS
 
 
 def policy_label(policy):
@@ -21,7 +22,7 @@ class SearchBackends(QDialog):
     def __init__(self,parent,store):
         super().__init__(parent); self.store=store; self.setWindowTitle(self.tr('Search backends')); self.resize(580,360)
         layout=QVBoxLayout(self)
-        label=QLabel(self.tr('Saved profiles run in this order. Each has a separate key; the initial adapter is Ollama search. Changes are saved immediately. OLLAMA_WEB_API_KEY supplies an environment profile after saved profiles when needed.')); label.setWordWrap(True); layout.addWidget(label)
+        label=QLabel(self.tr('Profiles run in this order, with a separate key for each provider. Changes save immediately. Up to five saved/environment profiles participate. Exa uses auto search with highlights; Parallel uses basic search with excerpts. Provider charges may apply. Code uses Ollama search only with direct Ollama Cloud.')); label.setWordWrap(True); layout.addWidget(label)
         self.list=QListWidget(); layout.addWidget(self.list)
         row=QHBoxLayout(); layout.addLayout(row)
         for text,fn in [(self.tr('Add'),lambda:self.edit(True)),(self.tr('Edit'),lambda:self.edit(False)),(self.tr('Remove'),self.remove),('↑',lambda:self.move(-1)),('↓',lambda:self.move(1))]:
@@ -30,7 +31,7 @@ class SearchBackends(QDialog):
 
     def refresh(self,selected=0):
         self.list.clear()
-        for entry in self.store.config.get('web_backends',[]): self.list.addItem(entry.get('name','Ollama search'))
+        for entry in self.store.config.get('web_backends',[]): self.list.addItem(entry.get('name','Search')+' · '+SEARCH_PROVIDERS.get(entry.get('kind','ollama'),('Unknown provider',))[0])
         self.list.setCurrentRow(selected)
 
     def edit(self,add):
@@ -40,8 +41,14 @@ class SearchBackends(QDialog):
         entry={} if add else entries[index]
         if add and len(entries)>=5: return QMessageBox.warning(self,self.tr('Search backends'),self.tr('At most five saved profiles are supported.'))
         dlg=QDialog(self); dlg.setWindowTitle(self.tr('Search backend profile')); form=QFormLayout(dlg)
-        name=QLineEdit(entry.get('name','Ollama search')); form.addRow(self.tr('Name'),name)
-        key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText(self.tr('Blank keeps an existing key')); form.addRow(self.tr('Ollama search API key'),key)
+        provider=QComboBox();provider.setObjectName('searchProvider')
+        for kind,(label,_,_) in SEARCH_PROVIDERS.items():provider.addItem(label,kind)
+        provider.setCurrentIndex(provider.findData(entry.get('kind','brave')));provider.setEnabled(add);form.addRow(self.tr('Provider'),provider)
+        name=QLineEdit(entry.get('name',provider.currentText()));name.setObjectName('searchProfileName');form.addRow(self.tr('Name'),name)
+        def rename_default():
+            if name.text() in [entry[0] for entry in SEARCH_PROVIDERS.values()]:name.setText(provider.currentText())
+        provider.currentIndexChanged.connect(rename_default)
+        key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText(self.tr('Blank keeps an existing key')); key.setObjectName('searchKey');form.addRow(self.tr('Search provider API key'),key)
         plain=QCheckBox(self.tr('Store as plaintext (explicit fallback)')); form.addRow(plain)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dlg.accept); buttons.rejected.connect(dlg.reject); form.addRow(buttons)
@@ -51,7 +58,7 @@ class SearchBackends(QDialog):
                 if not label or len(label)>80: raise ValueError(self.tr('Enter a profile name of 1–80 characters'))
                 if add and not key.text().strip(): raise ValueError(self.tr('Enter a search key for the new profile'))
                 ident=entry.get('id') or 'search-'+uuid.uuid4().hex
-                if key.text().strip(): self.store.save_web_key(key.text().strip(),plain.isChecked(),ident=ident,name=label)
+                if key.text().strip(): self.store.save_web_key(key.text().strip(),plain.isChecked(),ident=ident,name=label,kind=provider.currentData())
                 else:
                     entry['name']=label; self.store.flush()
                 self.refresh(index if not add else self.list.count()); return
@@ -81,7 +88,7 @@ class WebSettings(QDialog):
         self.access_policy=QComboBox(); self.access_policy.addItem(self.tr('Public page reads; external search navigation disclosed'),'public_fetch'); self.access_policy.addItem(self.tr('Enforce public-only navigation everywhere'),'strict_public'); self.access_policy.setCurrentIndex(self.access_policy.findData(defaults['access_policy'])); layout.addRow(self.tr('Navigation policy'),self.access_policy)
         manage=QPushButton(self.tr('Manage ordered search backends…')); manage.clicked.connect(self.manage_backends); layout.addRow(manage)
         self.backend_label=QLabel(); layout.addRow(self.tr('Key for first saved backend'),self.backend_label); self.select_backend()
-        self.key=QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password); self.key.setPlaceholderText(self.tr('Blank keeps saved key / OLLAMA_WEB_API_KEY for default profile'))
+        self.key=QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password); self.key.setPlaceholderText(self.tr('Blank keeps the saved key or matching search-provider environment key'))
         layout.addRow(self.tr('Separate search API key'),self.key)
         self.remove=QCheckBox(self.tr('Remove this saved search key')); layout.addRow(self.remove)
         self.plain=QCheckBox(self.tr('Store new search key as plaintext (explicit fallback)')); layout.addRow(self.plain)
@@ -101,7 +108,7 @@ class WebSettings(QDialog):
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addRow(buttons)
 
     def select_backend(self):
-        entries=self.store.config.get('web_backends',[])
+        entries=self.store.web_backend_specs()
         self.backend_id=entries[0]['id'] if entries else 'ollama-search'
         self.backend_label.setText(entries[0].get('name','Ollama search') if entries else 'Ollama search (default)')
 

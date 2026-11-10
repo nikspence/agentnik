@@ -64,7 +64,7 @@ Managed research has mocked streaming/non-streaming coverage for native Ollama, 
 
 Web access starts off. Settings provide **Provider first**, **Agentnik first**, **Provider only**, and **Agentnik only**, with connection defaults and independent chat overrides. Capability records distinguish unknown, configured, verified, and unsupported, scoped to endpoint/protocol/model. Configuration and documentation alone must not mark a model verified.
 
-The ordered managed backend list currently contains independently credentialed **profiles for one Ollama search service**, not multiple search-provider implementations. Missing credentials and eligible explicit failures can advance profiles without replaying model inference. Additional search providers remain an extension point.
+The ordered managed backend list now supports Brave Search, LangSearch, Firecrawl, and Ollama search with independent credentials. Brave, LangSearch, and Firecrawl are available across supported model connections. Missing credentials and eligible explicit failures can advance profiles without replaying model inference. Exa and Parallel are now selectable excerpt adapters with explicit modes; see SEARCH_PROVIDERS.md.
 
 Direct page fetch validates public destinations, pins approved DNS addresses, retains the original TLS hostname, and revalidates redirects. It uses a separate transport without model credentials/browser cookies. Both provider-hosted navigation and search-service internal navigation are outside Agentnik's transport controls. Consequently the current strict navigation policy disables **both current search routes before inference**; it does not provide a strict managed-search alternative.
 
@@ -321,3 +321,13 @@ Path lists are JSON arrays encoded as strings, limited to 32 files. Diffs and UT
 This preview requires an existing HEAD and a registered repository root with a local `.git` directory. Unborn repositories, linked worktrees, in-progress merges/rebases/cherry-picks, hooks, signing, content filters/LFS, and remote operations are outside the supported slice. Files are staged as raw UTF-8 bytes; no attributes-based transformations or external programs run. External filesystem writers are not an OS-level transaction; avoid concurrent repository writes during execution. Korean approval framing is included; model-facing tool descriptions and activity remain English.
 
 Next: credential-safe remote inspection, then fetch and push with explicit destination/branch/commit previews and transport qualification. Branch switching, merge/rebase, signing, submodules, worktrees, and LFS need separate design and compatibility checks. Current evidence is offline temporary-repository tests, mocked coding-loop approvals, and offscreen Qt checks; live-model Git execution and native visual review remain unverified.
+
+
+## Managed search providers (post-v0.4.0)
+
+Brave Search, LangSearch, and Firecrawl now plug into the existing ordered managed-search profiles for Chat and Code. Prefer configured APIs over legacy Google HTML scraping. Provider failures do not silently switch to Google. Code retains the direct-Ollama-only rule for Ollama search keys. Search-only snippets use fixed HTTPS endpoints, separate credentials, bounded results and the public URL checks; strict navigation still disables external search. Brave has one authorized live adapter result; LangSearch and Firecrawl remain offline-qualified only. Exa and Parallel now use the same profile interface: Exa auto search with highlights, and Parallel basic search with bounded excerpts. Mode, cost, disclosure, and live-validation boundaries are detailed in [SEARCH_PROVIDERS.md](SEARCH_PROVIDERS.md). Provider-hosted browsing, Firecrawl crawling/scraping, and vendor full-text/task modes require their own capability design.
+
+
+### Exa and Parallel adapter extension
+
+Delivered after the initial Brave/LangSearch/Firecrawl slice: fixed-endpoint Exa and Parallel search adapters, provider registry entries, independent environment/saved credentials, generic Chat/Code eligibility, and explicit search modes. Exa highlights and Parallel excerpts are bounded and identified as provider evidence. API configuration does not enable autonomous research, full-text extraction, or task workflows. Ordinary validation is offline; live credentials and separately authorized queries remain qualification gates. Six provider types are available while the established five-profile per-run budget remains intact.

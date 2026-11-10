@@ -8,6 +8,7 @@ import sys
 import time
 import uuid
 from .sessions import SessionError, validate_session
+from .search_providers import SEARCH_PROVIDERS
 
 def default_home():
     if os.getenv('AGENTNIK_HOME'): return Path(os.environ['AGENTNIK_HOME'])
@@ -131,14 +132,19 @@ class Store:
             import keyring
             try: return keyring.get_password('Agentnik Web',backend['credential_id']) or ''
             except Exception: return ''
-        return backend.get('api_key') or (os.getenv('OLLAMA_WEB_API_KEY','') if ident=='ollama-search' else '')
+        environment={ident:variable for _,variable,ident in SEARCH_PROVIDERS.values()}
+        return backend.get('api_key') or os.getenv(environment.get(ident,''),'')
 
-    def save_web_key(self, key='', plaintext=False, remove=False, ident='ollama-search', name=None):
+    def save_web_key(self, key='', plaintext=False, remove=False, ident='ollama-search', name=None, kind=None):
         import keyring
         backends = self.config.setdefault('web_backends',[])
         old = next((b for b in backends if b.get('id')==ident),{})
         if not key and not remove: return
-        saved = {'id':ident,'kind':'ollama','name':name or old.get('name','Ollama search')}
+        kind=kind or old.get('kind') or next((kind for kind,(_,_,profile) in SEARCH_PROVIDERS.items() if profile==ident),'ollama')
+        if not remove and kind not in SEARCH_PROVIDERS:raise ValueError('Unsupported search provider')
+        if not old and not remove and len(backends)>=5:raise ValueError('At most five saved profiles are supported')
+        if key and (len(key)>4096 or any(not 33<=ord(ch)<=126 for ch in key)):raise ValueError('Search credential must be a single visible ASCII token')
+        saved = {'id':ident,'kind':kind,'name':name or old.get('name',SEARCH_PROVIDERS.get(kind,('Search',))[0])}
         position=next((i for i,b in enumerate(backends) if b.get('id')==ident),len(backends))
         if key and not remove:
             if plaintext: saved['api_key'] = key
@@ -155,9 +161,11 @@ class Store:
 
     def web_backend_specs(self):
         entries=self.config.get('web_backends',[])
-        if len(entries)<5 and not any(e.get('id')=='ollama-search' for e in entries) and os.getenv('OLLAMA_WEB_API_KEY'):
-            entries=[*entries,{'id':'ollama-search','kind':'ollama','name':'Ollama search (environment)'}]
-        return [dict(id=e['id'],kind=e.get('kind','ollama'),name=e.get('name','Ollama search'),key=self.web_key(e['id'])) for e in entries]
+        entries=list(entries)
+        for kind,(label,variable,ident) in SEARCH_PROVIDERS.items():
+            if len(entries)<5 and not any(e.get('id')==ident for e in entries) and os.getenv(variable):
+                entries.append({'id':ident,'kind':kind,'name':label+' (environment)'})
+        return [dict(id=e['id'],kind=e.get('kind','ollama'),name=e.get('name','Search'),key=self.web_key(e['id'])) for e in entries]
 
     def new_session(self, mode, name, c):
         return dict(version=3, research_options={'enabled':False,'policy':None}, id=str(uuid.uuid4()), title='New decision' if mode == 'decision' else 'New chat', mode=mode,
