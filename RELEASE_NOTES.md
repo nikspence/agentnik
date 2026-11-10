@@ -1,4 +1,16 @@
-# Agentnik v0.7.1
+# Agentnik v0.7.2
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.7.1
+
+- Independent document review: request a comprehension, requirements, design or implementation-readiness pass using a configured Light or alternate model. Each pass needs explicit approval of its fixed instructions, document, destination and hashes.
+- Each review sends a fresh document-only request without the drafting conversation, prior findings, selected Skills, project guidance or tools. Agentnik discards findings if the document changes before or during review, and cancellation discards late output. Findings are untrusted; the provider may retain its own context.
+- Reviews run sequentially, within shared run budgets. Parallel passes, additional evidence files, durable finding dispositions and monitoring for later document changes remain planned.
+
+The full Windows offline suite passed 350 tests, including mocked endpoints and offscreen Qt checks. No live-model qualification was performed for independent review. Build-host startup evidence is recorded in BUILD-MANIFEST.json; clean-machine, full native workflow, macOS/Linux, signing and full bundled-library license review remain open.
+
+## Earlier release: v0.7.1
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
