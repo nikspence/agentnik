@@ -1,4 +1,16 @@
-# Agentnik v0.7.0
+# Agentnik v0.7.1
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.7.0
+
+- Selected Skills retain their confirmed instruction revisions between runs. Changed or missing instructions must be reviewed and reconfirmed before use; changes during a run stop it.
+- Light and parallel subagent requests count their full UTF-8 prompts against the shared context budget, including instructions, task and supplied project context.
+- The roadmap describes an optional independent design review workflow; this feature is planned, not implemented.
+
+The changes were tested offline with mocked endpoints and offscreen Qt checks. No live-model qualification was performed. Build-host startup evidence is recorded in BUILD-MANIFEST.json; clean-machine, full native workflow, macOS/Linux, signing and full bundled-library license review remain open.
+
+## Earlier release: v0.7.0
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 

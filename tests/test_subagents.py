@@ -13,6 +13,30 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_delegation_charges_complete_utf8_prompts_before_requests(self):
+        from agentnik.tools import Runtime
+        for tool,tasks in [('delegate_light',{'task':'Check café'}),('delegate_parallel',{'tasks':json.dumps(['Check café','Review API'])})]:
+            with self.subTest(tool=tool),tempfile.TemporaryDirectory() as root:
+                bodies=[];charges=[];events=[];heavy_count=0
+                original=Runtime.charge
+                def charge(runtime,name,amount,limit):
+                    if name=='context_bytes':charges.append(amount)
+                    return original(runtime,name,amount,limit)
+                def send(connection,url,body,timeout):
+                    nonlocal heavy_count
+                    bodies.append(copy.deepcopy(body))
+                    if connection['model']=='light':return Wire(chat('Finding'),False)
+                    heavy_count+=1
+                    if heavy_count==1:return Wire(chat(calls=[call(tool,tasks)],finish='tool_calls'),False)
+                    return Wire(chat('Done'),False)
+                with patch.object(Runtime,'charge',charge),patch.object(core,'open_request',side_effect=send):
+                    CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events)
+                children=[body for body in bodies if body['model']=='light']
+                self.assertEqual(len(children),1 if tool=='delegate_light' else 2)
+                expected=sum(len(body['messages'][0]['content'].encode('utf-8')) for body in children)
+                self.assertIn(expected,charges)
+
     def test_parallel_children_share_light_connection_and_cannot_call_tools(self):
         with tempfile.TemporaryDirectory() as root:
             folder=Path(root)/'.agents/skills/review';folder.mkdir(parents=True)
