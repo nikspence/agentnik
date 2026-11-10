@@ -236,3 +236,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 ## Document Reader qualification
 
 Offline generated fixtures cover bounded UTF-8 text, DOCX paragraphs, XLSX cached values, oversized archive rejection, PDF text extraction and PNG page rendering. Request serialization retains both extracted PDF text and images for Chat Completions, Responses, Messages and native Ollama. Qt tests cover draft storage, saved-prompt payloads, attachment removal and reader preview. Full suite: 292 passing tests; compileall and git diff --check passed. Offscreen reader and Chat layout screenshots were reviewed. No live multimodal model request, native manual trial, OCR, or release packaging qualification was performed.
+
+
+## Calculator and Data Analysis qualification
+
+The full offline suite passes 300 tests. New checks cover permitted arithmetic and function domains, forbidden AST constructs and resource bounds, malformed/oversized CSV and JSON, missing/nonnumeric/boolean handling, grouped summaries, recoverable arithmetic errors, explicit registry opt-in, local-only Chat without web tools, protocol continuation across Chat Completions/Responses/Messages/native Ollama, Heavy tool execution without research or approval, and Qt control persistence/reopen/busy state. Offscreen Chat layout was reviewed. Compilation and git diff --check passed. No live inference, remote data service, shell execution, new dependency, or release packaging validation was needed or performed. Float results are approximate and describe only supplied rows; these checks do not establish model data selection quality.

@@ -32,6 +32,7 @@ def validate_session(value, ident=None):
     data.setdefault('form',{}); require(isinstance(data['form'],dict))
     data.setdefault('research_options',{});require(isinstance(data['research_options'],dict))
     options=data['research_options']
+    if 'local_tools' in options: require(type(options['local_tools']) is bool)
     if 'enabled' in options: require(type(options['enabled']) is bool)
     if 'policy' in options: require(options['policy'] in (None,'Provider first','Agentnik first','Provider only','Agentnik only'))
     if data['mode']=='code':

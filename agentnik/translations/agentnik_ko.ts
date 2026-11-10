@@ -1476,6 +1476,18 @@ Saved excerpt; not a fresh or complete page.
             <source>Preview document text</source>
             <translation>문서 텍스트 미리 보기</translation>
         </message>
+        <message>
+            <source>Calculator / Data tools</source>
+            <translation>계산기 / 데이터 도구</translation>
+        </message>
+        <message>
+            <source>Allow model-requested local arithmetic and CSV/JSON summaries. No code execution. With Web access, uses Agentnik-managed tools. Tool-capable model required.</source>
+            <translation>모델이 요청한 로컬 계산과 CSV/JSON 요약을 허용합니다. 코드는 실행하지 않습니다. 웹 접근과 함께 사용하면 Agentnik 관리 도구를 사용합니다. 도구 호출 지원 모델이 필요합니다.</translation>
+        </message>
+        <message>
+            <source>Local tools completed</source>
+            <translation>로컬 도구 실행 완료</translation>
+        </message>
     </context>
     <context>
         <name>WebSettings</name>

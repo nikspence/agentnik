@@ -94,7 +94,7 @@ def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=N
                 if len(attempts)>=runtime.limits.attempts: raise LimitError('Research attempt limit reached')
                 if route=='managed':
                     service=backend or OrderedSearch(specs,allow_fallback=True)
-                    last=research.run_managed(c,messages,key,lambda v:emit(merged(v)),cancel,backend=service,runtime=runtime)
+                    last=research.run_managed(c,messages,key,lambda v:emit(merged(v)),cancel,backend=service,runtime=runtime,local_tools=bool(config.get('local_tools')))
                 else:
                     last=hosted.run_hosted(c,messages,key,lambda v:emit(merged(v)),cancel,runtime=runtime)
                 state=last['research']; capability_state=state.get('capability_state')

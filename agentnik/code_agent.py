@@ -33,7 +33,9 @@ class CodeTool:
             'type':'object','properties':{field:{'type':'string'} for field in self.fields},'required':list(self.fields),'additionalProperties':False}}}
 
 
-TOOLS=[CodeTool('git_status','Inspect tracked and staged repository status.',()),
+TOOLS=[CodeTool('calculate','Calculate bounded arithmetic and common math functions; numeric expression only, no code execution.',('expression',)),
+       CodeTool('analyze_data','Summarize supplied CSV/JSON data. data is a JSON string with format (csv/json), content (string), optional group_by column. Up to 1000 rows, 32 columns, 10 groups. Read project data with existing file tools first; no implicit file access.',('data',)),
+       CodeTool('git_status','Inspect tracked and staged repository status.',()),
        CodeTool('git_diff','Review a UTF-8 file diff against HEAD.',('path',)),
        CodeTool('git_log','List the last 20 commits.',()),
        CodeTool('git_branches','List local branches.',()),
@@ -348,7 +350,12 @@ class CodingRun:
                 for call,args in validated:
                     runtime.check()
                     try:
-                        if call.name=='delegate_light':
+                        if call.name in ('calculate','analyze_data'):
+                            from .analysis_tools import HANDLERS,AnalysisError
+                            try: result=HANDLERS[call.name](**args)
+                            except AnalysisError as exc: result={'error':str(exc)}
+                            event('output',text=call.name+': '+json.dumps(scrub(result,secrets))[:1500])
+                        elif call.name=='delegate_light':
                             if not self.light:result={'error':'No light model configured; continue with your own tools.'}
                             else:
                                 if len(args['task'].encode())>16000:raise ValueError('Delegation context limit')

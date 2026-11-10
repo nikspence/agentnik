@@ -55,7 +55,7 @@ def scrub(value,secrets):
     return value
 
 
-def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,runtime=None):
+def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,runtime=None,local_tools=False,web_tools=True):
     owned_runtime=runtime is None
     runtime=runtime or Runtime(cancel,limits,run_id); attempt_started=time.monotonic(); route=RouteAttempt()
     is_responses=c.get("protocol")=="responses"
@@ -64,6 +64,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
     state={'version':2,'run_id':runtime.run_id,'route':'managed','status':'running','sources':[],
            'events':[],'tool_records':[],'exchanges':[],'attempts':[asdict(route)],'limits':asdict(runtime.limits),
            'backend_attempts':getattr(backend,'attempts',[]),'capability_state':'configured','response_items':[],'provider_usage':[],'protocol':'native_ollama' if native else protocol}
+    if not web_tools: state.update(local_only=True,capability_updates=[])
     prior_sources={s['id']:s for m in messages if m.get('status','ok')=='ok' for s in m.get('research',{}).get('sources',[]) if re.fullmatch(r'S\d+',s.get('id',''))}
     next_source=max((int(ident[1:]) for ident in prior_sources),default=0)+1
     secrets=(c.get('api_key',''),key,*getattr(backend,'secret_values',[]))
@@ -98,17 +99,19 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
     try:
         runtime.check()
         if protocol not in core.PROTOCOLS: raise ResearchError('Unsupported managed protocol')
-        service=backend or OllamaWeb(key)
-        registry=Registry(service.search,service.fetch)
+        service=(backend or OllamaWeb(key)) if web_tools else None
+        registry=Registry(service.search if service else None,service.fetch if service else None,local_tools=local_tools,web_tools=web_tools)
+        definitions=tuple(registry.definitions.values())
+        instructions=INSTRUCTIONS+" Local numeric tools accept supplied data only, never execute code, and return approximate floating-point results. Explain missing or nonnumeric values and never invent analysis results." if local_tools else INSTRUCTIONS
         body=core.chat_body(c,messages)
         if is_responses:
-            body.update(instructions=INSTRUCTIONS,store=False,include=['reasoning.encrypted_content'],tools=responses_tools.wire_tools(DEFINITIONS))
+            body.update(instructions=instructions,store=False,include=['reasoning.encrypted_content'],tools=responses_tools.wire_tools(definitions))
         else:
-            if protocol=='messages': body['system']=INSTRUCTIONS
-            else: body['messages'].insert(0,{'role':'system','content':INSTRUCTIONS})
-            body['tools']=[d.wire() for d in DEFINITIONS] if native else compat_tools.wire_tools(DEFINITIONS,protocol)
+            if protocol=='messages': body['system']=instructions
+            else: body['messages'].insert(0,{'role':'system','content':instructions})
+            body['tools']=[d.wire() for d in definitions] if native else compat_tools.wire_tools(definitions,protocol)
         runtime.notify=lambda kind,detail:event(kind,detail)
-        event('route','Agentnik managed: configured search backends and public page reader.')
+        event('route','Agentnik managed: '+('calculator and data analysis'+('; configured search and public page reader' if web_tools else '; web tools disabled') if local_tools else 'configured search backends and public page reader.'))
         for round_number in range(runtime.limits.rounds+1):
             runtime.check(); runtime.charge('requests',1,runtime.limits.requests); requested+=1
             event('model',f'Model request {requested}')
@@ -134,7 +137,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
             if not calls:
                 result['status']='ok'; state['status']='completed'; route.status='completed'
                 event('completed','Research completed'); break
-            state['capability_state']='verified'
+            if any(call.name in ('web_search','web_fetch') for call in calls): state['capability_state']='verified'
             if round_number>=runtime.limits.rounds: raise LimitError('Research tool round limit reached')
             # Validate the whole batch before the first side effect.
             if runtime.calls+len(calls)>runtime.limits.calls: raise LimitError('Research tool call limit reached')
@@ -144,7 +147,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     raise AccessError('Tool arguments contain a configured credential; transmission blocked')
             for call in calls:
                 runtime.check()
-                event('searching' if call.name=='web_search' else 'reading',f'{call.name}: {next(iter(registry.validate(call,runtime.limits).values()))[:200]}')
+                event('calculating' if call.name in ('calculate','analyze_data') else 'searching' if call.name=='web_search' else 'reading',call.name if call.name=='analyze_data' else f'{call.name}: {next(iter(registry.validate(call,runtime.limits).values()))[:200]}')
                 started=time.monotonic()
                 record={'call_id':call.id,'name':call.name,'status':'running','source_ids':[]}
                 state['tool_records'].append(record)
@@ -159,10 +162,11 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     source=replace(source,id=f'S{next_source}')
                     next_source+=1
                     state['sources'].append(asdict(source)); sources.append(source)
-                record.update(status='completed',source_ids=[s.id for s in sources])
-                tool_result=ToolResult(call.id,call.name,tuple(sources))
+                record.update(status='failed' if returned.error else 'completed',source_ids=[s.id for s in sources])
+                tool_result=ToolResult(call.id,call.name,tuple(sources),error=returned.error,data=returned.data)
                 content=json.dumps(scrub(tool_result.wire(),secrets),ensure_ascii=False)
                 runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
+                if call.name in ('calculate','analyze_data'): event('tool_result',call.name+': '+content[:440])
                 wire={'role':'tool','tool_name':call.name,'content':content}
                 if is_responses:
                     wire={'type':'function_call_output','call_id':call.id,'output':content}
@@ -220,6 +224,10 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
 
 
 def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,config=None,policy=None,backends=None,access_policy='public_fetch'):
+    if config and config.get('local_tools'):
+        if not config.get('web_enabled',False):
+            return run_managed(c,messages,'',emit,cancel,limits,run_id,local_tools=True,web_tools=False)
+        policy='Agentnik only'
     if config is None and policy is None:
         return run_managed(c,messages,key,emit,cancel,limits,run_id,backend)
     from .routing import run as routed_run

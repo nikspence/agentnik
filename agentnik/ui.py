@@ -503,6 +503,11 @@ class SessionTab(QWidget):
         self.cancel_button = button(self.tr('Cancel'),self.cancel,bottom); self.cancel_button.setEnabled(False); bottom.addStretch()
         if session['mode'] == 'chat':
             self.documents_button = QPushButton(self.tr('Documents…')); self.documents_button.clicked.connect(self.read_documents); self.attachments.controls.insertWidget(1,self.documents_button)
+            self.local_tools = QCheckBox(self.tr('Calculator / Data tools')); self.local_tools.setChecked(session.get('research_options',{}).get('local_tools',False))
+            self.local_tools.setToolTip(self.tr('Allow model-requested local arithmetic and CSV/JSON summaries. No code execution. With Web access, uses Agentnik-managed tools. Tool-capable model required.'))
+            self.attachments.controls.insertWidget(4,self.local_tools); self.local_tools.toggled.connect(self.save_draft)
+            self.local_tools.toggled.connect(lambda checked:self.route_policy.setEnabled(not checked))
+            self.route_policy.setEnabled(not self.local_tools.isChecked())
         button(self.tr('Export session…'),self.export_session,bottom)
         if session['mode'] == 'chat': bottom.addLayout(web_row)
         self.refresh_connections(); self.model.setEditText(session['connection'].get('model',''))
@@ -576,6 +581,7 @@ class SessionTab(QWidget):
         route_label=self.tr('Provider hosted') if result['research'].get('route')=='hosted' else self.tr('Agentnik managed')
         switched=any(e.get('kind')=='route_switch' for e in result['research'].get('events',[]))
         self.info.setText((self.tr('Research completed · {route}').format(route=route_label)+(self.tr(' · Route switched; see Research activity') if switched else '')) if ok else result.get('error',self.tr('Research stopped'))+self.tr(' · Partial work saved; restart explicitly.'))
+        if ok and result['research'].get('local_only'): self.info.setText(self.tr('Local tools completed'))
         if result['research'].get('retention',{}).get('truncated'):
             self.info.setText(self.info.text()+self.tr(' · Saved research detail limited; start a new chat to continue research.'))
         self.save_draft(); self.render(); self.updated.emit()
@@ -660,7 +666,7 @@ class SessionTab(QWidget):
         if self.loading: return
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
         if self.session['mode'] == 'chat':
-            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData()})
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData(),'local_tools':self.local_tools.isChecked()})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -672,7 +678,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-            self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.route_policy.setEnabled(not value)
+            self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
     def submit(self):
         if self.job: return
         try:
@@ -689,12 +695,12 @@ class SessionTab(QWidget):
                 self.pending = user
             else:
                 form = copy.deepcopy(self.form_value()); body = core.decision_body(c,form); self.pending = form
-            self.research_running = mode=='chat' and self.web_access.isChecked()
+            self.research_running = mode=='chat' and (self.web_access.isChecked() or self.local_tools.isChecked())
             key = ''; backend_specs=[]; research_config={}; selected_policy=None; access_policy='public_fetch'
             if self.research_running:
                 defaults=routing.connection_defaults(self.store.config,self.session['connection_name'],c)
                 selected_policy=self.route_policy.currentData() or defaults['policy']; access_policy=defaults['access_policy']
-                research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{}))}
+                research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{})),'local_tools':self.local_tools.isChecked(),'web_enabled':self.web_access.isChecked()}
                 backend_specs=self.store.web_backend_specs()
                 key=next((b['key'] for b in backend_specs if b.get('key')),'')
             self.partial = {'text':'','thinking':''}
