@@ -341,3 +341,10 @@ Firecrawl Keyless now uses the REST search endpoint without an Authorization hea
 ### Provider retrieval for filtered page reads
 
 Implemented direct-first URL retrieval fallback for recognized network-filter pages (including Zscaler), TLS errors and connection resets. Eligible configured Firecrawl/Exa/Parallel/Ollama profiles precede automatic Firecrawl Keyless. Credentials stay at fixed API endpoints; provider URL disclosure, external navigation, potential charges and returned provenance are visible. Strict public-only mode and private-address/redirect checks remain enforced; generic site access denials, timeout/cancellation and ambiguous outcomes remain terminal. This specific provider-page fallback supersedes the earlier plan's blanket deferral of service-backed fetch. Broader crawling, browser interaction and authentication remain outside scope. Offline adapter and mocked Chat/Code checks do not establish live Zscaler/provider compatibility.
+
+
+## Focused coding tools — first slice
+
+Delivered: non-executing project overview, bounded line-range reads, approved exact-match patches, and approved test commands with structured reported results. Ranges cover up to 200 lines/16 KB within a 2 MB UTF-8 file. Patches require a unique previously seen span at the current snapshot, preserve surrounding content, and recheck the hash before atomic application. Range reads do not grant full-file rewrite/deletion permission. Overview is a bounded inventory and manifest summary, never an import or script execution.
+
+Test commands reuse shell approval and execution policies, including optional System One advice. Parsers cover unittest, pytest, Jest, and Vitest; unknown/truncated output remains explicit and only the last recognized summary is reported. Initial native validation uses an owned temporary unittest fixture, while model behavior is mocked. Dedicated longer-running test jobs, richer diagnostics, symbol lookup, task tracking, Chat document reading/calculation, browser preview, and MCP remain later slices. See CODING_GUIDE.md for operational limits.

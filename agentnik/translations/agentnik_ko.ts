@@ -468,6 +468,10 @@ Hooks and signing are disabled. Review the complete diff below.</source>
             <source>Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.</source>
             <translation>설정한 검색 공급자를 먼저 사용하고 허용되는 경우 Firecrawl Keyless와 Google로 대체 검색합니다. 설정한 공급자가 없으면 Firecrawl Keyless를 먼저 사용합니다. Ollama 검색은 Ollama Cloud 직접 연결에서만 사용합니다. 공개 페이지 직접 조회가 필터로 차단되면 조회 공급자에 해당 URL을 보낼 수 있습니다.</translation>
         </message>
+        <message>
+            <source>TEST RUN · Report format: {format}</source>
+            <translation>테스트 실행 · 보고서 형식: {format}</translation>
+        </message>
     </context>
     <context>
         <name>ConnectionDialog</name>

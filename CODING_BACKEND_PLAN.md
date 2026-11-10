@@ -73,3 +73,10 @@ Next: credential-safe remote inspection, then fetch and push with explicit desti
 ### Model-call timeout control (post-v0.4.0)
 
 Coding requests now have a model-only timeout, configurable in Limits from 10–3,600 seconds with a 300-second default for both Heavy and Light. It bounds the whole request (first-token wait plus generation), while the original run deadline remains shared. New run budgets default to 900 seconds; legacy saved total budgets are preserved and acquire the new model timeout without rewriting user choices. Request-scoped runtimes retain the original run start and cancellation token, reject late results, and leave web/shell/Decision deadlines unchanged. Offline tests simulate a 70-second local-model delay and verify shorter model/total deadlines, role assignment, no replay, and saved-setting compatibility. No live inference was needed.
+
+
+## Focused coding tools — first slice
+
+Delivered: non-executing project overview, bounded line-range reads, approved exact-match patches, and approved test commands with structured reported results. Ranges cover up to 200 lines/16 KB within a 2 MB UTF-8 file. Patches require a unique previously seen span at the current snapshot, preserve surrounding content, and recheck the hash before atomic application. Range reads do not grant full-file rewrite/deletion permission. Overview is a bounded inventory and manifest summary, never an import or script execution.
+
+Test commands reuse shell approval and execution policies, including optional System One advice. Parsers cover unittest, pytest, Jest, and Vitest; unknown/truncated output remains explicit and only the last recognized summary is reported. Initial native validation uses an owned temporary unittest fixture, while model behavior is mocked. Dedicated longer-running test jobs, richer diagnostics, symbol lookup, task tracking, Chat document reading/calculation, browser preview, and MCP remain later slices. See CODING_GUIDE.md for operational limits.
