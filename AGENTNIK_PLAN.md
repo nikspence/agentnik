@@ -6,7 +6,7 @@ Reviewed after the v0.2.0 release: 2026-11-08. This roadmap describes the curren
 
 Agentnik is an independent Python/Qt desktop application for chat, Ollama System One decisions, bounded web research, and a repository-based Coding Agent workspace. Keep runtime dependencies small and support Windows, macOS, and Linux without claiming untested platform compatibility. Plan a localized interface without changing the language of user or model content.
 
-- Preserve the robot geometry, red robot/`nik` branding, theme-sensitive `agent` wordmark, independent application identity/storage, and MIT license verbatim, including **Copyright (c) 2026 Nikolaus Spence**.
+- Preserve the robot geometry, red robot/`nik` branding, theme-sensitive `agent` wordmark, independent application identity/storage, and Apache License 2.0 with **Copyright 2026 Nikolaus Spence**.
 - Preserve independent tabs and histories, responsive background work, Markdown, inline thinking, images, statistics, accessibility, themes, saved prompts, and attachment cleanup.
 - Preserve Responses, Chat Completions, Messages, and native Ollama chat. Bedrock support remains Mantle bearer-token endpoints. A protocol name does not establish model capability.
 - Keep System One separate from chat/research: ordered questions and criteria, multiple images, and image-only state fallback remain supported.

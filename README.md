@@ -173,7 +173,7 @@ Verify credential storage, TLS access, file dialogs, clipboard images, history, 
 
 ## License
 
-MIT. Copyright (c) 2026 Nikolaus Spence. Author: Nikolaus Spence.
+Apache-2.0. Copyright 2026 Nikolaus Spence. Sole author: Nikolaus Spence.
 
 
 Selected skill IDs, sources, and exact instruction-file SHA-256 hashes are retained as metadata for the latest real coding run. Starting another run replaces those records; reopening never executes skills. Common folded and literal multiline descriptions are supported; this parser is not a full YAML implementation.

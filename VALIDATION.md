@@ -11,7 +11,7 @@ Validated on Windows on 2026-11-08 using Python 3.15 and PySide6 6.12.0.
 - The installed package was imported with source-directory imports excluded. All seven packaged branding assets were present; SVG and PNG decoding passed.
 - The installed application's entry point ran the offscreen event loop and exited successfully with temporary storage and mocked environment/endpoint discovery. Application/organization identity and the temporary history database were verified. The harness explicitly closed its database before deleting the temporary directory.
 - Intended source files were audited for obsolete branding, private development endpoints, machine-specific paths, and common credential patterns. No matches were found. This is a targeted scan, not a guarantee against every possible secret format.
-- The MIT license matches the supplied source verbatim, including Copyright (c) 2026 Nikolaus Spence. Project metadata identifies Nikolaus Spence as author.
+- The project uses the Apache License 2.0. Copyright 2026 Nikolaus Spence. Project metadata identifies Nikolaus Spence as sole author.
 - This repository was initialized independently, with no inherited history or remote at baseline creation. The user subsequently configured origin and published the baseline.
 
 ## Limits
@@ -52,7 +52,7 @@ No live model inference or research-service checks were run. Hosted navigation c
 
 ## v0.1.0 Windows PyInstaller build
 
-Built with PyInstaller 6.22.3, hooks 2026.9, Python 3.15.0 and PySide6 6.12.0 on Windows 11 x64 using `Agentnik.spec`. The onedir distribution includes Qt plugins, all seven branding images, and the MIT license. A ZIP integrity/contents check passed; a SHA-256 sidecar accompanies the archive in `dist/`.
+Built with PyInstaller 6.22.3, hooks 2026.9, Python 3.15.0 and PySide6 6.12.0 on Windows 11 x64 using `Agentnik.spec`. The onedir distribution includes Qt plugins, all seven branding images, and the Apache License 2.0. A ZIP integrity/contents check passed; a SHA-256 sidecar accompanies the archive in `dist/`.
 
 The actual windowed executable initialized a Qt window titled Agentnik and created a history database under a dedicated test data directory. The startup check allowed up to 20 seconds and located the hidden window by its process-owned native handle, then requested a graceful close and verified exit code 0. The initial check ran too early; process input-idle alone was not sufficient evidence of application readiness.
 
@@ -140,7 +140,7 @@ All 143 offline tests pass. Twelve additional test groups cover compatibility CL
 
 A dedicated `.venv-build` environment was created with system site packages disabled and requirements-build.txt installed. The full Windows x64 PyInstaller build and actual frozen Qt readiness/database/graceful-exit check passed. The first build's PowerShell smoke launcher was blocked by execution policy; a new Python ctypes Windows helper replaced that dependency without changing execution policy, and a fresh output label preserved the earlier attempt for diagnosis.
 
-Successful artifact: `dist/build-dev-d1-d2-r2/Agentnik-dev-d1-d2-r2-windows-x64.zip`, about 56.0 MB, SHA-256 `9e47fd99748c8fc2d2e1eabdd7e86649327393e380cc19a66dc1348e68855cb7`. Archive integrity/contents and branding/Qt plugin checks passed. BUILD-MANIFEST.json records Python 3.15.0, PySide6 6.12.0, keyring 25.7.0, PyInstaller 6.22.3/hooks 2026.9, all installed dependency versions, OS/architecture, ab8b6bd plus dirty source state, unsigned status and smoke outcome. Assembly includes README, VALIDATION, the MIT license, 79 installed-distribution notice files, and Python's license.
+Successful artifact: `dist/build-dev-d1-d2-r2/Agentnik-dev-d1-d2-r2-windows-x64.zip`, about 56.0 MB, SHA-256 `9e47fd99748c8fc2d2e1eabdd7e86649327393e380cc19a66dc1348e68855cb7`. Archive integrity/contents and branding/Qt plugin checks passed. BUILD-MANIFEST.json records Python 3.15.0, PySide6 6.12.0, keyring 25.7.0, PyInstaller 6.22.3/hooks 2026.9, all installed dependency versions, OS/architecture, ab8b6bd plus dirty source state, unsigned status and smoke outcome. Assembly includes README, VALIDATION, the Apache License 2.0, 79 installed-distribution notice files, and Python's license.
 
 This is a development artifact, not a new tagged/published release or replacement for v0.1.0. It verifies startup on this build host, not a clean Windows machine or complete dialogs/clipboard/keyring/TLS workflows. Dependency notices were collected, not fully audited for every bundled library. macOS/Linux, signing/distribution and final release/version gates remain pending. No live inference or search was issued in this development slice. D1 harness tooling is delivered; provider evidence remains scoped to earlier results or later explicitly authorized runs.
 
