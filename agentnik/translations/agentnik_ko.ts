@@ -496,6 +496,34 @@ Hooks and signing are disabled. Review the complete diff below.</source>
             <source>Blocked</source>
             <translation>차단됨</translation>
         </message>
+        <message>
+            <source>Skill history…</source>
+            <translation>스킬 이력…</translation>
+        </message>
+        <message>
+            <source>Skill history</source>
+            <translation>스킬 이력</translation>
+        </message>
+        <message>
+            <source>Run: {id}</source>
+            <translation>실행: {id}</translation>
+        </message>
+        <message>
+            <source>No skill revisions recorded</source>
+            <translation>기록된 스킬 버전 없음</translation>
+        </message>
+        <message>
+            <source>Last run (legacy record)</source>
+            <translation>마지막 실행 (기존 기록)</translation>
+        </message>
+        <message>
+            <source>No skill history recorded.</source>
+            <translation>기록된 스킬 이력이 없습니다.</translation>
+        </message>
+        <message>
+            <source>{name} (unavailable; uncheck to remove)</source>
+            <translation>{name} (사용 불가, 선택 해제하여 제거)</translation>
+        </message>
     </context>
     <context>
         <name>ConnectionDialog</name>

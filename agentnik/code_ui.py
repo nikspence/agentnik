@@ -189,6 +189,7 @@ class CodeTab(QWidget):
         disclosure=QLabel(self.tr('When enabled, each shell proposal sends its command, working directory, shell, and environment variable names to the selected Decision endpoint. Environment values are not sent. Advice never approves a command.'))
         disclosure.setWordWrap(True);model_layout.addWidget(disclosure)
         self.skills_button=QPushButton();self.skills_button.clicked.connect(self.choose_skills);options.addWidget(self.skills_button);self.refresh_skills_button()
+        self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);options.addWidget(self.skills_history_button)
         self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.'))
@@ -336,6 +337,22 @@ class CodeTab(QWidget):
         self.skills_button.setText(self.tr('Skills ({count})').format(count=len(names)) if names else self.tr('Skills…'))
         self.skills_button.setToolTip(', '.join(names) if names else self.tr('Choose skills'))
 
+    def show_skills_history(self):
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Skill history'));dialog.resize(700,450)
+        layout=QVBoxLayout(dialog);view=QPlainTextEdit();view.setReadOnly(True)
+        history=self.session.get('coding_skill_history',[])
+        lines=[]
+        for run in reversed(history):
+            lines.append(self.tr('Run: {id}').format(id=run['run_id']))
+            lines.extend('  '+skill['id']+' ['+skill['source']+'] · SHA-256 '+skill['sha256'] for skill in run['skills'])
+            if not run['skills']:lines.append('  '+self.tr('No skill revisions recorded'))
+            lines.append('')
+        if not history and self.session.get('coding_skill_revisions'):
+            lines.append(self.tr('Last run (legacy record)'))
+            lines.extend('  '+skill['id']+' ['+skill['source']+'] · SHA-256 '+skill['sha256'] for skill in self.session['coding_skill_revisions'])
+        view.setPlainText('\n'.join(lines) if lines else self.tr('No skill history recorded.'));layout.addWidget(view)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
+
     def choose_skills(self):
         if self.job: return
         from .code_agent import ProjectFiles
@@ -357,6 +374,10 @@ class CodeTab(QWidget):
                 except (OSError,ValueError) as exc: QMessageBox.warning(dialog,self.tr('Skills'),str(exc));return
                 viewer=QDialog(dialog);viewer.setWindowTitle(name);viewer.resize(700,500);box=QVBoxLayout(viewer);content=QPlainTextEdit();content.setReadOnly(True);content.setPlainText(text);box.addWidget(content);viewer.exec()
             preview.clicked.connect(show_skill)
+        available={skill['id'] for skill in skills}
+        for ident in self.session.get('coding_skills',[]):
+            if ident not in available:
+                check=QCheckBox(self.tr('{name} (unavailable; uncheck to remove)').format(name=ident));check.setChecked(True);skill_layout.addWidget(check);checks.append((ident,check))
         if not checks:layout.addWidget(QLabel(self.tr('No skills found in repository or user .agents/skills.')))
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
         if dialog.exec()==QDialog.DialogCode.Accepted:

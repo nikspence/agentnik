@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from agentnik.code_agent import ProjectFiles
-from agentnik.project_skills import list_skills,read_skill,read_resource
+from agentnik.project_skills import list_skills,read_skill,read_resource,list_resources
 
 class ProjectSkills(unittest.TestCase):
     def test_discovery_is_bounded_to_valid_project_skill_and_does_not_authorize_edits(self):
@@ -87,3 +87,38 @@ class ProjectSkills(unittest.TestCase):
                 session['coding_skill_revisions']=[dict(revision,sha256='bad')]
                 with self.assertRaises(SessionError):validate_session(session)
             finally:store.db.close()
+
+    def test_skill_history_survives_session_reload_and_rejects_invalid_records(self):
+        from agentnik.repositories import RepositoryRegistry
+        from agentnik.storage import Store
+        from agentnik.sessions import validate_session,SessionError
+        with tempfile.TemporaryDirectory() as root:
+            project=Path(root)/'project';project.mkdir();store=Store(Path(root)/'data')
+            try:
+                registry=RepositoryRegistry(store);session=registry.session(registry.put(project))
+                history=[{'run_id':'first','skills':[{'id':'review','source':'repository','sha256':'a'*64}]},{'run_id':'second','skills':[]}]
+                session['coding_skill_history']=history;store.save(session)
+                self.assertEqual(store.list_sessions()[0]['coding_skill_history'],history)
+                session['coding_skill_history']=[history[0],history[0]]
+                with self.assertRaises(SessionError):validate_session(session)
+            finally:store.db.close()
+
+    def test_yaml_metadata_and_untrusted_inputs(self):
+        from agentnik.project_skills import parse_frontmatter
+        valid="---\nname: review\ndescription: 'Review: check \"quotes\"'\nmetadata: {author: nik, version: '1.0'}\n---\nInstructions"
+        self.assertEqual(parse_frontmatter(valid,'review'),'Review: check "quotes"')
+        alias='---\nname: review\ndescription: &desc "A valid description"\nmetadata: {summary: *desc}\n---\nBody'
+        self.assertEqual(parse_frontmatter(alias,'review'),'A valid description')
+        for invalid in ('---\nname: review\ndescription: !!python/object/apply:os.system ["echo unsafe"]\n---\nBody','---\nname: review\nname: other\ndescription: text\n---\nBody','---\nname: review\ndescription: [one, two]\n---\nBody','---\nname: review\ndescription: text\n---extra\nBody','---\nname: review\ndescription: text\nmetadata: '+('['*31)+'0'+(']'*31)+'\n---\nBody'):
+            with self.subTest(invalid=invalid):self.assertIsNone(parse_frontmatter(invalid,'review'))
+
+    def test_list_selected_skill_resources_is_bounded_and_relative(self):
+        with tempfile.TemporaryDirectory() as root:
+            skill=Path(root)/'.agents/skills/review';(skill/'references').mkdir(parents=True)
+            (skill/'SKILL.md').write_text('---\nname: review\ndescription: Review\n---\nRead references.',encoding='utf-8')
+            (skill/'references/guide.md').write_text('Evidence',encoding='utf-8')
+            result=list_resources(ProjectFiles(root),'review',user_root=Path(root)/'empty')
+            self.assertEqual(result['resources'],['references/guide.md']);self.assertFalse(result['truncated'])
+            for n in range(101):(skill/('file'+str(n)+'.txt')).write_text('x')
+            result=list_resources(ProjectFiles(root),'review',user_root=Path(root)/'empty')
+            self.assertTrue(result['truncated']);self.assertLessEqual(len(result['resources']),100)

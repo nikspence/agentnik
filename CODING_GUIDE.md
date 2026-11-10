@@ -124,13 +124,19 @@ Guidance must be regular, unlinked UTF-8 files: up to 8 KB per file, 24 KB total
 
 ## Repository Skills preview
 
-Code can discover and explicitly select up to five repository skills under `.agents/skills/<name>/SKILL.md`. Preview the instructions in the picker; selection persists in the session. Each run loads selected instructions and records their SHA-256 in activity. Selected skills can supply bounded UTF-8 references through `read_skill_resource`; relative paths are confined to the skill directory and linked paths are rejected. Scripts still require normal shell approval. Discovery is limited to 200 entries and 50 valid skills; each instruction or reference is limited to 16 KB and shared context budgets apply. The preview accepts common single-line and multiline name/description frontmatter, not the full YAML specification. User-level libraries, richer metadata, and immutable session revision tracking remain future work.
+Code can discover and explicitly select up to five repository skills under `.agents/skills/<name>/SKILL.md`. Preview the instructions in the picker; selection persists in the session. Each run loads selected instructions and records their SHA-256 in activity. Selected skills can supply bounded UTF-8 references through `read_skill_resource`; relative paths are confined to the skill directory and linked paths are rejected. Scripts still require normal shell approval. Discovery is limited to 200 entries and 50 valid skills; each instruction or reference is limited to 16 KB and shared context budgets apply. Skill frontmatter uses bounded safe YAML parsing. User-level libraries and a bounded per-run revision history are available; richer metadata remains future work.
 
 
-User-level skills under `~/.agents/skills` are also available in the picker. Repository skills keep their existing names; user skills use `user:<name>` identifiers, so duplicate names never silently override one another. Selected user instructions and references retain the same read bounds and approval rules. The list is scrollable and displays each source. Full YAML frontmatter and per-run archival beyond the latest run remain future work.
+User-level skills under `~/.agents/skills` are also available in the picker. Repository skills keep their existing names; user skills use `user:<name>` identifiers, so duplicate names never silently override one another. Selected user instructions and references retain the same read bounds and approval rules. The list is scrollable and displays each source. Additional per-run archival beyond the current bounded history remains future work.
 
 
-Selected skill IDs, sources, and exact instruction-file SHA-256 hashes are retained as metadata for the latest real coding run. Starting another run replaces those records; reopening never executes skills. Common folded and literal multiline descriptions are supported; this parser is not a full YAML implementation.
+Selected skill IDs, sources, and exact instruction-file SHA-256 hashes are retained as metadata for the latest real coding run. Starting another run replaces those records; reopening never executes skills. Skill frontmatter uses bounded safe YAML parsing.
 
 
 Code sessions retain skill revision metadata for the most recent 32 real coding runs. Each record identifies the run and selected skill sources and SHA-256 hashes; simulations do not add records. Older sessions remain readable. The hashes identify instruction-file contents without storing those contents in the revision history.
+
+
+Use **Skill history…** in the Code pane to review the recorded skill IDs, sources, and SHA-256 hashes for the latest 32 real coding runs. A missing selected skill stays visible in the selector until you explicitly uncheck it; a run cannot load it until it is restored or deselected.
+
+
+Selected skills can list supporting resources via `list_skill_resources`, bounded to 200 entries, 100 files, and four directory levels. Paths remain confined to the skill directory and linked paths are excluded. Listing does not read or execute scripts.

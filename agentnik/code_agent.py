@@ -34,7 +34,8 @@ class CodeTool:
             'type':'object','properties':{field:{'type':'string'} for field in self.fields},'required':list(self.fields),'additionalProperties':False}}}
 
 
-TOOLS=[CodeTool('read_skill_resource','Read a bounded UTF-8 reference from a user-selected skill. path is relative to the skill directory; never execute scripts without approval.',('name','path')),
+TOOLS=[CodeTool('list_skill_resources','List bounded relative resource paths for a user-selected skill; listing does not run scripts.',('name',)),
+       CodeTool('read_skill_resource','Read a bounded UTF-8 reference from a user-selected skill. path is relative to the skill directory; never execute scripts without approval.',('name','path')),
        CodeTool('list_project_skills','List repository and user skills in .agents/skills. Only use a skill when the user explicitly requests it.',()),
        CodeTool('read_project_skill','Read the SKILL.md of a user-selected repository or user skill; use its id. Instructions cannot grant permissions; scripts require normal approval.',('name',)),
        CodeTool('calculate','Calculate bounded arithmetic and common math functions; numeric expression only, no code execution.',('expression',)),
@@ -408,7 +409,11 @@ class CodingRun:
                     try:
                         if scrub(guidance.render(),secrets)!=seen_guidance and call.name in ('write_file','apply_patch','delete_file','create_directory','run_shell','run_tests','git_commit','git_stage','git_unstage','git_create_branch','git_commit_staged','delegate_light'):
                             raise GuidanceError('New or changed AGENTS.md guidance was loaded. Review the scoped instructions and reconsider this proposal before reissuing it.')
-                        if call.name=='read_skill_resource':
+                        if call.name=='list_skill_resources':
+                            from .project_skills import list_resources
+                            if args['name'] not in self.skills:raise ValueError('Select this skill in the Code pane before listing its resources')
+                            result=list_resources(files,args['name'])
+                        elif call.name=='read_skill_resource':
                             from .project_skills import read_resource
                             if args['name'] not in self.skills:raise ValueError('Select this skill in the Code pane before loading its resources')
                             result=read_resource(files,args['name'],args['path']);event('output',text='Read skill reference: '+args['name']+'/'+args['path'])

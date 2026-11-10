@@ -2,8 +2,43 @@
 import re
 import hashlib
 import os
-import ast
+import yaml
 from pathlib import Path
+
+
+class SkillLoader(yaml.SafeLoader):
+    """Safe YAML with bounded graph complexity and no duplicate mapping keys."""
+    def __init__(self, stream):
+        super().__init__(stream);self.nodes_seen=0;self.depth=0
+
+    def compose_node(self, parent, index):
+        self.nodes_seen+=1;self.depth+=1
+        if self.nodes_seen>500 or self.depth>30:raise ValueError('Skill metadata is too complex')
+        try:return super().compose_node(parent,index)
+        finally:self.depth-=1
+
+    def construct_mapping(self, node, deep=False):
+        self.flatten_mapping(node);result={}
+        for key_node,value_node in node.value:
+            key=self.construct_object(key_node,deep=deep)
+            try:
+                if key in result:raise ValueError('Duplicate skill metadata key')
+                result[key]=self.construct_object(value_node,deep=deep)
+            except TypeError:raise ValueError('Invalid skill metadata key') from None
+        return result
+
+
+def parse_frontmatter(text,name):
+    text=text.replace('\r\n','\n')
+    if not text.startswith('---\n'):return None
+    end=re.search(r'^---[ \t]*$',text[4:],re.MULTILINE)
+    if not end:return None
+    try:metadata=yaml.load(text[4:4+end.start()],Loader=SkillLoader)
+    except (yaml.YAMLError,ValueError,RecursionError):return None
+    if not isinstance(metadata,dict):return None
+    description=metadata.get('description')
+    if metadata.get('name')!=name or not isinstance(description,str) or not description.strip() or len(description)>1024:return None
+    return description.strip()
 
 
 def _list_skills(files):
@@ -22,35 +57,8 @@ def _list_skills(files):
         try:
             text=files.read('.agents/skills/'+name+'/SKILL.md',remember=False,max_bytes=16000)
         except (OSError,ValueError,UnicodeError): continue
-        text=text.replace('\r\n','\n')
-        if not text.startswith('---\n'): continue
-        end=text.find('\n---',4)
-        if end<0: continue
-        header=text[4:end]
-        metadata={};lines=header.splitlines();index=0
-        while index<len(lines):
-            line=lines[index];index+=1
-            match=re.match(r'^([a-z][a-z0-9-]*):(?:[ \t]+(.*))?$',line)
-            if not match:continue
-            key,value=match.group(1),match.group(2) or ''
-            if key not in ('name','description'):continue
-            if key in metadata:metadata={};break
-            if value in ('|','|-','|+','>','>-','>+'):
-                chunks=[]
-                while index<len(lines) and (lines[index].startswith((' ', '\t')) or not lines[index].strip()):
-                    chunks.append(lines[index].strip());index+=1
-                value=(' ' if value.startswith('>') else '\n').join(chunks).strip()
-            elif value.startswith('"'):
-                try:value=ast.literal_eval(value)
-                except (SyntaxError,ValueError):metadata={};break
-            elif value.startswith("'"):
-                if len(value)<2 or not value.endswith("'"):metadata={};break
-                value=value[1:-1].replace("''", "'")
-            else:value=re.split(r'\s+#',value,maxsplit=1)[0].strip()
-            if not isinstance(value,str):metadata={};break
-            metadata[key]=value
-        description=metadata.get('description','')
-        if metadata.get('name')!=name or not description.strip() or len(description)>1024:continue
+        description=parse_frontmatter(text,name)
+        if description is None:continue
         result.append({'name':name,'description':description,'path':'.agents/skills/'+name+'/SKILL.md'})
     return result
 
@@ -90,3 +98,29 @@ def read_resource(files,name,path,user_root=None):
     target=Path('.agents/skills')/local_name/relative
     content=files.read(str(target),remember=False,max_bytes=16000)
     return {'skill':name,'path':path,'content':content,'sha256':hashlib.sha256(content.encode('utf-8')).hexdigest()}
+
+
+
+def list_resources(files,name,user_root=None):
+    """List bounded, regular files in a selected skill without reading or running them."""
+    read_skill(files,name,user_root)
+    files,local_name,source=_select_files(files,name,user_root)
+    root=files.path(str(Path('.agents/skills')/local_name))
+    pending=[(root,0)];found=[];scanned=0;truncated=False
+    while pending:
+        directory,depth=pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                scanned+=1
+                if scanned>200:truncated=True;break
+                relative=Path(entry.path).relative_to(root)
+                try:target=files.path(str(Path('.agents/skills')/local_name/relative))
+                except (OSError,ValueError):continue
+                if target.is_dir():
+                    if depth<3:pending.append((target,depth+1))
+                    else:truncated=True
+                elif target.is_file() and relative.as_posix()!='SKILL.md':
+                    found.append(relative.as_posix())
+                    if len(found)>=100:truncated=True;break
+        if scanned>200 or len(found)>=100:break
+    return {'skill':name,'resources':sorted(found),'truncated':truncated}

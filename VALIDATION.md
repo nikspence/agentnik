@@ -246,3 +246,8 @@ The full offline suite passes 300 tests. New checks cover permitted arithmetic a
 ## Scoped repository guidance qualification
 
 Full offline suite: 308 passing tests. Eight new guidance checks cover ancestor ordering and subtree discovery, refresh/removal, implicit-read permission isolation, invalid encoding/binary/oversized/hard-linked files, cumulative guidance bounds, initial instruction injection across Chat Completions/Messages/Responses/native Ollama, configured-secret redaction, new nested guidance deferral, approval-time changes, same-batch AGENTS.md edits invalidating later mutations, unchanged shell approval, Light context, and shared context budgets. Compilation and git diff --check passed. Activity uses the existing Code output-event path. No live model request was made; convention adherence and command target interpretation remain model-dependent. Shell guidance is scoped by working directory, not inferred from arbitrary command text.
+
+
+## Skills YAML and resources
+
+The isolated Windows build environment uses PyYAML 6.0.3 for bounded safe skill frontmatter parsing; aliases, quoted values and multiline descriptions are covered. Offline checks reject duplicate keys, unsafe object tags, excessive nesting, invalid metadata and escaping skill paths. Selected skills can list bounded resources without executing them. The full suite passed 317 tests; no live model request or frozen release build was run for this change. Cross-platform native validation and skill update behavior remain open.

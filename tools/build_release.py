@@ -19,7 +19,7 @@ from agentnik import __version__
 from tools.live_compat import revision
 from tools.frozen_smoke import smoke
 
-PINNED={'PySide6':'6.12.0','keyring':'25.7.0','dulwich':'0.25.2','pyinstaller':'6.22.3','pyinstaller-hooks-contrib':'2026.9'}
+PINNED={'PyYAML':'6.0.3','PySide6':'6.12.0','keyring':'25.7.0','dulwich':'0.25.2','pyinstaller':'6.22.3','pyinstaller-hooks-contrib':'2026.9'}
 
 
 def clean_environment():
