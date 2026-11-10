@@ -1,4 +1,23 @@
-# Agentnik v0.4.0
+# Agentnik v0.5.0
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.4.0
+
+- Chat Document Reader: attach UTF-8 text, Markdown, CSV, JSON, PDF, DOCX and XLSX with local preview, source references and persistent extracted snapshots. PDFs default to both page images and extracted text for multimodal models; select text-only mode when needed. Scanned PDFs can use page images; OCR is not included. Bounds include four documents per prompt, 10 MB per file and 12 PDF image pages per import.
+- Calculator and Data Analysis tools: optional model-requested arithmetic and CSV/JSON summaries in Chat, and built-in Heavy tools in Code. Numeric statistics include missing/nonnumeric counts and optional grouping. Local tools execute no arbitrary code or shell commands; results use approximate float arithmetic and only explicitly supplied data. Web access remains independently controlled.
+- Coding task checklists with persistent model-reported progress, a collapsible panel, and no automatic resumption after reopening.
+- Focused project overview, numbered file-range reads, approved exact-match patches, and approved test commands with structured unittest/pytest/Jest/Vitest summaries.
+- Managed search providers: Brave, LangSearch, Firecrawl, Exa and Parallel, independent credentials, Firecrawl Keyless defaults and eligible fallback to Google scraping. Public URL retrieval can fall back to retrieval-capable provider APIs after recognized network-filter blocks, TLS errors or connection resets; strict public-only navigation disables that external retrieval.
+- Configurable per-model coding timeout (300 seconds by default), with shared loop and elapsed-time budgets suitable for slower local models.
+- Clearer direct Amazon Bedrock Mantle catalog and inference endpoint handling; LiteLLM connections retain gateway routing.
+- Updated feature documentation, Korean controls and offline validation.
+
+The full offline suite covers 300 tests. Calculator, analysis, and multimodal document requests are qualified with generated fixtures and mocked models, not live model runs. Search-provider qualification varies by adapter; see VALIDATION.md. Original document binaries are not retained; extracted snapshots and rendered PDF pages are persisted and sent only when you send the prompt. Automatic full-dataset attachment retrieval, OCR, arbitrary analysis code, remote structured Git tools, MCP and Skills remain future work.
+
+Build-host startup evidence is recorded in BUILD-MANIFEST.json. Clean-machine, full native workflow, macOS/Linux, signing and full bundled-library license review remain open.
+
+## Earlier release: v0.4.0
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
