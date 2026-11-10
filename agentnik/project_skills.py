@@ -124,3 +124,18 @@ def list_resources(files,name,user_root=None):
                     if len(found)>=100:truncated=True;break
         if scanned>200 or len(found)>=100:break
     return {'skill':name,'resources':sorted(found),'truncated':truncated}
+
+
+def validate_skill_pins(names,pins):
+    if not isinstance(pins,dict) or len(pins)>5 or not set(pins).issubset(set(names)):
+        raise ValueError('Invalid selected skill revisions')
+    if any(not isinstance(key,str) or not isinstance(value,str) or not re.fullmatch('[0-9a-f]{64}',value) for key,value in pins.items()):
+        raise ValueError('Invalid selected skill revisions')
+    return dict(pins)
+
+
+def verify_skill_pins(files,names,pins):
+    for ident,digest in validate_skill_pins(names,pins).items():
+        try:current=read_skill(files,ident)['sha256']
+        except (OSError,ValueError,UnicodeError):raise ValueError('Selected skill is unavailable. Open Skills to review or deselect it: '+ident) from None
+        if current!=digest:raise ValueError('Selected skill changed. Open Skills, review it and confirm the selection again: '+ident)

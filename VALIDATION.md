@@ -286,3 +286,7 @@ The complete offline suite passed 335 tests. Mocked parallel calls cover Light a
 ## Individual subagent cancellation
 
 The full offline suite passed 339 tests. Mocked runs and offscreen Qt checks cover cancelling one child while its sibling completes, suppression of late output, rejection of identical retries or reassignment, unknown usage for cancelled requests, selection state and persistence. Request-construction failures remain isolated to their child. The Code control was reviewed offscreen. No live model request or native macOS/Linux validation was performed. Cancellation stops local waiting; an already submitted provider request may continue.
+
+## Skill selections across runs
+
+Offline tests cover selection fingerprint persistence, invalid fingerprints, changed and missing instructions, prevention of model requests, legacy sessions, and confirming an updated selection in the offscreen Qt picker. The full Windows test suite passed 342 tests. Native macOS and Linux validation and live model checks were not run.

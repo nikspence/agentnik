@@ -422,11 +422,22 @@ class CodeTab(QWidget):
         if dialog.exec()==QDialog.DialogCode.Accepted:
             selected=[name for name,check in checks if check.isChecked()]
             if len(selected)>5:QMessageBox.warning(self,self.tr('Skills'),self.tr('Select at most five skills.'));return
-            self.session['coding_skills']=selected;self.store.save(self.session);self.refresh_skills_button()
+            from .project_skills import read_skill
+            previous=self.session.get('coding_skill_pins',{});pins={}
+            try:
+                for ident in selected:
+                    if ident in available:pins[ident]=read_skill(ProjectFiles(self.session['path_snapshot']),ident)['sha256']
+                    elif ident in previous:pins[ident]=previous[ident]
+            except (OSError,ValueError,UnicodeError) as exc:
+                QMessageBox.warning(self,self.tr('Skills'),self.tr('A selected skill changed or became unavailable. Reopen Skills and try again.'));return
+            self.session['coding_skills']=selected;self.session['coding_skill_pins']=pins;self.store.save(self.session);self.refresh_skills_button()
 
     def start_coding(self):
         if self.job or self._closed:return
         try:
+            from .code_agent import ProjectFiles
+            from .project_skills import verify_skill_pins
+            verify_skill_pins(ProjectFiles(self.session['path_snapshot']),self.session.get('coding_skills',[]),self.session.get('coding_skill_pins',{}))
             self.save_models();heavy=self.role_connection('heavy');light=self.role_connection('light') if self.light_enabled.isChecked() else None
             alternate=self.role_connection('alternate') if self.light_enabled.isChecked() else None
             alternate2=self.role_connection('alternate2') if self.light_enabled.isChecked() else None
@@ -445,8 +456,8 @@ class CodeTab(QWidget):
                 if not strict:
                     backends=[b for b in self.store.web_backend_specs() if b.get('kind') in SEARCH_KINDS and (b.get('kind')!='ollama' or direct)]
                     provider='managed'
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2)
-        except ValueError as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}))
+        except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
         if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[provider])

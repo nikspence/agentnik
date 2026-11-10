@@ -52,6 +52,10 @@ def validate_session(value, ident=None):
             except (ValueError,TypeError):require(False)
         if 'coding_skills' in data:
             skills=data['coding_skills'];require(isinstance(skills,list) and len(skills)<=5 and all(isinstance(name,str) and 0<len(name)<=69 for name in skills))
+        if 'coding_skill_pins' in data:
+            from .project_skills import validate_skill_pins
+            try:validate_skill_pins(data.get('coding_skills',[]),data['coding_skill_pins'])
+            except (ValueError,TypeError):require(False)
         if 'coding_skill_revisions' in data:
             revisions=data['coding_skill_revisions'];require(isinstance(revisions,list) and len(revisions)<=5)
             for revision in revisions:

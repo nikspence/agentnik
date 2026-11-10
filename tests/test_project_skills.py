@@ -5,6 +5,47 @@ from agentnik.code_agent import ProjectFiles
 from agentnik.project_skills import list_skills,read_skill,read_resource,list_resources
 
 class ProjectSkills(unittest.TestCase):
+    def test_selected_skill_pins_prevent_changed_or_missing_skill_from_running(self):
+        from unittest.mock import patch
+        from agentnik import core
+        from agentnik.code_agent import CodingRun
+        from agentnik.project_skills import verify_skill_pins
+        from test_compat_tools import chat
+        from test_routing import Wire
+        with tempfile.TemporaryDirectory() as root:
+            skill=Path(root)/'.agents/skills/review';skill.mkdir(parents=True)
+            path=skill/'SKILL.md';path.write_text('---\nname: review\ndescription: Review\n---\nOriginal.',encoding='utf-8')
+            files=ProjectFiles(root);pins={'review':read_skill(files,'review')['sha256']}
+            connection={'url':'https://example.org/v1','model':'test','protocol':'chat','stream':False}
+            verify_skill_pins(files,['review'],pins)
+            with patch.object(core,'open_request',return_value=Wire(chat('Done'),False)) as request:
+                events=[];CodingRun(connection,root,'Review',skills=['review'],skill_pins=pins).run(events.append)
+                self.assertEqual(events[-1]['status'],'completed');self.assertEqual(request.call_count,1)
+                path.write_text('---\nname: review\ndescription: Review\n---\nChanged.',encoding='utf-8')
+                with self.assertRaisesRegex(ValueError,'changed'):verify_skill_pins(files,['review'],pins)
+                events=[];CodingRun(connection,root,'Review',skills=['review'],skill_pins=pins).run(events.append)
+                self.assertEqual(request.call_count,1);self.assertNotEqual(events[-1]['status'],'completed')
+                path.unlink()
+                with self.assertRaisesRegex(ValueError,'unavailable'):verify_skill_pins(files,['review'],pins)
+                events=[];CodingRun(connection,root,'Review',skills=['review'],skill_pins=pins).run(events.append)
+                self.assertEqual(request.call_count,1);self.assertNotEqual(events[-1]['status'],'completed')
+
+    def test_skill_pins_persist_and_invalid_pins_are_rejected(self):
+        from agentnik.repositories import RepositoryRegistry
+        from agentnik.storage import Store
+        from agentnik.sessions import validate_session,SessionError
+        with tempfile.TemporaryDirectory() as root:
+            project=Path(root)/'project';project.mkdir();store=Store(Path(root)/'data')
+            try:
+                registry=RepositoryRegistry(store);session=registry.session(registry.put(project))
+                session['coding_skills']=['review'];session['coding_skill_pins']={'review':'a'*64}
+                store.save(session);self.assertEqual(store.list_sessions()[0]['coding_skill_pins'],{'review':'a'*64})
+                for pins in ({'review':'bad'},{'other':'a'*64},[]):
+                    session['coding_skill_pins']=pins
+                    with self.assertRaises(SessionError):validate_session(session)
+                del session['coding_skill_pins'];validate_session(session)
+            finally:store.db.close()
+
     def test_discovery_is_bounded_to_valid_project_skill_and_does_not_authorize_edits(self):
         with tempfile.TemporaryDirectory() as root:
             skill=Path(root)/'.agents/skills/review';skill.mkdir(parents=True)

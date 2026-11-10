@@ -14,6 +14,34 @@ from test_compat_tools import chat
 from test_code_agent import call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_skill_selection_pins_version_and_requires_review_after_change(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication,QCheckBox,QMessageBox
+        from agentnik.ui import Window
+        from agentnik.code_agent import ProjectFiles
+        from agentnik.project_skills import read_skill
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';skill=project/'.agents/skills/review';skill.mkdir(parents=True)
+            path=skill/'SKILL.md';path.write_text('---\nname: review\ndescription: Review\n---\nOriginal.',encoding='utf-8')
+            store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                def select_and_accept():
+                    dialog=app.activeModalWidget()
+                    next(check for check in dialog.findChildren(QCheckBox) if check.text().startswith('review [repository]')).setChecked(True)
+                    dialog.accept()
+                QTimer.singleShot(0,select_and_accept);tab.choose_skills()
+                original=read_skill(ProjectFiles(project),'review')['sha256'];self.assertEqual(tab.session['coding_skill_pins'],{'review':original})
+                path.write_text('---\nname: review\ndescription: Review\n---\nChanged.',encoding='utf-8')
+                with patch.object(QMessageBox,'warning') as warning,patch.object(tab,'launch') as launch:
+                    tab.start_coding();warning.assert_called_once();launch.assert_not_called()
+                    self.assertIn('changed',warning.call_args.args[2])
+                QTimer.singleShot(0,select_and_accept);tab.choose_skills()
+                self.assertNotEqual(tab.session['coding_skill_pins']['review'],original)
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_structured_test_approval_keeps_shell_review_and_test_format(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
