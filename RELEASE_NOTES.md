@@ -1,4 +1,18 @@
-# Agentnik v0.6.0
+# Agentnik v0.7.0
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.6.0
+
+- Parallel coding subagents: Heavy can delegate two or three independent analysis tasks to Light and up to two separately configured alternate models. Child requests share the run limits and cannot execute tools or make changes.
+- Approved project snapshots: each child may receive up to three bounded project files. Each file transfer requires individual approval of the displayed text, task, model and destination; rejected or changed files stop the batch. Nested `AGENTS.md` guidance is loaded before delegation.
+- Subagent activity and control: results appear as each child finishes, with elapsed time and available token counts. A collapsible view preserves bounded status and findings. Cancel individual children while siblings continue; late output is discarded and identical cancelled tasks cannot be retried in the same run. A provider may continue an already submitted request.
+- Skills compatibility: bounded safe YAML frontmatter parsing, supporting-resource discovery, a visible revision history and checks for selected instruction changes during a run.
+- The project license is now Apache License 2.0. A use disclaimer is included in the distribution.
+
+The offline suite passed 339 tests. Subagent and Skills behavior was validated with mocked endpoints and offscreen Qt checks; no live-model qualification was performed for these changes. The Windows build-host startup result is recorded in BUILD-MANIFEST.json. Clean-machine, full native workflow, macOS/Linux, signing and full bundled-library license review remain open.
+
+## Earlier release: v0.6.0
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
