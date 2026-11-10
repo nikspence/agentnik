@@ -21,7 +21,8 @@ def history_messages(messages):
             if tool_bytes>128_000: raise LimitError('Saved tool context exceeds 128 KB; open a new chat')
             history.extend(copy.deepcopy(exchanges))
         else:
-            item={'role':m['role'],'content':m['text']}
+            from .document_reader import message_text
+            item={'role':m['role'],'content':message_text(m)}
             if m.get('images'): item['images']=[base64.b64encode(Path(p).read_bytes()).decode() for p in m['images']]
             history.append(item)
     return history

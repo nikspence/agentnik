@@ -206,9 +206,11 @@ def chat_body(c, messages):
             if response_context_bytes>128_000: raise ValueError('Saved tool context exceeds 128 KB; open a new chat')
             history.extend(copy.deepcopy(saved)); continue
         text_type = 'output_text' if m['role'] == 'assistant' else 'input_text'
-        content = m['text']
+        from .document_reader import message_text
+        text = message_text(m)
+        content = text
         if m.get('images'):
-            content = [{'type':text_type if protocol == 'responses' else 'text', 'text':m['text']}, *[image_block(p, protocol) for p in m['images']]]
+            content = [{'type':text_type if protocol == 'responses' else 'text', 'text':text}, *[image_block(p, protocol) for p in m['images']]]
         history.append({'role':m['role'], 'content':content})
     body = {'model':c['model'], 'input' if protocol == 'responses' else 'messages':history, 'stream':c.get('stream', True)}
     reasoning = c.get('reasoning')

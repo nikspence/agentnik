@@ -1464,6 +1464,18 @@ Saved excerpt; not a fresh or complete page.
             <source>Start a conversation. Attach images or paste them into the composer.</source>
             <translation>대화를 시작하세요. 이미지를 첨부하거나 작성창에 붙여넣을 수 있습니다.</translation>
         </message>
+        <message>
+            <source>Documents…</source>
+            <translation>문서…</translation>
+        </message>
+        <message>
+            <source>Attach up to four documents per prompt.</source>
+            <translation>프롬프트마다 문서를 최대 4개 첨부할 수 있습니다.</translation>
+        </message>
+        <message>
+            <source>Preview document text</source>
+            <translation>문서 텍스트 미리 보기</translation>
+        </message>
     </context>
     <context>
         <name>WebSettings</name>
@@ -1872,6 +1884,45 @@ Connections are discovered from your environment and local servers.</source>
         <message>
             <source>Each model timeout covers waiting for the first token and generating the complete response. Total run time can end a request sooner.</source>
             <translation>모델 제한 시간에는 첫 토큰 대기와 전체 응답 생성이 포함됩니다. 전체 실행 시간 제한에 따라 요청이 더 일찍 종료될 수 있습니다.</translation>
+        </message>
+    </context>
+    <context>
+        <name>DocumentReader</name>
+        <message>
+            <source>Document Reader</source>
+            <translation>문서 읽기</translation>
+        </message>
+        <message>
+            <source>Read locally, review, then attach to your draft. Sending shares this text with the selected model.</source>
+            <translation>로컬에서 읽고 검토한 후 초안에 첨부합니다. 전송하면 선택한 모델에 텍스트가 공유됩니다.</translation>
+        </message>
+        <message>
+            <source>PDF: attach page images alongside extracted text (multimodal model required; up to 12 pages)</source>
+            <translation>PDF: 추출한 텍스트와 페이지 이미지 함께 첨부(멀티모달 모델 필요, 최대 12페이지)</translation>
+        </message>
+        <message>
+            <source>Open document…</source>
+            <translation>문서 열기…</translation>
+        </message>
+        <message>
+            <source>Open document</source>
+            <translation>문서 열기</translation>
+        </message>
+        <message>
+            <source>Text, PDF, DOCX, XLSX · 10 MB file / 48,000 characters / 100 PDF pages. No OCR.</source>
+            <translation>텍스트, PDF, DOCX, XLSX · 파일 10MB / 48,000자 / PDF 100페이지. OCR 미지원.</translation>
+        </message>
+        <message>
+            <source>Attach document</source>
+            <translation>문서 첨부</translation>
+        </message>
+        <message>
+            <source>Reading locally…</source>
+            <translation>로컬에서 읽는 중…</translation>
+        </message>
+        <message>
+            <source>Review the extracted text. PDF page images: {count}. Formulas are not evaluated.</source>
+            <translation>추출한 텍스트를 검토하세요. PDF 페이지 이미지: {count}개. 수식은 계산하지 않습니다.</translation>
         </message>
     </context>
 </TS>

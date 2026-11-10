@@ -26,6 +26,9 @@ def validate_session(value, ident=None):
     for field in ('messages','runs','draft_images'):
         data.setdefault(field,[]); require(isinstance(data[field],list))
     require(all(isinstance(p,str) for p in data['draft_images']))
+    from .document_reader import validate_documents
+    try: validate_documents(data.get('draft_documents', []))
+    except ValueError: require(False)
     data.setdefault('form',{}); require(isinstance(data['form'],dict))
     data.setdefault('research_options',{});require(isinstance(data['research_options'],dict))
     options=data['research_options']
@@ -89,6 +92,8 @@ def validate_session(value, ident=None):
         require(isinstance(item.get('text',''),str)); item.setdefault('text','')
         require(isinstance(item.get('thinking',''),str))
         require(isinstance(item.get('images',[]),list) and all(isinstance(p,str) for p in item.get('images',[])))
+        try: validate_documents(item.get('documents', []))
+        except ValueError: require(False)
         if 'metrics' in item: metrics(item['metrics'])
         if 'research' in item:
             state=item['research'];require(isinstance(state,dict))

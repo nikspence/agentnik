@@ -194,6 +194,9 @@ class Store:
     def prompt_json(mode, payload):
         if mode == 'chat':
             data = {'text':payload.get('text',''), 'images':list(payload.get('images',[]))}
+            if payload.get('documents'):
+                from .document_reader import validate_documents
+                data['documents'] = validate_documents(payload['documents'])
         elif mode == 'decision':
             data = {'state':payload.get('state',''), 'json_state':bool(payload.get('json_state',False)), 'questions':payload.get('questions',[]), 'images':list(payload.get('images',[]))}
         else: raise ValueError('Invalid prompt type')

@@ -188,7 +188,7 @@ class AttachmentBox(QWidget):
         self.list = QListWidget(); self.list.setViewMode(QListWidget.ViewMode.IconMode)
         self.list.setIconSize(__import__('PySide6.QtCore', fromlist=['QSize']).QSize(70,55)); self.list.setMaximumHeight(88)
         self.list.itemDoubleClicked.connect(lambda item: QDesktopServices.openUrl(QUrl.fromLocalFile(item.data(Qt.ItemDataRole.UserRole))))
-        outer.addWidget(self.list); row = QHBoxLayout(); outer.addLayout(row)
+        outer.addWidget(self.list); row = QHBoxLayout(); self.controls = row; outer.addLayout(row)
         button(self.tr('Attach images…'), self.choose, row); button(self.tr('Paste image'), self.paste, row); button(self.tr('Remove selected'), self.remove, row)
         row.addStretch(); self.refresh()
     def refresh(self):
@@ -479,6 +479,8 @@ class SessionTab(QWidget):
             self.chat_split.splitterMoved.connect(self.save_composer_height)
             self.attachments = AttachmentBox(self.store); self.attachments.set_paths(session.get('draft_images',[])); layout.addWidget(self.attachments)
             self.composer.send.connect(self.submit); self.composer.attach.connect(self.attach_mime)
+            self.documents = copy.deepcopy(session.get('draft_documents', []))
+            self.document_row = QHBoxLayout(); layout.addLayout(self.document_row); self.refresh_documents()
             self.composer.textChanged.connect(self.save_draft)
         else:
             split = QSplitter(Qt.Orientation.Horizontal); layout.addWidget(split,1)
@@ -499,12 +501,44 @@ class SessionTab(QWidget):
         self.star_current = button(self.tr('☆ Save prompt'),self.star_draft,bottom); self.star_current.setToolTip(self.tr('Save the current prompt to Prompts'))
         self.send_button = button(self.tr('Run decision') if session['mode'] == 'decision' else self.tr('Send'),self.submit,bottom); self.send_button.setObjectName('primary')
         self.cancel_button = button(self.tr('Cancel'),self.cancel,bottom); self.cancel_button.setEnabled(False); bottom.addStretch()
+        if session['mode'] == 'chat':
+            self.documents_button = QPushButton(self.tr('Documents…')); self.documents_button.clicked.connect(self.read_documents); self.attachments.controls.insertWidget(1,self.documents_button)
         button(self.tr('Export session…'),self.export_session,bottom)
         if session['mode'] == 'chat': bottom.addLayout(web_row)
         self.refresh_connections(); self.model.setEditText(session['connection'].get('model',''))
         self.connection.currentIndexChanged.connect(self.change_connection)
         self.model.currentTextChanged.connect(self.save_draft); self.reasoning.textChanged.connect(self.save_draft); self.stream.toggled.connect(self.save_draft)
         self.loading = False; self.render(); self.update_current_star(); QTimer.singleShot(0,self.load_models)
+    def read_documents(self, path=None):
+        from .document_ui import DocumentReader
+        if self.job: return
+        if len(self.documents) >= 4: return error(self,self.tr('Attach up to four documents per prompt.'))
+        dlg = DocumentReader(self, path=path if isinstance(path,str) else None)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            paths = [self.store.attach(data=page) for page in dlg.pages]
+            if paths: dlg.document['images'] = paths
+            self.documents.append(dlg.document)
+            self.attachments.paths.extend(paths)
+            self.attachments.refresh(); self.refresh_documents(); self.save_draft()
+
+    def refresh_documents(self):
+        clear_layout(self.document_row)
+        for index, doc in enumerate(self.documents):
+            b = button(doc['name'],lambda checked=False,d=doc:self.preview_document(d),self.document_row)
+            b.setToolTip(self.tr('Preview document text'))
+            button('×',lambda checked=False,i=index:self.remove_document(i),self.document_row)
+        self.document_row.addStretch()
+
+    def preview_document(self, doc):
+        dlg = QDialog(self); dlg.setWindowTitle(doc['name']); dlg.resize(700,500)
+        layout = QVBoxLayout(dlg); text = QPlainTextEdit(); text.setReadOnly(True); text.setPlainText(doc['text']); layout.addWidget(text); dlg.exec()
+
+    def remove_document(self, index):
+        if self.job: return
+        doc = self.documents.pop(index)
+        self.attachments.set_paths([p for p in self.attachments.paths if p not in doc.get('images', [])])
+        self.refresh_documents(); self.save_draft()
+
     def configure_web(self):
         c = self.active_connection()
         if not c.get('model'): return error(self,self.tr('Select a model before configuring its tool capability.'))
@@ -538,7 +572,7 @@ class SessionTab(QWidget):
         for update in (updates or []) if same_context else []:
             research.set_capability(self.store.config,self.research_connection,update['state'],update['evidence'],update['field'])
         if updates: self.store.flush()
-        if ok: self.composer.clear(); self.attachments.set_paths([])
+        if ok: self.composer.clear(); self.attachments.set_paths([]); self.documents = []; self.refresh_documents(); self.save_draft()
         route_label=self.tr('Provider hosted') if result['research'].get('route')=='hosted' else self.tr('Agentnik managed')
         switched=any(e.get('kind')=='route_switch' for e in result['research'].get('events',[]))
         self.info.setText((self.tr('Research completed · {route}').format(route=route_label)+(self.tr(' · Route switched; see Research activity') if switched else '')) if ok else result.get('error',self.tr('Research stopped'))+self.tr(' · Partial work saved; restart explicitly.'))
@@ -550,7 +584,14 @@ class SessionTab(QWidget):
         q = QuestionEditor(data if isinstance(data,dict) else {'name':f'question_{len(self.questions)+1}','instructions':'','type':'noul','choices':[]})
         self.questions.append(q); self.question_layout.addWidget(q); q.changed.connect(self.save_draft); q.removed.connect(self.remove_question); self.save_draft()
     def attach_mime(self, data):
-        if isinstance(data, list): self.attachments.add(data)
+        if isinstance(data, list):
+            from .document_reader import SUPPORTED
+            images = []
+            for path in data:
+                if self.session['mode'] == 'chat' and Path(path).suffix.lower() in SUPPORTED:
+                    self.read_documents(path)
+                else: images.append(path)
+            if images: self.attachments.add(images)
         else: self.attachments.add_image(data)
     def remove_question(self,q):
         self.questions.remove(q); self.question_layout.removeWidget(q); q.deleteLater(); self.save_draft()
@@ -594,10 +635,10 @@ class SessionTab(QWidget):
         return dict(state=self.state.toPlainText(),json_state=self.json_state.isChecked(),images=list(self.attachments.paths),questions=[q.value() for q in self.questions])
     def current_prompt(self):
         if self.session['mode'] == 'decision': return self.form_value()
-        return {'text':self.composer.toPlainText(), 'images':list(self.attachments.paths)}
+        return {'text':self.composer.toPlainText(), 'images':list(self.attachments.paths), 'documents':copy.deepcopy(self.documents)}
     def star_draft(self):
         payload = self.current_prompt()
-        if self.session['mode'] == 'chat' and not payload['text'].strip() and not payload['images']:
+        if self.session['mode'] == 'chat' and not payload['text'].strip() and not payload['images'] and not payload.get('documents'):
             return error(self,self.tr('Enter a prompt or attach an image first.'))
         if self.session['mode'] == 'decision' and not payload['state'].strip() and not payload['images'] and not any(q['instructions'].strip() for q in payload['questions']):
             return error(self,self.tr('Enter decision context, a question, or attach an image first.'))
@@ -606,20 +647,20 @@ class SessionTab(QWidget):
         if self.job: return error(self,self.tr('Wait for the current request to finish before replacing the prompt.'))
         current = self.current_prompt()
         if self.session['mode'] == 'chat':
-            occupied = bool(current['text'].strip() or current['images'])
+            occupied = bool(current['text'].strip() or current['images'] or current.get('documents'))
         else:
             occupied = bool(current['state'].strip() or current['images'] or any(q['instructions'].strip() for q in current['questions']))
         if occupied and self.store.prompt_json(self.session['mode'],current) != self.store.prompt_json(self.session['mode'],payload):
             if not confirm(self,self.tr('Replace the current prompt and attachments?')): return
         if self.session['mode'] == 'chat':
-            self.loading = True; self.composer.setPlainText(payload['text']); self.attachments.set_paths(payload.get('images',[])); self.loading = False; self.save_draft()
+            self.loading = True; self.composer.setPlainText(payload['text']); self.attachments.set_paths(payload.get('images',[])); self.documents = copy.deepcopy(payload.get('documents',[])); self.refresh_documents(); self.loading = False; self.save_draft()
             self.composer.setFocus()
         else: self.restore(copy.deepcopy(payload)); self.state.setFocus()
     def save_draft(self,*_):
         if self.loading: return
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
         if self.session['mode'] == 'chat':
-            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData()})
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData()})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -631,7 +672,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-            self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.route_policy.setEnabled(not value)
+            self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.route_policy.setEnabled(not value)
     def submit(self):
         if self.job: return
         try:
@@ -642,8 +683,8 @@ class SessionTab(QWidget):
             self.save_draft(); mode = self.session['mode']
             if mode == 'chat':
                 text = self.composer.toPlainText().strip()
-                if not text and not self.attachments.paths: return
-                user = dict(role='user',text=text,images=list(self.attachments.paths),status='ok')
+                if not text and not self.attachments.paths and not self.documents: return
+                user = dict(role='user',text=text,images=list(self.attachments.paths),documents=copy.deepcopy(self.documents),status='ok')
                 body = core.chat_body(c,self.session['messages']+[user])
                 self.pending = user
             else:
@@ -697,7 +738,7 @@ class SessionTab(QWidget):
             thinking_visible = self.live_bubble.thinking_toggle.isChecked()
             self.session['messages'].extend([self.pending,dict(role='assistant',text=result['text'],thinking=result['thinking'],thinking_visible=thinking_visible,metrics=result['metrics'],status='ok')])
             if self.session['title'] == 'New chat': self.session['title'] = (self.pending['text'] or 'Image conversation')[:60]
-            self.composer.clear(); self.attachments.set_paths([])
+            self.composer.clear(); self.attachments.set_paths([]); self.documents = []; self.refresh_documents(); self.save_draft()
         else:
             self.session['runs'].append(dict(form=self.pending,result=result))
             if self.session['title'] == 'New decision': self.session['title'] = str(self.pending['state'])[:60]
@@ -745,6 +786,8 @@ class SessionTab(QWidget):
             star = QPushButton('★' if saved else '☆'); star.setAccessibleName(self.tr('Remove saved prompt') if saved else self.tr('Save prompt')); star.setToolTip(self.tr('Remove from Prompts') if saved else self.tr('Save to Prompts'))
             bubble.header.addWidget(star)
             star.clicked.connect(lambda checked=False,m=message:self.window.toggle_prompt('chat',m)); self.prompt_stars.append((star,'chat',message,True))
+        for doc in message.get('documents',[]):
+            button(doc['name'],lambda checked=False,d=doc:self.preview_document(d),bubble.layout())
         if message.get('research'):
             bubble.research_details = ResearchDetails(message['research']); bubble.layout().addWidget(bubble.research_details)
         if not live and message['role'] == 'assistant':

@@ -91,3 +91,8 @@
 - Windows x64 frozen release (v0.3.1) with bundled Python; PyInstaller build instructions included.
 - Installable Python wheel; `pip install .` provides the `agentnik` desktop entry point.
 - Default data directories per OS with optional overrides.
+
+
+## Document Reader — Chat attachment slice
+
+Delivered local preview and attachment of UTF-8 text, Markdown, CSV, JSON, PDF, DOCX and XLSX. Extracted text includes page/paragraph/sheet-row/line references. PDF imports default to text plus rendered page images through existing multimodal image serialization; text-only mode is selectable. Scanned PDFs retain images with an explicit no-text notice. Four documents per prompt; 10 MB files, 48,000 extracted characters, 100 text pages or 12 image pages per PDF. XML archive expansion is bounded; macros, external relationships and formulas never execute. Extracted snapshots and page images persist with drafts/history/prompts, independent of original files. Explicit Send shares contents with the selected endpoint; document text is untrusted evidence. Original binaries, OCR, legacy Office formats, semantic retrieval and Code document tools remain future work. Qualification uses offline generated fixtures and Qt checks, with no live model request.
