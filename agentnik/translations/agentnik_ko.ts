@@ -524,6 +524,38 @@ Hooks and signing are disabled. Review the complete diff below.</source>
             <source>{name} (unavailable; uncheck to remove)</source>
             <translation>{name} (사용 불가, 선택 해제하여 제거)</translation>
         </message>
+        <message>
+            <source>Allow individual or parallel Light analysis tasks. Parallel tasks have no tools and share the run limits.</source>
+            <translation>개별 또는 병렬 Light 분석 작업을 허용합니다. 병렬 작업에는 도구가 없으며 실행 제한을 공유합니다.</translation>
+        </message>
+        <message>
+            <source>Allow individual or parallel Light analysis tasks. Parallel tasks have no tools and share the run limits. Each project file sent to a subagent requires approval.</source>
+            <translation>개별 또는 병렬 Light 분석을 허용합니다. 병렬 작업에는 도구가 없으며 실행 제한을 공유합니다. 하위 에이전트에 보내는 각 프로젝트 파일은 승인이 필요합니다.</translation>
+        </message>
+        <message>
+            <source>SEND PROJECT FILE TO SUBAGENT
+Project: {cwd}
+File: {path}
+Model: {model}
+Destination: {destination}
+Subagent: {child}
+Task: {task}
+Payload: {payload_bytes} UTF-8 bytes
+SHA-256: {payload_sha256}
+
+Review the exact file text to be sent below.</source>
+            <translation>하위 에이전트에 프로젝트 파일 보내기
+프로젝트: {cwd}
+파일: {path}
+모델: {model}
+대상: {destination}
+하위 에이전트: {child}
+작업: {task}
+전송 내용: UTF-8 {payload_bytes}바이트
+SHA-256: {payload_sha256}
+
+아래에서 전송할 파일 텍스트를 확인하세요.</translation>
+        </message>
     </context>
     <context>
         <name>ConnectionDialog</name>

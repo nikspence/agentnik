@@ -251,3 +251,13 @@ Full offline suite: 308 passing tests. Eight new guidance checks cover ancestor 
 ## Skills YAML and resources
 
 The isolated Windows build environment uses PyYAML 6.0.3 for bounded safe skill frontmatter parsing; aliases, quoted values and multiline descriptions are covered. Offline checks reject duplicate keys, unsafe object tags, excessive nesting, invalid metadata and escaping skill paths. Selected skills can list bounded resources without executing them. The full suite passed 317 tests; no live model request or frozen release build was run for this change. Cross-platform native validation and skill update behavior remain open.
+
+
+## Parallel Light and skill updates
+
+Offline mock tests cover genuinely concurrent Light requests, tool isolation, selected skill context, attributed partial failure, shared request limits, cancellation and stale skill changes during approval. The full suite passed 323 tests, including the post-response skill update check. No live model request, frozen build, or cross-platform native validation was performed for this slice.
+
+
+## Approved subagent file snapshots
+
+The full offline suite passed 327 tests. Mocked coding runs cover individual approval of file text and endpoint, configured-secret redaction, rejected and changed files, scoped repository guidance before delegation, concurrent Light requests and cancellation. An offscreen Qt check verifies that the transfer approval shows the file text, model and destination. No live model request or cross-platform native validation was performed.

@@ -140,3 +140,10 @@ Use **Skill history…** in the Code pane to review the recorded skill IDs, sour
 
 
 Selected skills can list supporting resources via `list_skill_resources`, bounded to 200 entries, 100 files, and four directory levels. Paths remain confined to the skill directory and linked paths are excluded. Listing does not read or execute scripts.
+
+
+## Skills updates and parallel Light analysis
+
+Selected skill instruction hashes are pinned for the duration of each coding run. If an instruction file changes or becomes unavailable, Agentnik stops the run, invalidates any pending operation and asks the user to review before restarting. Skills remain explicitly selected; edits made before a new run are loaded and recorded by revision. Skill instructions and scoped repository guidance are included in Light analysis context under the shared context budget.
+
+The first subagent slice adds `delegate_parallel`: with Allow Light model delegation enabled, Heavy can request two or three independent, concurrent Light analysis tasks using the configured Light connection. Children have no tools, filesystem access, web research tools, nested delegation or independent approvals; they receive the supplied task context, selected skills and scoped guidance. Heavy may request up to three project-file snapshots per task, limited to 8 KB each; every transfer requires individual approval of the displayed file text, task, model and endpoint, and changed files stop the batch. Requests, elapsed time and continuation context share parent limits. Activity identifies each task, model, completion/failure and bounded findings. Partial failure is returned to Heavy without automatic replay; cancellation discards late results. Later F4 work includes controlled self-service read-only project and optional web tools, individual model routing, and richer per-child usage reporting.
