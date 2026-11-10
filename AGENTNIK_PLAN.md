@@ -385,3 +385,6 @@ User-level skills under `~/.agents/skills` are also available in the picker. Rep
 
 
 Selected skill IDs, sources, and exact instruction-file SHA-256 hashes are retained as metadata for the latest real coding run. Starting another run replaces those records; reopening never executes skills. Common folded and literal multiline descriptions are supported; this parser is not a full YAML implementation.
+
+
+Code sessions retain skill revision metadata for the most recent 32 real coding runs. Each record identifies the run and selected skill sources and SHA-256 hashes; simulations do not add records. Older sessions remain readable. The hashes identify instruction-file contents without storing those contents in the revision history.

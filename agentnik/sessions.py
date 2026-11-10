@@ -54,6 +54,18 @@ def validate_session(value, ident=None):
                 require(isinstance(revision,dict) and set(revision)=={'id','source','sha256'})
                 require(isinstance(revision['id'],str) and 0<len(revision['id'])<=69 and revision['source'] in ('repository','user'))
                 require(isinstance(revision['sha256'],str) and len(revision['sha256'])==64 and all(ch in '0123456789abcdef' for ch in revision['sha256']))
+        if 'coding_skill_history' in data:
+            history=data['coding_skill_history'];require(isinstance(history,list) and len(history)<=32)
+            run_ids=set()
+            for run in history:
+                require(isinstance(run,dict) and set(run)=={'run_id','skills'})
+                require(isinstance(run['run_id'],str) and 0<len(run['run_id'])<=64 and run['run_id'] not in run_ids);run_ids.add(run['run_id'])
+                require(isinstance(run['skills'],list) and len(run['skills'])<=5)
+                seen=set()
+                for revision in run['skills']:
+                    require(isinstance(revision,dict) and set(revision)=={'id','source','sha256'})
+                    require(isinstance(revision['id'],str) and 0<len(revision['id'])<=69 and revision['id'] not in seen and revision['source'] in ('repository','user'));seen.add(revision['id'])
+                    require(isinstance(revision['sha256'],str) and len(revision['sha256'])==64 and all(ch in '0123456789abcdef' for ch in revision['sha256']))
         if 'coding_light_enabled' in data: require(type(data['coding_light_enabled']) is bool)
         if 'coding_web_enabled' in data: require(type(data['coding_web_enabled']) is bool)
         if 'coding_advice_enabled' in data: require(type(data['coding_advice_enabled']) is bool)

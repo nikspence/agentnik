@@ -388,6 +388,8 @@ class CodeTab(QWidget):
 
     def launch(self,run,notice):
         if isinstance(run,CodingRun):
+            history=self.session.setdefault('coding_skill_history',[])
+            history.append({'run_id':run.run_id,'skills':[]});self.session['coding_skill_history']=history[-32:]
             self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
@@ -456,7 +458,10 @@ class CodeTab(QWidget):
             if not isinstance(revision['id'],str) or not 0<len(revision['id'])<=69 or revision['source'] not in ('repository','user') or not isinstance(revision['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',revision['sha256']):return
             revisions=self.session.setdefault('coding_skill_revisions',[])
             if len(revisions)>=5 or any(item['id']==revision['id'] for item in revisions):return
-            revisions.append(dict(revision));self.store.save(self.session);self.updated.emit();return
+            revisions.append(dict(revision))
+            history=self.session.get('coding_skill_history',[])
+            if history and history[-1]['run_id']==self.run_id:history[-1]['skills'].append(dict(revision))
+            self.store.save(self.session);self.updated.emit();return
         if kind=='plan':
             try:plan=validate_plan(event.get('plan'))
             except ValueError:return
