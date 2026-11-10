@@ -35,6 +35,8 @@ class Subagents(unittest.TestCase):
             results=[json.loads(message['content']) for message in bodies[-1]['messages'] if message['role']=='tool']
             self.assertEqual([item['status'] for item in results[-1]['subagents']],['completed','completed'])
             self.assertEqual(sum(' started · ' in event.get('text','') for event in events),2)
+            updates=[event['subagent'] for event in events if event['kind']=='subagent']
+            self.assertEqual(len(updates),4);self.assertEqual({x['status'] for x in updates},{'running','completed'});self.assertEqual(len({x['id'] for x in updates}),2)
 
     def test_modified_selected_skill_invalidates_pending_approval(self):
         with tempfile.TemporaryDirectory() as root:
@@ -188,3 +190,287 @@ class Subagents(unittest.TestCase):
             finally:
                 if window.tabs.currentWidget():window.tabs.currentWidget().job=None
                 window.close();app.processEvents();store.db.close()
+
+    def test_finished_children_report_immediately_and_missing_usage_stays_unknown(self):
+        with tempfile.TemporaryDirectory() as root:
+            release=threading.Event();events=[];bodies=[];heavy_count=0
+            def send(c,url,body,timeout):
+                nonlocal heavy_count
+                bodies.append(copy.deepcopy(body))
+                if c['model']=='light':
+                    if 'slow task' in json.dumps(body):
+                        if not release.wait(3):raise AssertionError('Fast child status was not reported while slow child was running')
+                        return Wire(chat('Slow finding'),False)
+                    result=chat('Fast finding');result.pop('usage',None);return Wire(result,False)
+                heavy_count+=1
+                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['slow task','fast task'])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event.get('kind')=='output' and event.get('text','').startswith('Subagent 2 completed'):release.set()
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            completed=[e['text'] for e in events if e.get('text','').startswith(('Subagent 1 completed','Subagent 2 completed'))]
+            self.assertTrue(completed[0].startswith('Subagent 2 completed'));self.assertIn('input unknown tokens, output unknown tokens',completed[0])
+            result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool')
+            self.assertEqual([item['index'] for item in result['subagents']],[1,2]);self.assertIsNone(result['subagents'][1]['usage']['input_tokens'])
+            self.assertEqual(result['subagents'][0]['usage']['input_tokens'],10)
+
+    def test_parallel_children_route_to_distinct_configured_models(self):
+        from test_compat_tools import msg
+        with tempfile.TemporaryDirectory() as root:
+            file=Path(root)/'data.txt';file.write_text('Value alt-secret',encoding='utf-8')
+            bodies=[];events=[];lock=threading.Lock();heavy_count=0
+            alt={'url':'https://alternate.example/v1','protocol':'messages','model':'other','stream':False,'api_key':'alt-secret'}
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=alt)
+            tasks=[{'task':'Review one','model':'light'},{'task':'Review other','model':'alternate','paths':['data.txt']}]
+            def send(c,url,body,timeout):
+                nonlocal heavy_count
+                with lock:bodies.append((c['model'],url,copy.deepcopy(body)))
+                if c['model']=='other':return Wire(msg([{'type':'text','text':'Alternate finding'}]),False)
+                if c['model']=='light':return Wire(chat('Light finding'),False)
+                heavy_count+=1
+                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(tasks)})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':
+                    self.assertEqual(event['proposal']['model'],'other');self.assertEqual(event['proposal']['destination'],'https://alternate.example/v1/messages')
+                    self.assertEqual(event['proposal']['diff'],'Value [redacted]');run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertEqual({model for model,url,body in bodies},{'heavy','light','other'})
+            alt_body=next(body for model,url,body in bodies if model=='other');self.assertIn('[redacted]',json.dumps(alt_body));self.assertNotIn('alt-secret',json.dumps(bodies)+json.dumps(events))
+            result=next(json.loads(m['content']) for m in bodies[-1][2]['messages'] if m['role']=='tool')
+            self.assertEqual([item['model_role'] for item in result['subagents']],['light','alternate'])
+            self.assertEqual([item['model'] for item in result['subagents']],['light','other'])
+
+    def test_unconfigured_alternate_does_not_fall_back(self):
+        with tempfile.TemporaryDirectory() as root:
+            bodies=[];events=[];count=0
+            def send(c,url,body,timeout):
+                nonlocal count
+                bodies.append(c['model']);count+=1
+                if count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['one',{'task':'two','model':'alternate'}])})],finish='tool_calls'),False)
+                return Wire(chat('Stopped'),False)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
+            self.assertEqual(bodies,['heavy','heavy']);self.assertEqual(events[-1]['status'],'completed')
+
+    def test_alternate_model_persists_and_launches_from_code_pane(self):
+        import os
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            project=Path(root)/'project';project.mkdir();store=Store(Path(root)/'data')
+            store.config['connections']={'First':{'url':'https://first.example/v1','protocol':'chat','model':'base'},'Second':{'url':'https://second.example/v1','protocol':'messages','model':'other'},'Third':{'url':'https://third.example/v1','protocol':'responses','model':'third'}}
+            window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                for role,name in [('heavy','First'),('light','First'),('alternate','Second'),('alternate2','Third')]:
+                    combo,model=tab.roles[role];combo.setCurrentIndex(combo.findData(name))
+                tab.roles['alternate'][1].setText('other');tab.composer.setPlainText('Review');tab.save_models()
+                saved=next(s for s in store.list_sessions() if s['id']==session['id'])
+                self.assertEqual(saved['coding_subagent_model'],{'connection':'Second','model':'other'})
+                self.assertEqual(saved['coding_subagent_model_2'],{'connection':'Third','model':'third'})
+                with patch.object(tab,'launch') as launch:
+                    tab.start_coding();run=launch.call_args.args[0]
+                    self.assertEqual(run.alternate['url'],'https://second.example/v1');self.assertEqual(run.alternate['protocol'],'messages');self.assertEqual(run.alternate2['url'],'https://third.example/v1');self.assertEqual(run.alternate2['protocol'],'responses')
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved)
+                self.assertEqual(window.tabs.currentWidget().roles['alternate'][1].text(),'other');self.assertEqual(window.tabs.currentWidget().roles['alternate2'][1].text(),'third')
+            finally:window.close();app.processEvents();store.db.close()
+
+    def test_subagent_status_survives_cancel_and_interrupted_reopen(self):
+        import os
+        from unittest.mock import MagicMock
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();store=Store(Path(root)/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.job=MagicMock();tab.run_id='active';first='a'*32+'-1';second='a'*32+'-2'
+                def update(ident,status,text,run='active'):
+                    tab.receive({'kind':'subagent','run_id':run,'subagent':{'id':ident,'status':status,'text':text}})
+                update(first,'running','first task');update(second,'running','second task');update(first,'completed','first finding')
+                self.assertFalse(tab.subagents_toggle.isHidden());self.assertTrue(tab.subagents_view.isHidden());self.assertIn('1 running',tab.subagents_toggle.text());self.assertLess(tab.subagents_view.maximumHeight(),135)
+                tab.cancel();self.assertEqual([x['status'] for x in tab.session['coding_subagents']],['completed','cancelled'])
+                update(second,'completed','late result');self.assertNotIn('late result',tab.subagents_view.toPlainText())
+                saved=store.list_sessions()[0];self.assertEqual([x['status'] for x in saved['coding_subagents']],['completed','cancelled'])
+                window.close_tab(window.tabs.indexOf(tab))
+                saved['code_state']='running';saved['coding_subagents'][1]['status']='running';store.save(saved)
+                window.open_session(store.list_sessions()[0]);reopened=window.tabs.currentWidget()
+                self.assertEqual(reopened.session['coding_subagents'][1]['status'],'interrupted');self.assertTrue(reopened.subagents_view.isHidden());self.assertIsNone(reopened.job)
+            finally:window.close();app.processEvents();store.db.close()
+
+    def test_reject_malformed_or_unexpected_subagent_states(self):
+        from agentnik.subagent_status import validate_records
+        with self.assertRaises(ValueError):validate_records([{'id':'invalid','status':'running','text':'x'}])
+        item={'id':'a'*32+'-1','status':'running','text':'x'}
+        with self.assertRaises(ValueError):validate_records([item,item])
+        with self.assertRaises(ValueError):validate_records([dict(item,text='x'*1601)])
+
+    def test_three_children_use_three_models_with_matching_file_approvals(self):
+        from test_compat_tools import msg
+        from test_routing import response,message
+        with tempfile.TemporaryDirectory() as root:
+            folder=Path(root);(folder/'data.txt').write_text('shared hidden-third',encoding='utf-8')
+            barrier=threading.Barrier(3);lock=threading.Lock();bodies=[];events=[];heavy_count=0
+            light=dict(C,model='light',stream=False)
+            alternate={'url':'https://second.example/v1','protocol':'messages','model':'second','stream':False,'api_key':'hidden-second'}
+            alternate2={'url':'https://third.example/v1','protocol':'responses','model':'third','stream':False,'api_key':'hidden-third'}
+            run=CodingRun(dict(C,stream=False),root,'Review',light=light,alternate=alternate,alternate2=alternate2)
+            tasks=[{'task':'First','model':'light'},{'task':'Second','model':'alternate','paths':['data.txt']},{'task':'Third','model':'alternate2','paths':['data.txt']}]
+            def send(c,url,body,timeout):
+                nonlocal heavy_count
+                with lock:bodies.append((c['model'],url,copy.deepcopy(body)))
+                if c['model']!='heavy':
+                    barrier.wait(timeout=5)
+                    if c['model']=='second':return Wire(msg([{'type':'text','text':'Second finding'}]),False)
+                    if c['model']=='third':return Wire(response([message('Third finding')]),False)
+                    return Wire(chat('First finding'),False)
+                heavy_count+=1
+                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(tasks)})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            proposals=[event['proposal'] for event in events if event['kind']=='operation_proposal']
+            self.assertEqual([(p['model'],p['destination']) for p in proposals],[('second','https://second.example/v1/messages'),('third','https://third.example/v1/responses')])
+            self.assertTrue(all(p['diff']=='shared [redacted]' for p in proposals))
+            self.assertNotIn('hidden-third',json.dumps(bodies)+json.dumps(events));self.assertNotIn('hidden-second',json.dumps(bodies)+json.dumps(events))
+            result=next(json.loads(m['content']) for m in bodies[-1][2]['messages'] if m['role']=='tool')
+            self.assertEqual([item['model_role'] for item in result['subagents']],['light','alternate','alternate2'])
+            self.assertEqual([item['model'] for item in result['subagents']],['light','second','third'])
+            self.assertTrue(all(item['status']=='completed' for item in result['subagents']))
+
+    def test_second_alternate_is_optional_and_never_silently_falls_back(self):
+        from agentnik.sessions import validate_session,SessionError
+        from agentnik.storage import Store
+        from agentnik.repositories import RepositoryRegistry
+        with tempfile.TemporaryDirectory() as root:
+            project=Path(root)/'project';project.mkdir();store=Store(Path(root)/'data')
+            try:
+                registry=RepositoryRegistry(store);session=registry.session(registry.put(project))
+                self.assertNotIn('coding_subagent_model_2',validate_session(session))
+                session['coding_subagent_model_2']={'connection':'Third','model':'model-three'};store.save(session)
+                self.assertEqual(store.list_sessions()[0]['coding_subagent_model_2']['model'],'model-three')
+                session['coding_subagent_model_2']={'connection':'Third','model':'x','api_key':'secret'}
+                with self.assertRaises(SessionError):validate_session(session)
+            finally:store.db.close()
+            calls=[];events=[]
+            def send(c,url,body,timeout):
+                calls.append(c['model'])
+                if len(calls)==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['one',{'task':'two','model':'alternate2'}])})],finish='tool_calls'),False)
+                return Wire(chat('Stopped'),False)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),project,'Review',light=dict(C,model='light',stream=False)).run(events.append)
+            self.assertEqual(calls,['heavy','heavy']);self.assertEqual(events[-1]['status'],'completed')
+
+    def test_cancel_one_child_preserves_other_result_and_never_replays_late_output(self):
+        with tempfile.TemporaryDirectory() as root:
+            blocked=threading.Event();release=threading.Event();late_finished=threading.Event();events=[];bodies=[];heavy_count=0;selected=[]
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False))
+            def send(c,url,body,timeout):
+                nonlocal heavy_count
+                bodies.append(copy.deepcopy(body))
+                if c['model']=='light':
+                    if 'cancel this task' in json.dumps(body):
+                        blocked.set();release.wait(5);late_finished.set();return Wire(chat('Must not be used'),False)
+                    return Wire(chat('Other finding'),False)
+                heavy_count+=1
+                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['cancel this task','keep this task'])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event.get('kind')=='subagent' and event['subagent']['status']=='running':
+                    selected.append(event['subagent']['id'])
+                    if len(selected)==2:
+                        self.assertTrue(blocked.wait(3));self.assertTrue(run.cancel_subagent(selected[0]));self.assertFalse(run.cancel_subagent(selected[0]))
+            with patch.object(core,'open_request',side_effect=send):
+                try:run.run(emit)
+                finally:release.set();late_finished.wait(3)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            tool=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool')
+            self.assertEqual([item['status'] for item in tool['subagents']],['cancelled','completed'])
+            self.assertNotIn('analysis',tool['subagents'][0]);self.assertEqual(tool['subagents'][1]['analysis'],'Other finding')
+            self.assertNotIn('Must not be used',json.dumps(events)+json.dumps(bodies))
+            self.assertIsNone(tool['subagents'][0]['usage']['input_tokens'])
+
+    def test_individual_cancel_control_keeps_the_other_child_running(self):
+        import os
+        from unittest.mock import MagicMock
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();store=Store(Path(root)/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                job=MagicMock(spec=CodingRun);job.cancel_subagent.return_value=True;tab.job=job;tab.run_id='active';one='a'*32+'-1';two='a'*32+'-2'
+                for ident in (one,two):tab.receive({'kind':'subagent','run_id':'active','subagent':{'id':ident,'status':'running','text':'Review '+ident[-1]}})
+                tab.subagents_toggle.click();self.assertTrue(tab.stop_subagent_button.isEnabled());tab.stop_subagent_button.click()
+                job.cancel_subagent.assert_called_once_with(one);self.assertIs(tab.job,job)
+                self.assertEqual([item['status'] for item in tab.session['coding_subagents']],['cancelled','running']);self.assertEqual(tab.subagent_choice.currentData(),two)
+                tab.receive({'kind':'subagent','run_id':'active','subagent':{'id':one,'status':'completed','text':'late result'}})
+                self.assertNotIn('late result',tab.subagents_view.toPlainText())
+                saved=store.list_sessions()[0];self.assertEqual([item['status'] for item in saved['coding_subagents']],['cancelled','running'])
+            finally:
+                if window.tabs.currentWidget():window.tabs.currentWidget().job=None
+                window.close();app.processEvents();store.db.close()
+
+    def test_child_request_construction_failure_does_not_stop_sibling(self):
+        with tempfile.TemporaryDirectory() as root:
+            events=[];bodies=[];heavy_count=0;original=core.chat_body
+            def build(c,messages):
+                if c['model']=='alternate-bad':raise ValueError('Invalid child configuration')
+                return original(c,messages)
+            def send(c,url,body,timeout):
+                nonlocal heavy_count
+                bodies.append(copy.deepcopy(body))
+                if c['model']=='light':return Wire(chat('Useful finding'),False)
+                heavy_count+=1
+                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['first',{'task':'second','model':'alternate'}])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            alternate=dict(C,model='alternate-bad',stream=False)
+            with patch.object(core,'open_request',side_effect=send),patch.object(core,'chat_body',side_effect=build):
+                CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=alternate).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            result=next(json.loads(message['content']) for message in bodies[-1]['messages'] if message['role']=='tool')
+            self.assertEqual([item['status'] for item in result['subagents']],['completed','failed'])
+
+    def test_cancelled_task_cannot_be_reassigned_or_replayed_in_same_run(self):
+        with tempfile.TemporaryDirectory() as root:
+            blocked=threading.Event();release=threading.Event();events=[];bodies=[];heavy_count=0;ident=[]
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=dict(C,model='alternate',stream=False))
+            def send(c,url,body,timeout):
+                nonlocal heavy_count
+                bodies.append(copy.deepcopy(body))
+                if c['model']=='light':
+                    if 'cancel this task' in json.dumps(body):blocked.set();release.wait(5)
+                    return Wire(chat('Child result'),False)
+                heavy_count+=1
+                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['cancel this task','other task'])})],finish='tool_calls'),False)
+                if heavy_count==2:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps([{'task':'  CANCEL this   task ','model':'alternate'},'another task'])})],finish='tool_calls'),False)
+                return Wire(chat('Stopped'),False)
+            def emit(event):
+                events.append(event)
+                if event.get('kind')=='subagent' and event['subagent']['status']=='running':
+                    ident.append(event['subagent']['id'])
+                    if len(ident)==2:self.assertTrue(blocked.wait(3));self.assertTrue(run.cancel_subagent(ident[0]))
+            with patch.object(core,'open_request',side_effect=send):
+                try:run.run(emit)
+                finally:release.set()
+            self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertEqual(sum(body['model']=='light' for body in bodies),2)
+            self.assertEqual(sum(body['model']=='alternate' for body in bodies),0)
+            result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool' and 'cancelled by the user' in m['content'])
+            self.assertIn('do not retry',result['error'])

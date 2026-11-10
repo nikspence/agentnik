@@ -14,6 +14,7 @@ from .research import scrub
 from . import decision_advice
 from .decision_advice import parse_advice
 from .task_plan import validate_plan
+from .subagent_status import validate_record
 from .code_limits import FIELDS,coding_limits
 from .web import public_url
 from . import core,routing
@@ -139,6 +140,8 @@ class CodeTab(QWidget):
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
         if session.get("code_state") in ("running","awaiting_approval"):
             session["code_state"]="interrupted"
+            for item in session.get("coding_subagents",[]):
+                if item["status"]=="running":item["status"]="interrupted"
             session.setdefault("code_activity",[]).append({"kind":"interrupted","text":"Interrupted coding run; nothing resumes automatically."})
             session["code_activity"]=session["code_activity"][-32:]
             self.store.save(session)
@@ -159,6 +162,12 @@ class CodeTab(QWidget):
         self.plan_explanation=QPlainTextEdit();self.plan_explanation.setReadOnly(True);self.plan_explanation.setMaximumHeight(55);plan_layout.addWidget(self.plan_explanation)
         plan_note=QLabel(self.tr('Model-reported progress. Unfinished steps remain after a stopped run; reopening does not resume work.'));plan_note.setWordWrap(True);plan_layout.addWidget(plan_note)
         self.plan_toggle.toggled.connect(self.plan_panel.setVisible);self.plan_panel.hide();self.refresh_plan()
+        self.subagents_toggle=QPushButton();self.subagents_toggle.setCheckable(True);layout.addWidget(self.subagents_toggle)
+        self.subagents_view=QPlainTextEdit();self.subagents_view.setReadOnly(True);self.subagents_view.setMinimumHeight(35);self.subagents_view.setMaximumHeight(135);self.subagents_view.setToolTip(self.tr('Cancellation stops waiting; an already submitted provider request may continue.'));layout.addWidget(self.subagents_view)
+        self.subagents_controls=QWidget();subagent_actions=QHBoxLayout(self.subagents_controls);subagent_actions.setContentsMargins(0,0,0,0)
+        self.subagent_choice=QComboBox();self.subagent_choice.setAccessibleName(self.tr('Running subagent'));self.subagent_choice.setMinimumContentsLength(30);self.subagent_choice.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon);self.subagent_choice.setMaximumWidth(360);subagent_actions.addWidget(self.subagent_choice)
+        self.stop_subagent_button=QPushButton(self.tr('Cancel subagent'));self.stop_subagent_button.clicked.connect(self.cancel_selected_subagent);subagent_actions.addWidget(self.stop_subagent_button);subagent_actions.addStretch();layout.addWidget(self.subagents_controls)
+        self.subagents_toggle.toggled.connect(self.subagents_view.setVisible);self.subagents_toggle.toggled.connect(self.subagents_controls.setVisible);self.subagents_view.hide();self.subagents_controls.hide();self.refresh_subagents()
         self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])) or self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
         self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);layout.addWidget(self.composer)
         context=session.get('coding_context')
@@ -167,12 +176,12 @@ class CodeTab(QWidget):
         self.use_context=QCheckBox(self.tr('Send previous task and answer with next run (up to 2,048 characters each)'));self.use_context.setEnabled(bool(context))
         options=QHBoxLayout();layout.addLayout(options)
         self.roles={}
-        bindings=dict(session.get('coding_models',{}));bindings['decision']=session.get('coding_decision_model',{})
+        bindings=dict(session.get('coding_models',{}));bindings['decision']=session.get('coding_decision_model',{});bindings['alternate']=session.get('coding_subagent_model',{});bindings['alternate2']=session.get('coding_subagent_model_2',{})
         self.model_toggle=QPushButton(self.tr('Models'));self.model_toggle.setCheckable(True);layout.addWidget(self.model_toggle)
         self.model_panel=QWidget();model_layout=QVBoxLayout(self.model_panel);layout.addWidget(self.model_panel);self.model_panel.hide()
         self.model_toggle.toggled.connect(self.model_panel.setVisible)
-        for role in ('heavy','light','decision'):
-            row=QHBoxLayout();model_layout.addLayout(row);row.addWidget(QLabel({'heavy':self.tr('Heavy model'),'light':self.tr('Light model'),'decision':self.tr('Decision model')}[role]))
+        for role in ('heavy','light','alternate','alternate2','decision'):
+            row=QHBoxLayout();model_layout.addLayout(row);row.addWidget(QLabel({'heavy':self.tr('Heavy model'),'light':self.tr('Light model'),'alternate':self.tr('Alternate subagent model (optional)'),'alternate2':self.tr('Second alternate subagent model (optional)'),'decision':self.tr('Decision model')}[role]))
             connection=QComboBox();connection.addItem(self.tr('Not configured'),'');
             for name in window.connections:connection.addItem(name,name)
             model=QLineEdit();model.setPlaceholderText(self.tr('Model alias (any supported coding model)'))
@@ -190,7 +199,7 @@ class CodeTab(QWidget):
         disclosure.setWordWrap(True);model_layout.addWidget(disclosure)
         self.skills_button=QPushButton();self.skills_button.clicked.connect(self.choose_skills);options.addWidget(self.skills_button);self.refresh_skills_button()
         self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);options.addWidget(self.skills_history_button)
-        self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setToolTip(self.tr('Allow individual or parallel Light analysis tasks. Parallel tasks have no tools and share the run limits. Each project file sent to a subagent requires approval.'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
+        self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setToolTip(self.tr('Allow individual or parallel Light analysis tasks. Parallel tasks can use Light or either optional alternate subagent model. Each project file sent to a subagent requires approval; run limits are shared.'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.'))
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));options.addWidget(self.web_enabled)
@@ -231,6 +240,34 @@ class CodeTab(QWidget):
         self.plan_list.setMaximumHeight(max(44,min(140,height)))
         self.plan_explanation.setPlainText(plan['explanation']);self.plan_explanation.setVisible(bool(plan['explanation']))
 
+    def refresh_subagents(self):
+        items=self.session.get('coding_subagents',[]);self.subagents_toggle.setVisible(bool(items))
+        if not items:
+            self.subagents_toggle.setChecked(False);self.subagents_view.hide();self.subagents_controls.hide();self.subagents_view.clear();self.subagent_choice.clear();self.stop_subagent_button.setEnabled(False);return
+        selected=self.subagent_choice.currentData();self.subagent_choice.blockSignals(True);self.subagent_choice.clear()
+        for item in items:
+            if item['status']=='running':self.subagent_choice.addItem(item['text'].replace('\n',' ')[:80],item['id'])
+        index=self.subagent_choice.findData(selected)
+        if index>=0:self.subagent_choice.setCurrentIndex(index)
+        self.subagent_choice.blockSignals(False);self.stop_subagent_button.setEnabled(bool(self.job) and self.subagent_choice.count()>0)
+        running=sum(item['status']=='running' for item in items)
+        self.subagents_toggle.setText(self.tr('Subagents · {count} total · {running} running').format(count=len(items),running=running))
+        labels={'running':self.tr('Running'),'completed':self.tr('Completed'),'failed':self.tr('Failed'),'cancelled':self.tr('Cancelled'),'interrupted':self.tr('Interrupted'),'stopped':self.tr('Stopped')}
+        self.subagents_view.setMaximumHeight(min(135,max(45,self.subagents_view.fontMetrics().lineSpacing()*min(8,2*len(items)+1)+10)))
+        self.subagents_view.setPlainText('\n\n'.join(labels[item['status']]+' · '+item['text'] for item in items))
+
+    def cancel_selected_subagent(self):
+        ident=self.subagent_choice.currentData()
+        if not isinstance(self.job,CodingRun) or not ident or not self.job.cancel_subagent(ident):return
+        item=next((item for item in self.session.get('coding_subagents',[]) if item['id']==ident),None)
+        if item and item['status']=='running':item['status']='cancelled'
+        self.refresh_subagents();self.record('cancelled',self.tr('Subagent cancellation requested: {id}').format(id=ident))
+
+    def stop_subagents(self,status):
+        for item in self.session.get('coding_subagents',[]):
+            if item['status']=='running':item['status']=status
+        self.refresh_subagents()
+
     def choose_model(self,role):
         if self.job or role in self.model_jobs:return
         name=self.roles[role][0].currentData()
@@ -241,7 +278,7 @@ class CodeTab(QWidget):
             self.model_jobs.pop(role,None)
             if self._closed or self.job or self.roles[role][0].currentData()!=name:return
             choices=[value for value in names if isinstance(value,str) and len(value)<=512][:2000]
-            title={'heavy':self.tr('Choose Heavy model'),'light':self.tr('Choose Light model'),'decision':self.tr('Choose Decision model')}[role]
+            title={'heavy':self.tr('Choose Heavy model'),'light':self.tr('Choose Light model'),'alternate':self.tr('Choose alternate subagent model'),'alternate2':self.tr('Choose second alternate subagent model'),'decision':self.tr('Choose Decision model')}[role]
             model,ok=QInputDialog.getItem(self,title,self.tr('Model alias:'),choices,0,True)
             if ok:self.roles[role][1].setText(model);self.save_models()
         def failed(_):
@@ -259,6 +296,8 @@ class CodeTab(QWidget):
 
     def save_models(self):
         self.session['coding_models']={role:{'connection':self.roles[role][0].currentData(),'model':self.roles[role][1].text().strip()} for role in ('heavy','light')}
+        widgets=self.roles['alternate'];self.session['coding_subagent_model']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()}
+        widgets=self.roles['alternate2'];self.session['coding_subagent_model_2']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()}
         widgets=self.roles['decision'];self.session['coding_decision_model']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()}
         self.store.save(self.session)
 
@@ -329,7 +368,7 @@ class CodeTab(QWidget):
         if not name:return None
         c=dict(self.window.connections.get(name,{}));c['model']=self.roles[role][1].text().strip()
         if not c.get('url') or not c.get('model'):
-            raise ValueError({'heavy':self.tr('Choose a connection and model alias for Heavy.'),'light':self.tr('Choose a connection and model alias for Light.'),'decision':self.tr('Choose a connection and model alias for Decision.')}[role])
+            raise ValueError({'heavy':self.tr('Choose a connection and model alias for Heavy.'),'light':self.tr('Choose a connection and model alias for Light.'),'alternate':self.tr('Choose a connection and model alias for the alternate subagent.'),'alternate2':self.tr('Choose a connection and model alias for the second alternate subagent.'),'decision':self.tr('Choose a connection and model alias for Decision.')}[role])
         return c
 
     def refresh_skills_button(self):
@@ -389,6 +428,11 @@ class CodeTab(QWidget):
         if self.job or self._closed:return
         try:
             self.save_models();heavy=self.role_connection('heavy');light=self.role_connection('light') if self.light_enabled.isChecked() else None
+            alternate=self.role_connection('alternate') if self.light_enabled.isChecked() else None
+            alternate2=self.role_connection('alternate2') if self.light_enabled.isChecked() else None
+            if self.light_enabled.isChecked() and self.roles['alternate'][1].text().strip() and not alternate:raise ValueError(self.tr('Choose a connection for the alternate subagent model.'))
+            if self.light_enabled.isChecked() and self.roles['alternate2'][1].text().strip() and not alternate2:raise ValueError(self.tr('Choose a connection for the second alternate subagent model.'))
+            if (alternate or alternate2) and not light:raise ValueError(self.tr('Choose a Light model before using an alternate subagent model.'))
             advice=self.role_connection('decision') if self.advice_enabled.isChecked() else None
             if self.advice_enabled.isChecked() and not advice:raise ValueError(self.tr('Choose a Decision model before enabling safety advice.'))
             destination=(self.roles['decision'][0].currentText()+' / '+advice['model']+' / '+core.endpoint(advice,'decision')) if advice else ''
@@ -401,7 +445,7 @@ class CodeTab(QWidget):
                 if not strict:
                     backends=[b for b in self.store.web_backend_specs() if b.get('kind') in SEARCH_KINDS and (b.get('kind')!='ollama' or direct)]
                     provider='managed'
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]))
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2)
         except ValueError as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
@@ -411,6 +455,7 @@ class CodeTab(QWidget):
         if isinstance(run,CodingRun):
             history=self.session.setdefault('coding_skill_history',[])
             history.append({'run_id':run.run_id,'skills':[]});self.session['coding_skill_history']=history[-32:]
+            self.session['coding_subagents']=[];self.refresh_subagents()
             self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
@@ -473,6 +518,19 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
+        if kind=='subagent':
+            try:
+                value=validate_record(event.get('subagent'));value['text']=plain(value['text'])[:1600]
+            except (ValueError,TypeError):return
+            records=self.session.setdefault('coding_subagents',[])
+            prior=next((item for item in records if item['id']==value['id']),None)
+            if prior is None:
+                if value['status']!='running':return
+                records.append(value);self.session['coding_subagents']=records[-32:]
+            elif (prior['status']=='running' and value['status'] in ('completed','failed','cancelled')) or (prior['status']=='cancelled' and value['status']=='cancelled'):
+                prior.update(value)
+            else:return
+            self.refresh_subagents();self.store.save(self.session);self.updated.emit();return
         if kind=='skill_revision':
             revision=event.get('skill',{})
             if not isinstance(revision,dict) or set(revision)!={'id','source','sha256'}:return
@@ -535,12 +593,12 @@ class CodeTab(QWidget):
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='finished':
             if event['status']=='completed' and isinstance(self.job,CodingRun):
-                secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key','')]
+                secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]
                 context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
                 self.session['coding_context']=context
                 self.context_view.setPlainText(self.context_text(context))
                 self.use_context.setChecked(False)
-            self.session['code_state']=event['status'];self.finish();self.record(kind,event['text'])
+            self.stop_subagents('stopped');self.session['code_state']=event['status'];self.finish();self.record(kind,event['text'])
             if event.get('usage'):self.record('usage',event['usage'])
 
     def decide(self,allowed):
@@ -564,5 +622,5 @@ class CodeTab(QWidget):
 
     def cancel(self):
         if not self.job:return
-        self.job.stop();self.session['code_state']='cancelled';self.finish()
+        self.job.stop();self.stop_subagents('cancelled');self.session['code_state']='cancelled';self.finish()
         self.record('cancelled','Run cancelled. No further tool work will be scheduled; already approved edits are retained.')

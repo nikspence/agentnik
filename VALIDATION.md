@@ -261,3 +261,28 @@ Offline mock tests cover genuinely concurrent Light requests, tool isolation, se
 ## Approved subagent file snapshots
 
 The full offline suite passed 327 tests. Mocked coding runs cover individual approval of file text and endpoint, configured-secret redaction, rejected and changed files, scoped repository guidance before delegation, concurrent Light requests and cancellation. An offscreen Qt check verifies that the transfer approval shows the file text, model and destination. No live model request or cross-platform native validation was performed.
+
+
+## Parallel subagent progress and usage
+
+The full offline suite passed 328 tests. A mocked concurrent run verifies that a fast child reports before a blocked child, that final results retain task order, and that missing provider token counts remain unknown. The existing tests cover approvals, shared budgets, cancellation, and partial failures. No live model request or native cross-platform validation was performed for this update.
+
+
+## Alternate subagent model routing
+
+The full offline suite passed 331 tests. Mocked concurrent runs verify per-task routing across Chat Completions and Messages, alternate endpoint/file approval, credential redaction, and no silent fallback when the alternate is unavailable. Offscreen Qt checks verify selection, launch and session persistence; the expanded model panel was visually reviewed offscreen. No live inference, frozen build or native macOS/Linux validation was performed.
+
+
+## Subagent status view
+
+The full offline suite passed 333 tests. Qt checks cover start/completion state, cancellation, interrupted session reopening, stale events, and bounded record validation. The collapsed and expanded status flow was reviewed offscreen; no live inference or native macOS/Linux validation was performed.
+
+
+## Three-model parallel subagents
+
+The complete offline suite passed 335 tests. Mocked parallel calls cover Light and two alternates using Chat Completions, Messages and Responses, including per-file destination approvals, cross-credential redaction, no silent fallback, and session compatibility. The expanded model panel was reviewed offscreen. No live inference, frozen release build, or native macOS/Linux validation was performed for this slice.
+
+
+## Individual subagent cancellation
+
+The full offline suite passed 339 tests. Mocked runs and offscreen Qt checks cover cancelling one child while its sibling completes, suppression of late output, rejection of identical retries or reassignment, unknown usage for cancelled requests, selection state and persistence. Request-construction failures remain isolated to their child. The Code control was reviewed offscreen. No live model request or native macOS/Linux validation was performed. Cancellation stops local waiting; an already submitted provider request may continue.

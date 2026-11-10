@@ -556,6 +556,90 @@ SHA-256: {payload_sha256}
 
 아래에서 전송할 파일 텍스트를 확인하세요.</translation>
         </message>
+        <message>
+            <source>Alternate subagent model (optional)</source>
+            <translation>대체 하위 에이전트 모델 (선택 사항)</translation>
+        </message>
+        <message>
+            <source>Choose alternate subagent model</source>
+            <translation>대체 하위 에이전트 모델 선택</translation>
+        </message>
+        <message>
+            <source>Choose a connection and model alias for the alternate subagent.</source>
+            <translation>대체 하위 에이전트의 연결과 모델 별칭을 선택하세요.</translation>
+        </message>
+        <message>
+            <source>Choose a connection for the alternate subagent model.</source>
+            <translation>대체 하위 에이전트 모델의 연결을 선택하세요.</translation>
+        </message>
+        <message>
+            <source>Choose a Light model before using an alternate subagent model.</source>
+            <translation>대체 하위 에이전트 모델을 사용하기 전에 Light 모델을 선택하세요.</translation>
+        </message>
+        <message>
+            <source>Allow individual or parallel Light analysis tasks. Parallel tasks can use Light or the optional alternate subagent model. Each project file sent to a subagent requires approval; run limits are shared.</source>
+            <translation>개별 또는 병렬 Light 분석 작업을 허용합니다. 병렬 작업은 Light 또는 선택한 대체 하위 에이전트 모델을 사용할 수 있습니다. 각 프로젝트 파일 전송에는 승인이 필요하며 실행 제한은 공유됩니다.</translation>
+        </message>
+        <message>
+            <source>Subagents · {count} total · {running} running</source>
+            <translation>하위 에이전트 · 총 {count}개 · 실행 중 {running}개</translation>
+        </message>
+        <message>
+            <source>Running</source>
+            <translation>실행 중</translation>
+        </message>
+        <message>
+            <source>Failed</source>
+            <translation>실패</translation>
+        </message>
+        <message>
+            <source>Cancelled</source>
+            <translation>취소됨</translation>
+        </message>
+        <message>
+            <source>Interrupted</source>
+            <translation>중단됨</translation>
+        </message>
+        <message>
+            <source>Stopped</source>
+            <translation>정지됨</translation>
+        </message>
+        <message>
+            <source>Cancellation stops waiting; an already submitted provider request may continue.</source>
+            <translation>취소하면 대기가 중지됩니다. 이미 전송된 요청은 제공자에서 계속 처리될 수 있습니다.</translation>
+        </message>
+        <message>
+            <source>Second alternate subagent model (optional)</source>
+            <translation>두 번째 대체 하위 에이전트 모델 (선택 사항)</translation>
+        </message>
+        <message>
+            <source>Choose second alternate subagent model</source>
+            <translation>두 번째 대체 하위 에이전트 모델 선택</translation>
+        </message>
+        <message>
+            <source>Choose a connection and model alias for the second alternate subagent.</source>
+            <translation>두 번째 대체 하위 에이전트의 연결과 모델 별칭을 선택하세요.</translation>
+        </message>
+        <message>
+            <source>Choose a connection for the second alternate subagent model.</source>
+            <translation>두 번째 대체 하위 에이전트 모델의 연결을 선택하세요.</translation>
+        </message>
+        <message>
+            <source>Allow individual or parallel Light analysis tasks. Parallel tasks can use Light or either optional alternate subagent model. Each project file sent to a subagent requires approval; run limits are shared.</source>
+            <translation>개별 또는 병렬 Light 분석 작업을 허용합니다. 병렬 작업은 Light 또는 두 대체 하위 에이전트 모델 중 하나를 사용할 수 있습니다. 각 프로젝트 파일 전송에는 승인이 필요하며 실행 제한은 공유됩니다.</translation>
+        </message>
+        <message>
+            <source>Running subagent</source>
+            <translation>실행 중인 하위 에이전트</translation>
+        </message>
+        <message>
+            <source>Cancel subagent</source>
+            <translation>하위 에이전트 취소</translation>
+        </message>
+        <message>
+            <source>Subagent cancellation requested: {id}</source>
+            <translation>하위 에이전트 취소 요청: {id}</translation>
+        </message>
     </context>
     <context>
         <name>ConnectionDialog</name>

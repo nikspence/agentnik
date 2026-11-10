@@ -46,6 +46,10 @@ def validate_session(value, ident=None):
         activity=data.get('code_activity',[])
         require(isinstance(activity,list) and len(activity)<=32)
         require(all(isinstance(e,dict) and isinstance(e.get('kind'),str) and isinstance(e.get('text'),str) and len(e['text'])<=2048 for e in activity))
+        if 'coding_subagents' in data:
+            from .subagent_status import validate_records
+            try:validate_records(data['coding_subagents'])
+            except (ValueError,TypeError):require(False)
         if 'coding_skills' in data:
             skills=data['coding_skills'];require(isinstance(skills,list) and len(skills)<=5 and all(isinstance(name,str) and 0<len(name)<=69 for name in skills))
         if 'coding_skill_revisions' in data:
@@ -66,6 +70,10 @@ def validate_session(value, ident=None):
                     require(isinstance(revision,dict) and set(revision)=={'id','source','sha256'})
                     require(isinstance(revision['id'],str) and 0<len(revision['id'])<=69 and revision['id'] not in seen and revision['source'] in ('repository','user'));seen.add(revision['id'])
                     require(isinstance(revision['sha256'],str) and len(revision['sha256'])==64 and all(ch in '0123456789abcdef' for ch in revision['sha256']))
+        for key in ('coding_subagent_model','coding_subagent_model_2'):
+            if key in data:
+                binding=data[key];require(isinstance(binding,dict) and set(binding)=={'connection','model'})
+                require(all(isinstance(v,str) and len(v)<=1000 for v in binding.values()))
         if 'coding_light_enabled' in data: require(type(data['coding_light_enabled']) is bool)
         if 'coding_web_enabled' in data: require(type(data['coding_web_enabled']) is bool)
         if 'coding_advice_enabled' in data: require(type(data['coding_advice_enabled']) is bool)
