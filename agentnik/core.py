@@ -61,6 +61,21 @@ def endpoint(c, mode='chat'):
     if mode == 'chat' and native_ollama(c): return base_url(c['url']).removesuffix('/v1')+'/api/chat'
     return base_url(c['url']) + ('/systemone' if mode == 'decision' else {'chat':'/chat/completions', 'responses':'/responses', 'messages':'/messages'}[c.get('protocol', 'chat')])
 
+def direct_mantle(c):
+    """Recognize only the direct AWS Mantle HTTPS authority, never gateways."""
+    parsed=urllib.parse.urlsplit(base_url(c['url']))
+    return (parsed.scheme=='https' and parsed.port in (None,443)
+            and re.fullmatch(r'bedrock-mantle\.[a-z0-9-]+\.api\.aws',parsed.hostname or '') is not None)
+
+
+def models_endpoint(c):
+    base=base_url(c['url'])
+    if direct_mantle(c):
+        parsed=urllib.parse.urlsplit(base)
+        return urllib.parse.urlunsplit((parsed.scheme,parsed.netloc,'/v1/models','',''))
+    return base+'/models'
+
+
 def native_ollama(c):
     parsed = urllib.parse.urlsplit(base_url(c['url']))
     return c.get('protocol', 'chat') == 'chat' and (parsed.port == 11434 or parsed.hostname == 'ollama.com')
@@ -99,7 +114,9 @@ def get_json(c, url, timeout=10):
     with open_request(c, url, timeout=timeout) as r: return json.load(r)
 
 def models(c):
-    data = get_json(c, base_url(c['url'])+'/models')
+    # The Mantle catalog uses OpenAI bearer authentication even for Messages connections.
+    listing=dict(c,protocol='responses') if direct_mantle(c) else c
+    data = get_json(listing, models_endpoint(c))
     return sorted(x['id'] for x in data.get('data', []) if isinstance(x, dict) and isinstance(x.get('id'), str))
 
 def discover():

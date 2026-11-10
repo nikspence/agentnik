@@ -514,6 +514,14 @@ Hooks and signing are disabled. Review the complete diff below.</source>
             <source>Store API key in plaintext instead of OS credential store</source>
             <translation>OS 자격 증명 저장소 대신 API 키를 일반 텍스트로 저장</translation>
         </message>
+        <message>
+            <source>Model catalog: {catalog}
+Inference: {inference}
+Mantle catalog entries do not establish the model’s inference route. Copy the base URL and select the protocol shown on its AWS model card; routes can use /v1, /openai/v1, or /anthropic/v1. Save separate connections for different routes.</source>
+            <translation>모델 목록: {catalog}
+추론: {inference}
+Mantle 모델 목록만으로는 모델의 추론 경로를 알 수 없습니다. AWS 모델 카드에 표시된 기본 URL을 복사하고 프로토콜을 선택하세요. 경로는 /v1, /openai/v1 또는 /anthropic/v1일 수 있습니다. 경로가 다르면 연결을 별도로 저장하세요.</translation>
+        </message>
     </context>
     <context>
         <name>Connections</name>

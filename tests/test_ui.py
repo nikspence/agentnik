@@ -12,6 +12,19 @@ HAS_QT = importlib.util.find_spec('PySide6') is not None
 
 @unittest.skipUnless(HAS_QT,'PySide6 is not installed')
 class Desktop(unittest.TestCase):
+    def test_direct_mantle_connection_displays_catalog_and_inference_routes(self):
+        from agentnik.ui import ConnectionDialog
+        dialog=ConnectionDialog(None,'Mantle',{'url':'https://bedrock-mantle.us-east-1.api.aws/openai/v1','protocol':'responses'})
+        try:
+            self.assertFalse(dialog.route_hint.isHidden())
+            self.assertIn('https://bedrock-mantle.us-east-1.api.aws/v1/models',dialog.route_hint.text())
+            self.assertIn('https://bedrock-mantle.us-east-1.api.aws/openai/v1/responses',dialog.route_hint.text())
+            dialog.protocol.setCurrentText('messages');dialog.fields['url'].setText('https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages')
+            self.assertIn('Inference: https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages',dialog.route_hint.text())
+            name,c=dialog.value();self.assertEqual(c['url'],'https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages')
+            dialog.fields['url'].setText('https://gateway.example/v1');self.assertTrue(dialog.route_hint.isHidden())
+        finally:dialog.close()
+
     def test_model_count_only_appears_in_status_bar(self):
         from agentnik.storage import Store
         from agentnik.ui import Window

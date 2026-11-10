@@ -14,6 +14,29 @@ class Response(io.BytesIO):
         super().__init__(data); self.headers={'Content-Type':ctype}
 
 class Contracts(unittest.TestCase):
+    def test_mantle_catalog_is_separate_from_inference_and_uses_bearer(self):
+        origin='https://bedrock-mantle.us-east-1.api.aws'
+        for path,protocol,suffix in [('/v1','responses','/responses'),('/openai/v1','chat','/chat/completions'),('/anthropic/v1','messages','/messages'),('/anthropic/v1/messages','messages',''),('/messages/v1','messages','/messages')]:
+            with self.subTest(path=path):
+                c={'url':origin+path,'protocol':protocol,'api_key':'test-key','model':'example'};original=dict(c)
+                def catalog(connection,url):
+                    self.assertEqual(url,origin+'/v1/models')
+                    self.assertEqual(core.headers(connection)['Authorization'],'Bearer test-key')
+                    self.assertNotIn('x-api-key',core.headers(connection))
+                    return {'data':[{'id':'example'}]}
+                with patch.object(core,'get_json',side_effect=catalog) as request:
+                    self.assertEqual(core.models(c),['example']);request.assert_called_once()
+                self.assertEqual(core.endpoint(c),origin+path+suffix);self.assertEqual(c,original)
+                if protocol=='messages':self.assertEqual(core.headers(c)['x-api-key'],'test-key')
+
+    def test_mantle_catalog_override_does_not_apply_to_gateways_or_other_hosts(self):
+        for url in ('https://gateway.example/openai/v1','https://bedrock-mantle.us-east-1.api.aws.evil.example/openai/v1','http://bedrock-mantle.us-east-1.api.aws/v1','https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1','https://bedrock-mantle.us-east-1.api.aws:8443/openai/v1'):
+            with self.subTest(url=url):
+                c={'url':url,'protocol':'messages'}
+                self.assertFalse(core.direct_mantle(c));self.assertEqual(core.models_endpoint(c),url+'/models')
+                with patch.object(core,'get_json',return_value={'data':[]}) as request:
+                    core.models(c);self.assertEqual(request.call_args.args,(c,url+'/models'))
+
     def test_overall_rate_requires_counts_and_positive_elapsed_time(self):
         self.assertEqual(core.total_token_rate({'input_tokens':80,'output_tokens':20,'total_seconds':4}),25)
         self.assertEqual(core.total_token_rate({'input_tokens':10,'output_tokens':0,'total_seconds':2}),5)

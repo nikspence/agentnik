@@ -322,10 +322,20 @@ class ConnectionDialog(QDialog):
             edit = QLineEdit(name if key == 'name' else c.get(key, '')); self.fields[key] = edit; layout.addRow(label, edit)
         self.fields['api_key'].setEchoMode(QLineEdit.EchoMode.Password)
         self.protocol = QComboBox(); self.protocol.addItems(core.PROTOCOLS); self.protocol.setCurrentText(c.get('protocol','responses')); layout.addRow(self.tr('Chat protocol'),self.protocol)
+        self.route_hint=QLabel();self.route_hint.setWordWrap(True);self.route_hint.setTextFormat(Qt.TextFormat.PlainText);layout.addRow(self.route_hint)
+        self.fields['url'].textChanged.connect(self.update_route_hint);self.protocol.currentTextChanged.connect(self.update_route_hint);self.update_route_hint()
         self.context = QSpinBox(); self.context.setRange(0,100000000); self.context.setSpecialValueText(self.tr('Unknown')); self.context.setValue(c.get('context_limit',0)); layout.addRow(self.tr('Context limit (tokens)'),self.context)
         self.stream = QCheckBox(self.tr('Stream chat responses')); self.stream.setChecked(c.get('stream',True)); layout.addRow(self.stream)
         self.plain = QCheckBox(self.tr('Store API key in plaintext instead of OS credential store')); layout.addRow(self.plain)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel); buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addRow(buttons)
+    def update_route_hint(self,*_):
+        connection={'url':self.fields['url'].text(),'protocol':self.protocol.currentText()}
+        try:
+            mantle=core.direct_mantle(connection)
+            text=self.tr('Model catalog: {catalog}\nInference: {inference}\nMantle catalog entries do not establish the model’s inference route. Copy the base URL and select the protocol shown on its AWS model card; routes can use /v1, /openai/v1, or /anthropic/v1. Save separate connections for different routes.').format(catalog=core.models_endpoint(connection),inference=core.endpoint(connection)) if mantle else ''
+        except ValueError:mantle=False;text=''
+        self.route_hint.setText(text);self.route_hint.setVisible(mantle)
+
     def value(self):
         c = {k:e.text().strip() for k,e in self.fields.items()}; name = c.pop('name')
         if not name: raise ValueError('Enter a connection name.')
