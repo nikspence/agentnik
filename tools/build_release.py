@@ -36,7 +36,7 @@ def clean_environment():
 
 def package_bundle(bundle, archive, metadata):
     """Package only the explicit onedir tree; validate archive integrity/contents."""
-    required=['Agentnik.exe','LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','BUILD-MANIFEST.json','THIRD_PARTY_LICENSES']
+    required=['Agentnik.exe','LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','DISCLAIMER.md','BUILD-MANIFEST.json','THIRD_PARTY_LICENSES']
     for name in required:
         if not (bundle/name).exists(): raise ValueError('Missing bundle component: '+name)
     if archive.exists() or archive.with_suffix(archive.suffix+'.sha256').exists(): raise ValueError('Archive/checksum already exists')
@@ -111,7 +111,7 @@ def main(argv=None):
         run.mkdir(parents=True)
         subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean','--distpath',str(run/'dist'),'--workpath',str(run/'work'),str(ROOT/'Agentnik.spec')],cwd=ROOT,check=True)
         bundle=run/'dist'/'Agentnik'
-        for name in ('LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','CODING_BACKEND_PLAN.md','CODING_GUIDE.md','FEATURES.md','SEARCH_PROVIDERS.md'):
+        for name in ('LICENSE','README.md','DISCLAIMER.md','VALIDATION.md','RELEASE_NOTES.md','AGENTNIK_PLAN.md','DEVELOPMENT_VALIDATION.md','CODING_BACKEND_PLAN.md','CODING_GUIDE.md','FEATURES.md','SEARCH_PROVIDERS.md'):
             shutil.copy2(ROOT/name,bundle/name)
         # Keep the bundled README's relative image links usable.
         for asset_source,asset_target in ((ROOT/'assets',bundle/'assets'),(ROOT/'agentnik'/'assets',bundle/'agentnik'/'assets')):

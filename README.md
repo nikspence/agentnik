@@ -5,6 +5,8 @@
 
 **Code, chat, and make structured decisions with your choice of local or cloud models.** Agentnik is a Python/Qt desktop application that brings your connections, conversations, projects, and research into one workspace. Use Ollama, LiteLLM gateways, and compatible provider endpoints; choose different models for different jobs.
 
+See [DISCLAIMER.md](DISCLAIMER.md) for responsibility and use information.
+
 ## Code: a coding agent for your models
 
 Register a local repository or ordinary folder in **Repositories**, then choose it from **＋ Code**. Each coding pane keeps its own working directory snapshot, task, model assignments, and activity. Removing a repository entry preserves its files and history.
