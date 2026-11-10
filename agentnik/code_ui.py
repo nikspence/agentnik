@@ -13,6 +13,7 @@ from .code_agent import CodingRun
 from .research import scrub
 from . import decision_advice
 from .decision_advice import parse_advice
+from .task_plan import validate_plan
 from .code_limits import FIELDS,coding_limits
 from .web import public_url
 from . import core,routing
@@ -152,6 +153,12 @@ class CodeTab(QWidget):
         elif current['path']!=session['path_snapshot']:note+=' '+self.tr('The registered folder moved. This session retains its original path; open a new Code pane to use the relocated folder.')
         if note:
             warning=QLabel(note.strip());warning.setWordWrap(True);warning.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(warning)
+        self.plan_toggle=QPushButton();self.plan_toggle.setCheckable(True);layout.addWidget(self.plan_toggle)
+        self.plan_panel=QWidget();plan_layout=QVBoxLayout(self.plan_panel);plan_layout.setContentsMargins(0,0,0,0);layout.addWidget(self.plan_panel)
+        self.plan_list=QListWidget();self.plan_list.setMaximumHeight(140);plan_layout.addWidget(self.plan_list)
+        self.plan_explanation=QPlainTextEdit();self.plan_explanation.setReadOnly(True);self.plan_explanation.setMaximumHeight(55);plan_layout.addWidget(self.plan_explanation)
+        plan_note=QLabel(self.tr('Model-reported progress. Unfinished steps remain after a stopped run; reopening does not resume work.'));plan_note.setWordWrap(True);plan_layout.addWidget(plan_note)
+        self.plan_toggle.toggled.connect(self.plan_panel.setVisible);self.plan_panel.hide();self.refresh_plan()
         self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])) or self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
         self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);layout.addWidget(self.composer)
         context=session.get('coding_context')
@@ -204,6 +211,23 @@ class CodeTab(QWidget):
         self.approve.clicked.connect(lambda:self.decide(True));self.reject.clicked.connect(lambda:self.decide(False))
         self.diff=QPlainTextEdit();self.diff.setReadOnly(True);self.diff.setPlaceholderText(self.tr('Review the complete proposed file diff before approving'));review.addWidget(self.diff)
         self.composer.textChanged.connect(self.save_draft)
+
+    def refresh_plan(self):
+        plan=self.session.get('coding_plan');self.plan_list.clear()
+        self.plan_toggle.setVisible(bool(plan))
+        if not plan:
+            self.plan_toggle.setChecked(False);self.plan_panel.hide();self.plan_explanation.clear();return
+        completed=sum(step['status']=='completed' for step in plan['steps'])
+        self.plan_toggle.setText(self.tr('Task plan · {completed}/{total} completed').format(completed=completed,total=len(plan['steps'])))
+        labels={'pending':self.tr('Pending'),'in_progress':self.tr('In progress'),'completed':self.tr('Completed'),'blocked':self.tr('Blocked')}
+        for step in plan['steps']:
+            item=QListWidgetItem(labels[step['status']]+' · '+step['step']);item.setToolTip(item.text())
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled|Qt.ItemFlag.ItemIsSelectable)
+            item.setCheckState(Qt.CheckState.Checked if step['status']=='completed' else Qt.CheckState.Unchecked)
+            self.plan_list.addItem(item)
+        height=sum(max(16,self.plan_list.sizeHintForRow(i)) for i in range(min(8,self.plan_list.count())))+2*self.plan_list.frameWidth()+6
+        self.plan_list.setMaximumHeight(max(44,min(140,height)))
+        self.plan_explanation.setPlainText(plan['explanation']);self.plan_explanation.setVisible(bool(plan['explanation']))
 
     def choose_model(self,role):
         if self.job or role in self.model_jobs:return
@@ -329,7 +353,8 @@ class CodeTab(QWidget):
         if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[provider])
 
     def launch(self,run,notice):
-        if isinstance(run,CodingRun):self.session['coding_sources']=[];self.update_sources_button()
+        if isinstance(run,CodingRun):
+            self.session['coding_sources']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
         self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False)
@@ -391,7 +416,11 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
-        if kind=='source':
+        if kind=='plan':
+            try:plan=validate_plan(event.get('plan'))
+            except ValueError:return
+            self.session['coding_plan']=plan;self.refresh_plan();self.store.save(self.session);self.updated.emit();return
+        elif kind=='source':
             source=event.get('source',{})
             try:
                 ident=source['id'];title=source['title'];url=public_url(source['url'])

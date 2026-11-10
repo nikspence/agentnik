@@ -472,6 +472,30 @@ Hooks and signing are disabled. Review the complete diff below.</source>
             <source>TEST RUN · Report format: {format}</source>
             <translation>테스트 실행 · 보고서 형식: {format}</translation>
         </message>
+        <message>
+            <source>Model-reported progress. Unfinished steps remain after a stopped run; reopening does not resume work.</source>
+            <translation>모델이 보고한 진행 상황입니다. 실행이 중지되어도 미완료 단계는 유지되며 다시 열어도 작업을 재개하지 않습니다.</translation>
+        </message>
+        <message>
+            <source>Task plan · {completed}/{total} completed</source>
+            <translation>작업 계획 · {completed}/{total} 완료</translation>
+        </message>
+        <message>
+            <source>Pending</source>
+            <translation>대기 중</translation>
+        </message>
+        <message>
+            <source>In progress</source>
+            <translation>진행 중</translation>
+        </message>
+        <message>
+            <source>Completed</source>
+            <translation>완료</translation>
+        </message>
+        <message>
+            <source>Blocked</source>
+            <translation>차단됨</translation>
+        </message>
     </context>
     <context>
         <name>ConnectionDialog</name>

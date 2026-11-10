@@ -58,6 +58,10 @@ def validate_session(value, ident=None):
             from .code_limits import coding_limits
             try: coding_limits(data['coding_limits'])
             except ValueError: require(False)
+        if 'coding_plan' in data:
+            from .task_plan import validate_plan
+            try:validate_plan(data['coding_plan'])
+            except ValueError:require(False)
         if 'coding_context' in data:
             context=data['coding_context'];require(isinstance(context,dict) and set(context)=={'task','answer'})
             require(all(isinstance(v,str) and len(v)<=2048 for v in context.values()))

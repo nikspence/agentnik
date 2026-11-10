@@ -73,6 +73,7 @@
 - Coding runs use your existing connections: Heavy plans and proposes edits, and can delegate bounded routine analysis to an independent Light model.
 - **Run coding task** inspects project files and proposes UTF-8 file edits; review the full diff, then approve or reject each edit.
 - Bounded project overview, numbered file-range reads (up to 2 MB files), and snapshot-bound exact patches with full diff approval.
+- Model-maintained task plans with pending/in-progress/completed/blocked steps, a collapsible checklist, and persisted last-reported progress.
 - Approved test commands return reported unittest/pytest/Jest/Vitest counts, failure excerpts, and explicit unknown/truncated states.
 - Read-before-write enforced; conflicting changes stop the write; cancellation retains drafts and applied approvals.
 - Approved single-file deletion, directory creation, and bounded shell commands; reopening never restarts a run.
