@@ -290,3 +290,9 @@ The full offline suite passed 339 tests. Mocked runs and offscreen Qt checks cov
 ## Skill selections across runs
 
 Offline tests cover selection fingerprint persistence, invalid fingerprints, changed and missing instructions, prevention of model requests, legacy sessions, and confirming an updated selection in the offscreen Qt picker. The full Windows test suite passed 342 tests. Native macOS and Linux validation and live model checks were not run.
+
+## Independent document review preview
+
+The Windows offline suite passed 348 tests. Mocked requests verify fresh document-only input across Chat Completions, Messages and Responses; exact preview and hashes; secret redaction; exclusion of drafting context, Skills and scoped guidance; approval rejection; changed documents; context limits; and cancellation with late output discarded. An offscreen Qt check covers the approval display. No live model, provider-side isolation, frozen build, or native macOS/Linux qualification was performed for this slice.
+
+The subsequent fixed-role extension passed the full 350-test offline suite on Windows. Mocked sequential requirements, design and implementation-readiness reviews verify individual approvals, distinct fixed rubrics, attribution, and exclusion of prior review findings. Invalid roles do not trigger approval or inference. The offscreen approval check includes the role. Parallel review, external evidence, persistent dispositions and live-model qualification remain outstanding.

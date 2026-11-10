@@ -576,8 +576,10 @@ class CodeTab(QWidget):
             self.advice_fingerprint=self.pending_fingerprint if operation=='run_shell' else None
             if operation=='run_shell':self.show_advice()
             else:self.advice_label.hide()
-            self.diff.setPlainText(proposal.get('diff',''));self.diff.setVisible(operation in ('delete_file','git_commit','git_commit_staged','git_stage','git_unstage','subagent_file_transfer'))
-            if operation=='subagent_file_transfer':
+            self.diff.setPlainText(proposal.get('diff',''));self.diff.setVisible(operation in ('delete_file','git_commit','git_commit_staged','git_stage','git_unstage','subagent_file_transfer','independent_review'))
+            if operation=='independent_review':
+                text=self.tr('INDEPENDENT DOCUMENT REVIEW\nReview role: {role}\nProject: {cwd}\nDocument: {path}\nModel: {model}\nDestination: {destination}\nDocument SHA-256: {source_sha256}\nInput SHA-256: {payload_sha256}\nInput: {payload_bytes} UTF-8 bytes\n\nReview the complete reviewer instructions and document below. Approving sends this exact input to the selected endpoint. The reviewer has no tools and does not receive the drafting conversation, Skills, or project guidance. Its findings are untrusted.').format(**{'role':proposal.get('role','comprehension'),**proposal})
+            elif operation=='subagent_file_transfer':
                 text=self.tr('SEND PROJECT FILE TO SUBAGENT\nProject: {cwd}\nFile: {path}\nModel: {model}\nDestination: {destination}\nSubagent: {child}\nTask: {task}\nPayload: {payload_bytes} UTF-8 bytes\nSHA-256: {payload_sha256}\n\nReview the exact file text to be sent below.').format(**proposal)
             elif operation in ('git_commit','git_commit_staged'):
                 text=self.tr('GIT COMMIT\nProject: {cwd}\nFiles: {path}\nIdentity: {identity}\nParent: {head}\nMessage: {message}\nHooks and signing are disabled. Review the complete diff below.').format(**proposal)
