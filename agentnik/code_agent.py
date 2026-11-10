@@ -350,13 +350,13 @@ class CodingRun:
                             value=next(iter(args.values()))
                             event('output',text=('Searching web: ' if call.name=='web_search' else 'Reading web page: ')+value[:200])
                             blocked='Google search is unavailable for this run. Use a known public documentation URL with web_fetch; do not retry search.'
-                            if call.name=='web_search' and self.search_provider=='google' and google_unavailable:
+                            if call.name=='web_search' and self.search_provider in ('google','managed','ollama') and google_unavailable:
                                 sources=None
                             else:
                                 try:sources=runtime.wait(lambda:web_registry.handlers[call.name](runtime=runtime,**args));runtime.check()
                                 except ResearchError as exc:
                                     unavailable=('Google Search blocked the request or requires a browser challenge','Google Search returned no recognizable results or requires a browser challenge','Google Search returned an unsupported response')
-                                    if call.name!='web_search' or self.search_provider!='google' or str(exc) not in unavailable:raise
+                                    if call.name!='web_search' or self.search_provider not in ('google','managed','ollama') or str(exc) not in unavailable:raise
                                     google_unavailable=True;sources=None
                                     event('output',text='Google search is unavailable; direct public page reads remain available.')
                             if sources is None:

@@ -94,7 +94,7 @@ class ExcerptProviders(unittest.TestCase):
 
     def test_profiles_environment_overrides_and_replacement_preserve_kind(self):
         from agentnik.search_providers import SEARCH_PROVIDERS
-        variables={variable:'' for _,variable,_ in SEARCH_PROVIDERS.values()};variables.update(EXA_API_KEY='exa-environment',PARALLEL_API_KEY='parallel-environment')
+        variables={variable:'' for _,variable,_ in SEARCH_PROVIDERS.values() if variable};variables.update(EXA_API_KEY='exa-environment',PARALLEL_API_KEY='parallel-environment')
         keyring=MagicMock();secrets={}
         keyring.set_password.side_effect=lambda service,ident,key:secrets.__setitem__((service,ident),key)
         keyring.get_password.side_effect=lambda service,ident:secrets.get((service,ident))

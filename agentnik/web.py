@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit, urlencode, parse_qs
 from .tools import AccessError, LimitError, ResearchError, Source, utc_now
 from .core import EndpointError
 from . import __version__
-from .search_providers import SEARCH_KINDS
+from .search_providers import search_ready,search_chain
 
 
 def public_url(url):
@@ -330,14 +330,17 @@ class SnippetSearch(KeyedSearch):
     """Fixed-endpoint JSON search; no crawl, scrape, or full-text expansion."""
     def search(self,query,runtime):
         if not isinstance(query,str) or not query.strip() or len(query)>500:raise ResearchError('Search query must contain 1–500 characters')
-        if self.key in query:raise AccessError('Search credential transmission blocked')
+        if self.key and self.key in query:raise AccessError('Search credential transmission blocked')
         if self.provider_label=='LangSearch':
             url='https://api.langsearch.com/v1/web-search'
             body={'query':query,'count':min(runtime.limits.results,50),'contents':{'text':False}}
         else:
             url='https://api.firecrawl.dev/v2/search'
             body={'query':query,'limit':min(runtime.limits.results,100),'sources':[{'type':'web'}]}
-        _,_,payload=self.transport.request(url,runtime,body=json.dumps(body).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+self.key},redirects=False)
+        runtime.check();headers={'Content-Type':'application/json','Accept':'application/json'}
+        if self.key:headers['Authorization']='Bearer '+self.key
+        _,_,payload=self.transport.request(url,runtime,body=json.dumps(body).encode(),headers=headers,redirects=False)
+        runtime.check()
         try:
             data=json.loads(payload)
             if self.provider_label=='LangSearch':
@@ -352,7 +355,7 @@ class SnippetSearch(KeyedSearch):
         for item in items[:runtime.limits.results]:
             runtime.check()
             if not isinstance(item,dict) or not all(isinstance(item.get(k),str) for k in (title_key,'url')) or (item.get(description_key) is not None and not isinstance(item[description_key],str)):raise ResearchError('Malformed search result')
-            if self.key in json.dumps(item):raise AccessError('Search response contains a configured credential')
+            if self.key and self.key in json.dumps(item):raise AccessError('Search response contains a configured credential')
             target,_=resolve_public(item['url'],runtime)
             parser=ReadableText();parser.feed(item.get(description_key) or '')
             text,truncated=excerpt(re.sub(r'\s+',' ',''.join(parser.parts)).strip(),3000)
@@ -367,6 +370,13 @@ class LangSearchWeb(SnippetSearch):
 class FirecrawlWeb(SnippetSearch):
     provider_label='Firecrawl'
 
+
+
+class FirecrawlKeylessWeb(FirecrawlWeb):
+    """Explicit keyless REST access; never consume an account or environment key."""
+    def __init__(self,key='',transport=None):
+        if key:raise ResearchError('Keyless Firecrawl must not receive an API key')
+        PublicWeb.__init__(self,transport);self.key=''
 
 
 class ExcerptSearch(KeyedSearch):
@@ -418,7 +428,8 @@ class ParallelWeb(ExcerptSearch):
 class OrderedSearch:
     """Resolve one logical search call across an explicit ordered backend list."""
     def __init__(self,specs,allow_fallback=True):
-        self.specs=specs; self.allow_fallback=allow_fallback; self.attempts=[]
+        if len(specs)>5:raise ResearchError('At most five configured search profiles are supported')
+        self.specs=search_chain(specs) if allow_fallback else specs; self.allow_fallback=allow_fallback; self.attempts=[];self.unavailable=set()
         self.secret_values=[s.get('key','') for s in specs]
 
     def notify(self,runtime,kind,detail):
@@ -434,19 +445,24 @@ class OrderedSearch:
             ident=spec.get('id',''); name=spec.get('name',ident)
             record={'backend':ident,'name':name,'status':'running','started_at':utc_now()}
             self.attempts.append(record)
-            credential=(spec.get('kind'),spec.get('key'))
-            if ident in seen_ids or (spec.get('key') and credential in seen_credentials):
+            keyless=spec.get('kind') in ('firecrawl-keyless','google')
+            credential=(spec.get('kind'),'' if keyless else spec.get('key'))
+            if ident in self.unavailable:
+                record.update(status='skipped',reason='Backend unavailable for this run after rejection',ended_at=utc_now())
+                self.notify(runtime,'backend_skipped',name+': '+record['reason']);continue
+            if ident in seen_ids or ((spec.get('key') or keyless) and credential in seen_credentials):
                 record.update(status='skipped',reason='Duplicate backend/profile credential',ended_at=utc_now())
                 self.notify(runtime,'backend_skipped',name+': duplicate profile'); continue
             seen_ids.add(ident)
-            if spec.get('key'): seen_credentials.add(credential)
-            if spec.get('kind') not in SEARCH_KINDS or not spec.get('key'):
+            if spec.get('key') or keyless: seen_credentials.add(credential)
+            if not search_ready(spec):
                 record.update(status='skipped',reason='Unsupported backend or missing credential',ended_at=utc_now())
                 self.notify(runtime,'backend_skipped',name+': '+record['reason']); continue
             self.notify(runtime,'backend_selected',name)
             try:
-                adapter={'brave':BraveWeb,'langsearch':LangSearchWeb,'firecrawl':FirecrawlWeb,'exa':ExaWeb,'parallel':ParallelWeb,'ollama':OllamaWeb}[spec['kind']]
-                result=adapter(spec['key']).search(query,runtime)
+                adapter={'google':GoogleWeb,'brave':BraveWeb,'langsearch':LangSearchWeb,'firecrawl':FirecrawlWeb,'firecrawl-keyless':FirecrawlKeylessWeb,'exa':ExaWeb,'parallel':ParallelWeb,'ollama':OllamaWeb}[spec['kind']]
+                service=adapter() if spec['kind']=='google' else adapter(spec.get('key',''))
+                result=service.search(query,runtime)
                 record.update(status='completed',ended_at=utc_now())
                 # An empty result is evidence, not a reason to try another backend.
                 return [replace(source,backend=ident) for source in result]
@@ -455,10 +471,12 @@ class OrderedSearch:
                 record.update(status='failed',error=str(exc)[:500],failure=failure,ended_at=utc_now())
                 self.notify(runtime,'backend_failed',name+': '+failure['kind'])
                 if not self.allow_fallback or not failure['fallback_allowed']: raise
+                if failure['kind'] in ('rate_limit','authentication'):self.unavailable.add(ident)
                 if failure['kind'] in ('rate_limit','temporary'):
                     delay=failure['retry_after'] or 0
                     self.notify(runtime,'backend_wait',f'{delay:g}s retry guidance from '+name)
-                    runtime.pause(delay)
+                    if delay<=runtime.limits.backoff_seconds:runtime.pause(delay)
+                    else:self.notify(runtime,'backend_wait',name+': not retried; guidance exceeds wait budget, considering a different service')
                 self.notify(runtime,'backend_switch','Considering the next configured search backend')
         if last: raise last
         raise ResearchError('No eligible managed search backend')

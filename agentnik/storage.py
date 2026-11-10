@@ -128,6 +128,7 @@ class Store:
 
     def web_key(self,ident="ollama-search"):
         backend = next((b for b in self.config.get('web_backends',[]) if b.get('id')==ident),{})
+        if backend.get('kind')=='firecrawl-keyless':return ''
         if backend.get('credential_id'):
             import keyring
             try: return keyring.get_password('Agentnik Web',backend['credential_id']) or ''
@@ -139,8 +140,9 @@ class Store:
         import keyring
         backends = self.config.setdefault('web_backends',[])
         old = next((b for b in backends if b.get('id')==ident),{})
-        if not key and not remove: return
         kind=kind or old.get('kind') or next((kind for kind,(_,_,profile) in SEARCH_PROVIDERS.items() if profile==ident),'ollama')
+        if not key and not remove and kind!='firecrawl-keyless':return
+        if kind=='firecrawl-keyless' and key:raise ValueError('Keyless Firecrawl does not accept an API key')
         if not remove and kind not in SEARCH_PROVIDERS:raise ValueError('Unsupported search provider')
         if not old and not remove and len(backends)>=5:raise ValueError('At most five saved profiles are supported')
         if key and (len(key)>4096 or any(not 33<=ord(ch)<=126 for ch in key)):raise ValueError('Search credential must be a single visible ASCII token')
@@ -163,7 +165,7 @@ class Store:
         entries=self.config.get('web_backends',[])
         entries=list(entries)
         for kind,(label,variable,ident) in SEARCH_PROVIDERS.items():
-            if len(entries)<5 and not any(e.get('id')==ident for e in entries) and os.getenv(variable):
+            if variable and len(entries)<5 and not any(e.get('id')==ident for e in entries) and os.getenv(variable):
                 entries.append({'id':ident,'kind':kind,'name':label+' (environment)'})
         return [dict(id=e['id'],kind=e.get('kind','ollama'),name=e.get('name','Search'),key=self.web_key(e['id'])) for e in entries]
 

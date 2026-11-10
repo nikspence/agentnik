@@ -29,6 +29,7 @@
 - Provider-hosted **OpenAI web_search** on the official Responses endpoint.
 - Agentnik-managed tools across native Ollama, Responses, Chat Completions, and Messages.
 - Up to five independently credentialed ordered search-backend profiles, including Brave Search, LangSearch, Firecrawl, Exa, Parallel, and Ollama search. Brave, LangSearch, Firecrawl, Exa, and Parallel work independently of the model provider, including local and LiteLLM connections.
+- Automatic search fallback: configured providers, then Firecrawl Keyless, then Google scrape after eligible failures; keyless Firecrawl is the default without configured providers.
 - Public-only navigation boundaries: URL/DNS/redirect validation, vetted IPs, TLS hostname verification, and rejection of credentials, private/local addresses, and non-80/443 ports.
 - Explicit, bounded fallback and retry rules (e.g., 429/503 retry with `Retry-After`, one retry per route).
 - Bounded limits for tool rounds, requests, search results, response bytes, and turn duration.

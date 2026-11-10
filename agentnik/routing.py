@@ -4,7 +4,8 @@ from dataclasses import asdict
 import time
 from . import core,research,hosted
 from .tools import AccessError,LimitError,ResearchEvent,Runtime,utc_now
-from .web import OrderedSearch,SEARCH_KINDS
+from .web import OrderedSearch
+from .search_providers import search_ready,search_chain
 from .retention import retain_result
 
 POLICIES=('Provider first','Agentnik first','Provider only','Agentnik only')
@@ -36,7 +37,7 @@ def eligible(route,c,config,backends,access_policy):
         field='managed_tools'
     state=research.capability(config,c,field).state
     if state not in ('configured','verified'): return f'{field}: {state}; configure this endpoint/model explicitly'
-    if route=='managed' and not any(b.get('key') and b.get('kind') in SEARCH_KINDS for b in backends): return 'No managed search backend credential is configured'
+    if route=='managed' and not any(search_ready(b) for b in search_chain(backends)): return 'No eligible managed search backend is configured'
     return ''
 
 

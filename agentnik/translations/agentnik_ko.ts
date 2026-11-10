@@ -460,6 +460,10 @@ Hooks and signing are disabled. Review the complete diff below.</source>
             <source>Search queries go to your configured search provider, or legacy Google search when none is configured. Ollama search is used only for direct Ollama Cloud. Pages are read from public websites.</source>
             <translation>검색어는 설정한 검색 공급자로 전송되며, 설정된 공급자가 없으면 기존 Google 검색을 사용합니다. Ollama 검색은 Ollama Cloud 직접 연결에서만 사용합니다. 페이지는 공개 웹사이트에서 읽습니다.</translation>
         </message>
+        <message>
+            <source>Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Pages are read from public websites.</source>
+            <translation>설정한 검색 공급자를 먼저 사용하고 허용되는 경우 Firecrawl Keyless와 Google로 대체 검색합니다. 설정한 공급자가 없으면 Firecrawl Keyless를 먼저 사용합니다. Ollama 검색은 Ollama Cloud 직접 연결에서만 사용하며 페이지는 공개 웹사이트에서 읽습니다.</translation>
+        </message>
     </context>
     <context>
         <name>ConnectionDialog</name>
@@ -1130,6 +1134,14 @@ Saved excerpt; not a fresh or complete page.
             <source>Profiles run in this order, with a separate key for each provider. Changes save immediately. Up to five saved/environment profiles participate. Exa uses auto search with highlights; Parallel uses basic search with excerpts. Provider charges may apply. Code uses Ollama search only with direct Ollama Cloud.</source>
             <translation>프로필은 이 순서대로 실행되며 공급자마다 별도의 키를 사용합니다. 변경 사항은 즉시 저장됩니다. 저장된 프로필과 환경 변수 프로필을 합해 최대 5개를 사용합니다. Exa는 하이라이트를 포함한 auto 검색을, Parallel은 발췌문을 포함한 basic 검색을 사용합니다. 공급자 요금이 발생할 수 있습니다. Code의 Ollama 검색은 Ollama Cloud 직접 연결에서만 사용합니다.</translation>
         </message>
+        <message>
+            <source>Keyless Firecrawl sends no API key. Its free quota is shared by your public IP and can be rate-limited.</source>
+            <translation>키 없는 Firecrawl은 API 키를 전송하지 않습니다. 무료 사용량은 공인 IP를 기준으로 공유되며 호출이 제한될 수 있습니다.</translation>
+        </message>
+        <message>
+            <source>Profiles run in this order, with a separate key for each provider. Changes save immediately. Up to five saved/environment profiles participate. Exa uses auto search with highlights; Parallel uses basic search with excerpts. Provider charges may apply. Search falls back to Firecrawl Keyless, then Google after eligible rejections. Code uses Ollama search only with direct Ollama Cloud.</source>
+            <translation>프로필은 이 순서대로 실행되며 공급자마다 별도의 키를 사용합니다. 변경 사항은 즉시 저장되고 저장된 프로필과 환경 변수 프로필을 합해 최대 5개를 사용합니다. Exa는 하이라이트를 포함한 auto 검색을, Parallel은 발췌문을 포함한 basic 검색을 사용합니다. 공급자 요금이 발생할 수 있습니다. 전환이 허용되는 요청 거부 시 Firecrawl Keyless, Google 순서로 대체 검색합니다. Code의 Ollama 검색은 Ollama Cloud 직접 연결에서만 사용합니다.</translation>
+        </message>
     </context>
     <context>
         <name>SessionTab</name>
@@ -1528,6 +1540,10 @@ Enabling is configuration, not verification. Hosted search requires the official
         <message>
             <source>Blank keeps the saved key or matching search-provider environment key</source>
             <translation>비워 두면 저장된 키 또는 해당 검색 공급자의 환경 변수 키를 유지합니다.</translation>
+        </message>
+        <message>
+            <source>Firecrawl Keyless (default)</source>
+            <translation>Firecrawl Keyless(기본값)</translation>
         </message>
     </context>
     <context>

@@ -277,9 +277,9 @@ class BackendContracts(unittest.TestCase):
     def test_duplicate_profiles_do_not_repeat_a_rejected_backend(self):
         specs=[dict(SPECS[0],id='a',key='a-key'),dict(SPECS[0],id='b',key='a-key')]
         first=MagicMock(); first.search.side_effect=core.EndpointError(401,'{}')
-        with patch.object(web,'OllamaWeb',return_value=first) as factory:
+        with patch.object(web,'OllamaWeb',return_value=first) as factory,patch.object(web,'FirecrawlKeylessWeb',return_value=Backend()):
             service=web.OrderedSearch(specs)
-            with self.assertRaises(core.EndpointError): service.search('query',Runtime())
+            service.search('query',Runtime())
         self.assertEqual(factory.call_count,1); self.assertEqual(service.attempts[1]['status'],'skipped')
 
     def test_blocked_access_and_empty_results_do_not_try_another_backend(self):

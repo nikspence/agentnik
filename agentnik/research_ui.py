@@ -22,7 +22,7 @@ class SearchBackends(QDialog):
     def __init__(self,parent,store):
         super().__init__(parent); self.store=store; self.setWindowTitle(self.tr('Search backends')); self.resize(580,360)
         layout=QVBoxLayout(self)
-        label=QLabel(self.tr('Profiles run in this order, with a separate key for each provider. Changes save immediately. Up to five saved/environment profiles participate. Exa uses auto search with highlights; Parallel uses basic search with excerpts. Provider charges may apply. Code uses Ollama search only with direct Ollama Cloud.')); label.setWordWrap(True); layout.addWidget(label)
+        label=QLabel(self.tr('Profiles run in this order, with a separate key for each provider. Changes save immediately. Up to five saved/environment profiles participate. Exa uses auto search with highlights; Parallel uses basic search with excerpts. Provider charges may apply. Search falls back to Firecrawl Keyless, then Google after eligible rejections. Code uses Ollama search only with direct Ollama Cloud.')); label.setWordWrap(True); layout.addWidget(label)
         self.list=QListWidget(); layout.addWidget(self.list)
         row=QHBoxLayout(); layout.addLayout(row)
         for text,fn in [(self.tr('Add'),lambda:self.edit(True)),(self.tr('Edit'),lambda:self.edit(False)),(self.tr('Remove'),self.remove),('↑',lambda:self.move(-1)),('↓',lambda:self.move(1))]:
@@ -50,15 +50,21 @@ class SearchBackends(QDialog):
         provider.currentIndexChanged.connect(rename_default)
         key=QLineEdit(); key.setEchoMode(QLineEdit.EchoMode.Password); key.setPlaceholderText(self.tr('Blank keeps an existing key')); key.setObjectName('searchKey');form.addRow(self.tr('Search provider API key'),key)
         plain=QCheckBox(self.tr('Store as plaintext (explicit fallback)')); form.addRow(plain)
+        keyless_note=QLabel(self.tr('Keyless Firecrawl sends no API key. Its free quota is shared by your public IP and can be rate-limited.'));keyless_note.setWordWrap(True);form.addRow(keyless_note)
+        def credential_mode():
+            keyless=provider.currentData()=='firecrawl-keyless'
+            key.setEnabled(not keyless);plain.setEnabled(not keyless);keyless_note.setVisible(keyless)
+            if keyless:key.clear();plain.setChecked(False)
+        provider.currentIndexChanged.connect(credential_mode);credential_mode()
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dlg.accept); buttons.rejected.connect(dlg.reject); form.addRow(buttons)
         while dlg.exec()==QDialog.DialogCode.Accepted:
             try:
                 label=name.text().strip()
                 if not label or len(label)>80: raise ValueError(self.tr('Enter a profile name of 1–80 characters'))
-                if add and not key.text().strip(): raise ValueError(self.tr('Enter a search key for the new profile'))
+                if add and not key.text().strip() and provider.currentData()!='firecrawl-keyless': raise ValueError(self.tr('Enter a search key for the new profile'))
                 ident=entry.get('id') or 'search-'+uuid.uuid4().hex
-                if key.text().strip(): self.store.save_web_key(key.text().strip(),plain.isChecked(),ident=ident,name=label,kind=provider.currentData())
+                if key.text().strip() or provider.currentData()=='firecrawl-keyless': self.store.save_web_key(key.text().strip(),plain.isChecked(),ident=ident,name=label,kind=provider.currentData())
                 else:
                     entry['name']=label; self.store.flush()
                 self.refresh(index if not add else self.list.count()); return
@@ -91,7 +97,7 @@ class WebSettings(QDialog):
         self.key=QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password); self.key.setPlaceholderText(self.tr('Blank keeps the saved key or matching search-provider environment key'))
         layout.addRow(self.tr('Separate search API key'),self.key)
         self.remove=QCheckBox(self.tr('Remove this saved search key')); layout.addRow(self.remove)
-        self.plain=QCheckBox(self.tr('Store new search key as plaintext (explicit fallback)')); layout.addRow(self.plain)
+        self.plain=QCheckBox(self.tr('Store new search key as plaintext (explicit fallback)')); layout.addRow(self.plain);self.select_backend()
         current=research.capability(self.store.config,c)
         self.allow=QCheckBox(self.tr('Enable managed tool requests for this endpoint/model'))
         self.allow.setEnabled(core_managed(c)); self.allow.setChecked(current.state in ('configured','verified')); layout.addRow(self.allow)
@@ -109,8 +115,12 @@ class WebSettings(QDialog):
 
     def select_backend(self):
         entries=self.store.web_backend_specs()
-        self.backend_id=entries[0]['id'] if entries else 'ollama-search'
-        self.backend_label.setText(entries[0].get('name','Ollama search') if entries else 'Ollama search (default)')
+        self.backend_id=entries[0]['id'] if entries else 'builtin-firecrawl-keyless'
+        self.backend_label.setText(entries[0].get('name','Search') if entries else self.tr('Firecrawl Keyless (default)'))
+        keyless=not entries or entries[0].get('kind')=='firecrawl-keyless'
+        if hasattr(self,'key'):
+            self.key.setEnabled(not keyless);self.remove.setEnabled(not keyless);self.plain.setEnabled(not keyless)
+            if keyless:self.key.clear();self.remove.setChecked(False);self.plain.setChecked(False)
 
     def manage_backends(self):
         SearchBackends(self,self.store).exec(); self.select_backend()

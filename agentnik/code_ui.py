@@ -183,7 +183,7 @@ class CodeTab(QWidget):
         disclosure.setWordWrap(True);model_layout.addWidget(disclosure)
         self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
-        self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search queries go to your configured search provider, or legacy Google search when none is configured. Ollama search is used only for direct Ollama Cloud. Pages are read from public websites.'))
+        self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Pages are read from public websites.'))
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));options.addWidget(self.web_enabled)
         self.web_enabled.toggled.connect(self.save_web_enabled)
         self.limits_button=QPushButton(self.tr('Limits…'));self.limits_button.clicked.connect(self.configure_limits);options.addWidget(self.limits_button)
@@ -321,7 +321,7 @@ class CodeTab(QWidget):
                 parsed=urlsplit(heavy['url']);direct=parsed.scheme=='https' and parsed.hostname=='ollama.com' and parsed.port in (None,443)
                 if not strict:
                     backends=[b for b in self.store.web_backend_specs() if b.get('kind') in SEARCH_KINDS and (b.get('kind')!='ollama' or direct)]
-                    provider='managed' if any(b.get('key') for b in backends) else 'google'
+                    provider='managed'
             run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider)
         except ValueError as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.advice_connection=advice;self.advice_destination=destination

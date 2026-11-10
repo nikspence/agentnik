@@ -331,3 +331,8 @@ Brave Search, LangSearch, and Firecrawl now plug into the existing ordered manag
 ### Exa and Parallel adapter extension
 
 Delivered after the initial Brave/LangSearch/Firecrawl slice: fixed-endpoint Exa and Parallel search adapters, provider registry entries, independent environment/saved credentials, generic Chat/Code eligibility, and explicit search modes. Exa highlights and Parallel excerpts are bounded and identified as provider evidence. API configuration does not enable autonomous research, full-text extraction, or task workflows. Ordinary validation is offline; live credentials and separately authorized queries remain qualification gates. Six provider types are available while the established five-profile per-run budget remains intact.
+
+
+### Keyless search defaults and fallback
+
+Firecrawl Keyless now uses the REST search endpoint without an Authorization header. It is selectable as a saved profile without a credential and is automatically appended after configured providers, followed by Google scrape. With no profiles configured, these two services are the default chain. Up to five configured profiles plus two automatic entries are bounded; explicit keyless profiles retain their position without duplication. Rate/auth-rejected profiles are skipped for the run, long retry guidance is not used to retry that service, and eligible provider switching is visible. Access restrictions, uncertain outcomes, malformed responses, cancellation, empty results, and strict navigation retain their conservative behavior. One authorized keyless live check returned three public results and snippets; model integration and fallback paths are tested offline.

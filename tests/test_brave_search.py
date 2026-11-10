@@ -158,7 +158,7 @@ class AdditionalSearchProviders(unittest.TestCase):
             store=Store(directory);manager=SearchBackends(None,store)
             def accept(dialog):
                 provider=dialog.findChild(QComboBox,'searchProvider')
-                self.assertEqual([provider.itemData(i) for i in range(provider.count())],['brave','langsearch','firecrawl','exa','parallel','ollama'])
+                self.assertEqual([provider.itemData(i) for i in range(provider.count())],['brave','langsearch','firecrawl','firecrawl-keyless','exa','parallel','ollama'])
                 provider.setCurrentIndex(provider.findData('firecrawl'))
                 dialog.findChild(QLineEdit,'searchKey').setText('firecrawl-fixture')
                 return QDialog.DialogCode.Accepted
