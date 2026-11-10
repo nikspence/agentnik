@@ -1,4 +1,19 @@
-# Agentnik v0.5.0
+# Agentnik v0.6.0
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.5.0
+
+- Code discovers repository `AGENTS.md` guidance by directory scope, defers affected proposals when guidance changes, and retains permission and approval checks.
+- Code Skills support with explicit selection from repository `.agents/skills` and user `~/.agents/skills` libraries, previews, bounded references and scripts that continue to require command approval.
+- Coding sessions retain skill source and instruction-file hashes for the latest 32 real runs.
+- Common multiline `SKILL.md` descriptions are supported; this is not full YAML compatibility.
+
+The full offline suite covers 314 tests, including scoped guidance, skill discovery, references, and skill revision validation. Live model adherence to repository guidance and selected Skills remains unqualified. Skills are provided as model instructions and cannot grant tool permissions. See VALIDATION.md for scope and qualification limits.
+
+Windows build-host startup evidence is recorded in BUILD-MANIFEST.json. Clean-machine, full native workflow, macOS/Linux, signing and full bundled-library license review remain open.
+
+## Earlier release: v0.5.0
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
