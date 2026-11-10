@@ -28,7 +28,7 @@ Eligible explicit rejections (authentication, rate/quota limits, known unsupport
 
 Only generated queries and bounded result options are submitted, not full conversations, project files, model identities, or image attachments. Queries can still reveal task-derived information. Keyed credentials travel in headers only to fixed HTTPS provider endpoints; keyless Firecrawl and Google receive no search API key; redirects are rejected. Requests and results retain the existing time/byte/context limits. Brave queries are limited to 600 characters/75 words; LangSearch and Firecrawl queries are limited to 500 characters; Exa and Parallel use the existing 1,000-character tool query bound. Parallel may return more results than requested locally; Agentnik retains at most the configured result count and requests at most the smaller of the context budget or 3,000 characters per configured result in total excerpts.
 
-Result URLs pass public-address validation before they become sources. Search service internal navigation is outside Agentnik's direct transport controls, so strict public-only navigation disables these services. Known public URLs remain available through Code's credential-free page reader. Firecrawl crawl/scrape/browser and LangSearch full-text modes are not automatically enabled by selecting their search adapters. Snippets are evidence excerpts rather than proof that the complete page was fetched by Agentnik.
+Result URLs pass public-address validation before they become sources. Search service internal navigation is outside Agentnik's direct transport controls, so strict public-only navigation disables these services. Known public URLs remain available through Code's credential-free page reader. Firecrawl crawling/browser and LangSearch full-text modes remain unavailable. A filtered direct page read can use the separate provider retrieval fallback described below. Snippets are evidence excerpts rather than proof that the complete page was fetched by Agentnik.
 
 ## Evidence
 
@@ -40,9 +40,27 @@ API references: [Brave Web Search](https://api-dashboard.search.brave.com/api-re
 
 Both providers are selectable in Chat and Code search profiles and use the same separate credential store, ordered fallback policy, fixed HTTPS transport, public-result checks, and Source records as the other providers. No SDK dependencies were added. API keys use `EXA_API_KEY` and `PARALLEL_API_KEY`, or saved profiles.
 
-- **Exa:** `POST https://api.exa.ai/search`, `x-api-key`, `query`, bounded `numResults`, explicit `type=auto`, and `contents.highlights=true`. Returned `highlights` become excerpts, retained at up to 3,000 UTF-8 bytes per source. Highlight retrieval is a provider content feature and may affect charges; selecting this profile enables it. Full text, summaries, agents, and deep-search modes are not requested.
-- **Parallel:** `POST https://api.parallel.ai/v1/search`, `x-api-key`, one generated `search_queries` entry, explicit `mode=basic`, and `max_chars_total`. Returned `excerpts` become bounded Sources. No conversation-derived objective beyond the generated query, client-model identity, or session ID is sent. No extraction/task workflows are launched; the advanced default is not used. Results are locally capped even if the service returns more.
+- **Exa:** `POST https://api.exa.ai/search`, `x-api-key`, `query`, bounded `numResults`, explicit `type=auto`, and `contents.highlights=true`. Returned `highlights` become excerpts, retained at up to 3,000 UTF-8 bytes per source. Highlight retrieval is a provider content feature and may affect charges; selecting this profile enables it. Search requests do not ask for full text, summaries, agents, or deep-search modes. Filtered direct page reads may separately use its Contents API for page text.
+- **Parallel:** `POST https://api.parallel.ai/v1/search`, `x-api-key`, one generated `search_queries` entry, explicit `mode=basic`, and `max_chars_total`. Returned `excerpts` become bounded Sources. No conversation-derived objective beyond the generated query, client-model identity, or session ID is sent. A filtered direct page read may separately use its Extract API for bounded excerpts; no task workflows are launched; the advanced default is not used. Results are locally capped even if the service returns more.
 
 Missing excerpt fields yield metadata-only sources, with an empty excerpt rather than fabricated page content. Invalid excerpt shapes fail validation. Both adapters have offline API-contract, credential, public-address, cancellation, fallback, and model-continuation tests, but no live requests have been made. Provider rate limits and charges still apply. The five configured-profile budget includes both saved and environment profiles; if all six provider environment variables are present, the last one has no slot unless you change configuration or unset another variable.
 
 API references: [Exa Search](https://exa.ai/docs/reference/search), [Parallel Search](https://docs.parallel.ai/api-reference/search/search).
+
+
+## Provider page retrieval after a filtered direct read
+
+Page reads remain direct first. Recognized branded block pages (including Zscaler), TLS errors, or connection resets can trigger provider retrieval. Initial URL and DNS addresses must be public before the URL is sent externally. URL-policy failures, private redirect destinations, generic HTTP 401/403/451 site denials without a recognizable network-filter page, timeout, cancellation, and strict public-only mode do not trigger fallback. Filter detection is deliberately narrow and is not a guarantee of recognizing every gateway.
+
+Configured retrieval-capable profiles are considered in order, followed by Firecrawl Keyless when not already present. Brave, LangSearch, and Google are skipped because Agentnik has no URL-retrieval adapter for them. At most five configured profiles plus one automatic keyless provider can be tried. Only definite eligible provider rejections permit switching; ambiguous outcomes and access restrictions remain terminal.
+
+| Provider | Retrieval request |
+| --- | --- |
+| Firecrawl / Firecrawl Keyless | `/v2/scrape`, one `url`, markdown and main content only; keyless omits Authorization |
+| Exa | `/contents`, one URL and page text |
+| Parallel | `/v1/extract`, one URL, excerpts capped by `max_chars_total=8000` |
+| Ollama | `/api/web_fetch`, one URL; Code retains direct-Ollama-only eligibility |
+
+The public page URL (including its query string) is sent to the chosen service; full conversation, project files, model identity, browser cookies, and local proxy credentials are not. API keys go only to the fixed provider API endpoint, never the target site. Provider-internal redirects cannot be pinned by Agentnik, so strict navigation disables this path. Returned final URLs, when reported, are validated again. API content is bounded by the shared transport/time/context budgets and clipped to 8,000 UTF-8 bytes. Sources identify provider retrieval rather than claiming a direct page read. Code's direct page path still discovers bounded same-host links; provider fallback returns content without fabricating link discovery.
+
+This is offline-qualified using filter/TLS fixtures and mock provider/model responses. No real Zscaler deployment or live provider retrieval request has been tested. See [Firecrawl Scrape](https://docs.firecrawl.dev/api-reference/endpoint/scrape), [Exa Contents](https://exa.ai/docs/reference/get-contents), [Parallel Extract](https://docs.parallel.ai/api-reference/extract/extract), and [Ollama web fetch](https://docs.ollama.com/capabilities/web-search).

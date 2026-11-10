@@ -464,6 +464,10 @@ Hooks and signing are disabled. Review the complete diff below.</source>
             <source>Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Pages are read from public websites.</source>
             <translation>설정한 검색 공급자를 먼저 사용하고 허용되는 경우 Firecrawl Keyless와 Google로 대체 검색합니다. 설정한 공급자가 없으면 Firecrawl Keyless를 먼저 사용합니다. Ollama 검색은 Ollama Cloud 직접 연결에서만 사용하며 페이지는 공개 웹사이트에서 읽습니다.</translation>
         </message>
+        <message>
+            <source>Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.</source>
+            <translation>설정한 검색 공급자를 먼저 사용하고 허용되는 경우 Firecrawl Keyless와 Google로 대체 검색합니다. 설정한 공급자가 없으면 Firecrawl Keyless를 먼저 사용합니다. Ollama 검색은 Ollama Cloud 직접 연결에서만 사용합니다. 공개 페이지 직접 조회가 필터로 차단되면 조회 공급자에 해당 URL을 보낼 수 있습니다.</translation>
+        </message>
     </context>
     <context>
         <name>ConnectionDialog</name>
@@ -1544,6 +1548,10 @@ Enabling is configuration, not verification. Hosted search requires the official
         <message>
             <source>Firecrawl Keyless (default)</source>
             <translation>Firecrawl Keyless(기본값)</translation>
+        </message>
+        <message>
+            <source>Hosted search browses inside the model provider using the submitted conversation. Managed search sends generated queries to a separate service and normally reads pages directly. If a direct page read is filtered or its TLS/connection fails, an eligible retrieval provider may receive the public page URL and return content; provider charges may apply. Agentnik cannot enforce provider internal navigation. Strict navigation disables external search and provider page fallback.</source>
+            <translation>호스팅 검색은 제출한 대화를 사용해 모델 공급자 내부에서 탐색합니다. 관리형 검색은 생성한 검색어를 별도 서비스로 보내며 일반적으로 페이지를 직접 읽습니다. 직접 읽기가 필터로 차단되거나 TLS 또는 연결이 실패하면 적합한 검색 공급자에 공개 페이지 URL을 보내 내용을 받을 수 있으며 공급자 요금이 발생할 수 있습니다. Agentnik은 공급자 내부 탐색을 제어할 수 없습니다. 엄격한 탐색 정책에서는 외부 검색과 공급자 페이지 대체 조회를 사용하지 않습니다.</translation>
         </message>
     </context>
     <context>

@@ -1,7 +1,7 @@
 """Public-only page transport and replaceable managed search adapter.
 
 Search contracts and implemented scope: see SEARCH_PROVIDERS.md.
-Service-backed fetch is intentionally not used: its redirects cannot be pinned here.
+Direct fetch is primary; filtered connections can use disclosed provider retrieval fallback.
 """
 from html.parser import HTMLParser
 import http.client
@@ -16,6 +16,21 @@ from .tools import AccessError, LimitError, ResearchError, Source, utc_now
 from .core import EndpointError
 from . import __version__
 from .search_providers import search_ready,search_chain
+
+
+class FilteredPageError(ResearchError):
+    """A recognizable network web-filter response, distinct from URL-policy rejection."""
+
+
+def filter_page(payload,server=''):
+    vendor=r'zscaler|netskope|forcepoint|websense|blue coat'
+    if isinstance(server,str) and re.search(vendor,server,re.I):return True
+    if not isinstance(payload,bytes):return False
+    text=payload[:16384].decode('utf-8','replace').lower()
+    title=re.search(r'<title[^>]*>(.*?)</title>',text,re.S)
+    title=title.group(1) if title else (text.splitlines()[0].lstrip('# ').strip() if text.startswith('#') else '')
+    blocked=r'access denied|access blocked|url blocked|web site blocked|website blocked|request blocked|web access denied'
+    return bool(re.search(vendor,text) and (re.search(blocked,title) or (re.search(vendor,title) and (re.search(r'internet security|web security|security notification',title) or title.strip() in ('zscaler','netskope','forcepoint','websense','blue coat')) and re.search(blocked,text))))
 
 
 def public_url(url):
@@ -132,6 +147,12 @@ class PublicTransport:
                     url=public_url(urljoin(url,location))
                     continue
                 if r.status!=200:
+                    if body is None and redirects and r.status in (403,451):
+                        server=r.getheader('Server','')
+                        if filter_page(b'',server):raise FilteredPageError('Direct page request blocked by a network web filter')
+                        sample=r.read(4096)
+                        if isinstance(sample,bytes):runtime.charge('retrieved_bytes',len(sample),runtime.limits.retrieved_bytes)
+                        if filter_page(sample):raise FilteredPageError('Direct page request blocked by a network web filter')
                     # Avoid echoing upstream error bodies, query strings, or credentials.
                     raise EndpointError(r.status,json.dumps({'error':{'message':'Web service rejected the request'}}),r.getheader('Retry-After'))
                 ctype=r.getheader('Content-Type','').split(';')[0].strip().lower()
@@ -215,6 +236,7 @@ class PublicWeb:
     def __init__(self,transport=None,include_links=False):self.transport=transport or PublicTransport();self.include_links=include_links
     def fetch(self,url,runtime):
         final,ctype,payload=self.transport.request(url,runtime)
+        if filter_page(payload):raise FilteredPageError('Direct page response is a network web-filter block page')
         text=payload.decode('utf-8','replace');title=final;links=[]
         if ctype in ('text/html','application/xhtml+xml'):
             parser=ReadableText();parser.feed(text)
@@ -482,5 +504,5 @@ class OrderedSearch:
         raise ResearchError('No eligible managed search backend')
 
     def fetch(self,url,runtime):
-        # The direct reader has no backend account fallback and no service key forwarding.
-        return PublicWeb().fetch(url,runtime)
+        from .page_fetch import PageFetcher
+        return PageFetcher(self.specs).fetch(url,runtime)

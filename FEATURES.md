@@ -34,6 +34,7 @@
 - Explicit, bounded fallback and retry rules (e.g., 429/503 retry with `Retry-After`, one retry per route).
 - Bounded limits for tool rounds, requests, search results, response bytes, and turn duration.
 - Collapsible **Research** view recording routes, reasons, retries, searches, page reads, errors, sources, and excerpts.
+- Direct-first page retrieval with visible provider fallback for recognized network-filter/TLS/reset failures; strict navigation and private destination checks remain enforced.
 - Inline clickable citations from provider annotations and validated managed `[S1]` references.
 
 ## System One query builder

@@ -77,3 +77,8 @@ Next: credential-safe remote inspection, then fetch and push with explicit desti
 ## Local models and request timeouts
 
 In the Code pane, open **Limits…** and adjust **Model call timeout (seconds)** for slow local models. The default is 300 seconds (five minutes), configurable from 10 to 3,600 seconds, for each Heavy or Light request. This bounds the complete request, including waiting for the first token and generation; it is not a streaming inactivity timer. **Total run time (seconds)** is a separate shared deadline and can end a model request sooner. New runs default to 900 seconds overall. Existing saved total limits are preserved; increase that limit too if needed. Older saved limits without the new field inherit the 300-second model timeout. Changes apply to the next run, and cancellation still discards late responses without replaying a request. This setting does not lengthen web fetch/search, shell-command, or Decision-advice deadlines.
+
+
+## Filtered page reads
+
+If a direct public page read encounters a recognized network-filter page, TLS failure, or connection reset, Code can use configured Firecrawl, Exa, Parallel, or eligible direct-Ollama retrieval APIs, with Firecrawl Keyless last. This sends the page URL to that provider and may incur provider charges. Activity records the fallback and Sources retain provider provenance. It does not forward browser/proxy credentials. Strict public-only mode, private or policy-blocked destinations, generic site denials, and timeouts do not use this path. See SEARCH_PROVIDERS.md for scope and validation limits.

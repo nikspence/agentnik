@@ -86,7 +86,7 @@ class WebSettings(QDialog):
     def __init__(self,parent,c):
         super().__init__(parent); self.store=parent.store; self.setWindowTitle(self.tr('Web research')); self.resize(650,600)
         layout=QFormLayout(self)
-        notice=QLabel(self.tr('Hosted search browses inside the model provider using the submitted conversation. Managed search sends generated queries to a separate search service, even with local inference, and reads pages directly. Agentnik cannot enforce service/provider internal navigation. The strict navigation policy disables these external search routes.')); notice.setWordWrap(True); layout.addRow(notice)
+        notice=QLabel(self.tr('Hosted search browses inside the model provider using the submitted conversation. Managed search sends generated queries to a separate service and normally reads pages directly. If a direct page read is filtered or its TLS/connection fails, an eligible retrieval provider may receive the public page URL and return content; provider charges may apply. Agentnik cannot enforce provider internal navigation. Strict navigation disables external search and provider page fallback.')); notice.setWordWrap(True); layout.addRow(notice)
         defaults=routing.connection_defaults(self.store.config,parent.session['connection_name'],c)
         self.default_policy=QComboBox()
         for policy in routing.POLICIES:self.default_policy.addItem(policy_label(policy),policy)
