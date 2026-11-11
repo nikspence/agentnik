@@ -247,17 +247,17 @@ class ModelCoding(unittest.TestCase):
 
     def test_mcp_resource_template_approved_with_expanded_uri(self):
         from unittest.mock import Mock
-        template={'uriTemplate':'test://item/{id}','name':'Item','description':'','mimeType':'text/plain','supported':True,'variables':['id']}
+        template={'uriTemplate':'test://item/{id}{?query,limit}','name':'Item','description':'','mimeType':'text/plain','supported':True,'variables':['id','query','limit']}
         with tempfile.TemporaryDirectory() as directory:
             bridge=Mock();bridge.server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'opaque','enabled':True}
-            bridge.request.side_effect=[{'tool_details':[],'capabilities':['resources']},{'templates':[template]},{'contents':[{'uri':'test://item/a%2Fb','text':'Evidence'}]}]
-            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_resource_templates',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_read_resource_template',{'template':'test://item/{id}','variables':'{"id":"a/b"}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            bridge.request.side_effect=[{'tool_details':[],'capabilities':['resources']},{'templates':[template]},{'contents':[{'uri':'test://item/a%2Fb?limit=10','text':'Evidence'}]}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_resource_templates',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_read_resource_template',{'template':'test://item/{id}{?query,limit}','variables':'{"id":"a/b","limit":"10"}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
             run=CodingRun(dict(C,stream=False),directory,'Read',mcp_bridge=bridge);events=[]
             def emit(event):
                 events.append(event)
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_list_resource_templates','mcp_read_resource_template']);self.assertEqual(proposals[-1]['uri'],'test://item/a%2Fb');self.assertEqual(bridge.request.call_args.args[1]['uri'],'test://item/a%2Fb');self.assertEqual(events[-1]['status'],'completed')
+            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_list_resource_templates','mcp_read_resource_template']);self.assertEqual(proposals[-1]['uri'],'test://item/a%2Fb?limit=10');self.assertEqual(bridge.request.call_args.args[1]['uri'],'test://item/a%2Fb?limit=10');self.assertEqual(events[-1]['status'],'completed')
 
     def test_mcp_task_required_tool_is_not_sent_or_approved(self):
         from unittest.mock import Mock

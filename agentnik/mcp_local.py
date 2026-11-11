@@ -2,6 +2,8 @@
 import json
 import os
 import shutil
+import time
+from collections import deque
 from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 from .mcp_support import MAX_OUTPUT, initialize_request, parse_initialize, resolve_environment_references
@@ -44,7 +46,7 @@ class LocalSession(QObject):
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque()
 
     def start(self):
         if os.name=='nt':
@@ -76,6 +78,17 @@ class LocalSession(QObject):
                 if not isinstance(message, dict) or message.get('jsonrpc') != '2.0': raise ValueError()
                 if any(contains_secret(message,secret) for secret in self.environment_secrets):
                     self.fail('MCP response contained a mapped environment value and was blocked.');return
+                if 'method' in message and 'id' in message:
+                    ident=message['id'];method=message['method'];params=message.get('params')
+                    if (type(ident) is not int and (not isinstance(ident,str) or len(ident)>128)) or not isinstance(method,str) or not method or len(method)>256 or (params is not None and not isinstance(params,dict)) or 'result' in message or 'error' in message:raise ValueError()
+                    now=time.monotonic()
+                    while self.server_requests and self.server_requests[0]<=now-10:self.server_requests.popleft()
+                    if len(self.server_requests)>=32:raise ValueError('Too many MCP server requests')
+                    self.server_requests.append(now)
+                    response={'jsonrpc':'2.0','id':ident}
+                    if method=='ping':response['result']={}
+                    else:response['error']={'code':-32601,'message':'Method not supported'}
+                    self.send(response);continue
                 if 'id' not in message:
                     if message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
                         self.fail('MCP tools changed; reconnect before making another call.')

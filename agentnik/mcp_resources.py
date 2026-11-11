@@ -77,20 +77,22 @@ def template_variables(template):
 
 def expand_template(template,arguments):
     parts,names=template_parts(template)
-    if not isinstance(arguments,dict) or set(arguments)!=set(names) or any(not isinstance(value,str) or len(value.encode('utf-8'))>1024 for value in arguments.values()):raise ValueError('Invalid resource template variables')
+    if not isinstance(arguments,dict) or not set(arguments).issubset(names) or any(value is not None and (not isinstance(value,str) or len(value.encode('utf-8'))>1024) for value in arguments.values()):raise ValueError('Invalid resource template variables')
     chunks=[];size=0
     for operator,value in parts:
         if operator is None:chunk=value
         else:
-            encoded=[quote(arguments[name],safe='') for name in value]
-            if operator in ('?','&'):chunk=operator+'&'.join(name+'='+item for name,item in zip(value,encoded))
+            defined=[name for name in value if arguments.get(name) is not None]
+            encoded=[quote(arguments[name],safe='') for name in defined]
+            if not defined:chunk=''
+            elif operator in ('?','&'):chunk=operator+'&'.join(name+'='+item for name,item in zip(defined,encoded))
             elif operator=='/':chunk='/'+'/'.join(encoded)
             else:chunk=','.join(encoded)
         size+=len(chunk)
         if size>2048:raise ValueError('Expanded resource URI is invalid')
         chunks.append(chunk)
     uri=''.join(chunks)
-    if any(ord(ch)<33 or ord(ch)==127 for ch in uri):raise ValueError('Expanded resource URI is invalid')
+    if not uri or any(ord(ch)<33 or ord(ch)==127 for ch in uri):raise ValueError('Expanded resource URI is invalid')
     return uri
 
 

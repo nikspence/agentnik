@@ -127,6 +127,57 @@ for line in sys.stdin:
             session.discovered.connect(discovered);session.ended.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertEqual(results[0]['name'],'mapped');self.assertIn('mapped environment value',results[1]['error']);self.assertTrue(results[1]['call_uncertain']);self.assertNotIn('secret-fixture-value',str(results))
 
+    def test_local_server_ping_and_unsupported_request_during_operations(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'ping.py'
+            server.write_text('''import json,sys
+
+def send(message):print(json.dumps(message),flush=True)
+def ask(method,ident):
+ send({'jsonrpc':'2.0','id':ident,'method':method})
+ answer=json.loads(sys.stdin.readline())
+ assert answer['id']==ident
+ if method=='ping':assert answer.get('result')=={}
+ else:assert answer.get('error',{}).get('code')==-32601
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':
+  ask('ping',req['id']);result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+ elif method=='tools/list':
+  ask('roots/list','server-request');result={'tools':[{'name':'echo','inputSchema':{'type':'object'}}]}
+ elif method=='tools/call':
+  ask('ping','heartbeat');result={'content':[{'type':'text','text':'ok'}]}
+ else:raise RuntimeError('unexpected')
+ send({'jsonrpc':'2.0','id':req['id'],'result':result})
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();results=[]
+            session.discovered.connect(lambda info:(results.append(info),session.call(info['tool_details'][0],{})))
+            session.called.connect(lambda result:(results.append(result),loop.quit()));session.ended.connect(lambda result:(results.append(result),loop.quit()))
+            session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertEqual(results[0]['name'],'Fake');self.assertEqual(results[1]['call_result']['content'][0]['text'],'ok')
+
+    def test_local_server_request_flood_is_bounded(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'flood.py';server.write_text('''import json,sys
+sys.stdin.readline()
+for n in range(33):print(json.dumps({'jsonrpc':'2.0','id':n,'method':'ping'}),flush=True)
+sys.stdin.read()
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();results=[]
+            session.ended.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertIn('error',results[0]);self.assertEqual(len(session.server_requests),32)
+
     def test_protocol_response_validation(self):
         result={'jsonrpc':'2.0','id':1,'result':{'protocolVersion':PROTOCOL,'serverInfo':{'name':'Example','version':'1'},'capabilities':{'tools':{},'resources':{}}}}
         self.assertEqual(parse_initialize(json.dumps(result).encode())['capabilities'],['tools','resources'])
@@ -295,7 +346,11 @@ for line in sys.stdin:
         self.assertEqual(expand_template('test://item/{id}',{'id':'a/b ?'}),'test://item/a%2Fb%20%3F')
         self.assertEqual(expand_template('test://x{/id,part}{?query,empty}{&next}',{'id':'a/b','part':'雪','query':'a&b =','empty':'','next':'%'}),'test://x/a%2Fb/%E9%9B%AA?query=a%26b%20%3D&empty=&next=%25')
         self.assertEqual(expand_template('test://x/{a,b}/{a}',{'a':'x,y','b':'z'}),'test://x/x%2Cy,z/x%2Cy')
-        for template,values in [('test://x/{+id}',{'id':'a'}),('test://x/{id}',{}),('test://x/{id}',{'id':['bad']}),('test://x/{id',{'id':'a'}),('test://x/{?x*}',{'x':'a'}),('test://x/{?x,y}',{'x':'a'}),('test://x/{?x}',{'x':'a','extra':'b'}),('test://x/{/x}',{'x':'a'*2040})]:
+        self.assertEqual(expand_template('test://x{/a,b}{?q,limit}{&next}',{'b':'','limit':'10','next':None}),'test://x/?limit=10')
+        self.assertEqual(expand_template('test://x{/id}{?q}',{}),'test://x')
+        self.assertEqual(expand_template('test://x/{a,b}',{'b':'test'}),'test://x/test')
+        self.assertEqual(expand_template('test://x{?q}',{'q':''}),'test://x?q=')
+        for template,values in [('{id}',{}),('test://x/{+id}',{'id':'a'}),('test://x/{id}',{'id':['bad']}),('test://x/{id',{'id':'a'}),('test://x/{?x*}',{'x':'a'}),('test://x/{?x}',{'x':'a','extra':'b'}),('test://x/{/x}',{'x':'a'*2040})]:
             with self.subTest(template=template),self.assertRaises(ValueError):expand_template(template,values)
         pages=TemplatePages();cursor,result=pages.accept({'resourceTemplates':[{'uriTemplate':'test://x/{id}','name':'One'},{'uriTemplate':'test://x/{+id}','name':'Complex'}],'nextCursor':'next'})
         self.assertEqual(cursor,'next');self.assertTrue(result['templates'][0]['supported']);self.assertFalse(result['templates'][1]['supported'])
@@ -316,7 +371,7 @@ for line in sys.stdin:
  req=json.loads(line);method=req['method']
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
- elif method=='resources/templates/list':result={'resourceTemplates':[{'uriTemplate':'test://item{/id}{?q}','name':'Item'}]}
+ elif method=='resources/templates/list':result={'resourceTemplates':[{'uriTemplate':'test://item{/id}{?q,limit}','name':'Item'}]}
  elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'text':'content'}]}
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
