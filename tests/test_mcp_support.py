@@ -196,6 +196,66 @@ sys.stdin.read()
         for message in (b'not json',json.dumps(dict(result,id=True)).encode(),json.dumps(dict(result,result={'protocolVersion':'different'})).encode()):
             with self.assertRaises(ValueError):parse_initialize(message)
 
+    def test_rpc_error_is_bounded_and_drops_error_data(self):
+        from agentnik.mcp_support import rpc_error
+        message={'jsonrpc':'2.0','id':2,'error':{'code':-32602,'message':'bad\nquery '+('x'*700),'data':{'secret':'never-show'}}}
+        result=rpc_error(message);self.assertIn('-32602',result);self.assertIn('bad query',result);self.assertNotIn('never-show',result);self.assertNotIn('\n',result);self.assertLess(len(result),600)
+        for error in ({'code':True,'message':'bad'},{'code':-1,'message':3},'bad'):
+            with self.subTest(error=error),self.assertRaises(ValueError):rpc_error({'error':error})
+        with self.assertRaises(ValueError):rpc_error({'error':{'code':-1,'message':'bad'},'result':{}})
+
+    def test_local_call_rpc_error_reports_diagnostic_and_uncertainty(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'error.py';marker=Path(folder)/'calls'
+            server.write_text('''import json,sys,pathlib
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+ elif method=='tools/list':result={'tools':[{'name':'query','inputSchema':{'type':'object'}}]}
+ else:
+  pathlib.Path(sys.argv[1]).write_text('once');print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32602,'message':'Invalid query parameter','data':'private data'}}),flush=True);continue
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server),str(marker)]);loop=QEventLoop();out=[]
+            session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+            session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertIn('-32602',out[0]['error']);self.assertIn('Invalid query parameter',out[0]['error']);self.assertNotIn('private data',str(out));self.assertTrue(out[0]['call_uncertain']);self.assertTrue(marker.exists())
+
+    def test_remote_call_rpc_error_reports_diagnostic_and_uncertainty(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method'];calls.append(method)
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+                elif method=='tools/list':result={'tools':[{'name':'query','inputSchema':{'type':'object'}}]}
+                else:result=None
+                msg={'jsonrpc':'2.0','id':request['id']}
+                if result is None:msg['error']={'code':-32603,'message':'Database unavailable','data':'private data'}
+                else:msg['result']=result
+                payload=json.dumps(msg).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session');self.end_headers();self.wfile.write(payload)
+            def do_DELETE(self):self.send_response(204);self.end_headers()
+        app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        try:
+            session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','');loop=QEventLoop();out=[]
+            session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+            session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.shutdown()
+            self.assertIn('-32603',out[0]['error']);self.assertIn('Database unavailable',out[0]['error']);self.assertNotIn('private data',str(out));self.assertTrue(out[0]['call_uncertain']);self.assertEqual(calls.count('tools/call'),1)
+        finally:server.shutdown();server.server_close();thread.join(2)
+
     def test_remote_validation_and_sse_messages(self):
         from agentnik.mcp_remote import response_message,preview_tool
         remote={'name':'Parallel','transport':'http','url':'https://mcp.parallel.ai/mcp','credential_id':'opaque','enabled':True}

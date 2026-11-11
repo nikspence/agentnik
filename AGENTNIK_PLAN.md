@@ -284,6 +284,8 @@ Code can opt into one enabled local stdio server for a run. The model may reques
 
 Remote Streamable HTTP negotiation accepts server-selected versions 2025-03-26, 2025-06-18, and 2025-11-25, and uses that version in subsequent request and session-termination headers. Unsupported versions are rejected before initialization completes. Offline HTTP fixtures test both older versions and session reuse; live compatibility with older remote servers remains unqualified.
 
+Local and remote MCP protocol errors now expose a bounded, sanitized, explicitly untrusted server message and code, without error data. A protocol error during a tool call is treated as uncertain because server-side effects may have occurred; the session stops rather than replaying the call. Offline stdio and HTTP fixtures cover diagnostics and uncertainty.
+
 MCP argument validation accepts acyclic references to root `$defs` and legacy `definitions` and bounded `anyOf`, `oneOf`, and `allOf` combinations, supporting common generated tool schemas. External references, recursive references, nested definition scopes, regular expressions, and excessive complexity remain unsupported; the validator never retrieves schemas from the network. Offline tests exercise valid and invalid arguments and reject recursive and external references.
 
 Local stdio tool calls now re-list tool metadata in the same session before execution and stop if the reviewed definition changes, including a change to task execution requirements. Required task-based execution is explicitly unsupported and blocked for local and remote tools. Windows live postgres-mcp profile discovery, mcptest connection and a read-only query passed with local tool rechecks; a fake server tested silent metadata changes.

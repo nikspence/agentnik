@@ -6,7 +6,7 @@ import time
 from collections import deque
 from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
-from .mcp_support import MAX_OUTPUT, initialize_request, parse_initialize, resolve_environment_references
+from .mcp_support import MAX_OUTPUT, initialize_request, parse_initialize, resolve_environment_references, rpc_error
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
@@ -95,13 +95,12 @@ class LocalSession(QObject):
                     continue
                 if type(message['id']) is not int or message['id'] != self.next_id: raise ValueError()
                 if 'error' in message:
+                    error=rpc_error(message)
                     if self.phase in ('prompt_list','prompt_get'):
-                        self.phase='ready';self.timer.stop();self.prompts.emit({'error':'MCP server returned a prompt error.'});continue
+                        self.phase='ready';self.timer.stop();self.prompts.emit({'error':error});continue
                     if self.phase in ('resource_list','resource_read','template_list'):
-                        self.phase='ready';self.timer.stop();self.resources.emit({'error':'MCP server returned a resource error.'});continue
-                    if self.phase == 'call':
-                        self.phase = 'ready'; self.timer.stop(); self.called.emit({'error': 'MCP server returned a tool error.'}); continue
-                    raise ValueError()
+                        self.phase='ready';self.timer.stop();self.resources.emit({'error':error});continue
+                    self.fail(error);return
                 if self.phase == 'initialize':
                     self.info = parse_initialize(line, ('2025-11-25','2025-06-18','2025-03-26','2024-11-05'));  self.send({'jsonrpc':'2.0','method':'notifications/initialized'})
                     if 'tools' not in self.info['capabilities']:

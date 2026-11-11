@@ -2,7 +2,7 @@
 import json
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
-from .mcp_support import MAX_OUTPUT,PROTOCOL,initialize_request,parse_initialize
+from .mcp_support import MAX_OUTPUT,PROTOCOL,initialize_request,parse_initialize,rpc_error
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 
@@ -112,6 +112,7 @@ class RemoteProbe(QObject):
             ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
             message=response_message(bytes(self.buffer),ctype,self.current_id)
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
+            if 'error' in message:self.stop(rpc_error(message));return
             if self.phase=='initialize':
                 self.result=parse_initialize(json.dumps(message).encode(),HTTP_PROTOCOLS);self.protocol=self.result['protocol']
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')

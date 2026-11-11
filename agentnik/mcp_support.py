@@ -3,6 +3,7 @@ import json
 import hashlib
 import os
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 PROTOCOL='2025-11-25'
@@ -60,6 +61,15 @@ def resolve_environment_references(mapping):
         if value is None or not value or len(value)>8192 or '\x00' in value:raise ValueError('An MCP environment variable is missing or invalid.')
         values[target]=value
     return values
+
+
+def rpc_error(message):
+    """Return bounded, untrusted JSON-RPC error text; never expose error data."""
+    if not isinstance(message,dict) or 'result' in message:raise ValueError('Invalid MCP error response')
+    error=message.get('error')
+    if not isinstance(error,dict) or type(error.get('code')) is not int or not -(2**31)<=error['code']<2**31 or not isinstance(error.get('message'),str):raise ValueError('Invalid MCP error response')
+    text=''.join(' ' if unicodedata.category(ch).startswith('C') else ch for ch in error['message'][:512]).strip()
+    return 'MCP server error ('+str(error['code'])+'): '+(text or 'No details provided')+' [untrusted server message]'
 
 
 def initialize_request():
