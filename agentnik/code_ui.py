@@ -209,8 +209,9 @@ class CodeTab(QWidget):
         self.web_enabled.toggled.connect(self.save_web_enabled)
         mcp_row=QHBoxLayout();layout.addLayout(mcp_row);mcp_row.addWidget(QLabel(self.tr('MCP server for this run:')))
         self.mcp_choice=QComboBox();self.mcp_choice.setToolTip(self.tr('Optional MCP server for this run. Connecting or starting it and every tool call require approval; tool results go to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
-        self.mcp_extra=[];self.mcp_extra_button=QPushButton(self.tr('Additional servers…'));self.mcp_extra_button.clicked.connect(self.choose_additional_mcp);mcp_row.addWidget(self.mcp_extra_button)
-        self.mcp_refresh=QPushButton(self.tr('Refresh MCP'));self.mcp_refresh.clicked.connect(self.refresh_mcp_servers);mcp_row.addWidget(self.mcp_refresh);self.refresh_mcp_servers()
+        saved_mcp=session.get('coding_mcp_selection',{});self.mcp_primary_ref=saved_mcp.get('primary');self.mcp_extra_refs=list(saved_mcp.get('extra',[]));self.mcp_extra=[ref['name'] for ref in self.mcp_extra_refs]
+        self.mcp_extra_button=QPushButton(self.tr('Additional servers…'));self.mcp_extra_button.clicked.connect(self.choose_additional_mcp);mcp_row.addWidget(self.mcp_extra_button)
+        self.mcp_refresh=QPushButton(self.tr('Refresh MCP'));self.mcp_refresh.clicked.connect(self.refresh_mcp_servers);mcp_row.addWidget(self.mcp_refresh);self.refresh_mcp_servers();self.mcp_choice.currentIndexChanged.connect(self.mcp_primary_changed)
         self.limits_button=QPushButton(self.tr('Limits…'));self.limits_button.clicked.connect(self.configure_limits);options.addWidget(self.limits_button)
         self.sources_button=QPushButton();self.sources_button.clicked.connect(self.show_sources)
         run_row=QHBoxLayout();layout.addLayout(run_row)
@@ -442,26 +443,56 @@ class CodeTab(QWidget):
                 QMessageBox.warning(self,self.tr('Skills'),self.tr('A selected skill changed or became unavailable. Reopen Skills and try again.'));return
             self.session['coding_skills']=selected;self.session['coding_skill_pins']=pins;self.store.save(self.session);self.refresh_skills_button()
 
+    def save_mcp_selection(self):
+        self.mcp_extra=[ref['name'] for ref in self.mcp_extra_refs]
+        self.mcp_extra_button.setText(self.tr('Additional servers ({count})…').format(count=len(self.mcp_extra)))
+        self.session['coding_mcp_selection']={'primary':self.mcp_primary_ref,'extra':list(self.mcp_extra_refs)}
+        self.store.save(self.session)
+
+    def mcp_primary_changed(self):
+        from .mcp_support import server_fingerprint
+        name=self.mcp_choice.currentData()
+        if isinstance(name,dict):return
+        server=next((item for item in self.store.config.get('mcp_servers',[]) if item.get('name')==name and item.get('enabled')),None)
+        self.mcp_primary_ref={'name':name,'sha256':server_fingerprint(server)} if server else None
+        if name:self.mcp_extra_refs=[ref for ref in self.mcp_extra_refs if ref['name'].casefold()!=name.casefold()]
+        self.save_mcp_selection()
+
     def refresh_mcp_servers(self):
-        current=self.mcp_choice.currentData();self.mcp_choice.clear();self.mcp_choice.addItem(self.tr('No MCP server'),None)
-        for item in self.store.config.get('mcp_servers',[]):
+        from .mcp_support import server_fingerprint
+        self.mcp_choice.blockSignals(True);self.mcp_choice.clear();self.mcp_choice.addItem(self.tr('No MCP server'),None)
+        entries=self.store.config.get('mcp_servers',[])
+        for item in entries:
             if item.get('enabled'):self.mcp_choice.addItem(item['name']+(' · HTTPS' if item.get('transport')=='http' else ' · local'),item['name'])
-        if current:self.mcp_choice.setCurrentIndex(max(0,self.mcp_choice.findData(current)))
+        ref=self.mcp_primary_ref
+        if ref:
+            server=next((item for item in entries if item.get('name')==ref['name'] and item.get('enabled')),None)
+            if server and server_fingerprint(server)==ref['sha256']:self.mcp_choice.setCurrentIndex(self.mcp_choice.findData(ref['name']))
+            else:
+                self.mcp_choice.addItem(ref['name']+self.tr(' (changed or unavailable; reselect)'),dict(ref));self.mcp_choice.setCurrentIndex(self.mcp_choice.count()-1)
+        self.mcp_choice.blockSignals(False)
+        self.mcp_extra_button.setText(self.tr('Additional servers ({count})…').format(count=len(self.mcp_extra_refs)))
 
     def choose_additional_mcp(self):
+        from .mcp_support import server_fingerprint
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Additional MCP servers'));layout=QVBoxLayout(dialog)
         note=QLabel(self.tr('Select up to five servers total, including the server selected in the Code pane. Each server must be approved before connecting.'));note.setWordWrap(True);layout.addWidget(note)
-        checks=[]
-        for item in self.store.config.get('mcp_servers',[]):
+        checks=[];entries=self.store.config.get('mcp_servers',[]);old={ref['name']:ref for ref in self.mcp_extra_refs}
+        for item in entries:
             if not item.get('enabled'):continue
-            check=QCheckBox(item['name']+(' · HTTPS' if item.get('transport')=='http' else ' · local'));check.setChecked(item['name'] in self.mcp_extra);layout.addWidget(check);checks.append((item['name'],check))
+            name=item['name'];ref=old.get(name);changed=ref and ref['sha256']!=server_fingerprint(item)
+            check=QCheckBox(name+(' · HTTPS' if item.get('transport')=='http' else ' · local')+(self.tr(' (changed; confirm selection)') if changed else ''));check.setChecked(bool(ref));layout.addWidget(check);checks.append((name,check,item))
+        available={item.get('name') for item in entries if item.get('enabled')}
+        for name,ref in old.items():
+            if name not in available:
+                check=QCheckBox(name+self.tr(' (unavailable; uncheck to remove)'));check.setChecked(True);layout.addWidget(check);checks.append((name,check,None))
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
         if dialog.exec()!=QDialog.DialogCode.Accepted:return
-        selected=[name for name,check in checks if check.isChecked()]
-        primary=self.mcp_choice.currentData()
-        if len(set(selected+([primary] if primary else [])))>5:
+        primary=self.mcp_primary_ref['name'] if self.mcp_primary_ref else None
+        selected=[(name,item) for name,check,item in checks if check.isChecked() and (not primary or name.casefold()!=primary.casefold())]
+        if len(selected)+(1 if primary else 0)>5:
             QMessageBox.warning(self,self.tr('MCP servers'),self.tr('Select at most five servers total.'));return
-        self.mcp_extra=selected;self.mcp_extra_button.setText(self.tr('Additional servers ({count})…').format(count=len(selected)))
+        self.mcp_extra_refs=[{'name':name,'sha256':server_fingerprint(item)} if item else old[name] for name,item in selected];self.save_mcp_selection()
 
     def start_coding(self):
         if self.job or self._closed:return
@@ -487,12 +518,14 @@ class CodeTab(QWidget):
                 if not strict:
                     backends=[b for b in self.store.web_backend_specs() if b.get('kind') in SEARCH_KINDS and (b.get('kind')!='ollama' or direct)]
                     provider='managed'
-            primary=self.mcp_choice.currentData();names=list(dict.fromkeys(([primary] if primary else [])+self.mcp_extra))
-            if len(names)>5:raise ValueError(self.tr('Select at most five MCP servers.'))
+            from .mcp_support import server_fingerprint
+            refs=([self.mcp_primary_ref] if self.mcp_primary_ref else [])+self.mcp_extra_refs
+            if len(refs)>5:raise ValueError(self.tr('Select at most five MCP servers.'))
             entries=self.store.config.get('mcp_servers',[]);servers=[]
-            for name in names:
-                server=next((item for item in entries if item.get('name')==name and item.get('enabled')),None)
-                if not server:raise ValueError(self.tr('A selected MCP server is unavailable. Refresh the list.'))
+            for ref in refs:
+                server=next((item for item in entries if item.get('name')==ref['name'] and item.get('enabled')),None)
+                if not server or server_fingerprint(server)!=ref['sha256']:
+                    raise ValueError(self.tr('A selected MCP server changed or is unavailable. Reselect it or remove it from Additional servers.'))
                 servers.append(server)
             from .mcp_code import CodingMCPBridge
             mcp_bridges=[CodingMCPBridge(server,self.store.config,self) for server in servers]

@@ -72,6 +72,15 @@ def validate_session(value, ident=None):
             from .subagent_status import validate_records
             try:validate_records(data['coding_subagents'])
             except (ValueError,TypeError):require(False)
+        if 'coding_mcp_selection' in data:
+            selection=data['coding_mcp_selection'];require(isinstance(selection,dict) and set(selection)=={'primary','extra'})
+            primary=selection['primary'];extra=selection['extra'];require(primary is None or isinstance(primary,dict));require(isinstance(extra,list) and len(extra)<=5)
+            entries=([primary] if primary is not None else [])+extra;require(len(entries)<=5);names=set()
+            for entry in entries:
+                require(isinstance(entry,dict) and set(entry)=={'name','sha256'})
+                name=entry['name'];digest=entry['sha256']
+                require(isinstance(name,str) and bool(name.strip()) and len(name)<=80 and name.casefold() not in names);names.add(name.casefold())
+                require(isinstance(digest,str) and len(digest)==64 and all(ch in '0123456789abcdef' for ch in digest))
         if 'coding_skills' in data:
             skills=data['coding_skills'];require(isinstance(skills,list) and len(skills)<=5 and all(isinstance(name,str) and 0<len(name)<=69 for name in skills))
         if 'coding_skill_pins' in data:

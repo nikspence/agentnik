@@ -1,5 +1,6 @@
 """MCP server configuration and bounded initialization preview."""
 import json
+import hashlib
 import os
 import re
 from urllib.parse import urlsplit
@@ -33,6 +34,13 @@ def validate_servers(servers):
             validate_environment_references(server.get('env',{}))
         if type(server['enabled']) is not bool:raise ValueError('Invalid MCP enabled state')
     return servers
+
+
+def server_fingerprint(server):
+    """Bind a remembered selection to its exact saved configuration without saving it twice."""
+    validate_servers([server])
+    payload=json.dumps(server,sort_keys=True,ensure_ascii=True,separators=(',',':')).encode('ascii')
+    return hashlib.sha256(payload).hexdigest()
 
 
 def validate_environment_references(mapping):

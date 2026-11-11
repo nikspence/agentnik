@@ -102,6 +102,47 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertNotEqual(tab.session['coding_skill_pins']['review'],original)
             finally:window.close();app.processEvents();store.db.close()
 
+    def test_mcp_selections_restore_and_changed_servers_require_reselection(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication,QCheckBox,QMessageBox
+        from agentnik.ui import Window
+        from agentnik.sessions import validate_session
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
+            store.config['mcp_servers']=[{'name':'Local','command':'never-start','args':[],'enabled':True},{'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'private-reference','enabled':True}]
+            window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.mcp_choice.setCurrentIndex(1)
+                def select_extra():
+                    dialog=app.activeModalWidget();next(check for check in dialog.findChildren(QCheckBox) if check.text().startswith('Remote')).setChecked(True);dialog.accept()
+                QTimer.singleShot(0,select_extra);tab.choose_additional_mcp()
+                saved=next(item for item in store.list_sessions() if item['id']==session['id']);validate_session(saved)
+                self.assertNotIn('private-reference',json.dumps(saved['coding_mcp_selection']))
+                import copy
+                invalid=copy.deepcopy(saved);invalid['coding_mcp_selection']['extra'].append(dict(invalid['coding_mcp_selection']['primary']))
+                with self.assertRaises(ValueError):validate_session(invalid)
+                invalid=copy.deepcopy(saved);invalid['coding_mcp_selection']['primary']['sha256']='bad'
+                with self.assertRaises(ValueError):validate_session(invalid)
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
+                self.assertEqual(tab.mcp_choice.currentData(),'Local');self.assertEqual(tab.mcp_extra,['Remote'])
+                store.config['mcp_servers'][0]['command']='replacement';tab.refresh_mcp_servers()
+                self.assertIn('changed or unavailable',tab.mcp_choice.currentText())
+                tab.light_enabled.setChecked(False);tab.composer.setPlainText('task')
+                with patch.object(tab,'role_connection',return_value={'model':'test','url':'http://localhost'}),patch.object(QMessageBox,'warning') as warning,patch.object(tab,'launch') as launch:
+                    tab.start_coding();warning.assert_called_once();launch.assert_not_called();self.assertIn('changed or is unavailable',warning.call_args.args[2])
+                tab.mcp_choice.setCurrentIndex(tab.mcp_choice.findData('Local'))
+                self.assertEqual(tab.mcp_choice.currentData(),'Local')
+                store.config['mcp_servers'][1]['enabled']=False
+                with patch.object(tab,'role_connection',return_value={'model':'test','url':'http://localhost'}),patch.object(QMessageBox,'warning') as warning,patch.object(tab,'launch') as launch:
+                    tab.start_coding();warning.assert_called_once();launch.assert_not_called()
+                def remove_unavailable():
+                    dialog=app.activeModalWidget();next(check for check in dialog.findChildren(QCheckBox) if check.text().startswith('Remote')).setChecked(False);dialog.accept()
+                QTimer.singleShot(0,remove_unavailable);tab.choose_additional_mcp();self.assertEqual(tab.mcp_extra,[])
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_local_mcp_selection_and_approval_preview(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QTimer
