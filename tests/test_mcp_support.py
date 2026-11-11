@@ -196,6 +196,43 @@ for line in sys.stdin:
             self.assertTrue(uncertain[0]['call_uncertain']);self.assertEqual([call[0] for call in calls].count('tools/call'),2)
         finally:server.shutdown();server.server_close();thread.join(2)
 
+    def test_remote_protocol_negotiation_and_headers(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteProbe,RemoteSession
+        calls=[];selected=['2025-06-18']
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];header=self.headers.get('MCP-Protocol-Version');calls.append((method,header))
+                if method!='initialize' and header!=selected[0]:self.send_response(400);self.end_headers();return
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if method=='initialize':result={'protocolVersion':selected[0],'serverInfo':{'name':'Older','version':'1'},'capabilities':{'tools':{}}}
+                elif method=='tools/list':result={'tools':[{'name':'echo','inputSchema':{'type':'object'}}]}
+                else:result={'content':[{'type':'text','text':'ok'}]}
+                payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session');self.end_headers();self.wfile.write(payload)
+            def do_DELETE(self):
+                header=self.headers.get('MCP-Protocol-Version');calls.append(('DELETE',header));self.send_response(204 if header==selected[0] else 400);self.end_headers()
+        app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        try:
+            url='http://127.0.0.1:'+str(server.server_port)+'/mcp'
+            for version in ('2025-06-18','2025-03-26'):
+                with self.subTest(version=version):
+                    selected[0]=version;calls.clear();loop=QEventLoop();session=RemoteSession(url,'');results=[]
+                    def discovered(info):
+                        results.append(info);self.assertTrue(session.call(info['tool_details'][0],{}))
+                    session.discovered.connect(discovered);session.called.connect(lambda result:(results.append(result),session.shutdown()));session.finished.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec()
+                    self.assertEqual(results[0]['protocol'],version);self.assertEqual(results[1]['call_result']['content'][0]['text'],'ok');self.assertTrue(results[2]['session_closed'])
+                    self.assertEqual([item[0] for item in calls],['initialize','notifications/initialized','tools/list','tools/list','tools/call','DELETE'])
+                    self.assertIsNone(calls[0][1]);self.assertTrue(all(header==version for _,header in calls[1:]))
+            selected[0]='2024-11-05';calls.clear();loop=QEventLoop();probe=RemoteProbe(url,'');results=[]
+            probe.finished.connect(lambda result:(results.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
+            self.assertIn('error',results[0]);self.assertEqual(calls,[('initialize',None)])
+        finally:server.shutdown();server.server_close();thread.join(2)
+
     def test_remote_discovery_rejects_repeated_cursor(self):
         import threading
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer

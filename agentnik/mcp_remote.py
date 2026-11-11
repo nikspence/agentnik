@@ -6,6 +6,7 @@ from .mcp_support import MAX_OUTPUT,PROTOCOL,initialize_request,parse_initialize
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 
+HTTP_PROTOCOLS=(PROTOCOL,'2025-06-18','2025-03-26')
 MAX_PAGES=5
 MAX_TOOLS=100
 MAX_DESCRIPTION=8000
@@ -60,7 +61,7 @@ def response_message(data,content_type,expected_id):
 class RemoteProbe(QObject):
     finished=Signal(object)
     def __init__(self,url,token,parent=None,invocation=None,expected_identity=None):
-        super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
+        super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(15000);self.send(initialize_request())
@@ -71,7 +72,7 @@ class RemoteProbe(QObject):
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
         if self.phase!='initialize':
-            request.setRawHeader(b'MCP-Protocol-Version',PROTOCOL.encode())
+            request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
             if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         self.buffer=bytearray();self.reply=self.manager.post(request,json.dumps(message).encode());self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
     def consume(self):
@@ -100,7 +101,7 @@ class RemoteProbe(QObject):
             message=response_message(bytes(self.buffer),ctype,self.current_id)
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
             if self.phase=='initialize':
-                self.result=parse_initialize(json.dumps(message).encode())
+                self.result=parse_initialize(json.dumps(message).encode(),HTTP_PROTOCOLS);self.protocol=self.result['protocol']
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
                 session=reply.rawHeader('Mcp-Session-Id')
                 if not isinstance(session,str):session=bytes(session).decode('ascii')
@@ -173,7 +174,7 @@ class RemoteProbe(QObject):
         if not self.session:self.complete(None);return
         self.phase='closing';self.timer.start(3000)
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
-        request.setRawHeader(b'MCP-Protocol-Version',PROTOCOL.encode());request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
+        request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode());request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
         self.buffer=bytearray();self.reply=self.manager.deleteResource(request);self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
     def complete(self,closed):
