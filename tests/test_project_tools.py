@@ -83,18 +83,15 @@ class TestReports(unittest.TestCase):
 
 
 class ModelToolIntegration(unittest.TestCase):
-    def test_patch_waits_for_approval_and_preserves_surrounding_text(self):
-        for allow in (False,True):
-            with self.subTest(allow=allow),tempfile.TemporaryDirectory() as folder:
+    def test_patch_applies_without_approval_and_preserves_surrounding_text(self):
+            with tempfile.TemporaryDirectory() as folder:
                 path=Path(folder)/'code.py';path.write_bytes(b'before\ntarget\nafter\n');events=[]
                 replies=[Wire(chat(calls=[call('read_file_range',{'path':'code.py','start_line':'2','end_line':'2'}),call('apply_patch',{'path':'code.py','old_text':'target','new_text':'replacement'},'patch')],finish='tool_calls'),False),Wire(chat('Done'),False)]
                 run=CodingRun(dict(C,stream=False),folder,'Patch one line')
                 def emit(event):
                     events.append(event)
-                    if event['kind']=='edit_proposal':
-                        self.assertEqual(path.read_bytes(),b'before\ntarget\nafter\n');run.decide(event['fingerprint'],allow)
                 with patch('agentnik.core.open_request',side_effect=replies):run.run(emit)
-                self.assertEqual(path.read_bytes(),b'before\nreplacement\nafter\n' if allow else b'before\ntarget\nafter\n');self.assertEqual(events[-1]['status'],'completed')
+                self.assertEqual(path.read_bytes(),b'before\nreplacement\nafter\n');self.assertEqual(events[-1]['status'],'completed');self.assertFalse(any(e['kind']=='edit_proposal' for e in events))
 
     def test_test_command_requires_approval_and_returns_structured_counts(self):
         for allow in (False,True):

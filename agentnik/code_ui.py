@@ -459,7 +459,7 @@ class CodeTab(QWidget):
             run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}))
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.advice_connection=advice;self.advice_destination=destination
-        self.launch(run,'Agentnik coding started. Repository content goes to the selected models; edits await approval.')
+        self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.')
         if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[provider])
 
     def launch(self,run,notice):
@@ -486,6 +486,7 @@ class CodeTab(QWidget):
     def activity_text(self,event):
         kind=event.get('kind','');text=plain(event.get('text',kind))
         fixed={('started','Agentnik coding started. Repository content goes to the selected models; edits await approval.'):self.tr('Agentnik coding started. Repository content goes to the selected models; edits await approval.'),
+               ('started','Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.'):self.tr('Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.'),
                ('started','Simulation started; no commands or inference will run.'):self.tr('Simulation started; no commands or inference will run.'),
                ('approval','Awaiting explicit approval for simulated step.'):self.tr('Awaiting explicit approval for simulated step.'),
                ('cancelled','Run cancelled. No further tool work will be scheduled; already approved edits are retained.'):self.tr('Run cancelled. No further tool work will be scheduled; already approved edits are retained.'),
@@ -639,4 +640,4 @@ class CodeTab(QWidget):
     def cancel(self):
         if not self.job:return
         self.job.stop();self.stop_subagents('cancelled');self.session['code_state']='cancelled';self.finish()
-        self.record('cancelled','Run cancelled. No further tool work will be scheduled; already approved edits are retained.')
+        self.record('cancelled','Run cancelled. No further tool work will be scheduled; project changes already applied are retained.')

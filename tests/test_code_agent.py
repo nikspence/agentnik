@@ -108,21 +108,16 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(GitService(ProjectFiles(root)).inspect('git_status')['staged'],['one.txt'])
             self.assertEqual(events[-1]['status'],'completed');repo.close()
 
-    def test_new_filesystem_operations_require_separate_approvals(self):
+    def test_project_file_operations_apply_without_approval(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);(root/'old.txt').write_text('old\n');events=[]
             replies=[Wire(chat(calls=[call('read_file',{'path':'old.txt'}),call('delete_file',{'path':'old.txt'},'delete'),call('create_directory',{'path':'new'},'mkdir')],finish='tool_calls'),False),Wire(chat('Done'),False)]
             run=CodingRun(dict(C,stream=False),directory,'Change files')
             def emit(event):
                 events.append(event)
-                if event['kind']=='operation_proposal':
-                    proposal=event['proposal']
-                    if proposal['operation']=='delete_file':self.assertTrue((root/'old.txt').exists())
-                    else:self.assertFalse((root/'new').exists())
-                    self.assertTrue(run.decide(event['fingerprint'],proposal['operation']=='delete_file'))
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            self.assertFalse((root/'old.txt').exists());self.assertFalse((root/'new').exists())
-            self.assertEqual(len([e for e in events if e['kind']=='operation_proposal']),2)
+            self.assertFalse((root/'old.txt').exists());self.assertTrue((root/'new').is_dir())
+            self.assertFalse(any(e['kind'] in ('operation_proposal','edit_proposal') for e in events))
             self.assertEqual(events[-1]['status'],'completed')
 
     def test_shell_runs_only_after_approval_and_redacts_output(self):
@@ -139,6 +134,18 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(events[-1]['status'],'completed')
             self.assertNotIn('model-secret',json.dumps(events)+json.dumps(bodies))
             self.assertIn('[redacted]',json.dumps(bodies[1]))
+
+    def test_project_edit_runs_before_rejected_shell_in_same_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events=[];run=CodingRun(dict(C,stream=False),directory,'Create and test')
+            replies=[Wire(chat(calls=[call('write_file',{'path':'new.txt','content':'new'}),call('run_shell',{'path':'.','command':'echo test'},'shell')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':
+                    self.assertEqual(Path(directory,'new.txt').read_text(),'new');self.assertEqual(event['proposal']['operation'],'run_shell')
+                    run.decide(event['fingerprint'],False)
+            with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute') as execute:run.run(emit)
+            execute.assert_not_called();self.assertEqual(events[-1]['status'],'completed');self.assertFalse(any(e['kind']=='edit_proposal' for e in events))
 
     def test_rejected_shell_command_does_not_start(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -376,21 +383,19 @@ class ModelCoding(unittest.TestCase):
             self.assertNotIn('delegate_light',json.dumps(bodies[0]['tools']))
             self.assertEqual(events[-1]['status'],'failed')
 
-    def test_multiple_files_require_independent_approval(self):
+    def test_multiple_files_apply_without_individual_approval(self):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory,'a.txt').write_bytes(b'old a\n');Path(directory,'b.txt').write_bytes(b'old b\n')
             calls=[call('read_file',{'path':'a.txt'},'read-a'),call('read_file',{'path':'b.txt'},'read-b')]
             edits=[call('write_file',{'path':'a.txt','content':'new a\n'},'edit-a'),call('write_file',{'path':'b.txt','content':'new b\n'},'edit-b')]
             replies=[Wire(chat(calls=calls,finish='tool_calls'),False),Wire(chat(calls=edits,finish='tool_calls'),False),Wire(chat('Finished'),False)]
-            run=CodingRun(dict(C,stream=False),directory,'Update both');events=[];reviewed=[]
+            run=CodingRun(dict(C,stream=False),directory,'Update both');events=[]
             def emit(event):
                 events.append(event)
-                if event['kind']=='edit_proposal':
-                    reviewed.append(event['proposal']['path']);run.decide(event['fingerprint'],len(reviewed)==1)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            self.assertEqual(reviewed,['a.txt','b.txt'])
+            self.assertFalse(any(e['kind']=='edit_proposal' for e in events))
             self.assertEqual(Path(directory,'a.txt').read_bytes(),b'new a\n')
-            self.assertEqual(Path(directory,'b.txt').read_bytes(),b'old b\n')
+            self.assertEqual(Path(directory,'b.txt').read_bytes(),b'new b\n')
             self.assertEqual(events[-1]['status'],'completed')
 
     def test_usage_is_attributed_to_roles_and_missing_counts_are_visible(self):
@@ -427,15 +432,15 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(path.read_text(),'new\n');self.assertEqual(endpoint.call_count,3);process.assert_not_called()
             self.assertEqual(events[-1]['status'],'completed')
 
-    def test_rejected_edit_leaves_user_file_untouched(self):
+    def test_concurrent_edit_leaves_user_file_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'example.py';path.write_text('old\n');run=CodingRun(dict(C,stream=False),directory,'Update');events=[]
             replies=[Wire(chat(calls=[call('read_file',{'path':'example.py'})],finish='tool_calls'),False),Wire(chat(calls=[call('write_file',{'path':'example.py','content':'new\n'})],finish='tool_calls'),False),Wire(chat('Rejected.'),False)]
             def emit(event):
                 events.append(event)
-                if event['kind']=='edit_proposal':run.decide(event['fingerprint'],False)
+                if event.get('text','').startswith('Applying project edit:'):path.write_text('user change\n')
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            self.assertEqual(path.read_text(),'old\n')
+            self.assertEqual(path.read_text(),'user change\n')
 
     def test_heavy_can_delegate_to_light_using_a_different_protocol(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -502,12 +507,12 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(endpoint.call_count,2);self.assertEqual(events[-1]['status'],'failed')
             self.assertNotIn('private-body',json.dumps(events))
 
-    def test_cancel_during_review_never_applies_edit(self):
+    def test_cancel_before_write_never_applies_edit(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Create file')
             replies=[Wire(chat(calls=[call('write_file',{'path':'new.txt','content':'hello'})],finish='tool_calls'),False)]
             def emit(event):
-                if event['kind']=='edit_proposal':run.stop()
+                if event.get('text','').startswith('Applying project edit:'):run.stop()
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             self.assertFalse((Path(directory)/'new.txt').exists())
 

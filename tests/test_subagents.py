@@ -338,8 +338,8 @@ class Subagents(unittest.TestCase):
             run=CodingRun(dict(C,stream=False),root,'Create folder',skills=['review']);events=[]
             def emit(event):
                 events.append(event)
-                if event['kind']=='operation_proposal':
-                    skill.write_text('---\nname: review\ndescription: Review\n---\nChanged',encoding='utf-8');run.decide(event['fingerprint'],True)
+                if event.get('text','').startswith('Applying project create_directory:'):
+                    skill.write_text('---\nname: review\ndescription: Review\n---\nChanged',encoding='utf-8')
             replies=[Wire(chat(calls=[call('create_directory',{'path':'new'})],finish='tool_calls'),False)]
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             self.assertFalse((Path(root)/'new').exists());self.assertEqual(events[-1]['status'],'failed');self.assertIn('skill changed',events[-1]['text'].lower())

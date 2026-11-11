@@ -302,3 +302,7 @@ The project-evidence extension passed the full 354-test Windows offline suite. M
 ## Direct page TLS and configured retrieval fallback
 
 The full Windows offline suite passed 357 tests. Tests verify that direct page transport disables certificate and hostname verification, while search and provider transports retain verification; configured retrieval-capable providers are selected without automatic or explicit Firecrawl Keyless page fallback. Mocked Chat and Code checks exercise provider continuation, URL-policy restrictions and terminal failures. A local TLS server using a self-signed, mismatched certificate was rejected by verified mode and accepted by direct-page mode. No external site, Zscaler deployment, provider retrieval API, live inference or macOS/Linux validation was exercised.
+
+## Project search and automatic file changes
+
+The Windows offline suite passed 363 tests. Temporary-project tests cover bounded recursive globbing, literal case-sensitive and case-insensitive search, Unicode, filename filters, excluded paths, hard links, oversized/binary files, cancellation and credential redaction. Mocked coding runs and offscreen Qt checks cover applying project file changes without per-file approval, stale-file and changed-guidance/skill protection, cancellation, and continued shell/Git approval. No live coding-model or native macOS/Linux checks were performed.

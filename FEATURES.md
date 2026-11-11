@@ -71,12 +71,12 @@
 - **Repositories** registry for local Git repositories or ordinary folders; removing an entry preserves files and history.
 - Searchable **＋ Code** picker and independent coding panes with remembered directory snapshots.
 - Coding runs use your existing connections: Heavy plans and proposes edits, and can delegate bounded routine analysis to an independent Light model.
-- **Run coding task** inspects project files and proposes UTF-8 file edits; review the full diff, then approve or reject each edit.
-- Bounded project overview, numbered file-range reads (up to 2 MB files), and snapshot-bound exact patches with full diff approval.
+- **Run coding task** inspects and changes UTF-8 project files without per-file approval; activity reports applied changes and bounded diff excerpts.
+- Bounded project overview, glob and literal grep tools, numbered file-range reads (up to 2 MB files), and snapshot-bound exact patches.
 - Model-maintained task plans with pending/in-progress/completed/blocked steps, a collapsible checklist, and persisted last-reported progress.
 - Approved test commands return reported unittest/pytest/Jest/Vitest counts, failure excerpts, and explicit unknown/truncated states.
-- Read-before-write enforced; conflicting changes stop the write; cancellation retains drafts and applied approvals.
-- Approved single-file deletion, directory creation, and bounded shell commands; reopening never restarts a run.
+- Read-before-write enforced; conflicting changes stop the write; cancellation retains drafts and applied changes.
+- Project file deletion and directory creation proceed without per-operation approval; shell commands require approval. Reopening never restarts a run.
 - Structured Dulwich Git tools: status, working/staged diffs, recent history, local branches, reviewed staging/unstaging, explicit-file or staged-snapshot commits, and branch creation without switching. Remote Git tools remain planned.
 - Optional **Try simulated workflow (no execution)** mode.
 
@@ -109,6 +109,6 @@ Code now loads the selected project root's `AGENTS.md` before the first Heavy re
 
 Activity reports loaded/removed instruction paths and scopes without copying raw guidance into activity logs. Heavy receives the current scoped guidance with its protocol-specific instructions; Light receives the same loaded scope map as bounded task context while remaining tool-free. Configured credentials are redacted. Automatic guidance reads do not authorize editing or deleting those files; the existing read-before-edit rules still apply.
 
-If a tool batch discovers new/changed guidance, inspection tools may continue, but mutations, shell/test commands and delegation are deferred until a subsequent model turn can consider the updated instructions. Loaded scopes are refreshed between rounds. Changes detected before/during approval invalidate the proposal; the model must reconsider and submit it again. Ordinary diff/operation approval and state checks remain mandatory. Filesystem writers remain concurrent; these checks are not an OS-level transaction. Shell scope uses the supplied working directory; Agentnik does not parse commands to infer every affected path, so the model is instructed to inspect affected paths first.
+If a tool batch discovers new/changed guidance, inspection tools may continue, but mutations, shell/test commands and delegation are deferred until a subsequent model turn can consider the updated instructions. Loaded scopes are refreshed between rounds. Changes detected before a file operation or during an approval invalidate the operation; the model must reconsider and submit it again. Project file changes retain conflict checks; shell commands and Git mutations require approval. Filesystem writers remain concurrent; these checks are not an OS-level transaction. Shell scope uses the supplied working directory; Agentnik does not parse commands to infer every affected path, so the model is instructed to inspect affected paths first.
 
 Guidance must be regular, unlinked UTF-8 files: up to 8 KB per file, 24 KB total, 16 loaded files, 24 directory levels and 256 discovered scopes, plus the shared run context/time budgets. Missing files are allowed; unsafe, unreadable or oversized guidance fails closed rather than silently truncating rules. New runs reload current files; reopening a saved session does not execute or load guidance by itself. Offline tests cover scope discovery, refresh/removal, path/link/encoding/size rejection, first-request protocol injection, credential redaction, mutation deferral, stale approval invalidation, unchanged shell approval, Light context and run-budget enforcement. Live model instruction adherence remains unqualified.

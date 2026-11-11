@@ -72,11 +72,11 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 events.append(event)
                 if event['kind']=='edit_proposal':self.assertTrue(run.decide(event['fingerprint'],True))
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            self.assertEqual((root/'src/new.py').read_text(),'pass\n');self.assertEqual(sum(e['kind']=='edit_proposal' for e in events),1)
+            self.assertEqual((root/'src/new.py').read_text(),'pass\n');self.assertEqual(sum(e.get('text','').startswith('Applied project edit:') for e in events),1)
             self.assertNotIn('Source files use four spaces.',bodies[0]['messages'][0]['content']);self.assertIn('Source files use four spaces.',bodies[1]['messages'][0]['content'])
             results=[json.loads(m['content']) for m in bodies[1]['messages'] if m['role']=='tool'];self.assertIn('guidance was loaded',results[0]['error'])
 
-    def test_changed_guidance_during_approval_invalidates_operation(self):
+    def test_changed_guidance_before_file_operation_invalidates_it(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);guide=root/'AGENTS.md';guide.write_text('Initial rules')
             events=[];bodies=[];replies=[Wire(chat(calls=[call('create_directory',{'path':'new'})],finish='tool_calls'),False),Wire(chat('Stopped'),False)]
@@ -84,11 +84,10 @@ class RepositoryGuidanceTests(unittest.TestCase):
             def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
             def emit(event):
                 events.append(event)
-                if event['kind']=='operation_proposal':
-                    guide.write_text('Changed rules');self.assertTrue(run.decide(event['fingerprint'],True))
+                if event.get('text','').startswith('Applying project create_directory:'):guide.write_text('Changed rules')
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
             self.assertFalse((root/'new').exists());self.assertIn('Changed rules',bodies[1]['messages'][0]['content'])
-            result=next(json.loads(m['content']) for m in bodies[1]['messages'] if m['role']=='tool');self.assertIn('changed during approval',result['error'])
+            result=next(json.loads(m['content']) for m in bodies[1]['messages'] if m['role']=='tool');self.assertIn('changed before the file operation',result['error'])
 
     def test_light_receives_loaded_guidance_and_initial_context_budget_is_enforced(self):
         with tempfile.TemporaryDirectory() as directory:

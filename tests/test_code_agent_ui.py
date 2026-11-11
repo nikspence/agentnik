@@ -343,9 +343,8 @@ class CodingWorkspace(unittest.TestCase):
                 tab.composer.setPlainText('Create a test file')
                 replies=[Wire(chat(calls=[call('write_file',{'path':'test.txt','content':'approved content'})],finish='tool_calls'),False),Wire(chat('Created test.txt'),False)]
                 with patch.object(core,'open_request',side_effect=replies) as endpoint,patch('subprocess.Popen') as process:
-                    tab.start_coding();settle(lambda:tab.approve.isEnabled())
-                    self.assertFalse((project/'test.txt').exists());self.assertIn('approved content',tab.diff.toPlainText())
-                    self.assertIn('Not checked',tab.approval.toPlainText());tab.decide(True);settle(lambda:tab.job is None)
+                    tab.start_coding();settle(lambda:tab.job is None)
+                    self.assertTrue(tab.approval_panel.isHidden());self.assertIn('Applied project edit',tab.activity.toPlainText())
                     self.assertEqual((project/'test.txt').read_text(),'approved content');self.assertEqual(endpoint.call_count,2);process.assert_not_called()
                 saved=next(s for s in store.list_sessions() if s['id']==session['id'])
                 self.assertNotIn('private-model-key',json.dumps(saved))
