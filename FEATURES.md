@@ -76,7 +76,7 @@
 - Model-maintained task plans with pending/in-progress/completed/blocked steps, a collapsible checklist, and persisted last-reported progress.
 - Approved test commands return reported unittest/pytest/Jest/Vitest counts, failure excerpts, and explicit unknown/truncated states.
 - Read-before-write enforced; conflicting changes stop the write; cancellation retains drafts and applied changes.
-- Previously read UTF-8 files can be renamed or moved within the project without overwriting; project file deletion and directory creation also proceed without per-operation approval. Shell commands require approval. Reopening never restarts a run.
+- Regular files, including binary and large files, can be renamed or moved within the project without overwriting, including across filesystems; project file deletion and directory creation also proceed without per-operation approval. Shell commands require approval. Reopening never restarts a run.
 - Structured Dulwich Git tools: status, working/staged diffs, recent history, local branches, reviewed staging/unstaging, explicit-file or staged-snapshot commits, and branch creation without switching. Remote Git tools remain planned.
 - Optional **Try simulated workflow (no execution)** mode.
 

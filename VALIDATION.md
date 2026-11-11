@@ -314,3 +314,7 @@ The Windows offline suite passed 370 tests. Temporary-project and mocked coding 
 ## Code activity scrolling and retention
 
 The Windows offline suite passed 373 tests. Offscreen Qt checks cover following the bottom, keeping the visible location while scrolled up, resuming at the bottom, preserving the view when old wrapped lines are trimmed, and reopening the enlarged saved history. Native visual review, frozen-build and macOS/Linux validation were not performed for this change.
+
+## Unrestricted file-size and binary moves
+
+The Windows offline suite passed 378 tests. Temporary-file tests cover large binary files without model content reads, metadata conflict checks, no-overwrite destination collisions, cancellation, simulated cross-filesystem and hard-link-unavailable fallbacks, exclusive publication, staging replacement, and partial failures. Cross-filesystem and unsupported-hard-link errors were simulated on the Windows host; actual separate filesystems, native macOS/Linux, and frozen-build coding behavior were not tested. Cross-filesystem metadata preservation is limited as described in CODING_GUIDE.md.

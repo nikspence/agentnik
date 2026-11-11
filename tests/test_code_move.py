@@ -1,5 +1,7 @@
 """Project-contained file moves, conflict checks and model integration."""
 import json
+import errno
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,12 +15,11 @@ from test_routing import Wire
 
 
 class ProjectMove(unittest.TestCase):
-    def test_read_before_move_and_no_overwrite(self):
+    def test_snapshot_conflicts_and_no_overwrite(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);(root/'src').mkdir();(root/'dst').mkdir();source=root/'src/a.txt';source.write_text('original',encoding='utf-8')
             files=ProjectFiles(root)
-            with self.assertRaises(ValueError):files.move_proposal('src/a.txt','dst/b.txt')
-            files.read('src/a.txt');proposal=files.move_proposal('src/a.txt','dst/b.txt')
+            proposal=files.move_proposal('src/a.txt','dst/b.txt')
             (root/'dst/b.txt').write_text('user file',encoding='utf-8')
             with self.assertRaises(ValueError):files.apply_move(proposal)
             self.assertEqual(source.read_text(),'original');self.assertEqual((root/'dst/b.txt').read_text(),'user file')
@@ -28,6 +29,88 @@ class ProjectMove(unittest.TestCase):
             files.read('src/a.txt');files.apply_move(files.move_proposal('src/a.txt','dst/b.txt'))
             self.assertFalse(source.exists());self.assertEqual((root/'dst/b.txt').read_text(),'user edit')
             files.apply(files.proposal('dst/b.txt','after move'));self.assertEqual((root/'dst/b.txt').read_text(),'after move')
+
+    def test_large_binary_moves_without_reading_contents_into_model(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'dst').mkdir();source=root/'data.bin';data=(b'\x00\xff\x80DATA'*500_000);source.write_bytes(data)
+            events=[];bodies=[];count=0
+            def send(connection,url,body,timeout):
+                nonlocal count
+                bodies.append(json.loads(json.dumps(body)));count+=1
+                if count==1:return Wire(chat(calls=[call('rename_file',{'path':'data.bin','name':'renamed.bin'}),call('move_file',{'path':'renamed.bin','destination':'dst/result.bin'},'move')],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),folder,'Move binary').run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertFalse(source.exists());self.assertFalse((root/'renamed.bin').exists());self.assertEqual((root/'dst/result.bin').read_bytes(),data)
+            self.assertNotIn('DATA',json.dumps(bodies));self.assertNotIn('DATA',json.dumps(events))
+
+    def test_cross_filesystem_and_no_hardlink_fallback(self):
+        for unsupported in (False,True):
+            with self.subTest(no_hardlink=unsupported),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);(root/'dst').mkdir();source=root/'source.bin';data=b'\x00\xff'+os.urandom(2_100_000);source.write_bytes(data);original_mtime=source.stat().st_mtime_ns
+                files=ProjectFiles(root);proposal=files.move_proposal('source.bin','dst/result.bin');original_link=os.link
+                def link(src,dst,*args,**kwargs):
+                    if Path(src)==source:raise OSError(errno.EXDEV,'different filesystem')
+                    if unsupported:raise OSError(errno.EOPNOTSUPP,'hard links unsupported')
+                    return original_link(src,dst,*args,**kwargs)
+                with patch('agentnik.code_agent.os.link',side_effect=link):files.apply_move(proposal)
+                self.assertFalse(source.exists());self.assertEqual((root/'dst/result.bin').read_bytes(),data);self.assertEqual((root/'dst/result.bin').stat().st_mtime_ns,original_mtime)
+                self.assertFalse(list((root/'dst').glob('.agentnik-move-*')))
+
+    def test_cross_filesystem_copy_cancellation_and_conflicts_leave_source(self):
+        for scenario in ('cancel','change','collision'):
+            with self.subTest(scenario=scenario),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);(root/'dst').mkdir();source=root/'source.bin';source.write_bytes(b'A'*2_500_000)
+                target=root/'dst/result.bin';files=ProjectFiles(root);proposal=files.move_proposal('source.bin','dst/result.bin');checks=0
+                def check():
+                    nonlocal checks
+                    checks+=1
+                    if checks==4:
+                        if scenario=='cancel':raise InterruptedError('cancelled')
+                        if scenario=='change':source.write_bytes(b'user changed')
+                        else:target.write_bytes(b'user destination')
+                original_link=os.link
+                def link(src,dst,*args,**kwargs):
+                    if Path(src)==source:raise OSError(errno.EXDEV,'different filesystem')
+                    return original_link(src,dst,*args,**kwargs)
+                with patch('agentnik.code_agent.os.link',side_effect=link),self.assertRaises((InterruptedError,ValueError)):
+                    files.apply_move(proposal,check)
+                self.assertTrue(source.exists());self.assertEqual(target.read_bytes() if target.exists() else None,b'user destination' if scenario=='collision' else None)
+                self.assertFalse(list((root/'dst').glob('.agentnik-move-*')))
+
+    def test_exclusive_publish_without_hardlinks_and_cancel_cleanup(self):
+        for scenario in ('success','cancel','collision'):
+            with self.subTest(scenario=scenario),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);source=root/'source.bin';data=b'\x00\xff'+os.urandom(2_100_000);source.write_bytes(data)
+                staged=root/'staged.bin';staged.write_bytes(data);target=root/'target.bin';files=ProjectFiles(root);proposal=files.move_proposal('source.bin','target.bin');checks=0
+                if scenario=='collision':target.write_bytes(b'user destination')
+                def check():
+                    nonlocal checks
+                    checks+=1
+                    if scenario=='cancel' and checks==2:raise InterruptedError('cancelled')
+                if scenario=='success':
+                    files.publish_move_copy(staged,target,proposal,check)
+                    self.assertEqual(target.read_bytes(),data)
+                else:
+                    with self.assertRaises((InterruptedError,FileExistsError)):files.publish_move_copy(staged,target,proposal,check)
+                    self.assertEqual(target.read_bytes() if target.exists() else None,b'user destination' if scenario=='collision' else None)
+                self.assertEqual(source.read_bytes(),data)
+
+    def test_replaced_staging_file_is_not_deleted(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'dst').mkdir();source=root/'source.bin';source.write_bytes(b'A'*2_500_000)
+            files=ProjectFiles(root);proposal=files.move_proposal('source.bin','dst/result.bin');checks=0;replacement=[]
+            def check():
+                nonlocal checks
+                checks+=1
+                if checks==7:
+                    staging=next((root/'dst').glob('.agentnik-move-*'));staging.rename(root/'dst/original-stage')
+                    staging.write_bytes(b'user data');replacement.append(staging)
+            original_link=os.link
+            def link(src,dst,*args,**kwargs):
+                if Path(src)==source:raise OSError(errno.EXDEV,'different filesystem')
+                return original_link(src,dst,*args,**kwargs)
+            with patch('agentnik.code_agent.os.link',side_effect=link),self.assertRaises(MovePartialError):files.apply_move(proposal,check)
+            self.assertTrue(source.exists());self.assertFalse((root/'dst/result.bin').exists());self.assertEqual(replacement[0].read_bytes(),b'user data')
 
     def test_invalid_paths_directories_and_partial_failure(self):
         with tempfile.TemporaryDirectory() as folder:
