@@ -153,7 +153,7 @@ class MCPServers(QDialog):
             description=detail['description'] or '(no description)'
             if detail['description_clipped']:description+='\n[Description truncated or unavailable]'
             schema=json.dumps(detail['schema'],ensure_ascii=True,indent=2) if detail['schema_status']=='available' else '[Input schema '+detail['schema_status']+']'
-            sections.append(detail['name']+'\n'+description+'\nInput schema:\n'+schema)
+            sections.append(detail['name']+'\n'+description+'\nTask execution: '+detail.get('task_support','forbidden')+'\nInput schema:\n'+schema)
         self.tool_details.setPlainText('\n\n'.join(sections))
 
     def call_remote(self):
@@ -163,6 +163,7 @@ class MCPServers(QDialog):
             self.status.setText(self.tr('Server configuration changed. Test it again.'));return
         item=entries[index];tool=next((tool for tool in self.discovered['tools'] if tool['name']==self.tool_choice.currentText()),None)
         if not tool or tool['schema_status']!='available' or tool['description_clipped']:self.status.setText(self.tr('This tool has incomplete metadata and cannot be called.'));return
+        if tool.get('task_support')=='required':self.status.setText(self.tr('This tool requires MCP task execution, which is not supported.'));return
         try:
             raw=self.tool_args.toPlainText()
             if len(raw.encode('utf-8'))>16000:raise ValueError()

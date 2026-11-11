@@ -104,7 +104,8 @@ class CodingWorkspace(unittest.TestCase):
 
     def test_local_mcp_selection_and_approval_preview(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication,QCheckBox
         from agentnik.ui import Window
         app=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
@@ -114,6 +115,10 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 self.assertEqual(tab.mcp_choice.count(),3);self.assertIsNone(tab.mcp_choice.currentData());self.assertEqual(tab.mcp_choice.itemData(1),'Database');self.assertEqual(tab.mcp_choice.itemData(2),'Remote')
+                tab.mcp_choice.setCurrentIndex(1)
+                def choose_extra():
+                    dialog=app.activeModalWidget();next(check for check in dialog.findChildren(QCheckBox) if check.text().startswith('Remote')).setChecked(True);dialog.accept()
+                QTimer.singleShot(0,choose_extra);tab.choose_additional_mcp();self.assertEqual(tab.mcp_extra,['Remote']);self.assertIn('(1)',tab.mcp_extra_button.text())
                 tab.job=MagicMock();tab.run_id='mcp-run'
                 start={'operation':'mcp_start','server':'Database','command':'npx','arguments':['-y','server','run']}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'start','proposal':start})
@@ -128,6 +133,20 @@ class CodingWorkspace(unittest.TestCase):
                 proposal.update(operation='mcp_call_remote',url='https://example.com/mcp')
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'remote-call','proposal':proposal})
                 self.assertIn('REMOTE MCP TOOL CALL',tab.approval.toPlainText());self.assertIn('SELECT 1',tab.approval.toPlainText());tab.decide(False)
+                resource={'operation':'mcp_read_resource','server':'Database','command':'npx','server_arguments':['-y','server','run'],'resource':{'uri':'test://record','name':'Record','description':'Test','mimeType':'text/plain'}}
+                tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'resource','proposal':resource})
+                self.assertIn('MCP RESOURCE REQUEST',tab.approval.toPlainText());self.assertIn('test://record',tab.approval.toPlainText());tab.decide(False)
+                resource.pop('command');resource.pop('server_arguments');resource['url']='https://example.com/mcp'
+                tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'remote-resource','proposal':resource})
+                self.assertIn(resource['url'],tab.approval.toPlainText());self.assertIn('test://record',tab.approval.toPlainText());tab.decide(False)
+                prompt={'operation':'mcp_get_prompt','server':'Remote','url':'https://example.com/mcp','prompt':{'name':'review','description':'Review','arguments':[]},'arguments':{'code':'sample'}}
+                tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'prompt','proposal':prompt})
+                for value in ('MCP PROMPT REQUEST','https://example.com/mcp','review','sample'):self.assertIn(value,tab.approval.toPlainText())
+                tab.decide(False)
+                template={'operation':'mcp_read_resource_template','server':'Remote','url':'https://example.com/mcp','template':{'name':'Item','uriTemplate':'test://item/{id}'},'variables':{'id':'a/b'},'uri':'test://item/a%2Fb'}
+                tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'template','proposal':template})
+                for value in ('MCP RESOURCE TEMPLATE REQUEST','test://item/{id}','a%2Fb'):self.assertIn(value,tab.approval.toPlainText())
+                tab.decide(False)
                 tab.job=None;tab.run_id=None
             finally:window.close();app.processEvents();store.db.close()
 

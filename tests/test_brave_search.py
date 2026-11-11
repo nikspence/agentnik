@@ -35,10 +35,25 @@ class BraveSearch(unittest.TestCase):
             transport.request.return_value=('','application/json',payload)
             self.assertEqual(web.BraveWeb('test-key',transport).search('query',Runtime()),[])
         transport.request.return_value=('','application/json',b'{"web":{"results":[{"title":"Private","url":"http://127.0.0.1/","description":"secret"}]}}')
-        with self.assertRaises(AccessError):web.BraveWeb('test-key',transport).search('query',Runtime())
+        self.assertEqual(web.BraveWeb('test-key',transport).search('query',Runtime()),[])
         for query in ('','x'*601,'word '*76,'test-key'):
             with self.assertRaises(ResearchError):web.BraveWeb('test-key',transport).search(query,Runtime())
         with self.assertRaises(ResearchError):web.BraveWeb('bad\nkey')
+
+    def test_brave_skips_only_nonpublic_results_and_keeps_public_hits(self):
+        transport=MagicMock();payload={'web':{'results':[{'title':'Private','url':'http://127.0.0.1/'},{'title':'Public','url':'https://example.com/docs','description':'Documentation'}]}}
+        transport.request.return_value=('','application/json',json.dumps(payload).encode());events=[];runtime=Runtime();runtime.notify=lambda kind,detail:events.append((kind,detail))
+        with patch.object(web.socket,'getaddrinfo',return_value=PUBLIC):results=web.BraveWeb('test-key',transport).search('query',runtime)
+        self.assertEqual([item.title for item in results],['Public']);self.assertEqual(events[0][0],'result_filtered');self.assertNotIn('127.0.0.1',str(events))
+        payload['web']['results'][0]['description']='test-key';transport.request.return_value=('','application/json',json.dumps(payload).encode())
+        with self.assertRaises(AccessError):web.BraveWeb('test-key',transport).search('query',runtime)
+
+    def test_access_diagnostics_include_http_status_without_credentials(self):
+        spec={'id':'brave','kind':'brave','name':'Brave Search','key':'private-key'};events=[];runtime=Runtime();runtime.notify=lambda kind,detail:events.append((kind,detail))
+        with patch.object(web,'BraveWeb') as provider:
+            provider.return_value.search.side_effect=core.EndpointError(403,'private-key')
+            with self.assertRaises(core.EndpointError):web.OrderedSearch([spec]).search('query',runtime)
+        self.assertTrue(any('HTTP 403' in detail for _,detail in events));self.assertNotIn('private-key',str(events));provider.assert_called_once()
 
     def test_json_get_exception_is_limited_to_fixed_brave_service(self):
         connection=MagicMock()

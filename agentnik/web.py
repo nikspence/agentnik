@@ -346,7 +346,11 @@ class BraveWeb(KeyedSearch):
             if not isinstance(item,dict) or not all(isinstance(item.get(k),str) for k in ('title','url')) or (item.get('description') is not None and not isinstance(item['description'],str)):raise ResearchError('Malformed Brave search result')
             # Reject rather than publish private or credential-bearing destinations.
             if self.key in json.dumps(item):raise AccessError('Search response contains a configured credential')
-            target,_=resolve_public(item['url'],runtime)
+            try:target,_=resolve_public(item['url'],runtime)
+            except AccessError:
+                callback=getattr(runtime,'notify',None)
+                if callback:callback('result_filtered','Brave Search: a non-public or invalid result was omitted.')
+                continue
             parser=ReadableText();parser.feed(item.get('description') or '')
             text,truncated=excerpt(re.sub(r'\s+',' ',''.join(parser.parts)).strip(),3000)
             results.append(Source('',item['title'][:300],target,text,utc_now(),truncated=truncated,backend='brave-search'))
@@ -496,7 +500,12 @@ class OrderedSearch:
             except Exception as exc:
                 failure=classify(exc,False); last=exc
                 record.update(status='failed',error=str(exc)[:500],failure=failure,ended_at=utc_now())
-                self.notify(runtime,'backend_failed',name+': '+failure['kind'])
+                detail=name+': '+failure['kind']
+                if failure['http_status'] is not None:detail+=' (HTTP '+str(failure['http_status'])+')'
+                elif isinstance(exc,AccessError):
+                    known={'Search credential transmission blocked':'credential in query blocked','Search response contains a configured credential':'credential reflected in response','Only public HTTP(S) destinations on ports 80/443 are allowed':'destination rejected by public URL policy','Invalid public URL':'invalid public URL','Destination has no public address':'destination has no public address','Destination resolves to a restricted address':'destination resolves to a restricted address','Search service redirects are blocked':'provider redirect blocked','Unsupported web content type':'unsupported response content type','Compressed page responses are not accepted':'unsupported response encoding'}
+                    if str(exc) in known:detail+=' ('+known[str(exc)]+')'
+                self.notify(runtime,'backend_failed',detail)
                 if not self.allow_fallback or not failure['fallback_allowed']: raise
                 if failure['kind'] in ('rate_limit','authentication'):self.unavailable.add(ident)
                 if failure['kind'] in ('rate_limit','temporary'):

@@ -209,6 +209,7 @@ class CodeTab(QWidget):
         self.web_enabled.toggled.connect(self.save_web_enabled)
         mcp_row=QHBoxLayout();layout.addLayout(mcp_row);mcp_row.addWidget(QLabel(self.tr('MCP server for this run:')))
         self.mcp_choice=QComboBox();self.mcp_choice.setToolTip(self.tr('Optional MCP server for this run. Connecting or starting it and every tool call require approval; tool results go to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
+        self.mcp_extra=[];self.mcp_extra_button=QPushButton(self.tr('Additional servers…'));self.mcp_extra_button.clicked.connect(self.choose_additional_mcp);mcp_row.addWidget(self.mcp_extra_button)
         self.mcp_refresh=QPushButton(self.tr('Refresh MCP'));self.mcp_refresh.clicked.connect(self.refresh_mcp_servers);mcp_row.addWidget(self.mcp_refresh);self.refresh_mcp_servers()
         self.limits_button=QPushButton(self.tr('Limits…'));self.limits_button.clicked.connect(self.configure_limits);options.addWidget(self.limits_button)
         self.sources_button=QPushButton();self.sources_button.clicked.connect(self.show_sources)
@@ -446,6 +447,21 @@ class CodeTab(QWidget):
             if item.get('enabled'):self.mcp_choice.addItem(item['name']+(' · HTTPS' if item.get('transport')=='http' else ' · local'),item['name'])
         if current:self.mcp_choice.setCurrentIndex(max(0,self.mcp_choice.findData(current)))
 
+    def choose_additional_mcp(self):
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Additional MCP servers'));layout=QVBoxLayout(dialog)
+        note=QLabel(self.tr('Select up to five servers total, including the server selected in the Code pane. Each server must be approved before connecting.'));note.setWordWrap(True);layout.addWidget(note)
+        checks=[]
+        for item in self.store.config.get('mcp_servers',[]):
+            if not item.get('enabled'):continue
+            check=QCheckBox(item['name']+(' · HTTPS' if item.get('transport')=='http' else ' · local'));check.setChecked(item['name'] in self.mcp_extra);layout.addWidget(check);checks.append((item['name'],check))
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        selected=[name for name,check in checks if check.isChecked()]
+        primary=self.mcp_choice.currentData()
+        if len(set(selected+([primary] if primary else [])))>5:
+            QMessageBox.warning(self,self.tr('MCP servers'),self.tr('Select at most five servers total.'));return
+        self.mcp_extra=selected;self.mcp_extra_button.setText(self.tr('Additional servers ({count})…').format(count=len(selected)))
+
     def start_coding(self):
         if self.job or self._closed:return
         try:
@@ -470,13 +486,16 @@ class CodeTab(QWidget):
                 if not strict:
                     backends=[b for b in self.store.web_backend_specs() if b.get('kind') in SEARCH_KINDS and (b.get('kind')!='ollama' or direct)]
                     provider='managed'
-            server_name=self.mcp_choice.currentData();server=next((item for item in self.store.config.get('mcp_servers',[]) if item.get('name')==server_name and item.get('enabled')),None) if server_name else None
-            if server_name and not server:raise ValueError(self.tr('Selected MCP server is unavailable. Refresh the list.'))
-            if server:
-                from .mcp_code import CodingMCPBridge
-                mcp_bridge=CodingMCPBridge(server,self.store.config,self)
-            else:mcp_bridge=None
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridge=mcp_bridge)
+            primary=self.mcp_choice.currentData();names=list(dict.fromkeys(([primary] if primary else [])+self.mcp_extra))
+            if len(names)>5:raise ValueError(self.tr('Select at most five MCP servers.'))
+            entries=self.store.config.get('mcp_servers',[]);servers=[]
+            for name in names:
+                server=next((item for item in entries if item.get('name')==name and item.get('enabled')),None)
+                if not server:raise ValueError(self.tr('A selected MCP server is unavailable. Refresh the list.'))
+                servers.append(server)
+            from .mcp_code import CodingMCPBridge
+            mcp_bridges=[CodingMCPBridge(server,self.store.config,self) for server in servers]
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges)
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.')
@@ -490,7 +509,7 @@ class CodeTab(QWidget):
             self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False)
+        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -633,6 +652,17 @@ class CodeTab(QWidget):
                 text=self.tr('CONNECT TO REMOTE MCP SERVER\nServer: {server}\nDestination: {url}\n\nThe server receives a discovery request and any configured credential. Tool descriptions and results may be sent to the selected model.').format(**proposal)
             elif operation=='mcp_call_remote':
                 text=self.tr('REMOTE MCP TOOL CALL\nServer: {server}\nDestination: {url}\nTool: {tool}\n\nDescription:\n{description}\n\nInput schema:\n{schema}\n\nArguments:\n{arguments}\n\nThe server receives these arguments and may perform external actions.').format(server=proposal['server'],url=proposal['url'],tool=proposal['tool'],description=proposal['description'],schema=json.dumps(proposal['schema'],ensure_ascii=True,indent=2),arguments=json.dumps(proposal['arguments'],ensure_ascii=True,indent=2))
+            elif operation in ('mcp_list_resources','mcp_read_resource'):
+                destination=('Destination: '+proposal['url']) if 'url' in proposal else ('Executable: '+proposal['command']+'\nServer arguments: '+json.dumps(proposal['server_arguments'],ensure_ascii=True))
+                text=self.tr('MCP RESOURCE REQUEST\nServer: {server}\n{destination}\n\n{action}\n\nThe server may access your data. Resource metadata or text will be sent to the selected model.').format(server=proposal['server'],destination=destination,action=('List up to five pages or 100 resources.' if operation=='mcp_list_resources' else 'Read resource:\n'+json.dumps(proposal['resource'],ensure_ascii=True,indent=2)))
+            elif operation in ('mcp_list_resource_templates','mcp_read_resource_template'):
+                destination=('Destination: '+proposal['url']) if 'url' in proposal else ('Executable: '+proposal['command']+'\nServer arguments: '+json.dumps(proposal['server_arguments'],ensure_ascii=True))
+                action='List up to five pages or 100 resource templates.' if operation=='mcp_list_resource_templates' else 'Template:\n'+json.dumps(proposal['template'],ensure_ascii=True,indent=2)+'\n\nVariables:\n'+json.dumps(proposal['variables'],ensure_ascii=True,indent=2)+'\n\nExpanded URI:\n'+proposal['uri']
+                text=self.tr('MCP RESOURCE TEMPLATE REQUEST\nServer: {server}\n{destination}\n\n{action}\n\nThe server may access your data. Resource content will be sent to the selected model.').format(server=proposal['server'],destination=destination,action=action)
+            elif operation in ('mcp_list_prompts','mcp_get_prompt'):
+                destination=('Destination: '+proposal['url']) if 'url' in proposal else ('Executable: '+proposal['command']+'\nServer arguments: '+json.dumps(proposal['server_arguments'],ensure_ascii=True))
+                action='List up to five pages or 100 prompts.' if operation=='mcp_list_prompts' else 'Retrieve prompt:\n'+json.dumps(proposal['prompt'],ensure_ascii=True,indent=2)+'\n\nArguments:\n'+json.dumps(proposal['arguments'],ensure_ascii=True,indent=2)
+                text=self.tr('MCP PROMPT REQUEST\nServer: {server}\n{destination}\n\n{action}\n\nThe server receives these arguments. Prompt metadata or text will be sent to the selected model as untrusted data.').format(server=proposal['server'],destination=destination,action=action)
             elif operation=='mcp_call':
                 text=self.tr('MCP TOOL CALL\nServer: {server}\nExecutable: {command}\nServer arguments: {server_arguments}\nTool: {tool}\n\nDescription:\n{description}\n\nInput schema:\n{schema}\n\nArguments:\n{arguments}\n\nThe server may access your data or perform external actions.').format(server=proposal['server'],command=proposal['command'],server_arguments=json.dumps(proposal['server_arguments'],ensure_ascii=True),tool=proposal['tool'],description=proposal['description'],schema=json.dumps(proposal['schema'],ensure_ascii=True,indent=2),arguments=json.dumps(proposal['arguments'],ensure_ascii=True,indent=2))
             elif operation=='independent_review':
@@ -690,13 +720,13 @@ class CodeTab(QWidget):
         self.approval_panel.hide()
         for button in (self.approve,self.reject,self.cancel_button):button.setEnabled(False)
         self.simulate.setEnabled(True);self.send.setEnabled(True)
-        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True)
+        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 
     def cancel(self):
         if not self.job:return
         self.job.stop()
-        if getattr(self.job,'mcp_bridge',None):self.job.mcp_bridge.close()
+        for bridge in getattr(self.job,'mcp_bridges',[]):bridge.close()
         self.stop_subagents('cancelled');self.session['code_state']='cancelled';self.finish()
         self.record('cancelled','Run cancelled. No further tool work will be scheduled; project changes already applied are retained.')

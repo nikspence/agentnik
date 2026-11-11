@@ -105,6 +105,119 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(bridge.request.call_args_list[1].args[1]['arguments'],{'sql':'SELECT 1'})
             self.assertEqual(events[-1]['status'],'completed');bridge.close_signal.emit.assert_called_once()
 
+    def test_multiple_mcp_servers_route_colliding_names_independently(self):
+        from unittest.mock import Mock
+        tool={'name':'query','description':'Read','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            first=Mock();first.server={'name':'Database','command':'server','args':[],'enabled':True};first.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[{'type':'text','text':'database'}]}}]
+            second=Mock();second.server={'name':'Search','transport':'http','url':'https://example.com/mcp','credential_id':'opaque','enabled':True};second.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[{'type':'text','text':'search'}]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{'server':'Database'}),call('mcp_discover',{'server':'Search'},'two')],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'server':'Search','tool':'query','arguments':'{}'}),call('mcp_call',{'server':'Database','tool':'query','arguments':'{}'},'db'),call('mcp_call',{'server':'Other','tool':'query','arguments':'{}'},'other')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Use both',mcp_bridges=[first,second]);events=[];bodies=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['server'] for p in approvals],['Database','Search','Search','Database'])
+            self.assertEqual([entry.args[0] for entry in first.request.call_args_list],['discover','call']);self.assertEqual([entry.args[0] for entry in second.request.call_args_list],['discover','call'])
+            self.assertTrue(any('exact selected MCP server' in m.get('content','') for m in bodies[-1]['messages'] if m.get('role')=='tool'));self.assertEqual(events[-1]['status'],'completed')
+            first.close_signal.emit.assert_called_once();second.close_signal.emit.assert_called_once()
+            schemas={tool['function']['name']:tool['function']['parameters']['required'] for tool in bodies[0]['tools'] if tool['function']['name'].startswith('mcp_')};self.assertTrue(all('server' in fields for fields in schemas.values()))
+
+    def test_multiple_mcp_servers_reject_duplicate_names(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            first=Mock();first.server={'name':'Server'};second=Mock();second.server={'name':'server'}
+            with self.assertRaises(ValueError):CodingRun(dict(C,stream=False),directory,'test',mcp_bridges=[first,second])
+
+    def test_mcp_local_resources_require_separate_approvals_and_exact_uri(self):
+        from unittest.mock import Mock
+        item={'uri':'test://one','name':'One','description':'Example','mimeType':'text/plain'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Local','command':'server','args':[],'enabled':True}
+            bridge.request.side_effect=[{'tool_details':[],'capabilities':['resources']},{'resources':[item],'more_resources':False},{'contents':[{'uri':'test://one','text':'Evidence'}]}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_resources',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_read_resource',{'uri':'test://unlisted'}),call('mcp_read_resource',{'uri':'test://one'},'allowed')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Read resource',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_start','mcp_list_resources','mcp_read_resource'])
+            self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','resources_list','resources_read']);self.assertEqual(events[-1]['status'],'completed')
+
+    def test_remote_resource_requests_use_approval_and_exact_uri(self):
+        from unittest.mock import Mock
+        item={'uri':'test://one','name':'One','description':'Example','mimeType':'text/plain'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'opaque','enabled':True}
+            bridge.request.side_effect=[{'tool_details':[],'capabilities':['resources']},{'resources':[item]},{'contents':[{'uri':'test://one','text':'Evidence'}]}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_resources',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_read_resource',{'uri':'test://one'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Read remote resource',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal']
+            self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_list_resources','mcp_read_resource']);self.assertEqual(proposals[-1]['url'],'https://example.com/mcp');self.assertEqual(proposals[-1]['resource']['uri'],'test://one');self.assertNotIn('credential_id',str(proposals));self.assertEqual(events[-1]['status'],'completed')
+
+    def test_mcp_prompts_require_approval_and_remain_tool_results(self):
+        from unittest.mock import Mock
+        prompt={'name':'review','description':'Review code','arguments':[{'name':'code','description':'source','required':True}]}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'opaque','enabled':True}
+            bridge.request.side_effect=[{'tool_details':[],'capabilities':['prompts']},{'prompts':[prompt]},{'messages':[{'role':'user','content':{'type':'text','text':'Review this'}}]}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_prompts',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_get_prompt',{'name':'review','arguments':'{}'}),call('mcp_get_prompt',{'name':'review','arguments':'{"code":"abc"}'},'ok')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Review',mcp_bridge=bridge);events=[];bodies=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_list_prompts','mcp_get_prompt']);self.assertEqual(proposals[-1]['arguments'],{'code':'abc'})
+            self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','prompts_list','prompts_get']);self.assertEqual(events[-1]['status'],'completed')
+            self.assertTrue(any(message.get('role')=='tool' and 'untrusted' in message.get('content','').lower() and 'Review this' in message.get('content','') for message in bodies[-1]['messages']))
+
+    def test_mcp_prompt_rejection_does_not_send_get(self):
+        from unittest.mock import Mock
+        prompt={'name':'review','description':'Review','arguments':[]}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Local','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':[],'capabilities':['prompts']},{'prompts':[prompt]}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_prompts',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_get_prompt',{'name':'review','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Review',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['operation']!='mcp_get_prompt')
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','prompts_list']);self.assertEqual(events[-1]['status'],'completed')
+
+    def test_mcp_resource_template_approved_with_expanded_uri(self):
+        from unittest.mock import Mock
+        template={'uriTemplate':'test://item/{id}','name':'Item','description':'','mimeType':'text/plain','supported':True,'variables':['id']}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'opaque','enabled':True}
+            bridge.request.side_effect=[{'tool_details':[],'capabilities':['resources']},{'templates':[template]},{'contents':[{'uri':'test://item/a%2Fb','text':'Evidence'}]}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_resource_templates',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_read_resource_template',{'template':'test://item/{id}','variables':'{"id":"a/b"}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Read',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_list_resource_templates','mcp_read_resource_template']);self.assertEqual(proposals[-1]['uri'],'test://item/a%2Fb');self.assertEqual(bridge.request.call_args.args[1]['uri'],'test://item/a%2Fb');self.assertEqual(events[-1]['status'],'completed')
+
+    def test_mcp_task_required_tool_is_not_sent_or_approved(self):
+        from unittest.mock import Mock
+        detail={'name':'long_job','description':'Run job','description_clipped':False,'schema':{'type':'object'},'schema_status':'available','task_support':'required'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'DB','command':'server','args':[],'enabled':True};bridge.request.return_value={'tool_details':[detail]}
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'long_job','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Run',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_start']);self.assertEqual(bridge.request.call_count,1)
+            self.assertEqual(events[-1]['status'],'completed')
+
     def test_remote_mcp_model_approves_connection_and_exact_call(self):
         from unittest.mock import Mock
         detail={'name':'search','description':'Search','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
@@ -234,6 +347,21 @@ class ModelCoding(unittest.TestCase):
             self.assertIn('do not retry',first['error'])
             self.assertTrue(any('direct public page reads remain available' in event.get('text','') for event in events))
             self.assertTrue(any('Source S1:' in event.get('text','') for event in events))
+
+    def test_search_access_failure_keeps_sources_and_stops_retries(self):
+        from agentnik.tools import AccessError,Source
+        for error in (AccessError('Destination resolves to a restricted address'),core.EndpointError(403,'private provider response')):
+            with self.subTest(error=type(error).__name__),tempfile.TemporaryDirectory() as directory:
+                events=[];bodies=[];source=Source('','Public','https://example.com/','public result','now')
+                searches=[call('web_search',{'query':'first'}),call('web_search',{'query':'second'},'two'),call('web_search',{'query':'blocked'},'three'),call('web_search',{'query':'retry'},'four')]
+                replies=[Wire(chat(calls=searches,finish='tool_calls'),False),Wire(chat('Used available sources [S1]'),False)]
+                def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch('agentnik.code_agent.OrderedSearch') as backend,patch.object(core,'open_request',side_effect=send):
+                    backend.return_value.search.side_effect=[[source],[source],error]
+                    run=CodingRun(dict(C,stream=False),directory,'Research',web_backends=[{'id':'brave','kind':'brave','name':'Brave','key':'private-key'}],web_enabled=True,search_provider='managed');run.run(events.append)
+                self.assertEqual(backend.return_value.search.call_count,3);self.assertEqual(events[-1]['status'],'completed');self.assertEqual(len([e for e in events if e['kind']=='source']),2)
+                outputs=[json.loads(m['content']) for m in bodies[-1]['messages'] if m.get('role')=='tool'];self.assertIn('do not retry',outputs[2]['error'].lower());self.assertIn('do not retry',outputs[3]['error'].lower());self.assertNotIn('private-key',json.dumps(events));self.assertTrue(any('Further searches are disabled' in e.get('text','') for e in events))
+                if isinstance(error,core.EndpointError):self.assertTrue(any('HTTP 403' in e.get('text','') for e in events))
 
     def test_keyless_fetch_only_exposes_no_search_tool(self):
         from agentnik.tools import Source

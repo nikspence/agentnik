@@ -39,8 +39,16 @@ class CodingMCPBridge(QObject):
             if self.session:
                 self._reply(request, {'error':'MCP session already started.'}); return
             self.session = LocalSession(self.server['command'], self.server['args'], self)
-            self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended)
+            self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called)
             self.session.start()
+        elif request['action'] in ('prompts_list','prompts_get') and self.session:
+            if not self.session.list_prompts(request['payload'] if request['action']=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})
+        elif request['action'] in ('templates_list','templates_read') and self.session:
+            payload=request['payload'];ok=self.session.list_resource_templates() if request['action']=='templates_list' else self.session.read_resource_template(payload['template'],payload['arguments'],payload['uri'])
+            if not ok:self._reply(request, {'error':'MCP resource template unavailable or invalid.'})
+        elif request['action'] in ('resources_list','resources_read') and self.session:
+            ok=self.session.list_resources() if request['action']=='resources_list' else self.session.read_resource(request['payload']['uri'])
+            if not ok:self._reply(request, {'error':'MCP resources unavailable or not discovered.'})
         elif request['action'] == 'call' and self.session:
             payload=request['payload']
             if not self.session.call(payload['tool'],payload['arguments']): self._reply(request, {'error':'MCP session is no longer available.'})
@@ -63,8 +71,19 @@ class CodingMCPBridge(QObject):
                     self._reply(request, {'error':'MCP credential is unavailable or invalid.'}); return
             from .mcp_remote import RemoteSession
             session=RemoteSession(self.server['url'],token,self);self.session=session
-            session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended)
+            session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended);session.resources.connect(self._called);session.prompts.connect(self._called)
             session.finished.connect(lambda _result:session.deleteLater());session.start();return
+        if action in ('prompts_list','prompts_get') and self.session:
+            if not self.session.list_prompts(request['payload'] if action=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})
+            return
+        if action in ('templates_list','templates_read') and self.session:
+            payload=request['payload'];ok=self.session.list_resource_templates() if action=='templates_list' else self.session.read_resource_template(payload['template'],payload['arguments'],payload['uri'])
+            if not ok:self._reply(request, {'error':'MCP resource template unavailable or invalid.'})
+            return
+        if action in ('resources_list','resources_read') and self.session:
+            ok=self.session.list_resources() if action=='resources_list' else self.session.read_resource(request['payload']['uri'])
+            if not ok:self._reply(request, {'error':'MCP resources unavailable or not discovered.'})
+            return
         if action=='call' and self.session:
             payload=request['payload']
             import json

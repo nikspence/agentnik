@@ -20,6 +20,8 @@ Choose any of the supported providers or keyless mode; up to five configured pro
 
 LangSearch currently advertises a free plan with account/token/rate allowances. Firecrawl offers free access with limits as well as paid plans. Select **Firecrawl (keyless)** to use search with no API key. It is also the automatic fallback after configured profiles, or the default when none are configured. Its daily quota is shared by public IP. Selecting keyless mode never consumes a saved or environment Firecrawl key. Self-hosted Firecrawl is not part of this adapter. Check current [LangSearch pricing](https://langsearch.com/pricing) and [Firecrawl pricing](https://www.firecrawl.dev/pricing) before choosing a plan. Free access does not remove rate limits.
 
+Brave Search omits individual result URLs that fail public-address validation; it never fetches or displays them. In Code, an access-blocked search disables further searches for the run, reports an HTTP status when available, and permits work with sources already obtained. It does not retry the blocked search or bypass access controls.
+
 ## Routing, limits, and disclosure
 
 Chat and Code use **configured profiles → Firecrawl Keyless → Google scrape**. With no configured profiles, keyless Firecrawl is first. If an explicit keyless profile is present, its chosen position is preserved and no duplicate is appended. The five configured-profile budget is unchanged; at most two built-in fallback entries can extend the chain, so each logical search considers at most seven entries. These defaults do not persist new settings or start requests by themselves: Web access/Allow web research and the model's tool call are still required.
