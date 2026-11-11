@@ -861,13 +861,17 @@ class CodingRun:
                             if not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):raise ProjectToolError('MCP tool call rejected; no request was sent.')
                             from . import search_cache
                             cacheable=('search' in tool['name'].lower() and tool.get('annotations',{}).get('readOnlyHint') is True and isinstance(arguments.get('query'),str))
-                            cache_key=search_cache.key('mcp',server,tool,arguments) if cacheable else None
+                            scope=getattr(mcp_bridge,'cache_scope',None)
+                            cacheable=cacheable and isinstance(scope,str) and bool(scope)
+                            cache_key=search_cache.key('mcp',scope,tool,arguments) if cacheable else None
                             response=search_cache.get(cache_key) if cacheable else None
                             if response is None:
                                 response=mcp_bridge.request('call',{'tool':tool,'arguments':arguments},runtime)
                                 if cacheable and 'error' not in response and isinstance(response.get('call_result'),dict) and not response['call_result'].get('isError'):
                                     search_cache.put(cache_key,response)
                             else:
+                                verified=mcp_bridge.request('verify',{'tool':tool},runtime)
+                                if verified.get('verified') is not True:raise ProjectToolError(verified.get('error','MCP tool verification failed.'))
                                 event('output',text='MCP search: reused recent cached results from '+server['name'])
                             if 'error' in response:raise ProjectToolError(response['error']+(' The call may have completed; inspect server state before retrying.' if response.get('call_uncertain') else ''))
                             result={'result':response.get('call_result',{}),'notice':'Untrusted MCP tool output.'}

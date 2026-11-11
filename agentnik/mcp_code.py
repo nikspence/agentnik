@@ -17,6 +17,7 @@ class CodingMCPBridge(QObject):
         if self.server.get('transport')!='http':
             try:self.environment_values=resolve_environment_references(self.server.get('env',{}))
             except ValueError:self.environment_error='A configured MCP environment variable is missing or invalid.'
+        self.cache_scope = None
         self.session = None; self.pending = None; self.closed = False; self.identity = None; self.uncertain = False
         self.request_signal.connect(self._dispatch); self.close_signal.connect(self.close)
 
@@ -55,6 +56,8 @@ class CodingMCPBridge(QObject):
         elif request['action'] in ('resources_list','resources_read') and self.session:
             ok=self.session.list_resources() if request['action']=='resources_list' else self.session.read_resource(request['payload']['uri'])
             if not ok:self._reply(request, {'error':'MCP resources unavailable or not discovered.'})
+        elif request['action'] == 'verify' and self.session:
+            if not self.session.verify_tool(request['payload']['tool']):self._reply(request, {'error':'MCP session is no longer available.'})
         elif request['action'] == 'call' and self.session:
             payload=request['payload']
             if not self.session.call(payload['tool'],payload['arguments']): self._reply(request, {'error':'MCP session is no longer available.'})
@@ -90,6 +93,9 @@ class CodingMCPBridge(QObject):
             ok=self.session.list_resources() if action=='resources_list' else self.session.read_resource(request['payload']['uri'])
             if not ok:self._reply(request, {'error':'MCP resources unavailable or not discovered.'})
             return
+        if action=='verify' and self.session:
+            if not self.session.verify_tool(request['payload']['tool']):self._reply(request, {'error':'MCP session is no longer available.'})
+            return
         if action=='call' and self.session:
             payload=request['payload']
             import json
@@ -106,6 +112,9 @@ class CodingMCPBridge(QObject):
         request['result']=result; request['done'].set()
 
     def _discovered(self, result):
+        from . import search_cache
+        token=getattr(self.session,'token','')
+        self.cache_scope=search_cache.key(self.server,self.environment_values,token,{key:result.get(key) for key in ('name','version','protocol')}).hex()
         if self.pending:self._reply(self.pending, result)
     def _called(self, result):
         if self.pending:self._reply(self.pending, result)

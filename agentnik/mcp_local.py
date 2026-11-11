@@ -163,12 +163,21 @@ class LocalSession(QObject):
             current=next((item for item in self.details if item['name']==expected['name']),None)
             if current!=expected or current.get('schema_status')!='available' or current.get('task_support')=='required':
                 self.fail('MCP tool definition changed or requires unsupported task execution.');return
+            if self.invocation.get('verify_only'):
+                self.invocation=None;self.phase='ready';self.timer.stop();self.called.emit({'verified':True});return
             args=self.invocation['arguments'];self.invocation=None
             self.phase='call';self.next_id+=1
             self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tools/call','params':{'name':current['name'],'arguments':args}});return
         self.phase = 'ready'; self.timer.stop()
         self.info.update(tools=self.names[:MAX_TOOLS], tool_details=self.details, more_tools=more)
         self.discovered.emit(self.info)
+
+    def verify_tool(self, tool):
+        if self.closed or self.phase != 'ready' or tool not in self.details or tool.get('task_support')=='required': return False
+        self.invocation={'tool':tool,'verify_only':True}
+        self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
+        self.timer.start(30000);self.list_page(None)
+        return True
 
     def call(self, tool, args):
         if self.closed or self.phase != 'ready' or tool not in self.details or tool.get('task_support')=='required': return False

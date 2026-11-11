@@ -185,6 +185,8 @@ class RemoteProbe(QObject):
                 expected=self.invocation['tool'];current=next((item for item in self.details if item['name']==expected['name']),None)
                 if current!=expected or current.get('schema_status')!='available' or current.get('task_support')=='required':
                     self.stop('MCP tool definition changed; test the server again before calling.');return
+                if self.invocation.get('verify_only'):
+                    self.invocation=None;self.timer.stop();self.phase='ready';self.called.emit({'verified':True});return
                 args=self.invocation['arguments'];payload=json.dumps(args,ensure_ascii=False,allow_nan=False)
                 if not isinstance(args,dict) or len(payload.encode())>16000 or (self.token and self.token in payload):raise ValueError('Invalid MCP tool arguments')
                 self.phase='call';self.send({'jsonrpc':'2.0','id':self.pages+2,'method':'tools/call','params':{'name':current['name'],'arguments':args}});return
@@ -230,6 +232,14 @@ class RemoteSession(RemoteProbe):
         outcome=self.result.pop('call_result')
         self.timer.stop();self.phase='ready';self.invocation=None
         self.called.emit({'call_result':outcome})
+
+    def verify_tool(self,tool):
+        if self.closed or self.phase!='ready':return False
+        self.invocation={'tool':tool,'verify_only':True}
+        self.pages=1;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
+        self.phase='tools';self.timer.start(15000)
+        self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}})
+        return True
 
     def call(self,tool,arguments):
         if self.closed or self.phase!='ready':return False

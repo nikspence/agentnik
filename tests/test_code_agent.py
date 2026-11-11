@@ -96,6 +96,38 @@ class ModelCoding(unittest.TestCase):
         from agentnik import search_cache
         search_cache._entries.clear()
 
+    def test_mcp_search_cache_reuses_only_success_and_verifies_each_hit(self):
+        from unittest.mock import Mock
+        detail={'name':'web_search','description':'Search','description_clipped':False,'schema':{'type':'object','properties':{'query':{'type':'string'}},'required':['query'],'additionalProperties':False},'schema_status':'available','annotations':{'readOnlyHint':True}}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Search','command':'search','args':[],'enabled':True};bridge.cache_scope='account-one'
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'text','text':'result'}]}},{'verified':True}]
+            args={'tool':'web_search','arguments':'{"query":"same"}'}
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args),call('mcp_call',args,'second')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Search',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual([x.args[0] for x in bridge.request.call_args_list],['discover','call','verify'])
+            self.assertEqual(len([x for x in events if x['kind']=='operation_proposal']),3)
+            self.assertTrue(any('reused recent cached' in x.get('text','') for x in events))
+            self.assertEqual(events[-1]['status'],'completed')
+
+    def test_mcp_search_errors_are_not_cached(self):
+        from unittest.mock import Mock
+        detail={'name':'search','description':'Search','description_clipped':False,'schema':{'type':'object','properties':{'query':{'type':'string'}},'required':['query']},'schema_status':'available','annotations':{'readOnlyHint':True}}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Search','command':'search','args':[],'enabled':True};bridge.cache_scope='account-one'
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'isError':True,'content':[]}},{'call_result':{'content':[{'type':'text','text':'result'}]}}]
+            args={'tool':'search','arguments':'{"query":"same"}'}
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args),call('mcp_call',args,'second')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Search',mcp_bridge=bridge)
+            def emit(event):
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual([x.args[0] for x in bridge.request.call_args_list],['discover','call','call'])
+
     def test_local_mcp_model_requests_require_start_and_call_approvals(self):
         from unittest.mock import Mock
         detail={'name':'query','description':'Run query','description_clipped':False,'schema':{'$schema':'http://json-schema.org/draft-07/schema#','type':'object','definitions':{'statement':{'anyOf':[{'type':'string','minLength':1},{'type':'null'}]}},'properties':{'sql':{'$ref':'#/definitions/statement'}},'required':['sql'],'additionalProperties':False},'schema_status':'available','annotations':{'readOnlyHint':True}}
