@@ -208,7 +208,7 @@ class CodeTab(QWidget):
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));options.addWidget(self.web_enabled)
         self.web_enabled.toggled.connect(self.save_web_enabled)
         mcp_row=QHBoxLayout();layout.addLayout(mcp_row);mcp_row.addWidget(QLabel(self.tr('MCP server for this run:')))
-        self.mcp_choice=QComboBox();self.mcp_choice.setToolTip(self.tr('Optional local MCP server for this run. Starting it and every tool call require approval; tool results go to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
+        self.mcp_choice=QComboBox();self.mcp_choice.setToolTip(self.tr('Optional MCP server for this run. Connecting or starting it and every tool call require approval; tool results go to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
         self.mcp_refresh=QPushButton(self.tr('Refresh MCP'));self.mcp_refresh.clicked.connect(self.refresh_mcp_servers);mcp_row.addWidget(self.mcp_refresh);self.refresh_mcp_servers()
         self.limits_button=QPushButton(self.tr('Limits…'));self.limits_button.clicked.connect(self.configure_limits);options.addWidget(self.limits_button)
         self.sources_button=QPushButton();self.sources_button.clicked.connect(self.show_sources)
@@ -443,7 +443,7 @@ class CodeTab(QWidget):
     def refresh_mcp_servers(self):
         current=self.mcp_choice.currentData();self.mcp_choice.clear();self.mcp_choice.addItem(self.tr('No MCP server'),None)
         for item in self.store.config.get('mcp_servers',[]):
-            if item.get('enabled') and item.get('transport')!='http':self.mcp_choice.addItem(item['name'],item['name'])
+            if item.get('enabled'):self.mcp_choice.addItem(item['name']+(' · HTTPS' if item.get('transport')=='http' else ' · local'),item['name'])
         if current:self.mcp_choice.setCurrentIndex(max(0,self.mcp_choice.findData(current)))
 
     def start_coding(self):
@@ -470,7 +470,7 @@ class CodeTab(QWidget):
                 if not strict:
                     backends=[b for b in self.store.web_backend_specs() if b.get('kind') in SEARCH_KINDS and (b.get('kind')!='ollama' or direct)]
                     provider='managed'
-            server_name=self.mcp_choice.currentData();server=next((item for item in self.store.config.get('mcp_servers',[]) if item.get('name')==server_name and item.get('enabled') and item.get('transport')!='http'),None) if server_name else None
+            server_name=self.mcp_choice.currentData();server=next((item for item in self.store.config.get('mcp_servers',[]) if item.get('name')==server_name and item.get('enabled')),None) if server_name else None
             if server_name and not server:raise ValueError(self.tr('Selected MCP server is unavailable. Refresh the list.'))
             if server:
                 from .mcp_code import CodingMCPBridge
@@ -629,6 +629,10 @@ class CodeTab(QWidget):
             self.diff.setPlainText(proposal.get('diff',''));self.diff.setVisible(operation in ('delete_file','git_commit','git_commit_staged','git_stage','git_unstage','subagent_file_transfer','independent_review'))
             if operation=='mcp_start':
                 text=self.tr('START LOCAL MCP SERVER\nServer: {server}\nExecutable: {command}\nArguments: {arguments}\n\nThis program runs with your user permissions. Tool descriptions and results may be sent to the selected model.').format(server=proposal['server'],command=proposal['command'],arguments=json.dumps(proposal['arguments'],ensure_ascii=True))
+            elif operation=='mcp_connect':
+                text=self.tr('CONNECT TO REMOTE MCP SERVER\nServer: {server}\nDestination: {url}\n\nThe server receives a discovery request and any configured credential. Tool descriptions and results may be sent to the selected model.').format(**proposal)
+            elif operation=='mcp_call_remote':
+                text=self.tr('REMOTE MCP TOOL CALL\nServer: {server}\nDestination: {url}\nTool: {tool}\n\nDescription:\n{description}\n\nInput schema:\n{schema}\n\nArguments:\n{arguments}\n\nThe server receives these arguments and may perform external actions.').format(server=proposal['server'],url=proposal['url'],tool=proposal['tool'],description=proposal['description'],schema=json.dumps(proposal['schema'],ensure_ascii=True,indent=2),arguments=json.dumps(proposal['arguments'],ensure_ascii=True,indent=2))
             elif operation=='mcp_call':
                 text=self.tr('MCP TOOL CALL\nServer: {server}\nExecutable: {command}\nServer arguments: {server_arguments}\nTool: {tool}\n\nDescription:\n{description}\n\nInput schema:\n{schema}\n\nArguments:\n{arguments}\n\nThe server may access your data or perform external actions.').format(server=proposal['server'],command=proposal['command'],server_arguments=json.dumps(proposal['server_arguments'],ensure_ascii=True),tool=proposal['tool'],description=proposal['description'],schema=json.dumps(proposal['schema'],ensure_ascii=True,indent=2),arguments=json.dumps(proposal['arguments'],ensure_ascii=True,indent=2))
             elif operation=='independent_review':

@@ -22,6 +22,13 @@ def preview_tool(item):
     if len(encoded)>MAX_SCHEMA:return {'description':description,'description_clipped':description_clipped,'schema':None,'schema_status':'oversized'}
     return {'description':description,'description_clipped':description_clipped,'schema':schema,'schema_status':'available'}
 
+def contains_secret(value,secret):
+    if isinstance(value,str):return secret in value
+    if isinstance(value,list):return any(contains_secret(item,secret) for item in value)
+    if isinstance(value,dict):return any(contains_secret(key,secret) or contains_secret(item,secret) for key,item in value.items())
+    return False
+
+
 def response_message(data,content_type,expected_id):
     if content_type=='application/json':messages=[data]
     elif content_type=='text/event-stream':
@@ -37,18 +44,21 @@ def response_message(data,content_type,expected_id):
         if not isinstance(message,dict) or message.get('jsonrpc')!='2.0':raise ValueError('Invalid MCP response')
         if message.get('id')==expected_id and type(message.get('id')) is int:found.append(message)
         elif 'id' in message:raise ValueError('Unsupported server request or unexpected response')
+        elif message.get('method')=='notifications/tools/list_changed':raise ValueError('MCP tool list changed')
     if len(found)!=1:raise ValueError('Missing or duplicate MCP response')
     return found[0]
 
 
 class RemoteProbe(QObject):
     finished=Signal(object)
-    def __init__(self,url,token,parent=None,invocation=None):
-        super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
+    def __init__(self,url,token,parent=None,invocation=None,expected_identity=None):
+        super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(15000);self.send(initialize_request())
     def send(self,message):
+        if 'id' in message:
+            self.next_id+=1;self.current_id=self.next_id;message=dict(message,id=self.current_id)
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
@@ -76,19 +86,22 @@ class RemoteProbe(QObject):
             if self.phase=='initialized':
                 if 'tools' not in self.result['capabilities']:
                     if self.invocation:raise ValueError('MCP tools unavailable')
-                    self.result['tools']=[];self.result['tool_details']=[];self.result['more_tools']=False;self.close_session();return
+                    self.result['tools']=[];self.result['tool_details']=[];self.result['more_tools']=False;self.finish_discovery();return
                 self.phase='tools';self.pages=1;self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}});return
             ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
-            message=response_message(bytes(self.buffer),ctype,1 if self.phase=='initialize' else self.pages+2 if self.phase=='call' else self.pages+1)
+            message=response_message(bytes(self.buffer),ctype,self.current_id)
+            if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
             if self.phase=='initialize':
-                self.result=parse_initialize(json.dumps(message).encode());session=reply.rawHeader('Mcp-Session-Id')
+                self.result=parse_initialize(json.dumps(message).encode())
+                if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
+                session=reply.rawHeader('Mcp-Session-Id')
                 if not isinstance(session,str):session=bytes(session).decode('ascii')
                 if len(session)>512 or any(ord(ch)<33 or ord(ch)>126 for ch in session):raise ValueError('Invalid MCP session identifier')
                 self.session=session;self.phase='initialized';self.send({'jsonrpc':'2.0','method':'notifications/initialized'});return
             if self.phase=='call':
                 outcome=message.get('result')
                 if not isinstance(outcome,dict) or not isinstance(outcome.get('content'),list) or ('isError' in outcome and type(outcome['isError']) is not bool):raise ValueError('Invalid MCP tool result')
-                self.result['call_result']=outcome;self.close_session();return
+                self.result['call_result']=outcome;self.finish_call();return
             result=message.get('result');tools=result.get('tools') if isinstance(result,dict) else None
             if not isinstance(tools,list) or len(tools)>MAX_TOOLS:raise ValueError('Invalid MCP tool list')
             for item in tools:
@@ -115,8 +128,12 @@ class RemoteProbe(QObject):
                 args=self.invocation['arguments'];payload=json.dumps(args,ensure_ascii=False,allow_nan=False)
                 if not isinstance(args,dict) or len(payload.encode())>16000 or (self.token and self.token in payload):raise ValueError('Invalid MCP tool arguments')
                 self.phase='call';self.send({'jsonrpc':'2.0','id':self.pages+2,'method':'tools/call','params':{'name':current['name'],'arguments':args}});return
-            self.close_session()
+            self.finish_discovery()
         except (ValueError,UnicodeError,TypeError,RecursionError):self.stop('Invalid or unsupported MCP server response.')
+    def finish_discovery(self):
+        self.close_session()
+    def finish_call(self):
+        self.close_session()
     def close_session(self):
         if not self.session:self.complete(None);return
         self.phase='closing';self.timer.start(3000)
@@ -131,3 +148,51 @@ class RemoteProbe(QObject):
         if reply:reply.abort();reply.deleteLater()
         if self.phase=='closing' and self.result:self.complete(False);return
         self.token='';self.finished.emit({'error':message,'call_uncertain':self.phase=='call'})
+
+
+class RemoteSession(RemoteProbe):
+    """One bounded Streamable HTTP session shared by a coding run."""
+    discovered=Signal(object)
+    called=Signal(object)
+    ended=Signal(object)
+
+    def __init__(self,url,token,parent=None):
+        super().__init__(url,token,parent)
+        self.closed=False
+
+    def finish_discovery(self):
+        self.timer.stop();self.phase='ready'
+        self.discovered.emit(dict(self.result,session_stateful=bool(self.session)))
+
+    def finish_call(self):
+        outcome=self.result.pop('call_result')
+        self.timer.stop();self.phase='ready';self.invocation=None
+        self.called.emit({'call_result':outcome})
+
+    def call(self,tool,arguments):
+        if self.closed or self.phase!='ready':return False
+        self.invocation={'tool':tool,'arguments':arguments}
+        self.pages=1;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
+        self.phase='tools';self.timer.start(15000)
+        self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}})
+        return True
+
+    def shutdown(self):
+        if self.closed:return
+        self.closed=True;self.timer.stop()
+        reply=self.reply;self.reply=None
+        if reply:reply.abort();reply.deleteLater()
+        if self.session:
+            self.close_session()
+        else:
+            self.token='';self.finished.emit({'session_closed':None})
+
+    def complete(self,closed):
+        self.timer.stop();self.token='';self.finished.emit({'session_closed':closed})
+
+    def stop(self,message='MCP connection cancelled.'):
+        if self.phase=='closing':
+            super().stop(message);return
+        uncertain=self.phase=='call'
+        self.ended.emit({'error':message,'call_uncertain':uncertain})
+        self.shutdown()

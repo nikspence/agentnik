@@ -156,6 +156,72 @@ for line in sys.stdin:
                 self.assertEqual(len(results),3);self.assertIn('success',dialog.tool_result.toPlainText());dialog.close()
             finally:window.close();app.processEvents();store.db.close()
 
+    def test_coding_remote_session_is_stateful_and_rechecks_tool_changes(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_code import CodingMCPBridge
+        from agentnik.tools import Runtime,Limits
+        calls=[];state={'value':0,'changed':False}
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];calls.append((method,body.get('id'),self.headers.get('Mcp-Session-Id')))
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+                elif method=='tools/list':result={'tools':[{'name':'step','description':'Changed' if state['changed'] else 'Count','inputSchema':{'type':'object'}}]}
+                else:state['value']+=1;result={'content':[{'type':'text','text':str(state['value'])}]}
+                payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
+            def do_DELETE(self):
+                calls.append(('DELETE',None,self.headers.get('Mcp-Session-Id')));self.send_response(204);self.end_headers()
+        app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);server_thread=threading.Thread(target=server.serve_forever,daemon=True);server_thread.start()
+        config={'mcp_servers':[{'name':'Remote','transport':'http','url':'http://127.0.0.1:'+str(server.server_port)+'/mcp','credential_id':'','enabled':True}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config);runtime=Runtime(threading.Event(),Limits());out=[]
+        def work():
+            info=bridge.request('discover',{},runtime);payload={'tool':info['tool_details'][0],'arguments':{}}
+            out.append(bridge.request('call',payload,runtime));out.append(bridge.request('call',payload,runtime));state['changed']=True
+            out.append(bridge.request('call',payload,runtime));bridge.close_signal.emit()
+        try:
+            thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() and any(item[0]=='DELETE' for item in calls) else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1)
+            self.assertFalse(thread.is_alive());self.assertEqual([out[0]['call_result']['content'][0]['text'],out[1]['call_result']['content'][0]['text']],['1','2'])
+            self.assertIn('definition changed',out[2]['error']);self.assertEqual([c[0] for c in calls].count('initialize'),1);self.assertEqual([c[0] for c in calls].count('tools/call'),2)
+            self.assertTrue(all(c[2]=='session-one' for c in calls[1:]));ids=[c[1] for c in calls if c[1] is not None];self.assertEqual(len(ids),len(set(ids)));self.assertEqual(calls[-1][0],'DELETE')
+        finally:bridge.close();server.shutdown();server.server_close();server_thread.join(2)
+
+    def test_coding_remote_bridge_rechecks_and_stops_after_uncertainty(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_code import CodingMCPBridge
+        from agentnik.tools import Runtime,Limits
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];calls.append(method)
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if method=='tools/call':self.connection.close();return
+                result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}} if method=='initialize' else {'tools':[{'name':'query','description':'Query','inputSchema':{'type':'object'}}]}
+                payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);server_thread=threading.Thread(target=server.serve_forever,daemon=True);server_thread.start()
+        config={'mcp_servers':[{'name':'Remote','transport':'http','url':'http://127.0.0.1:'+str(server.server_port)+'/mcp','credential_id':'saved','enabled':True}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config);runtime=Runtime(threading.Event(),Limits());out=[]
+        def work():
+            info=bridge.request('discover',{},runtime);out.append(info);payload={'tool':info['tool_details'][0],'arguments':{}}
+            out.append(bridge.request('call',payload,runtime));out.append(bridge.request('call',payload,runtime));bridge.close_signal.emit()
+        try:
+            with patch('keyring.get_password',return_value='secret-token'):
+                thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1);app.processEvents()
+            self.assertFalse(thread.is_alive());self.assertTrue(out[1]['call_uncertain']);self.assertIn('uncertain',out[2]['error']);self.assertEqual(calls.count('tools/call'),1);self.assertNotIn('secret-token',str(out))
+        finally:bridge.close();server.shutdown();server.server_close();server_thread.join(2)
+
+    def test_remote_response_secret_is_detected_after_json_unescaping(self):
+        from agentnik.mcp_remote import contains_secret
+        self.assertTrue(contains_secret(json.loads('{"text":"s\\u0065cret"}'),'secret'))
+        self.assertTrue(contains_secret({'secret':'value'},'secret'))
+
     def test_coding_bridge_keeps_local_session_and_checks_configuration(self):
         import threading
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')

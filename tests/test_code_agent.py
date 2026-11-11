@@ -105,6 +105,22 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(bridge.request.call_args_list[1].args[1]['arguments'],{'sql':'SELECT 1'})
             self.assertEqual(events[-1]['status'],'completed');bridge.close_signal.emit.assert_called_once()
 
+    def test_remote_mcp_model_approves_connection_and_exact_call(self):
+        from unittest.mock import Mock
+        detail={'name':'search','description':'Search','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'opaque','enabled':True}
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'text','text':'found'}]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'search','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Search',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal']
+            self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_call_remote'])
+            self.assertEqual(proposals[1]['url'],'https://example.com/mcp');self.assertNotIn('credential_id',str(proposals));self.assertEqual(events[-1]['status'],'completed')
+
     def test_mcp_rejected_call_and_invalid_arguments_never_execute(self):
         from unittest.mock import Mock
         detail={'name':'query','description':'Query','description_clipped':False,'schema':{'type':'object','properties':{'sql':{'type':'string'}},'required':['sql']},'schema_status':'available'}

@@ -1,4 +1,4 @@
-"""Bridge a coding worker to one explicitly selected Qt stdio MCP session."""
+"""Bridge a coding worker to one explicitly selected MCP server."""
 import copy
 import threading
 from PySide6.QtCore import QObject, Signal, Slot
@@ -12,7 +12,7 @@ class CodingMCPBridge(QObject):
     def __init__(self, server, config, parent=None):
         super().__init__(parent)
         self.server = copy.deepcopy(server); self.config = config
-        self.session = None; self.pending = None; self.closed = False
+        self.session = None; self.pending = None; self.closed = False; self.identity = None; self.uncertain = False
         self.request_signal.connect(self._dispatch); self.close_signal.connect(self.close)
 
     def request(self, action, payload, runtime):
@@ -33,6 +33,8 @@ class CodingMCPBridge(QObject):
         if self.pending:
             self._reply(request, {'error':'MCP session is busy.'}); return
         self.pending = request
+        if self.server.get('transport')=='http':
+            self._remote(request); return
         if request['action'] == 'discover':
             if self.session:
                 self._reply(request, {'error':'MCP session already started.'}); return
@@ -44,6 +46,36 @@ class CodingMCPBridge(QObject):
             if not self.session.call(payload['tool'],payload['arguments']): self._reply(request, {'error':'MCP session is no longer available.'})
         else:self._reply(request, {'error':'MCP session is unavailable.'})
 
+    def _remote(self, request):
+        action=request['action']
+        if self.uncertain:
+            self._reply(request, {'error':'A prior MCP call has an uncertain outcome; inspect server state before starting another run.'}); return
+        if action=='discover':
+            if self.session:
+                self._reply(request, {'error':'MCP session already started.'}); return
+            token=''
+            if self.server['credential_id']:
+                try:
+                    import keyring
+                    token=keyring.get_password('Agentnik',self.server['credential_id']) or ''
+                except Exception:token=''
+                if not token or len(token)>4096 or any(not 33<=ord(ch)<=126 for ch in token):
+                    self._reply(request, {'error':'MCP credential is unavailable or invalid.'}); return
+            from .mcp_remote import RemoteSession
+            session=RemoteSession(self.server['url'],token,self);self.session=session
+            session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended)
+            session.finished.connect(lambda _result:session.deleteLater());session.start();return
+        if action=='call' and self.session:
+            payload=request['payload']
+            import json
+            token=self.session.token
+            if token and token in json.dumps(payload['arguments'],ensure_ascii=False):
+                self._reply(request, {'error':'MCP arguments contain the configured credential.'}); return
+            if not self.session.call(payload['tool'],payload['arguments']):
+                self._reply(request, {'error':'MCP session is no longer available.'})
+            return
+        self._reply(request, {'error':'MCP session is unavailable; discover the server first.'})
+
     def _reply(self, request, result):
         if self.pending is request:self.pending=None
         request['result']=result; request['done'].set()
@@ -54,11 +86,15 @@ class CodingMCPBridge(QObject):
         if self.pending:self._reply(self.pending, result)
     def _ended(self, result):
         self.session=None
+        if result.get('call_uncertain'):self.uncertain=True
         if self.pending:self._reply(self.pending, result)
 
     @Slot()
     def close(self):
         if self.closed:return
         self.closed=True
-        if self.session:self.session.close();self.session.deleteLater();self.session=None
+        if self.session:
+            session=self.session;self.session=None
+            if self.server.get('transport')=='http':session.shutdown()
+            else:session.close();session.deleteLater()
         if self.pending:self._reply(self.pending, {'error':'MCP session closed; an in-flight call may have completed.', 'call_uncertain':True})

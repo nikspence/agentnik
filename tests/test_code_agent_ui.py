@@ -113,7 +113,7 @@ class CodingWorkspace(unittest.TestCase):
             window=Window(store)
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                self.assertEqual(tab.mcp_choice.count(),2);self.assertIsNone(tab.mcp_choice.currentData());self.assertEqual(tab.mcp_choice.itemData(1),'Database')
+                self.assertEqual(tab.mcp_choice.count(),3);self.assertIsNone(tab.mcp_choice.currentData());self.assertEqual(tab.mcp_choice.itemData(1),'Database');self.assertEqual(tab.mcp_choice.itemData(2),'Remote')
                 tab.job=MagicMock();tab.run_id='mcp-run'
                 start={'operation':'mcp_start','server':'Database','command':'npx','arguments':['-y','server','run']}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'start','proposal':start})
@@ -121,7 +121,14 @@ class CodingWorkspace(unittest.TestCase):
                 proposal={'operation':'mcp_call','server':'Database','command':'npx','server_arguments':['-y','server','run'],'tool':'query','description':'Read data','schema':{'type':'object'},'arguments':{'sql':'SELECT 1'}}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'call','proposal':proposal})
                 for value in ('MCP TOOL CALL','Database','query','Read data','SELECT 1'):self.assertIn(value,tab.approval.toPlainText())
-                tab.decide(False);tab.job=None;tab.run_id=None
+                tab.decide(False)
+                remote={'operation':'mcp_connect','server':'Remote','url':'https://example.com/mcp'}
+                tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'remote','proposal':remote})
+                self.assertIn('CONNECT TO REMOTE',tab.approval.toPlainText());self.assertIn(remote['url'],tab.approval.toPlainText());tab.decide(False)
+                proposal.update(operation='mcp_call_remote',url='https://example.com/mcp')
+                tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'remote-call','proposal':proposal})
+                self.assertIn('REMOTE MCP TOOL CALL',tab.approval.toPlainText());self.assertIn('SELECT 1',tab.approval.toPlainText());tab.decide(False)
+                tab.job=None;tab.run_id=None
             finally:window.close();app.processEvents();store.db.close()
 
     def test_structured_test_approval_keeps_shell_review_and_test_format(self):
