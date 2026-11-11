@@ -53,6 +53,44 @@ class MCPFoundation(unittest.TestCase):
             Path(folder,'connections.json').write_text(json.dumps({'version':1,'connections':{},'settings':{},'mcp_servers':[dict(item,args='bad')]}),encoding='utf-8')
             with self.assertRaises(ConfigurationError):load_config(Path(folder,'connections.json'))
 
+    @unittest.skipUnless(os.name=='nt','Windows job-object behavior')
+    def test_local_mcp_shutdown_terminates_owned_descendant(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'server.py';child=Path(folder)/'child.py';marker=Path(folder)/'child-finished'
+            child.write_text('import pathlib,sys,time\ntime.sleep(1.5)\npathlib.Path(sys.argv[1]).write_text("survived")\n',encoding='utf-8')
+            server.write_text('''import json,subprocess,sys
+for line in sys.stdin:
+ req=json.loads(line)
+ if req['method']=='initialize':
+  subprocess.Popen([sys.executable,sys.argv[1],sys.argv[2]],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW)
+  result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Parent','version':'1'},'capabilities':{}}
+  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server),str(child),str(marker)]);loop=QEventLoop();out=[]
+            session.discovered.connect(lambda info:(out.append(info),loop.quit()));session.ended.connect(lambda error:(out.append(error),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec()
+            self.assertEqual(out[0]['name'],'Parent');session.close()
+            wait=QEventLoop();QTimer.singleShot(2000,wait.quit);wait.exec();self.assertFalse(marker.exists(),'Owned descendant continued after session shutdown')
+
+    @unittest.skipUnless(os.name=='nt','Windows job-object behavior')
+    def test_local_mcp_job_assignment_failure_does_not_initialize(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            marker=Path(folder)/'received';server=Path(folder)/'server.py'
+            server.write_text('import pathlib,sys\nline=sys.stdin.readline()\nif line:pathlib.Path(sys.argv[1]).write_text("received")\n',encoding='utf-8')
+            with patch('agentnik.shell.WindowsJob') as job:
+                job.return_value.assign_pid.side_effect=OSError('fixture');session=LocalSession(sys.executable,[str(server),str(marker)]);loop=QEventLoop();out=[]
+                session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+                self.assertIn('isolate',out[0]['error']);self.assertFalse(marker.exists());job.return_value.close.assert_called_once()
+
     def test_local_environment_references_validate_and_persist_names_only(self):
         from agentnik.mcp_support import resolve_environment_references
         item={'name':'Env','command':sys.executable,'args':[],'env':{'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'},'enabled':True}

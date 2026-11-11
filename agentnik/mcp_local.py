@@ -19,7 +19,7 @@ class LocalSession(QObject):
 
     def __init__(self, command, args, parent=None, env_refs=None, env_values=None):
         super().__init__(parent)
-        self.process = QProcess(self)
+        self.process = QProcess(self);self.job=None
         values=resolve_environment_references(env_refs or {}) if env_values is None else dict(env_values)
         self.environment_secrets=[value for value in values.values() if value]
         if values:
@@ -37,7 +37,7 @@ class LocalSession(QObject):
         self.process.setArguments(args)
         self.process.readyReadStandardOutput.connect(self.read)
         self.process.readyReadStandardError.connect(lambda: self.process.readAllStandardError())
-        self.process.started.connect(lambda: self.send(initialize_request()))
+        self.process.started.connect(self.started)
         self.process.errorOccurred.connect(lambda _: self.fail('Unable to start or communicate with local MCP server.'))
         self.process.finished.connect(lambda *_: self.fail('Local MCP server exited.'))
         self.timer = QTimer(self); self.timer.setSingleShot(True)
@@ -47,7 +47,19 @@ class LocalSession(QObject):
         self.info = None; self.closed = False; self.invocation = None
 
     def start(self):
+        if os.name=='nt':
+            try:
+                from .shell import WindowsJob
+                self.job=WindowsJob()
+            except OSError:
+                self.fail('Unable to prepare local MCP process cleanup.');return
         self.timer.start(30000); self.process.start()
+
+    def started(self):
+        if self.job:
+            try:self.job.assign_pid(self.process.processId())
+            except OSError:self.fail('Unable to isolate the local MCP process for cleanup.');return
+        self.send(initialize_request())
 
     def send(self, message):
         payload = (json.dumps(message, ensure_ascii=True, allow_nan=False) + '\n').encode('ascii')
@@ -208,9 +220,11 @@ class LocalSession(QObject):
         self.closed = True
         from shiboken6 import isValid
         self.environment_secrets=[]
-        if not isValid(self.process):return
         if isValid(self.timer):self.timer.stop()
-        self.process.errorOccurred.disconnect(); self.process.finished.disconnect()
-        self.process.closeWriteChannel()
-        if not self.process.waitForFinished(500):
-            self.process.kill(); self.process.waitForFinished(500)
+        if isValid(self.process):
+            self.process.errorOccurred.disconnect(); self.process.finished.disconnect()
+            self.process.closeWriteChannel()
+            if self.process.state()!=QProcess.ProcessState.NotRunning:self.process.waitForFinished(50)
+        if self.job:self.job.close();self.job=None
+        if isValid(self.process) and self.process.state()!=QProcess.ProcessState.NotRunning:
+            self.process.kill()

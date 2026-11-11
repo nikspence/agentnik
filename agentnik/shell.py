@@ -41,6 +41,16 @@ class WindowsJob:
         if not self.kernel.AssignProcessToJobObject(self.handle,int(process._handle)):
             raise OSError(ctypes.get_last_error(),'Cannot isolate command process tree')
 
+    def assign_pid(self,pid):
+        import ctypes
+        from ctypes import wintypes
+        self.kernel.OpenProcess.argtypes=[wintypes.DWORD,wintypes.BOOL,wintypes.DWORD];self.kernel.OpenProcess.restype=wintypes.HANDLE
+        handle=self.kernel.OpenProcess(0x0100|0x0001,False,int(pid))
+        if not handle:raise OSError(ctypes.get_last_error(),'Cannot open owned process for cleanup')
+        try:
+            if not self.kernel.AssignProcessToJobObject(self.handle,handle):raise OSError(ctypes.get_last_error(),'Cannot isolate owned process tree')
+        finally:self.kernel.CloseHandle(handle)
+
     def close(self):
         if self.handle:self.kernel.CloseHandle(self.handle);self.handle=None
 
