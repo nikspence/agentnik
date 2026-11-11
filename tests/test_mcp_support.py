@@ -42,6 +42,16 @@ class MCPFoundation(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'complex'):validate_tool_arguments(broad,{})
         with self.assertRaises(ValueError):validate_tool_arguments({'type':'object','allOf':[]},{})
 
+    def test_schema_legacy_definitions_and_cross_namespace_cycles(self):
+        from agentnik.mcp_schema import validate_tool_arguments
+        schema={'type':'object','definitions':{'key/name':{'type':'integer','minimum':1},'alias':{'$ref':'#/$defs/target'}},'$defs':{'target':{'$ref':'#/definitions/key~1name'}},'properties':{'id':{'$ref':'#/definitions/alias'}},'required':['id']}
+        self.assertTrue(validate_tool_arguments(schema,{'id':2}))
+        with self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,{'id':0})
+        cycle={'type':'object','definitions':{'x':{'$ref':'#/$defs/y'}},'$defs':{'y':{'$ref':'#/definitions/x'}}}
+        with self.assertRaisesRegex(ValueError,'recursive'):validate_tool_arguments(cycle,{})
+        for invalid in ({'type':'object','definitions':{'bad':{'pattern':'(a+)+$'}}}, {'type':'object','properties':{'x':{'definitions':{'y':{'type':'string'}}}}}, {'type':'object','definitions':{str(i):{} for i in range(129)}}, {'type':'object','definitions':{'a':{}},'properties':{'x':{'$ref':'#/definitions/a/extra'}}}):
+            with self.subTest(invalid=invalid),self.assertRaises(ValueError):validate_tool_arguments(invalid,{})
+
     def test_configuration_validation_and_persistence(self):
         item={'name':'Local','command':sys.executable,'args':['server.py'],'enabled':True}
         with tempfile.TemporaryDirectory() as folder:
