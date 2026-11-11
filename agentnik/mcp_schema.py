@@ -1,8 +1,9 @@
 """Bounded subset of JSON Schema for untrusted MCP input definitions."""
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator,Draft7Validator
 from referencing import Registry
 
 SCHEMA_URL='https://json-schema.org/draft/2020-12/schema'
+DRAFT7_URLS=('http://json-schema.org/draft-07/schema','https://json-schema.org/draft-07/schema')
 ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment'}
 KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','required','additionalProperties','items','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
 MAX_NODES=1000
@@ -13,6 +14,10 @@ MAX_BRANCHES=32
 def validate_tool_arguments(schema,arguments):
     """Validate bounded schemas, allowing only acyclic root-local definition references."""
     if not isinstance(schema,dict) or schema.get('type')!='object' or not isinstance(arguments,dict):raise ValueError('The tool must have an object input schema and JSON object arguments.')
+    dialect=schema.get('$schema',SCHEMA_URL)
+    if dialect in (SCHEMA_URL,SCHEMA_URL+'#'):validator=Draft202012Validator
+    elif dialect in tuple(url+suffix for url in DRAFT7_URLS for suffix in ('','#')):validator=Draft7Validator
+    else:raise ValueError('The tool schema uses an unsupported schema version.')
     definitions={key:schema.get(key,{}) for key in ('$defs','definitions')}
     if any(not isinstance(items,dict) for items in definitions.values()) or sum(map(len,definitions.values()))>128:raise ValueError('Invalid tool schema definitions.')
 
@@ -44,7 +49,7 @@ def validate_tool_arguments(schema,arguments):
         if ident in ancestors:raise ValueError('The tool schema uses recursive references.')
         ancestors=ancestors|{ident}
         if not set(node).issubset(KEYWORDS):raise ValueError('The tool schema uses unsupported validation features.')
-        if '$schema' in node and node['$schema'] not in (SCHEMA_URL,SCHEMA_URL+'#'):raise ValueError('The tool schema uses an unsupported schema version.')
+        if '$schema' in node and node is not schema:raise ValueError('The tool schema uses unsupported nested schema versions.')
         if 'enum' in node and (not isinstance(node['enum'],list) or len(node['enum'])>128):raise ValueError('The tool schema enumeration is too large.')
         for namespace in ('$defs','definitions'):
             if namespace in node:
@@ -63,8 +68,8 @@ def validate_tool_arguments(schema,arguments):
                 if not isinstance(variants,list) or not 1<=len(variants)<=8:raise ValueError('The tool schema has invalid or excessive alternatives.')
                 pending.extend((value,depth+1,width*len(variants),ancestors) for value in variants)
     try:
-        Draft202012Validator.check_schema(schema)
-        Draft202012Validator(schema,registry=Registry()).validate(arguments)
+        validator.check_schema(schema)
+        validator(schema,registry=Registry()).validate(arguments)
     except Exception as exc:
         from jsonschema.exceptions import ValidationError,SchemaError
         if isinstance(exc,ValidationError):raise ValueError('Arguments do not match the tool input schema.') from None

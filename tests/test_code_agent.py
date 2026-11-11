@@ -90,7 +90,7 @@ class ProjectBoundaries(unittest.TestCase):
 class ModelCoding(unittest.TestCase):
     def test_local_mcp_model_requests_require_start_and_call_approvals(self):
         from unittest.mock import Mock
-        detail={'name':'query','description':'Run query','description_clipped':False,'schema':{'type':'object','definitions':{'statement':{'anyOf':[{'type':'string','minLength':1},{'type':'null'}]}},'properties':{'sql':{'$ref':'#/definitions/statement'}},'required':['sql'],'additionalProperties':False},'schema_status':'available','annotations':{'readOnlyHint':True}}
+        detail={'name':'query','description':'Run query','description_clipped':False,'schema':{'$schema':'http://json-schema.org/draft-07/schema#','type':'object','definitions':{'statement':{'anyOf':[{'type':'string','minLength':1},{'type':'null'}]}},'properties':{'sql':{'$ref':'#/definitions/statement'}},'required':['sql'],'additionalProperties':False},'schema_status':'available','annotations':{'readOnlyHint':True}}
         with tempfile.TemporaryDirectory() as directory:
             bridge=Mock();bridge.server={'name':'Local DB','command':'server','args':[],'enabled':True}
             bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'text','text':'answer'}]}}]

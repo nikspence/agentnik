@@ -52,6 +52,19 @@ class MCPFoundation(unittest.TestCase):
         for invalid in ({'type':'object','definitions':{'bad':{'pattern':'(a+)+$'}}}, {'type':'object','properties':{'x':{'definitions':{'y':{'type':'string'}}}}}, {'type':'object','definitions':{str(i):{} for i in range(129)}}, {'type':'object','definitions':{'a':{}},'properties':{'x':{'$ref':'#/definitions/a/extra'}}}):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):validate_tool_arguments(invalid,{})
 
+    def test_draft7_tool_schema_uses_declared_dialect_and_bounded_references(self):
+        from agentnik.mcp_schema import validate_tool_arguments
+        for uri in ('http://json-schema.org/draft-07/schema#','https://json-schema.org/draft-07/schema'):
+            with self.subTest(uri=uri):
+                schema={'$schema':uri,'type':'object','definitions':{'item':{'type':'integer','minimum':1}},'properties':{'id':{'$ref':'#/definitions/item','maximum':2}},'required':['id']}
+                self.assertTrue(validate_tool_arguments(schema,{'id':3})) # Draft 7 ignores $ref siblings.
+                with self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,{'id':0})
+                with self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,{})
+        schema['$schema']='https://json-schema.org/draft/2020-12/schema'
+        with self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,{'id':3})
+        for invalid in ({'$schema':'http://json-schema.org/draft-04/schema#','type':'object'}, {'$schema':'http://json-schema.org/draft-07/schema#','type':'object','properties':{'x':{'$schema':'http://json-schema.org/draft-07/schema#'}}}, {'$schema':'http://json-schema.org/draft-07/schema#','type':'object','definitions':{'x':{'$ref':'#/definitions/x'}}}):
+            with self.subTest(schema=invalid),self.assertRaises(ValueError):validate_tool_arguments(invalid,{})
+
     def test_configuration_validation_and_persistence(self):
         item={'name':'Local','command':sys.executable,'args':['server.py'],'enabled':True}
         with tempfile.TemporaryDirectory() as folder:
