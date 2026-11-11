@@ -212,6 +212,10 @@ sys.stdin.read()
         self.assertTrue(preview_tool({'description':'x'*9000})['description_clipped'])
         self.assertEqual(preview_tool({})['schema_status'],'missing')
         self.assertEqual(preview_tool({'execution':{'taskSupport':'required'}})['task_support'],'required')
+        hints={'title':'Search','readOnlyHint':True,'destructiveHint':False,'openWorldHint':True}
+        self.assertEqual(preview_tool({'annotations':hints})['annotations'],hints)
+        for invalid in (None,{'readOnlyHint':1},{'title':'bad\nname'}):
+            with self.assertRaises(ValueError):preview_tool({'annotations':invalid})
         with self.assertRaises(ValueError):preview_tool({'execution':{'taskSupport':'unknown'}})
         with self.assertRaises(ValueError):preview_tool({'inputSchema':[]})
 
@@ -522,7 +526,7 @@ for line in sys.stdin:
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':request['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
  elif method=='tools/list':
-  pages+=1;result={'tools':[{'name':'query','description':'Original' if pages==1 else 'Changed','inputSchema':{'type':'object'}}]}
+  pages+=1;result={'tools':[{'name':'query','description':'Original','annotations':{'readOnlyHint':pages==1},'inputSchema':{'type':'object'}}]}
  else:
   pathlib.Path(sys.argv[1]).write_text('called');result={'content':[]}
  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}),flush=True)

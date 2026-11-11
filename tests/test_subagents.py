@@ -596,6 +596,60 @@ class Subagents(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
             self.assertEqual(bodies,['heavy','heavy']);self.assertEqual(events[-1]['status'],'completed')
 
+    def test_parallel_inspection_real_chat_tool_round_trip(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'a.py').write_text('def feature(): pass',encoding='utf-8');events=[];child_bodies=[];heavy_count=0;light_count=0
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=dict(C,model='other',stream=False))
+            def send(connection,url,body,timeout):
+                nonlocal heavy_count,light_count
+                if connection['model']=='other':return Wire(chat('Other'),False)
+                if connection['model']=='light':
+                    light_count+=1;child_bodies.append(copy.deepcopy(body))
+                    if light_count==1:return Wire(chat(calls=[call('grep_files',{'query':'feature','pattern':'**/*.py','case_sensitive':'true'})],finish='tool_calls'),False)
+                    return Wire(chat('Found feature'),False)
+                heavy_count+=1
+                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps([{'task':'Review','paths':['a.py'],'inspect':True},{'task':'Other','model':'alternate'}])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(light_count,2)
+            self.assertIn('def feature()',json.dumps(child_bodies[1]));self.assertTrue(any(m['role']=='tool' for m in child_bodies[1]['messages']))
+
+    def test_parallel_inspection_tools_are_scoped_and_continue_across_protocols(self):
+        from agentnik import compat_tools,responses_tools
+        from agentnik.tools import ToolCall
+        for protocol in ('chat','messages','responses'):
+            with self.subTest(protocol=protocol),tempfile.TemporaryDirectory() as root:
+                base=Path(root);(base/'approved.py').write_text('alpha\nFIND THIS\n',encoding='utf-8');(base/'private.py').write_text('private-marker',encoding='utf-8')
+                events=[];bodies=[];heavy_count=0;child_count=0
+                light=dict(C,model='light',protocol=protocol,stream=False)
+                alternate=dict(C,model='other',stream=False)
+                run=CodingRun(dict(C,stream=False),root,'Review',light=light,alternate=alternate)
+                tasks=[{'task':'Inspect','paths':['approved.py'],'model':'light','inspect':True},{'task':'Other','model':'alternate'}]
+                def request(connection,body,runtime,emit,state,*args,**kwargs):
+                    nonlocal heavy_count,child_count
+                    model=connection['model']
+                    if model=='other':state['text']='Other result';return {'role':'assistant','content':'Other result'},[]
+                    if model=='heavy':
+                        heavy_count+=1
+                        if heavy_count==1:return {'role':'assistant','content':'','tool_calls':[]},[ToolCall('delegate','delegate_parallel',{'tasks':json.dumps(tasks)})]
+                        state['text']='Done';return {'role':'assistant','content':'Done'},[]
+                    child_count+=1;bodies.append(copy.deepcopy(body))
+                    if child_count==1:
+                        calls=[ToolCall('one','glob_files',{'pattern':'**/*.py'}),ToolCall('two','grep_files',{'pattern':'**/*.py','query':'find','case_sensitive':'false'}),ToolCall('three','read_file',{'path':'approved.py'}),ToolCall('four','read_file',{'path':'private.py'})]
+                        return ([] if protocol=='responses' else {'role':'assistant','content':[] if protocol=='messages' else ''}),calls
+                    state['text']='Inspected approved file';return ([] if protocol=='responses' else {'role':'assistant','content':'Inspected approved file'}),[]
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+                with patch.object(compat_tools,'request',side_effect=request),patch.object(responses_tools,'request',side_effect=request):run.run(emit)
+                self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(child_count,2)
+                self.assertEqual({t['name'] if protocol in ('responses','messages') else t['function']['name'] for t in bodies[0]['tools']},{'read_file','glob_files','grep_files'})
+                self.assertNotIn('FIND THIS',json.dumps(bodies[0]));payload=json.dumps(bodies[1]);self.assertIn('FIND THIS',payload);self.assertIn('outside the approved snapshots',payload);self.assertNotIn('private-marker',payload)
+                self.assertEqual(len([e for e in events if e['kind']=='operation_proposal']),1)
+
     def test_alternate_model_persists_and_launches_from_code_pane(self):
         import os
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -609,6 +663,8 @@ class Subagents(unittest.TestCase):
             window=Window(store)
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                from PySide6.QtWidgets import QLabel
+                self.assertTrue(any('not automatic fallbacks' in label.text() and 'independent document reviews' in label.text() for label in tab.model_panel.findChildren(QLabel)))
                 for role,name in [('heavy','First'),('light','First'),('alternate','Second'),('alternate2','Third')]:
                     combo,model=tab.roles[role];combo.setCurrentIndex(combo.findData(name))
                 tab.roles['alternate'][1].setText('other');tab.composer.setPlainText('Review');tab.save_models()

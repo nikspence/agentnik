@@ -25,6 +25,18 @@ def preview_tool(item):
     description_bytes=description.encode('utf-8');description_clipped=len(description_bytes)>MAX_DESCRIPTION
     description=description_bytes[:MAX_DESCRIPTION].decode('utf-8','ignore')
     detail={'description':description,'description_clipped':description_clipped,'task_support':task_support}
+    if 'annotations' in item:
+        annotations=item['annotations']
+        if not isinstance(annotations,dict):raise ValueError('Invalid MCP tool annotations')
+        hints={}
+        for key in ('title','readOnlyHint','destructiveHint','idempotentHint','openWorldHint'):
+            if key not in annotations:continue
+            value=annotations[key]
+            if key=='title':
+                if not isinstance(value,str) or len(value)>256 or any(ord(ch)<32 or ord(ch)==127 for ch in value):raise ValueError('Invalid MCP tool annotation')
+            elif type(value) is not bool:raise ValueError('Invalid MCP tool annotation')
+            hints[key]=value
+        detail['annotations']=hints
     if schema is None:return dict(detail,schema=None,schema_status='missing')
     encoded=json.dumps(schema,ensure_ascii=True,separators=(',',':'),allow_nan=False).encode('ascii')
     if len(encoded)>MAX_SCHEMA:return dict(detail,schema=None,schema_status='oversized')

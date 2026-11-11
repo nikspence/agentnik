@@ -90,7 +90,7 @@ class ProjectBoundaries(unittest.TestCase):
 class ModelCoding(unittest.TestCase):
     def test_local_mcp_model_requests_require_start_and_call_approvals(self):
         from unittest.mock import Mock
-        detail={'name':'query','description':'Run query','description_clipped':False,'schema':{'type':'object','definitions':{'statement':{'anyOf':[{'type':'string','minLength':1},{'type':'null'}]}},'properties':{'sql':{'$ref':'#/definitions/statement'}},'required':['sql'],'additionalProperties':False},'schema_status':'available'}
+        detail={'name':'query','description':'Run query','description_clipped':False,'schema':{'type':'object','definitions':{'statement':{'anyOf':[{'type':'string','minLength':1},{'type':'null'}]}},'properties':{'sql':{'$ref':'#/definitions/statement'}},'required':['sql'],'additionalProperties':False},'schema_status':'available','annotations':{'readOnlyHint':True}}
         with tempfile.TemporaryDirectory() as directory:
             bridge=Mock();bridge.server={'name':'Local DB','command':'server','args':[],'enabled':True}
             bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'text','text':'answer'}]}}]
@@ -101,6 +101,7 @@ class ModelCoding(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_start','mcp_call'])
+            self.assertEqual([e['proposal'] for e in events if e['kind']=='operation_proposal'][-1]['annotations'],{'readOnlyHint':True})
             self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','call'])
             self.assertEqual(bridge.request.call_args_list[1].args[1]['arguments'],{'sql':'SELECT 1'})
             self.assertEqual(events[-1]['status'],'completed');bridge.close_signal.emit.assert_called_once()

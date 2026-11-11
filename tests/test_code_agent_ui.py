@@ -164,9 +164,9 @@ class CodingWorkspace(unittest.TestCase):
                 start={'operation':'mcp_start','server':'Database','command':'npx','arguments':['-y','server','run']}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'start','proposal':start})
                 self.assertIn('START LOCAL MCP SERVER',tab.approval.toPlainText());self.assertIn('npx',tab.approval.toPlainText());self.assertIn('including writes and data access',tab.approval.toPlainText());self.assertFalse(tab.approve_mcp_run.isHidden());tab.decide(True,'mcp_server_run');tab.job.decide.assert_called_with('start',True,'mcp_server_run')
-                proposal={'operation':'mcp_call','server':'Database','command':'npx','server_arguments':['-y','server','run'],'tool':'query','description':'Read data','schema':{'type':'object'},'arguments':{'sql':'SELECT 1'}}
+                proposal={'operation':'mcp_call','server':'Database','command':'npx','server_arguments':['-y','server','run'],'tool':'query','description':'Read data','schema':{'type':'object'},'annotations':{'readOnlyHint':True},'arguments':{'sql':'SELECT 1'}}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'call','proposal':proposal})
-                for value in ('MCP TOOL CALL','Database','query','Read data','SELECT 1'):self.assertIn(value,tab.approval.toPlainText())
+                for value in ('MCP TOOL CALL','Database','query','Read data','SELECT 1','readOnlyHint','untrusted'):self.assertIn(value,tab.approval.toPlainText())
                 tab.decide(False)
                 remote={'operation':'mcp_connect','server':'Remote','url':'https://example.com/mcp'}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'remote','proposal':remote})

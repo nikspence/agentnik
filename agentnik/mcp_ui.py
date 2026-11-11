@@ -159,7 +159,8 @@ class MCPServers(QDialog):
             description=detail['description'] or '(no description)'
             if detail['description_clipped']:description+='\n[Description truncated or unavailable]'
             schema=json.dumps(detail['schema'],ensure_ascii=True,indent=2) if detail['schema_status']=='available' else '[Input schema '+detail['schema_status']+']'
-            sections.append(detail['name']+'\n'+description+'\nTask execution: '+detail.get('task_support','forbidden')+'\nInput schema:\n'+schema)
+            hints=('\nServer-supplied hints (untrusted): '+json.dumps(detail['annotations'],ensure_ascii=True) if detail.get('annotations') else '')
+            sections.append(detail['name']+'\n'+description+hints+'\nTask execution: '+detail.get('task_support','forbidden')+'\nInput schema:\n'+schema)
         self.tool_details.setPlainText('\n\n'.join(sections))
 
     def call_remote(self):
@@ -205,7 +206,7 @@ class MCPServers(QDialog):
             if token in json.dumps(args,ensure_ascii=False):self.status.setText(self.tr('Arguments contain the configured credential.'));return
         review=QDialog(self);review.setWindowTitle(self.tr('Review MCP tool call'));review.resize(720,540);layout=QVBoxLayout(review)
         layout.addWidget(QLabel(self.tr('The server receives these arguments and may perform external actions.')))
-        preview=QPlainTextEdit();preview.setReadOnly(True);preview.setPlainText('Server: '+item['name']+'\nDestination: '+(item['url'] if item.get('transport')=='http' else item['command']+' '+json.dumps(item['args'],ensure_ascii=True))+'\nTool: '+tool['name']+'\n\nDescription:\n'+tool['description']+'\n\nInput schema:\n'+json.dumps(tool['schema'],ensure_ascii=True,indent=2)+'\n\nArguments:\n'+json.dumps(args,ensure_ascii=True,indent=2));layout.addWidget(preview)
+        preview=QPlainTextEdit();preview.setReadOnly(True);preview.setPlainText('Server: '+item['name']+'\nDestination: '+(item['url'] if item.get('transport')=='http' else item['command']+' '+json.dumps(item['args'],ensure_ascii=True))+'\nTool: '+tool['name']+'\n\nDescription:\n'+tool['description']+('\n\nServer-supplied hints (untrusted; do not grant permissions):\n'+json.dumps(tool['annotations'],ensure_ascii=True,indent=2) if tool.get('annotations') else '')+'\n\nInput schema:\n'+json.dumps(tool['schema'],ensure_ascii=True,indent=2)+'\n\nArguments:\n'+json.dumps(args,ensure_ascii=True,indent=2));layout.addWidget(preview)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(review.accept);buttons.rejected.connect(review.reject);layout.addWidget(buttons)
         if review.exec()!=QDialog.DialogCode.Accepted:return
         if self.list.currentRow()!=index or self.store.config.get('mcp_servers',[])!=entries or self.discovered is None or entries[index]!=self.discovered['config']:
