@@ -6,6 +6,21 @@ from .mcp_support import MAX_OUTPUT,PROTOCOL,initialize_request,parse_initialize
 
 MAX_PAGES=5
 MAX_TOOLS=100
+MAX_DESCRIPTION=8000
+MAX_SCHEMA=32000
+MAX_DETAILS=200000
+
+def preview_tool(item):
+    """Keep bounded server-provided metadata for display, never execution."""
+    description=item.get('description','');schema=item.get('inputSchema')
+    if not isinstance(description,str):raise ValueError('Invalid MCP tool description')
+    if schema is not None and not isinstance(schema,dict):raise ValueError('Invalid MCP input schema')
+    description_bytes=description.encode('utf-8');description_clipped=len(description_bytes)>MAX_DESCRIPTION
+    description=description_bytes[:MAX_DESCRIPTION].decode('utf-8','ignore')
+    if schema is None:return {'description':description,'description_clipped':description_clipped,'schema':None,'schema_status':'missing'}
+    encoded=json.dumps(schema,ensure_ascii=True,separators=(',',':')).encode('ascii')
+    if len(encoded)>MAX_SCHEMA:return {'description':description,'description_clipped':description_clipped,'schema':None,'schema_status':'oversized'}
+    return {'description':description,'description_clipped':description_clipped,'schema':schema,'schema_status':'available'}
 
 def response_message(data,content_type,expected_id):
     if content_type=='application/json':messages=[data]
@@ -29,7 +44,7 @@ def response_message(data,content_type,expected_id):
 class RemoteProbe(QObject):
     finished=Signal(object)
     def __init__(self,url,token,parent=None):
-        super().__init__(parent);self.url=url;self.token=token;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.cursors=set()
+        super().__init__(parent);self.url=url;self.token=token;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(15000);self.send(initialize_request())
@@ -60,7 +75,7 @@ class RemoteProbe(QObject):
             if self.token and self.token.encode('ascii') in self.buffer:raise ValueError('Credential reflected in response')
             if self.phase=='initialized':
                 if 'tools' not in self.result['capabilities']:
-                    self.result['tools']=[];self.result['more_tools']=False;self.close_session();return
+                    self.result['tools']=[];self.result['tool_details']=[];self.result['more_tools']=False;self.close_session();return
                 self.phase='tools';self.pages=1;self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}});return
             ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
             message=response_message(bytes(self.buffer),ctype,1 if self.phase=='initialize' else self.pages+1)
@@ -76,13 +91,18 @@ class RemoteProbe(QObject):
                 if not isinstance(name,str) or not name or len(name)>128 or any(ord(ch)<32 or ord(ch)==127 for ch in name):raise ValueError('Invalid MCP tool name')
                 if name in self.names:raise ValueError('Duplicate MCP tool name')
                 self.names.append(name)
+                if len(self.details)<MAX_TOOLS:
+                    detail=preview_tool(item);detail['name']=name
+                    size=len(json.dumps(detail,ensure_ascii=True).encode('ascii'))
+                    if self.detail_bytes+size>MAX_DETAILS:detail={'name':name,'description':'','description_clipped':True,'schema':None,'schema_status':'details budget exceeded'};size=len(json.dumps(detail).encode())
+                    self.detail_bytes+=size;self.details.append(detail)
             cursor=result.get('nextCursor')
             if cursor is not None:
                 if not isinstance(cursor,str) or not cursor or len(cursor)>1024 or cursor in self.cursors:raise ValueError('Invalid MCP cursor')
                 self.cursors.add(cursor)
             if cursor and self.pages<MAX_PAGES and len(self.names)<MAX_TOOLS:
                 self.pages+=1;self.send({'jsonrpc':'2.0','id':self.pages+1,'method':'tools/list','params':{'cursor':cursor}});return
-            self.result['tools']=self.names[:MAX_TOOLS];self.result['more_tools']=bool(cursor) or len(self.names)>MAX_TOOLS;self.close_session()
+            self.result['tools']=self.names[:MAX_TOOLS];self.result['tool_details']=self.details;self.result['more_tools']=bool(cursor) or len(self.names)>MAX_TOOLS;self.close_session()
         except (ValueError,UnicodeError,TypeError,RecursionError):self.stop('Invalid or unsupported MCP server response.')
     def close_session(self):
         if not self.session:self.complete(None);return

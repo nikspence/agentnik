@@ -18,6 +18,8 @@ class MCPServers(QDialog):
         for label,handler in ((self.tr('New'),self.new),(self.tr('Save'),self.save),(self.tr('Remove'),self.remove),(self.tr('Test connection'),self.test)):
             button=QPushButton(label);button.clicked.connect(handler);row.addWidget(button)
         self.status=QLabel(self.tr('No server has been tested.'));self.status.setTextFormat(Qt.TextFormat.PlainText);self.status.setWordWrap(True);layout.addWidget(self.status)
+        layout.addWidget(QLabel(self.tr('Discovered tools (server-provided, untrusted):')))
+        self.tool_details=QPlainTextEdit();self.tool_details.setReadOnly(True);self.tool_details.setPlaceholderText(self.tr('Test a remote server to inspect its tools.'));layout.addWidget(self.tool_details)
         self.populate()
 
     def populate(self):
@@ -28,6 +30,7 @@ class MCPServers(QDialog):
         self.list.setCurrentRow(-1);self.name.clear();self.transport.setCurrentIndex(0);self.command.clear();self.args.setPlainText('[]');self.url.clear();self.token.clear();self.enabled.setChecked(True)
 
     def load_row(self,index):
+        self.tool_details.clear()
         entries=self.store.config.get('mcp_servers',[])
         if 0<=index<len(entries):
             item=entries[index];remote=item.get('transport')=='http';self.name.setText(item['name']);self.transport.setCurrentIndex(1 if remote else 0);self.command.setText(item.get('command',''));self.args.setPlainText(json.dumps(item.get('args',[]),ensure_ascii=False));self.url.setText(item.get('url',''));self.token.clear();self.enabled.setChecked(item['enabled'])
@@ -83,6 +86,7 @@ class MCPServers(QDialog):
         if self.process or self.remote or not 0<=index<len(entries):return
         item=entries[index]
         if not item['enabled']:self.status.setText(self.tr('Enable and save this server before testing.'));return
+        self.tool_details.clear()
         if item.get('transport')=='http':self.test_remote(item);return
         details=self.tr('Start this local program with your user permissions?\n\nExecutable: {command}\nArguments: {args}\n\nThe server can access your files and network.').format(command=item['command'],args=json.dumps(item['args'],ensure_ascii=False))
         if QMessageBox.question(self,self.tr('Test MCP server'),details,QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)!=QMessageBox.StandardButton.Yes:return
@@ -130,3 +134,10 @@ class MCPServers(QDialog):
         if probe:probe.deleteLater()
         if 'error' in result:self.status.setText(result['error']);return
         self.status.setText('Connected: '+result['name']+' '+result['version']+' · MCP '+result['protocol']+' · tools: '+(', '.join(result.get('tools',[])) or 'none')+(' (more available)' if result.get('more_tools') else '')+(' · session close not confirmed' if result.get('session_closed') is False else ''))
+        sections=[]
+        for detail in result.get('tool_details',[]):
+            description=detail['description'] or '(no description)'
+            if detail['description_clipped']:description+='\n[Description truncated or unavailable]'
+            schema=json.dumps(detail['schema'],ensure_ascii=True,indent=2) if detail['schema_status']=='available' else '[Input schema '+detail['schema_status']+']'
+            sections.append(detail['name']+'\n'+description+'\nInput schema:\n'+schema)
+        self.tool_details.setPlainText('\n\n'.join(sections))

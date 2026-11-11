@@ -29,7 +29,7 @@ class MCPFoundation(unittest.TestCase):
             with self.assertRaises(ValueError):parse_initialize(message)
 
     def test_remote_validation_and_sse_messages(self):
-        from agentnik.mcp_remote import response_message
+        from agentnik.mcp_remote import response_message,preview_tool
         remote={'name':'Parallel','transport':'http','url':'https://mcp.parallel.ai/mcp','credential_id':'opaque','enabled':True}
         validate_servers([remote])
         for url in ('http://example.com/mcp','https://user:secret@example.com/mcp','https://example.com/mcp?key=secret'):
@@ -38,6 +38,12 @@ class MCPFoundation(unittest.TestCase):
         self.assertEqual(response_message(body,'text/event-stream',1)['id'],1)
         with self.assertRaises(ValueError):response_message(body+body,'text/event-stream',1)
         with self.assertRaises(ValueError):response_message(b'{"jsonrpc":"2.0","id":9}','application/json',1)
+        detail=preview_tool({'description':'Search','inputSchema':{'type':'object'}})
+        self.assertEqual(detail['schema'],{'type':'object'});self.assertEqual(detail['schema_status'],'available')
+        self.assertEqual(preview_tool({'description':'x'*9000,'inputSchema':{'long':'a'*33000}})['schema_status'],'oversized')
+        self.assertTrue(preview_tool({'description':'x'*9000})['description_clipped'])
+        self.assertEqual(preview_tool({})['schema_status'],'missing')
+        with self.assertRaises(ValueError):preview_tool({'inputSchema':[]})
 
     def test_remote_session_and_discovery_with_fake_server(self):
         import threading
@@ -54,8 +60,8 @@ class MCPFoundation(unittest.TestCase):
                 method=body['method']
                 if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                 if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':''},'capabilities':{'tools':{}}}
-                elif not body.get('params',{}).get('cursor'):result={'tools':[{'name':'web_search'}],'nextCursor':'page-2'}
-                else:result={'tools':[{'name':'web_fetch'}]}
+                elif not body.get('params',{}).get('cursor'):result={'tools':[{'name':'web_search','description':'Search the web','inputSchema':{'type':'object','properties':{'query':{'type':'string'}}}}],'nextCursor':'page-2'}
+                else:result={'tools':[{'name':'web_fetch','inputSchema':{'type':'object'}}]}
                 payload=('data: '+json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result})+'\n\n').encode()
                 self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-1');self.end_headers();self.wfile.write(payload)
             def do_DELETE(self):
@@ -65,6 +71,7 @@ class MCPFoundation(unittest.TestCase):
             loop=QEventLoop();probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token');results=[]
             probe.finished.connect(lambda result:(results.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
             self.assertEqual(results[0]['tools'],['web_search','web_fetch']);self.assertEqual(results[0]['version'],'unknown');self.assertTrue(results[0]['session_closed'])
+            self.assertEqual(results[0]['tool_details'][0]['description'],'Search the web');self.assertIn('query',results[0]['tool_details'][0]['schema']['properties'])
             self.assertEqual([call[0] for call in calls],['initialize','notifications/initialized','tools/list','tools/list','DELETE'])
             self.assertTrue(all(call[1:3]==('session-1',PROTOCOL) for call in calls[1:]));self.assertTrue(all(call[3]=='Bearer test-token' for call in calls))
         finally:server.shutdown();server.server_close();thread.join(2)
@@ -124,5 +131,7 @@ class MCPFoundation(unittest.TestCase):
                     dialog.save();put.assert_called_once();self.assertNotIn('secret-test-token',store.config_path.read_text(encoding='utf-8'))
                     self.assertTrue(store.config['mcp_servers'][0]['credential_id']);dialog.url.setText('https://other.example/mcp');dialog.save()
                     self.assertEqual(store.config['mcp_servers'][0]['credential_id'],'');delete.assert_called_once()
+                dialog.remote_done({'name':'Fake','version':'1','protocol':PROTOCOL,'tools':['search'],'tool_details':[{'name':'search','description':'Search web','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}]})
+                self.assertIn('Search web',dialog.tool_details.toPlainText());self.assertIn('"type": "object"',dialog.tool_details.toPlainText())
                 dialog.close()
             finally:window.close();app.processEvents();store.db.close()
