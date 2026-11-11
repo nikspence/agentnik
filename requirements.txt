@@ -3,3 +3,4 @@ keyring>=25,<26
 dulwich>=0.25,<0.26
 PyYAML>=6.0.3,<7
 regex>=2024.11.6,<2027
+jsonschema>=4.23,<5

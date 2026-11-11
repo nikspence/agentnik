@@ -7,3 +7,4 @@ pyinstaller-hooks-contrib==2026.9
 dulwich==0.25.2
 PyYAML==6.0.3
 regex==2026.9.29
+jsonschema==4.26.0

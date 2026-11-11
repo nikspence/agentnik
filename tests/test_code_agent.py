@@ -88,6 +88,39 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_local_mcp_model_requests_require_start_and_call_approvals(self):
+        from unittest.mock import Mock
+        detail={'name':'query','description':'Run query','description_clipped':False,'schema':{'type':'object','properties':{'sql':{'type':'string'}},'required':['sql'],'additionalProperties':False},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Local DB','command':'server','args':[],'enabled':True}
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'text','text':'answer'}]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'query','arguments':'{"sql":"SELECT 1"}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Query',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_start','mcp_call'])
+            self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','call'])
+            self.assertEqual(bridge.request.call_args_list[1].args[1]['arguments'],{'sql':'SELECT 1'})
+            self.assertEqual(events[-1]['status'],'completed');bridge.close_signal.emit.assert_called_once()
+
+    def test_mcp_rejected_call_and_invalid_arguments_never_execute(self):
+        from unittest.mock import Mock
+        detail={'name':'query','description':'Query','description_clipped':False,'schema':{'type':'object','properties':{'sql':{'type':'string'}},'required':['sql']},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'DB','command':'server','args':[],'enabled':True};bridge.request.return_value={'tool_details':[detail]}
+            calls=[call('mcp_call',{'tool':'query','arguments':'{}'}),call('mcp_call',{'tool':'query','arguments':'{"sql":"SELECT 1"}'},'second')]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=calls,finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Query',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['operation']=='mcp_start')
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_start','mcp_call'])
+            self.assertEqual(bridge.request.call_count,1)
+            self.assertEqual(events[-1]['status'],'completed')
+
     def test_git_mutations_require_separate_approvals(self):
         from dulwich import porcelain
         with tempfile.TemporaryDirectory() as directory:

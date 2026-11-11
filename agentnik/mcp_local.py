@@ -1,0 +1,124 @@
+"""Persistent, explicitly started MCP stdio session."""
+import json
+import os
+import shutil
+from pathlib import Path
+from PySide6.QtCore import QObject, QProcess, QTimer, Signal
+from .mcp_support import MAX_OUTPUT, initialize_request, parse_initialize
+from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool
+
+
+class LocalSession(QObject):
+    discovered = Signal(object)
+    called = Signal(object)
+    ended = Signal(object)
+
+    def __init__(self, command, args, parent=None):
+        super().__init__(parent)
+        self.process = QProcess(self)
+        # Windows cannot execute npm's .cmd shim directly through CreateProcess.
+        if os.name == 'nt' and command.lower() in ('npx', 'npx.cmd'):
+            shim = shutil.which('npx.cmd')
+            node = shutil.which('node.exe')
+            cli = Path(shim).parent / 'node_modules' / 'npm' / 'bin' / 'npx-cli.js' if shim else None
+            if node and cli and cli.is_file():
+                command, args = node, [str(cli), *args]
+        self.process.setProgram(command)
+        self.process.setArguments(args)
+        self.process.readyReadStandardOutput.connect(self.read)
+        self.process.readyReadStandardError.connect(lambda: self.process.readAllStandardError())
+        self.process.started.connect(lambda: self.send(initialize_request()))
+        self.process.errorOccurred.connect(lambda _: self.fail('Unable to start or communicate with local MCP server.'))
+        self.process.finished.connect(lambda *_: self.fail('Local MCP server exited.'))
+        self.timer = QTimer(self); self.timer.setSingleShot(True)
+        self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
+        self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
+        self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
+        self.info = None; self.closed = False
+
+    def start(self):
+        self.timer.start(30000); self.process.start()
+
+    def send(self, message):
+        payload = (json.dumps(message, ensure_ascii=True, allow_nan=False) + '\n').encode('ascii')
+        if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')
+
+    def read(self):
+        self.buffer.extend(bytes(self.process.readAllStandardOutput()))
+        if len(self.buffer) > MAX_OUTPUT:
+            self.fail('MCP response exceeded the output limit.'); return
+        while b'\n' in self.buffer and not self.closed:
+            line, _, rest = self.buffer.partition(b'\n'); self.buffer = bytearray(rest)
+            try:
+                message = json.loads(line)
+                if not isinstance(message, dict) or message.get('jsonrpc') != '2.0': raise ValueError()
+                if 'id' not in message:
+                    if message.get('method') == 'notifications/tools/list_changed':
+                        self.fail('MCP tools changed; reconnect before making another call.')
+                    continue
+                if type(message['id']) is not int or message['id'] != self.next_id: raise ValueError()
+                if 'error' in message:
+                    if self.phase == 'call':
+                        self.phase = 'ready'; self.timer.stop(); self.called.emit({'error': 'MCP server returned a tool error.'}); continue
+                    raise ValueError()
+                if self.phase == 'initialize':
+                    self.info = parse_initialize(line, ('2025-11-25','2025-06-18','2025-03-26','2024-11-05'));  self.send({'jsonrpc':'2.0','method':'notifications/initialized'})
+                    if 'tools' not in self.info['capabilities']:
+                        self.finish_discovery(False); continue
+                    self.list_page(None); continue
+                result = message.get('result')
+                if not isinstance(result, dict): raise ValueError()
+                if self.phase == 'call':
+                    if not isinstance(result.get('content'), list) or ('isError' in result and type(result['isError']) is not bool): raise ValueError()
+                    self.phase = 'ready'; self.timer.stop(); self.called.emit({'call_result':result}); continue
+                if self.phase != 'tools' or not isinstance(result.get('tools'), list) or len(result['tools']) > MAX_TOOLS: raise ValueError()
+                for item in result['tools']:
+                    name = item.get('name') if isinstance(item, dict) else None
+                    if not isinstance(name, str) or not name or len(name)>128 or any(ord(ch)<32 or ord(ch)==127 for ch in name) or name in self.names: raise ValueError()
+                    self.names.append(name)
+                    if len(self.details) < MAX_TOOLS:
+                        detail = preview_tool(item); detail['name'] = name
+                        size = len(json.dumps(detail, ensure_ascii=True).encode('ascii'))
+                        if self.detail_bytes + size > MAX_DETAILS:
+                            detail = {'name':name,'description':'','description_clipped':True,'schema':None,'schema_status':'details budget exceeded'}
+                        self.detail_bytes += size; self.details.append(detail)
+                cursor = result.get('nextCursor')
+                if cursor is not None:
+                    if not isinstance(cursor,str) or not cursor or len(cursor)>1024 or cursor in self.cursors: raise ValueError()
+                    self.cursors.add(cursor)
+                if cursor and self.pages < MAX_PAGES and len(self.names) < MAX_TOOLS: self.list_page(cursor)
+                else: self.finish_discovery(bool(cursor) or len(self.names)>MAX_TOOLS)
+            except (ValueError, TypeError, UnicodeError, RecursionError):
+                self.fail('Invalid or unsupported local MCP server response.'); return
+
+    def list_page(self, cursor):
+        self.phase = 'tools'; self.pages += 1; self.next_id += 1
+        self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tools/list','params':{'cursor':cursor} if cursor else {}})
+
+    def finish_discovery(self, more):
+        self.phase = 'ready'; self.timer.stop()
+        self.info.update(tools=self.names[:MAX_TOOLS], tool_details=self.details, more_tools=more)
+        self.discovered.emit(self.info)
+
+    def call(self, tool, args):
+        if self.closed or self.phase != 'ready' or tool not in self.details: return False
+        self.phase = 'call'; self.next_id += 1; self.timer.start(30000)
+        self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tools/call','params':{'name':tool['name'],'arguments':args}})
+        return True
+
+    def fail(self, message):
+        from shiboken6 import isValid
+        if not isValid(self) or self.closed: return
+        uncertain = self.phase == 'call'; self.close()
+        self.ended.emit({'error':message,'call_uncertain':uncertain})
+
+    def close(self):
+        if self.closed: return
+        self.closed = True
+        from shiboken6 import isValid
+        if not isValid(self.process):return
+        if isValid(self.timer):self.timer.stop()
+        self.process.errorOccurred.disconnect(); self.process.finished.disconnect()
+        self.process.closeWriteChannel()
+        if not self.process.waitForFinished(500):
+            self.process.kill(); self.process.waitForFinished(500)

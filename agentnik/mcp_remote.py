@@ -1,4 +1,4 @@
-"""Bounded, asynchronous HTTP MCP discovery; no server tools are executed."""
+"""Bounded, asynchronous HTTP MCP discovery and explicitly reviewed calls."""
 import json
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
@@ -18,7 +18,7 @@ def preview_tool(item):
     description_bytes=description.encode('utf-8');description_clipped=len(description_bytes)>MAX_DESCRIPTION
     description=description_bytes[:MAX_DESCRIPTION].decode('utf-8','ignore')
     if schema is None:return {'description':description,'description_clipped':description_clipped,'schema':None,'schema_status':'missing'}
-    encoded=json.dumps(schema,ensure_ascii=True,separators=(',',':')).encode('ascii')
+    encoded=json.dumps(schema,ensure_ascii=True,separators=(',',':'),allow_nan=False).encode('ascii')
     if len(encoded)>MAX_SCHEMA:return {'description':description,'description_clipped':description_clipped,'schema':None,'schema_status':'oversized'}
     return {'description':description,'description_clipped':description_clipped,'schema':schema,'schema_status':'available'}
 
@@ -43,8 +43,8 @@ def response_message(data,content_type,expected_id):
 
 class RemoteProbe(QObject):
     finished=Signal(object)
-    def __init__(self,url,token,parent=None):
-        super().__init__(parent);self.url=url;self.token=token;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
+    def __init__(self,url,token,parent=None,invocation=None):
+        super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(15000);self.send(initialize_request())
@@ -75,15 +75,20 @@ class RemoteProbe(QObject):
             if self.token and self.token.encode('ascii') in self.buffer:raise ValueError('Credential reflected in response')
             if self.phase=='initialized':
                 if 'tools' not in self.result['capabilities']:
+                    if self.invocation:raise ValueError('MCP tools unavailable')
                     self.result['tools']=[];self.result['tool_details']=[];self.result['more_tools']=False;self.close_session();return
                 self.phase='tools';self.pages=1;self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}});return
             ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
-            message=response_message(bytes(self.buffer),ctype,1 if self.phase=='initialize' else self.pages+1)
+            message=response_message(bytes(self.buffer),ctype,1 if self.phase=='initialize' else self.pages+2 if self.phase=='call' else self.pages+1)
             if self.phase=='initialize':
                 self.result=parse_initialize(json.dumps(message).encode());session=reply.rawHeader('Mcp-Session-Id')
                 if not isinstance(session,str):session=bytes(session).decode('ascii')
                 if len(session)>512 or any(ord(ch)<33 or ord(ch)>126 for ch in session):raise ValueError('Invalid MCP session identifier')
                 self.session=session;self.phase='initialized';self.send({'jsonrpc':'2.0','method':'notifications/initialized'});return
+            if self.phase=='call':
+                outcome=message.get('result')
+                if not isinstance(outcome,dict) or not isinstance(outcome.get('content'),list) or ('isError' in outcome and type(outcome['isError']) is not bool):raise ValueError('Invalid MCP tool result')
+                self.result['call_result']=outcome;self.close_session();return
             result=message.get('result');tools=result.get('tools') if isinstance(result,dict) else None
             if not isinstance(tools,list) or len(tools)>MAX_TOOLS:raise ValueError('Invalid MCP tool list')
             for item in tools:
@@ -102,7 +107,15 @@ class RemoteProbe(QObject):
                 self.cursors.add(cursor)
             if cursor and self.pages<MAX_PAGES and len(self.names)<MAX_TOOLS:
                 self.pages+=1;self.send({'jsonrpc':'2.0','id':self.pages+1,'method':'tools/list','params':{'cursor':cursor}});return
-            self.result['tools']=self.names[:MAX_TOOLS];self.result['tool_details']=self.details;self.result['more_tools']=bool(cursor) or len(self.names)>MAX_TOOLS;self.close_session()
+            self.result['tools']=self.names[:MAX_TOOLS];self.result['tool_details']=self.details;self.result['more_tools']=bool(cursor) or len(self.names)>MAX_TOOLS
+            if self.invocation:
+                expected=self.invocation['tool'];current=next((item for item in self.details if item['name']==expected['name']),None)
+                if current!=expected or current.get('schema_status')!='available':
+                    self.stop('MCP tool definition changed; test the server again before calling.');return
+                args=self.invocation['arguments'];payload=json.dumps(args,ensure_ascii=False,allow_nan=False)
+                if not isinstance(args,dict) or len(payload.encode())>16000 or (self.token and self.token in payload):raise ValueError('Invalid MCP tool arguments')
+                self.phase='call';self.send({'jsonrpc':'2.0','id':self.pages+2,'method':'tools/call','params':{'name':current['name'],'arguments':args}});return
+            self.close_session()
         except (ValueError,UnicodeError,TypeError,RecursionError):self.stop('Invalid or unsupported MCP server response.')
     def close_session(self):
         if not self.session:self.complete(None);return
@@ -117,4 +130,4 @@ class RemoteProbe(QObject):
         self.timer.stop();reply=self.reply;self.reply=None
         if reply:reply.abort();reply.deleteLater()
         if self.phase=='closing' and self.result:self.complete(False);return
-        self.token='';self.finished.emit({'error':message})
+        self.token='';self.finished.emit({'error':message,'call_uncertain':self.phase=='call'})

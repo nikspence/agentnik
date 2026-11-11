@@ -35,11 +35,11 @@ def initialize_request():
     return {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':PROTOCOL,'capabilities':{},'clientInfo':{'name':'Agentnik','version':'0.1'}}}
 
 
-def parse_initialize(line):
+def parse_initialize(line, supported_protocols=(PROTOCOL,)):
     try:message=json.loads(line)
     except (ValueError,UnicodeError,RecursionError):raise ValueError('Invalid MCP initialization response') from None
     if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or type(message.get('id')) is not int or message['id']!=1 or not isinstance(message.get('result'),dict):raise ValueError('Invalid MCP initialization response')
     result=message['result'];info=result.get('serverInfo');capabilities=result.get('capabilities')
-    if result.get('protocolVersion')!=PROTOCOL:raise ValueError('Server did not accept the supported MCP protocol version')
+    if result.get('protocolVersion') not in supported_protocols:raise ValueError('Server did not accept a supported MCP protocol version')
     if not isinstance(info,dict) or not isinstance(info.get('name'),str) or not info['name'] or len(info['name'])>256 or not isinstance(info.get('version'),str) or len(info['version'])>256 or not isinstance(capabilities,dict):raise ValueError('Invalid MCP server identity or capabilities')
-    return {'name':info['name'],'version':info['version'] or 'unknown','protocol':PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if name in capabilities and isinstance(capabilities[name],dict)]}
+    return {'name':info['name'],'version':info['version'] or 'unknown','protocol':result['protocolVersion'],'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if name in capabilities and isinstance(capabilities[name],dict)]}

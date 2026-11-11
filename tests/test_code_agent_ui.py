@@ -102,6 +102,28 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertNotEqual(tab.session['coding_skill_pins']['review'],original)
             finally:window.close();app.processEvents();store.db.close()
 
+    def test_local_mcp_selection_and_approval_preview(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
+            store.config['mcp_servers']=[{'name':'Database','command':'npx','args':['-y','server','run'],'enabled':True},{'name':'Disabled','command':'server','args':[],'enabled':False},{'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True}]
+            window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                self.assertEqual(tab.mcp_choice.count(),2);self.assertIsNone(tab.mcp_choice.currentData());self.assertEqual(tab.mcp_choice.itemData(1),'Database')
+                tab.job=MagicMock();tab.run_id='mcp-run'
+                start={'operation':'mcp_start','server':'Database','command':'npx','arguments':['-y','server','run']}
+                tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'start','proposal':start})
+                self.assertIn('START LOCAL MCP SERVER',tab.approval.toPlainText());self.assertIn('npx',tab.approval.toPlainText());tab.decide(False)
+                proposal={'operation':'mcp_call','server':'Database','command':'npx','server_arguments':['-y','server','run'],'tool':'query','description':'Read data','schema':{'type':'object'},'arguments':{'sql':'SELECT 1'}}
+                tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'call','proposal':proposal})
+                for value in ('MCP TOOL CALL','Database','query','Read data','SELECT 1'):self.assertIn(value,tab.approval.toPlainText())
+                tab.decide(False);tab.job=None;tab.run_id=None
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_structured_test_approval_keeps_shell_review_and_test_format(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
