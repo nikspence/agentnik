@@ -261,6 +261,27 @@ class RouteContracts(unittest.TestCase):
 
 
 class BackendContracts(unittest.TestCase):
+    def setUp(self):
+        from agentnik import search_cache
+        search_cache._entries.clear()
+
+    def tearDown(self):
+        from agentnik import search_cache
+        search_cache._entries.clear()
+
+    def test_success_is_reused_and_expires(self):
+        from agentnik import search_cache
+        specs=[dict(SPECS[0],id="cache",key="cache-key")]
+        backend=Backend()
+        with patch.object(web,"OllamaWeb",return_value=backend) as factory, patch.object(search_cache.time,"monotonic",return_value=100) as clock:
+            first=web.OrderedSearch(specs,allow_fallback=False).search("query",Runtime())
+            second=web.OrderedSearch(specs,allow_fallback=False).search("query",Runtime())
+            self.assertEqual(first,second)
+            self.assertEqual(factory.call_count,1)
+            clock.return_value=1901
+            web.OrderedSearch(specs,allow_fallback=False).search("query",Runtime())
+            self.assertEqual(factory.call_count,2)
+
     def test_ordered_credentials_skip_and_fallback_without_replaying_model(self):
         specs=[{'id':'missing','kind':'ollama','name':'Missing','key':''},
                {'id':'first','kind':'ollama','name':'First','key':'first-key'},

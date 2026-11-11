@@ -490,13 +490,22 @@ class OrderedSearch:
                 record.update(status='skipped',reason='Unsupported backend or missing credential',ended_at=utc_now())
                 self.notify(runtime,'backend_skipped',name+': '+record['reason']); continue
             self.notify(runtime,'backend_selected',name)
+            from . import search_cache
+            cache_key=search_cache.key('managed',spec,query,runtime.limits.results,runtime.limits.context_bytes)
+            cached=search_cache.get(cache_key)
+            if cached is not None:
+                record.update(status='completed',cached=True,ended_at=utc_now())
+                self.notify(runtime,'cache_hit',name+': reused recent search results')
+                return cached
             try:
                 adapter={'google':GoogleWeb,'brave':BraveWeb,'langsearch':LangSearchWeb,'firecrawl':FirecrawlWeb,'firecrawl-keyless':FirecrawlKeylessWeb,'exa':ExaWeb,'parallel':ParallelWeb,'ollama':OllamaWeb}[spec['kind']]
                 service=adapter() if spec['kind']=='google' else adapter(spec.get('key',''))
                 result=service.search(query,runtime)
                 record.update(status='completed',ended_at=utc_now())
                 # An empty result is evidence, not a reason to try another backend.
-                return [replace(source,backend=ident) for source in result]
+                result=[replace(source,backend=ident) for source in result]
+                search_cache.put(cache_key,result)
+                return result
             except Exception as exc:
                 failure=classify(exc,False); last=exc
                 record.update(status='failed',error=str(exc)[:500],failure=failure,ended_at=utc_now())

@@ -88,6 +88,14 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def setUp(self):
+        from agentnik import search_cache
+        search_cache._entries.clear()
+
+    def tearDown(self):
+        from agentnik import search_cache
+        search_cache._entries.clear()
+
     def test_local_mcp_model_requests_require_start_and_call_approvals(self):
         from unittest.mock import Mock
         detail={'name':'query','description':'Run query','description_clipped':False,'schema':{'$schema':'http://json-schema.org/draft-07/schema#','type':'object','definitions':{'statement':{'anyOf':[{'type':'string','minLength':1},{'type':'null'}]}},'properties':{'sql':{'$ref':'#/definitions/statement'}},'required':['sql'],'additionalProperties':False},'schema_status':'available','annotations':{'readOnlyHint':True}}

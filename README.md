@@ -72,6 +72,8 @@ If a direct page read is recognized as a network-filter block (such as a Zscaler
 
 Brave search omits individual results that fail public-address checks while retaining safe results. If a search is blocked by an access restriction during a coding run, Agentnik stops further searches for that run and lets the model continue with existing sources; activity identifies HTTP status when available.
 
+Successful managed search results are cached in memory for 30 minutes and can be reused by a later run with the same query, backend profile, and result limits. In Code, MCP tools whose names contain `search`, advertise the read-only hint, and accept a `query` string also reuse successful results for identical server, tool, and arguments after approval. The cache is bounded and cleared when Agentnik exits; failures are not cached. Provider-hosted searches cannot be cached by Agentnik.
+
 Research activity exposes searches, page reads, route/backend choices, recovery, errors, sources, and excerpts. Chat supports clickable provider citations and validated managed `[S1]` references. Retrieved text and search results are untrusted evidence; a source link alone does not establish that a claim is correct. Requests, tool rounds, bytes, context, retries, and time are bounded. Partial or ambiguous failures do not silently replay inference.
 
 Search queries can contain information derived from your task. Inference credentials are not reused as search credentials; configured search keys use the credential store with explicit plaintext fallback. Research remains a preview with compatibility recorded for specific models and routes in [VALIDATION.md](VALIDATION.md).
