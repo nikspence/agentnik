@@ -12,8 +12,8 @@ class MCPServers(QDialog):
         self.process=None;self.remote=None;self.validation_job=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test('Connection test timed out.'))
         layout=QVBoxLayout(self);layout.addWidget(QLabel(self.tr('Servers can access your data. Local commands and arguments are stored in plaintext; do not put secrets in them.')))
         self.list=QListWidget();layout.addWidget(self.list);self.list.currentRowChanged.connect(self.load_row)
-        form=QFormLayout();layout.addLayout(form);self.name=QLineEdit();self.transport=QComboBox();self.transport.addItems(['Local stdio','Remote HTTPS']);self.command=QLineEdit();self.args=QPlainTextEdit();self.args.setPlaceholderText('["argument", "argument"]');self.args.setMaximumHeight(80);self.url=QLineEdit();self.url.setPlaceholderText('https://mcp.parallel.ai/mcp');self.token=QLineEdit();self.token.setEchoMode(QLineEdit.EchoMode.Password);self.token.setPlaceholderText(self.tr('Leave blank to keep the saved credential'));self.enabled=QCheckBox(self.tr('Enabled'));self.enabled.setChecked(True)
-        form.addRow(self.tr('Name'),self.name);form.addRow(self.tr('Transport'),self.transport);form.addRow(self.tr('Executable'),self.command);form.addRow(self.tr('Arguments (JSON array)'),self.args);form.addRow(self.tr('HTTPS URL'),self.url);form.addRow(self.tr('Bearer token'),self.token);form.addRow('',self.enabled)
+        form=QFormLayout();layout.addLayout(form);self.name=QLineEdit();self.transport=QComboBox();self.transport.addItems(['Local stdio','Remote HTTPS']);self.command=QLineEdit();self.args=QPlainTextEdit();self.args.setPlaceholderText('["argument", "argument"]');self.args.setMaximumHeight(80);self.env=QPlainTextEdit();self.env.setPlaceholderText('{"TARGET_NAME": "EXISTING_ENV_NAME"}');self.env.setMaximumHeight(70);self.env.setToolTip(self.tr('Map environment variable names to existing variables in Agentnik’s environment. Values are never stored in settings.'));self.url=QLineEdit();self.url.setPlaceholderText('https://mcp.parallel.ai/mcp');self.token=QLineEdit();self.token.setEchoMode(QLineEdit.EchoMode.Password);self.token.setPlaceholderText(self.tr('Leave blank to keep the saved credential'));self.enabled=QCheckBox(self.tr('Enabled'));self.enabled.setChecked(True)
+        form.addRow(self.tr('Name'),self.name);form.addRow(self.tr('Transport'),self.transport);form.addRow(self.tr('Executable'),self.command);form.addRow(self.tr('Arguments (JSON array)'),self.args);form.addRow(self.tr('Environment names (JSON object)'),self.env);form.addRow(self.tr('HTTPS URL'),self.url);form.addRow(self.tr('Bearer token'),self.token);form.addRow('',self.enabled)
         row=QHBoxLayout();layout.addLayout(row)
         for label,handler in ((self.tr('New'),self.new),(self.tr('Save'),self.save),(self.tr('Remove'),self.remove),(self.tr('Test connection'),self.test)):
             button=QPushButton(label);button.clicked.connect(handler);row.addWidget(button)
@@ -31,14 +31,14 @@ class MCPServers(QDialog):
         for server in self.store.config.get('mcp_servers',[]):self.list.addItem(server['name']+('' if server['enabled'] else ' (disabled)'))
 
     def new(self):
-        self.list.setCurrentRow(-1);self.name.clear();self.transport.setCurrentIndex(0);self.command.clear();self.args.setPlainText('[]');self.url.clear();self.token.clear();self.enabled.setChecked(True)
+        self.list.setCurrentRow(-1);self.name.clear();self.transport.setCurrentIndex(0);self.command.clear();self.args.setPlainText('[]');self.env.setPlainText('{}');self.url.clear();self.token.clear();self.enabled.setChecked(True)
 
     def load_row(self,index):
         if self.process:self.finish_test('Local MCP session closed.')
         self.tool_details.clear();self.tool_choice.clear();self.tool_result.clear();self.discovered=None
         entries=self.store.config.get('mcp_servers',[])
         if 0<=index<len(entries):
-            item=entries[index];remote=item.get('transport')=='http';self.name.setText(item['name']);self.transport.setCurrentIndex(1 if remote else 0);self.command.setText(item.get('command',''));self.args.setPlainText(json.dumps(item.get('args',[]),ensure_ascii=False));self.url.setText(item.get('url',''));self.token.clear();self.enabled.setChecked(item['enabled'])
+            item=entries[index];remote=item.get('transport')=='http';self.name.setText(item['name']);self.transport.setCurrentIndex(1 if remote else 0);self.command.setText(item.get('command',''));self.args.setPlainText(json.dumps(item.get('args',[]),ensure_ascii=False));self.env.setPlainText(json.dumps(item.get('env',{}),ensure_ascii=False));self.url.setText(item.get('url',''));self.token.clear();self.enabled.setChecked(item['enabled'])
 
     def save(self):
         try:
@@ -50,7 +50,11 @@ class MCPServers(QDialog):
                 credential=old_id if prior.get('url')==url else ''
                 if token:credential=uuid.uuid4().hex;new_id=credential
                 item={'name':self.name.text().strip(),'transport':'http','url':url,'credential_id':credential,'enabled':self.enabled.isChecked()}
-            else:item={'name':self.name.text().strip(),'command':self.command.text().strip(),'args':json.loads(self.args.toPlainText() or '[]'),'enabled':self.enabled.isChecked()}
+            else:
+                item={'name':self.name.text().strip(),'command':self.command.text().strip(),'args':json.loads(self.args.toPlainText() or '[]'),'enabled':self.enabled.isChecked()}
+                env=json.loads(self.env.toPlainText() or '{}')
+                if env:item['env']=env
+                elif not isinstance(env,dict):raise ValueError('Invalid MCP environment mappings')
             if index<0:entries.append(item);index=len(entries)-1
             else:entries[index]=item
             validate_servers(entries)
@@ -93,10 +97,12 @@ class MCPServers(QDialog):
         if not item['enabled']:self.status.setText(self.tr('Enable and save this server before testing.'));return
         self.tool_details.clear();self.tool_choice.clear();self.tool_result.clear();self.discovered=None
         if item.get('transport')=='http':self.test_remote(item);return
-        details=self.tr('Start this local program with your user permissions?\n\nExecutable: {command}\nArguments: {args}\n\nThe server can access your files and network.').format(command=item['command'],args=json.dumps(item['args'],ensure_ascii=False))
+        details=self.tr('Start this local program with your user permissions?\n\nExecutable: {command}\nArguments: {args}\nEnvironment mappings (target: source name): {env}\n\nThe server inherits the app environment and can access your files and network. Mapped values are hidden.').format(command=item['command'],args=json.dumps(item['args'],ensure_ascii=False),env=json.dumps(item.get('env',{}),ensure_ascii=True))
         if QMessageBox.question(self,self.tr('Test MCP server'),details,QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)!=QMessageBox.StandardButton.Yes:return
         from .mcp_local import LocalSession
-        self.discovered_config=dict(item);self.process=LocalSession(item['command'],item['args'],self)
+        try:self.process=LocalSession(item['command'],item['args'],self,env_refs=item.get('env',{}))
+        except ValueError:self.status.setText(self.tr('A configured MCP environment variable is missing or invalid.'));return
+        self.discovered_config=dict(item)
         self.process.discovered.connect(self.local_discovered);self.process.called.connect(self.local_called);self.process.ended.connect(self.local_ended)
         self.status.setText(self.tr('Connecting…'));self.process.start()
 

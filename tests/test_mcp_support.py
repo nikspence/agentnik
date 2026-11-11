@@ -53,6 +53,42 @@ class MCPFoundation(unittest.TestCase):
             Path(folder,'connections.json').write_text(json.dumps({'version':1,'connections':{},'settings':{},'mcp_servers':[dict(item,args='bad')]}),encoding='utf-8')
             with self.assertRaises(ConfigurationError):load_config(Path(folder,'connections.json'))
 
+    def test_local_environment_references_validate_and_persist_names_only(self):
+        from agentnik.mcp_support import resolve_environment_references
+        item={'name':'Env','command':sys.executable,'args':[],'env':{'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'},'enabled':True}
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'AGENTNIK_TEST_MCP_TOKEN':'secret-fixture-value'}):
+            store=Store(folder)
+            try:
+                store.config['mcp_servers']=[item];store.flush();saved=store.config_path.read_text(encoding='utf-8')
+                self.assertNotIn('secret-fixture-value',saved);self.assertEqual(load_config(store.config_path)['mcp_servers'],[item]);self.assertEqual(resolve_environment_references(item['env'])['TARGET_TOKEN'],'secret-fixture-value')
+            finally:store.db.close()
+        for mapping in ({'BAD=NAME':'SOURCE'},{'GOOD':'literal value'},{'A':'SOURCE','a':'OTHER'},['bad'],{'X':123}):
+            with self.subTest(mapping=mapping),self.assertRaises(ValueError):validate_servers([dict(item,env=mapping)])
+        with patch.dict(os.environ,{},clear=True):
+            with self.assertRaisesRegex(ValueError,'missing'):resolve_environment_references({'TOKEN':'AGENTNIK_MISSING_TEST'})
+
+    def test_local_mcp_environment_mapping_hides_values_and_blocks_reflection(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'AGENTNIK_TEST_MCP_TOKEN':'secret-fixture-value'}):
+            server=Path(folder)/'server.py'
+            server.write_text('''import json,os,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'mapped' if os.environ.get('TARGET_TOKEN')==os.environ.get('AGENTNIK_TEST_MCP_TOKEN') else 'missing','version':'1'},'capabilities':{'tools':{}}}
+ elif method=='tools/list':result={'tools':[{'name':'echo','inputSchema':{'type':'object'}}]}
+ else:result={'content':[{'type':'text','text':os.environ['TARGET_TOKEN']}]}
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server)],env_refs={'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'});loop=QEventLoop();results=[]
+            def discovered(info):results.append(info);session.call(info['tool_details'][0],{})
+            session.discovered.connect(discovered);session.ended.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertEqual(results[0]['name'],'mapped');self.assertIn('mapped environment value',results[1]['error']);self.assertTrue(results[1]['call_uncertain']);self.assertNotIn('secret-fixture-value',str(results))
+
     def test_protocol_response_validation(self):
         result={'jsonrpc':'2.0','id':1,'result':{'protocolVersion':PROTOCOL,'serverInfo':{'name':'Example','version':'1'},'capabilities':{'tools':{},'resources':{}}}}
         self.assertEqual(parse_initialize(json.dumps(result).encode())['capabilities'],['tools','resources'])
@@ -491,18 +527,19 @@ for line in sys.stdin:
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits
         app=QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as folder:
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'AGENTNIK_MCP_TEST_SOURCE':'snapshot-unique-value'}):
             server=Path(folder)/'server.py'
-            server.write_text('''import json,sys
+            server.write_text('''import json,os,sys
 for line in sys.stdin:
  request=json.loads(line);method=request['method']
  if method=='notifications/initialized':continue
- if method=='initialize':result={'protocolVersion':request['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+ if method=='initialize':result={'protocolVersion':request['params']['protocolVersion'],'serverInfo':{'name':'Fake' if os.environ.get('TARGET_TOKEN')=='snapshot-unique-value' else 'Incorrect','version':'1'},'capabilities':{'tools':{}}}
  elif method=='tools/list':result={'tools':[{'name':'query','inputSchema':{'type':'object'}}]}
  else:result={'content':[{'type':'text','text':'ok'}]}
  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            config={'mcp_servers':[{'name':'Fake','command':sys.executable,'args':[str(server)],'enabled':True}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config)
+            config={'mcp_servers':[{'name':'Fake','command':sys.executable,'args':[str(server)],'env':{'TARGET_TOKEN':'AGENTNIK_MCP_TEST_SOURCE'},'enabled':True}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config)
+            os.environ['AGENTNIK_MCP_TEST_SOURCE']='changed-after-snapshot'
             runtime=Runtime(threading.Event(),Limits());out=[]
             def work():
                 info=bridge.request('discover',{},runtime);out.append(info)
@@ -511,6 +548,24 @@ for line in sys.stdin:
                 out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime));bridge.close_signal.emit()
             thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1);app.processEvents()
             self.assertFalse(thread.is_alive());self.assertEqual(out[1]['call_result']['content'][0]['text'],'ok');self.assertIn('changed',out[2]['error']);self.assertTrue(bridge.closed)
+
+    def test_local_environment_mapping_editor_saves_and_reloads(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QMessageBox
+        from agentnik.mcp_ui import MCPServers
+        from agentnik.ui import Window
+        from agentnik import core
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.dict(os.environ,{'AGENTNIK_TEST_MCP_TOKEN':'secret-mapped-value'}):
+            store=Store(folder);window=Window(store)
+            try:
+                dialog=MCPServers(window);dialog.name.setText('Local');dialog.command.setText(sys.executable);dialog.args.setPlainText('[]');dialog.env.setPlainText('{"SERVER_TOKEN":"AGENTNIK_TEST_MCP_TOKEN"}');dialog.save()
+                self.assertEqual(store.config['mcp_servers'][0]['env'],{'SERVER_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'});self.assertNotIn('secret-mapped-value',store.config_path.read_text(encoding='utf-8'))
+                self.assertEqual(json.loads(dialog.env.toPlainText()),{'SERVER_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'})
+                dialog.env.setPlainText('{"bad=name":"SOURCE"}')
+                with patch.object(QMessageBox,'warning') as warning:dialog.save();warning.assert_called_once()
+                self.assertEqual(store.config['mcp_servers'][0]['env'],{'SERVER_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'});dialog.close()
+            finally:window.close();app.processEvents();store.db.close()
 
     def test_remote_credential_uses_keyring_and_is_not_reused_for_changed_url(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')

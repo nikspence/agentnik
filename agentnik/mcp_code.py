@@ -3,6 +3,7 @@ import copy
 import threading
 from PySide6.QtCore import QObject, Signal, Slot
 from .mcp_local import LocalSession
+from .mcp_support import resolve_environment_references
 
 
 class CodingMCPBridge(QObject):
@@ -12,6 +13,10 @@ class CodingMCPBridge(QObject):
     def __init__(self, server, config, parent=None):
         super().__init__(parent)
         self.server = copy.deepcopy(server); self.config = config
+        self.environment_values={};self.environment_error=''
+        if self.server.get('transport')!='http':
+            try:self.environment_values=resolve_environment_references(self.server.get('env',{}))
+            except ValueError:self.environment_error='A configured MCP environment variable is missing or invalid.'
         self.session = None; self.pending = None; self.closed = False; self.identity = None; self.uncertain = False
         self.request_signal.connect(self._dispatch); self.close_signal.connect(self.close)
 
@@ -38,7 +43,8 @@ class CodingMCPBridge(QObject):
         if request['action'] == 'discover':
             if self.session:
                 self._reply(request, {'error':'MCP session already started.'}); return
-            self.session = LocalSession(self.server['command'], self.server['args'], self)
+            if self.environment_error:self._reply(request, {'error':self.environment_error});return
+            self.session = LocalSession(self.server['command'], self.server['args'], self,env_values=self.environment_values)
             self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called)
             self.session.start()
         elif request['action'] in ('prompts_list','prompts_get') and self.session:

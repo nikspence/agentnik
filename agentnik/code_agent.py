@@ -554,6 +554,9 @@ class CodingRun:
         runtime=Runtime(self.cancel,Limits(argument_bytes=1000000,model_bytes=2000000,**{key:value for key,value in self.limits.items() if key!='model_seconds'}))
         next_source=1;research_action=None;google_unavailable=False;search_access_blocked=False
         secrets=[self.connection.get('api_key',''),(self.light or {}).get('api_key',''),(self.alternate or {}).get('api_key',''),(self.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in self.web_backends]
+        for bridge in self.mcp_bridges:
+            values=getattr(bridge,'environment_values',{})
+            if isinstance(values,dict):secrets.extend(value for value in values.values() if isinstance(value,str) and value)
         usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('Heavy','Light')}
         def request(role,adapter,connection,body,state):
             totals=usage[role];totals['requests']+=1
@@ -751,7 +754,7 @@ class CodingRun:
                             if mcp_tools is not None:result={'server':mcp_bridge.server['name'],'tools':mcp_tools,'notice':'Untrusted server-provided descriptions and schemas.'}
                             else:
                                 server=mcp_bridge.server
-                                proposal=({'operation':'mcp_connect','server':server['name'],'url':server['url']} if server.get('transport')=='http' else {'operation':'mcp_start','server':server['name'],'command':server['command'],'arguments':server['args']})
+                                proposal=({'operation':'mcp_connect','server':server['name'],'url':server['url']} if server.get('transport')=='http' else {'operation':'mcp_start','server':server['name'],'command':server['command'],'arguments':server['args'],'environment':server.get('env',{})})
                                 if not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):raise ProjectToolError('MCP connection rejected; no server was contacted or started.')
                                 response=mcp_bridge.request('discover',{},runtime)
                                 if 'error' in response:raise ProjectToolError(response['error'])

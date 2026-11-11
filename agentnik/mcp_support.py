@@ -1,5 +1,7 @@
 """MCP server configuration and bounded initialization preview."""
 import json
+import os
+import re
 from urllib.parse import urlsplit
 
 PROTOCOL='2025-11-25'
@@ -12,7 +14,8 @@ def validate_servers(servers):
     for server in servers:
         if not isinstance(server,dict):raise ValueError('Invalid MCP server configuration')
         remote=server.get('transport')=='http'
-        if set(server)!=({'name','transport','url','credential_id','enabled'} if remote else {'name','command','args','enabled'}):raise ValueError('Invalid MCP server configuration')
+        required=({'name','transport','url','credential_id','enabled'} if remote else {'name','command','args','enabled'})
+        if not required.issubset(server) or set(server)-required-({'env'} if not remote else set()):raise ValueError('Invalid MCP server configuration')
         name=server['name']
         if not isinstance(name,str) or not name.strip() or len(name)>80 or name.casefold() in names:raise ValueError('MCP server names must be unique and nonempty')
         names.add(name.casefold())
@@ -27,8 +30,28 @@ def validate_servers(servers):
             command=server['command'];args=server['args']
             if not isinstance(command,str) or not command.strip() or len(command)>1024 or '\x00' in command:raise ValueError('Invalid MCP executable')
             if not isinstance(args,list) or len(args)>32 or any(not isinstance(arg,str) or len(arg)>2048 or '\x00' in arg for arg in args):raise ValueError('Invalid MCP argument list')
+            validate_environment_references(server.get('env',{}))
         if type(server['enabled']) is not bool:raise ValueError('Invalid MCP enabled state')
     return servers
+
+
+def validate_environment_references(mapping):
+    """Allow variable names only; values must never appear in configuration."""
+    if not isinstance(mapping,dict) or len(mapping)>32:raise ValueError('Invalid MCP environment mappings')
+    names=set()
+    for target,source in mapping.items():
+        if not isinstance(target,str) or not isinstance(source,str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}',target) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}',source) or target.casefold() in names:raise ValueError('Invalid MCP environment variable name')
+        names.add(target.casefold())
+    return mapping
+
+
+def resolve_environment_references(mapping):
+    validate_environment_references(mapping);values={}
+    for target,source in mapping.items():
+        value=os.environ.get(source)
+        if value is None or not value or len(value)>8192 or '\x00' in value:raise ValueError('An MCP environment variable is missing or invalid.')
+        values[target]=value
+    return values
 
 
 def initialize_request():

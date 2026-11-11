@@ -3,9 +3,9 @@ import json
 import os
 import shutil
 from pathlib import Path
-from PySide6.QtCore import QObject, QProcess, QTimer, Signal
-from .mcp_support import MAX_OUTPUT, initialize_request, parse_initialize
-from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
+from .mcp_support import MAX_OUTPUT, initialize_request, parse_initialize, resolve_environment_references
+from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 
@@ -17,9 +17,15 @@ class LocalSession(QObject):
     resources = Signal(object)
     prompts = Signal(object)
 
-    def __init__(self, command, args, parent=None):
+    def __init__(self, command, args, parent=None, env_refs=None, env_values=None):
         super().__init__(parent)
         self.process = QProcess(self)
+        values=resolve_environment_references(env_refs or {}) if env_values is None else dict(env_values)
+        self.environment_secrets=[value for value in values.values() if value]
+        if values:
+            environment=QProcessEnvironment.systemEnvironment()
+            for name,value in values.items():environment.insert(name,value)
+            self.process.setProcessEnvironment(environment)
         # Windows cannot execute npm's .cmd shim directly through CreateProcess.
         if os.name == 'nt' and command.lower() in ('npx', 'npx.cmd'):
             shim = shutil.which('npx.cmd')
@@ -56,6 +62,8 @@ class LocalSession(QObject):
             try:
                 message = json.loads(line)
                 if not isinstance(message, dict) or message.get('jsonrpc') != '2.0': raise ValueError()
+                if any(contains_secret(message,secret) for secret in self.environment_secrets):
+                    self.fail('MCP response contained a mapped environment value and was blocked.');return
                 if 'id' not in message:
                     if message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
                         self.fail('MCP tools changed; reconnect before making another call.')
@@ -199,6 +207,7 @@ class LocalSession(QObject):
         if self.closed: return
         self.closed = True
         from shiboken6 import isValid
+        self.environment_secrets=[]
         if not isValid(self.process):return
         if isValid(self.timer):self.timer.stop()
         self.process.errorOccurred.disconnect(); self.process.finished.disconnect()

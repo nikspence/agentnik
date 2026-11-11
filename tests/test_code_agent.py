@@ -141,6 +141,20 @@ class ModelCoding(unittest.TestCase):
             approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([(p['operation'],p['server']) for p in approvals],[('mcp_start','Database'),('mcp_connect','Search'),('mcp_call_remote','Search')])
             self.assertEqual(first.request.call_count,3);self.assertEqual(second.request.call_count,2);self.assertEqual(len([e for e in events if 'MCP server allowed for this run:' in e.get('text','')]),2);self.assertEqual(run.mcp_run_allowed,set());self.assertEqual(events[-1]['status'],'completed')
 
+    def test_mcp_environment_values_are_excluded_from_model_results_and_calls(self):
+        from unittest.mock import Mock
+        secret='environment-secret-test';tool={'name':'query','description':'Query','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'DB','command':'server','args':[],'env':{'TOKEN':'MY_TOKEN'},'enabled':True};bridge.environment_values={'TOKEN':secret};bridge.request.return_value={'tool_details':[tool]}
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'query','arguments':json.dumps({'value':secret})})],finish='tool_calls'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Query',mcp_bridge=bridge);events=[];bodies=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(bridge.request.call_count,1);self.assertNotIn(secret,json.dumps(events));self.assertNotIn(secret,json.dumps(bodies));self.assertEqual(events[-1]['status'],'failed')
+
     def test_mcp_run_approval_does_not_bypass_argument_validation(self):
         from unittest.mock import Mock
         tool={'name':'query','description':'Query','description_clipped':False,'schema':{'type':'object','properties':{'value':{'type':'integer'}},'required':['value']},'schema_status':'available'}

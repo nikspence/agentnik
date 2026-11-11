@@ -652,7 +652,7 @@ class CodeTab(QWidget):
             else:self.advice_label.hide()
             self.diff.setPlainText(proposal.get('diff',''));self.diff.setVisible(operation in ('delete_file','git_commit','git_commit_staged','git_stage','git_unstage','subagent_file_transfer','independent_review'))
             if operation=='mcp_start':
-                text=self.tr('START LOCAL MCP SERVER\nServer: {server}\nExecutable: {command}\nArguments: {arguments}\n\nThis program runs with your user permissions. Tool descriptions and results may be sent to the selected model.').format(server=proposal['server'],command=proposal['command'],arguments=json.dumps(proposal['arguments'],ensure_ascii=True))
+                text=self.tr('START LOCAL MCP SERVER\nServer: {server}\nExecutable: {command}\nArguments: {arguments}\nEnvironment mappings (target: source name): {environment}\n\nThis program runs with your user permissions and inherits the app environment. Mapped values are hidden. Tool descriptions and results may be sent to the selected model.').format(server=proposal['server'],command=proposal['command'],arguments=json.dumps(proposal['arguments'],ensure_ascii=True),environment=json.dumps(proposal.get('environment',{}),ensure_ascii=True))
             elif operation=='mcp_connect':
                 text=self.tr('CONNECT TO REMOTE MCP SERVER\nServer: {server}\nDestination: {url}\n\nThe server receives a discovery request and any configured credential. Tool descriptions and results may be sent to the selected model.').format(**proposal)
             elif operation=='mcp_call_remote':
