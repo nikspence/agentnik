@@ -41,7 +41,7 @@ def load_config(path):
         if 'language' in settings and (not isinstance(settings['language'],str) or not 1<=len(settings['language'])<=32): raise ValueError()
         for field in ('font_size','composer_height'):
             if field in settings and (type(settings[field]) is not int or settings[field]<=0): raise ValueError()
-        for field in ('prompts_visible','history_visible'):
+        for field in ('prompts_visible','history_visible','relaxed_tls'):
             if field in settings and type(settings[field]) is not bool: raise ValueError()
         backends=config.get('web_backends',[])
         if not isinstance(backends,list) or len(backends)>5: raise ValueError()

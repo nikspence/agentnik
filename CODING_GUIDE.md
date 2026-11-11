@@ -61,7 +61,7 @@ Drafts, model assignments, and bounded activity are saved with the session. Reop
 For implementation boundaries and upcoming work, see [CODING_BACKEND_PLAN.md](CODING_BACKEND_PLAN.md). For setup, connection settings, and the rest of the application, see [README.md](README.md).
 
 
-## Structured Git tools — local preview
+## Structured Git tools — local operations
 
 Agentnik uses Dulwich for local Git operations without shell commands. The coding agent can inspect tracked status, working-file diffs against HEAD, staged diffs against HEAD, recent history, and local branches. Status checks at most 128 tracked paths and does not enumerate untracked files; use project listing for those.
 
@@ -75,7 +75,7 @@ Every mutation has its own approval:
 
 Path lists are JSON arrays encoded as strings, limited to 32 files. Diffs and UTF-8 file reads are bounded. Commit approvals show the full diff, message, configured identity, and parent commit. Approvals bind to the branch reference, HEAD, index fingerprint, and applicable file snapshots; changed state requires a fresh proposal. Index writes are locked, and reference publication uses compare-and-swap. A rare failure publishing the index after a successful commit reports the commit hash and stops the coding run for inspection rather than repeating the commit.
 
-This preview requires an existing HEAD and a registered repository root with a local `.git` directory. Unborn repositories, linked worktrees, in-progress merges/rebases/cherry-picks, hooks, signing, content filters/LFS, and remote operations are outside the supported slice. Files are staged as raw UTF-8 bytes; no attributes-based transformations or external programs run. External filesystem writers are not an OS-level transaction; avoid concurrent repository writes during execution. Korean approval framing is included; model-facing tool descriptions and activity remain English.
+These operations require an existing HEAD and a registered repository root with a local `.git` directory. Unborn repositories, linked worktrees, in-progress merges/rebases/cherry-picks, hooks, signing, content filters/LFS, and remote operations are outside the supported slice. Files are staged as raw UTF-8 bytes; no attributes-based transformations or external programs run. External filesystem writers are not an OS-level transaction; avoid concurrent repository writes during execution. Korean approval framing is included; model-facing tool descriptions and activity remain English.
 
 Next: credential-safe remote inspection, then fetch and push with explicit destination/branch/commit previews and transport qualification. Branch switching, merge/rebase, signing, submodules, worktrees, and LFS need separate design and compatibility checks. Current evidence is offline temporary-repository tests, mocked coding-loop approvals, and offscreen Qt checks; live-model Git execution and native visual review remain unverified.
 
@@ -132,7 +132,7 @@ If a tool batch discovers new/changed guidance, inspection tools may continue, b
 Guidance must be regular, unlinked UTF-8 files: up to 8 KB per file, 24 KB total, 16 loaded files, 24 directory levels and 256 discovered scopes, plus the shared run context/time budgets. Missing files are allowed; unsafe, unreadable or oversized guidance fails closed rather than silently truncating rules. New runs reload current files; reopening a saved session does not execute or load guidance by itself. Offline tests cover scope discovery, refresh/removal, path/link/encoding/size rejection, first-request protocol injection, credential redaction, mutation deferral, stale approval invalidation, unchanged shell approval, Light context and run-budget enforcement. Live model instruction adherence remains unqualified.
 
 
-## Repository Skills preview
+## Repository Skills
 
 Code can discover and explicitly select up to five repository skills under `.agents/skills/<name>/SKILL.md`. Preview the instructions in the picker; selection persists in the session. Each run loads selected instructions and records their SHA-256 in activity. Selected skills can supply bounded UTF-8 references through `read_skill_resource`; relative paths are confined to the skill directory and linked paths are rejected. Scripts still require normal shell approval. Discovery is limited to 200 entries and 50 valid skills; each instruction or reference is limited to 16 KB and shared context budgets apply. Skill frontmatter uses bounded safe YAML parsing. User-level libraries and a bounded per-run revision history are available; richer metadata remains future work.
 

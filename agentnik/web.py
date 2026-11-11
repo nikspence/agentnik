@@ -16,6 +16,7 @@ from .tools import AccessError, LimitError, ResearchError, Source, utc_now
 from .core import EndpointError
 from . import __version__
 from .search_providers import search_ready,search_chain
+from . import tls
 
 
 class FilteredPageError(ResearchError):
@@ -96,7 +97,7 @@ class PinnedConnection(http.client.HTTPConnection):
                 sock.settimeout(remaining)
                 if self.destination.scheme=='https':
                     context=ssl.create_default_context()
-                    if not self.verify_tls:
+                    if not self.verify_tls or tls.relaxed():
                         context.check_hostname=False;context.verify_mode=ssl.CERT_NONE
                     sock=context.wrap_socket(sock,server_hostname=self.destination.hostname)
                 self.sock=sock; return

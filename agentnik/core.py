@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from . import tls
 
 PROVIDERS = [
     ('OpenAI', 'responses', ('OPENAI_BASE_URL', 'OPENAI_API_BASE'), ('OPENAI_API_KEY',), 'https://api.openai.com/v1', 'OPENAI_MODEL'),
@@ -104,7 +105,9 @@ class EndpointError(ValueError):
 def open_request(c, url, body=None, timeout=120):
     req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, headers=headers(c))
     try:
-        return urllib.request.build_opener(NoRedirect()).open(req, timeout=timeout)
+        handlers = [NoRedirect()]
+        if tls.relaxed(): handlers.append(urllib.request.HTTPSHandler(context=tls.context()))
+        return urllib.request.build_opener(*handlers).open(req, timeout=timeout)
     except urllib.error.HTTPError as e:
         detail = e.read(2048).decode('utf-8', 'replace')
         if c.get('api_key'): detail = detail.replace(c['api_key'], '[redacted]')

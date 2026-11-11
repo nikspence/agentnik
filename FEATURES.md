@@ -2,7 +2,7 @@
 
 ## Conversations
 - Independent **＋ Chat** and **＋ Decision** tabs; each tab keeps its own session, even when tabs share a connection.
-- Chat protocols: OpenAI-compatible Chat Completions, Responses, and Anthropic Messages.
+- Chat protocols: native Ollama, OpenAI-compatible Chat Completions, Responses, and Anthropic Messages.
 - Streaming enabled by default; can be disabled per endpoint.
 - Optional reasoning-effort control for models that support it.
 - Assistant Markdown renders during streaming and after completion, including wrapped code blocks.
@@ -30,7 +30,7 @@
 - Agentnik-managed tools across native Ollama, Responses, Chat Completions, and Messages.
 - Up to five independently credentialed ordered search-backend profiles, including Brave Search, LangSearch, Firecrawl, Exa, Parallel, and Ollama search. Brave, LangSearch, Firecrawl, Exa, and Parallel work independently of the model provider, including local and LiteLLM connections.
 - Automatic search fallback: configured providers, then Firecrawl Keyless, then Google scrape after eligible failures; keyless Firecrawl is the default without configured providers.
-- Public-only navigation boundaries: URL/DNS/redirect validation, vetted IPs, TLS hostname verification, and rejection of credentials, private/local addresses, and non-80/443 ports.
+- Public-only navigation boundaries: URL/DNS/redirect validation, vetted IPs, and rejection of credentials, private/local addresses, and non-80/443 ports. Direct page reads do not verify TLS certificates or hostnames; provider API connections do by default, unless global relaxed TLS is enabled.
 - Explicit, bounded fallback and retry rules (e.g., 429/503 retry with `Retry-After`, one retry per route).
 - Bounded limits for tool rounds, requests, search results, response bytes, and turn duration.
 - Collapsible **Research** view recording routes, reasons, retries, searches, page reads, errors, sources, and excerpts.
@@ -88,19 +88,19 @@
 
 ## Packaging
 - Windows, macOS, and Linux desktop targets from a single Python/Qt codebase (Python 3.11+).
-- Windows x64 frozen release (v0.3.1) with bundled Python; PyInstaller build instructions included.
+- Windows x64 frozen build (v0.8.1) with bundled Python; PyInstaller build instructions included.
 - Installable Python wheel; `pip install .` provides the `agentnik` desktop entry point.
 - Default data directories per OS with optional overrides.
 
 
 ## Document Reader — Chat attachment slice
 
-Delivered local preview and attachment of UTF-8 text, Markdown, CSV, JSON, PDF, DOCX and XLSX. Extracted text includes page/paragraph/sheet-row/line references. PDF imports default to text plus rendered page images through existing multimodal image serialization; text-only mode is selectable. Scanned PDFs retain images with an explicit no-text notice. Four documents per prompt; 10 MB files, 48,000 extracted characters, 100 text pages or 12 image pages per PDF. XML archive expansion is bounded; macros, external relationships and formulas never execute. Extracted snapshots and page images persist with drafts/history/prompts, independent of original files. Explicit Send shares contents with the selected endpoint; document text is untrusted evidence. Original binaries, OCR, legacy Office formats, semantic retrieval and Code document tools remain future work. Qualification uses offline generated fixtures and Qt checks, with no live model request.
+Local preview and attachment of UTF-8 text, Markdown, CSV, JSON, PDF, DOCX and XLSX. Extracted text includes page/paragraph/sheet-row/line references. PDF imports default to text plus rendered page images through existing multimodal image serialization; text-only mode is selectable. Scanned PDFs retain images with an explicit no-text notice. Four documents per prompt; 10 MB files, 48,000 extracted characters, 100 text pages or 12 image pages per PDF. XML archive expansion is bounded; macros, external relationships and formulas never execute. Extracted snapshots and page images persist with drafts/history/prompts, independent of original files. Explicit Send shares contents with the selected endpoint; document text is untrusted evidence. Original binaries, OCR, legacy Office formats, semantic retrieval and Code document tools remain future work. Qualification uses offline generated fixtures and Qt checks, with no live model request.
 
 
 ## Calculator and Data Analysis — local tools
 
-Calculator and Data Analysis tools run locally without Python eval, shell execution, filesystem access, or network calls. Calculator supports numeric arithmetic, pi/e, and common math functions; floating-point results are approximate. Data Analysis accepts explicitly supplied CSV/JSON row objects and reports missing/nonnumeric counts, numeric min/max/sum/mean/median/sample standard deviation, and optional grouping. Bounds: 1,000 rows, 32 columns, 10 groups, a 16 KB data request and 24 KB output, further constrained by shared tool argument/context budgets (Chat defaults to a 4 KB argument budget). Group keys preserve typed JSON values; missing values are excluded from numeric statistics. No formulas, SQL, arbitrary Python, charts or implicit file reads run. Code Heavy has both tools without enabling research; Light has no tools. Chat requires the separate **Calculator / Data tools** opt-in and a tool-capable model. Web access stays independently controlled; enabling both uses the configured Agentnik-managed route and its capability/access checks. Inputs sent by the user are already shared with the selected model; results return to that endpoint and retained tool activity/history. Attached CSV/JSON text can supply data; automatic full-dataset attachment retrieval remains future work.
+Calculator and Data Analysis tools run locally without Python eval, shell execution, filesystem access, or network calls. Calculator supports numeric arithmetic, pi/e, and common math functions; floating-point results are approximate. Data Analysis accepts explicitly supplied CSV/JSON row objects and reports missing/nonnumeric counts, numeric min/max/sum/mean/median/sample standard deviation, and optional grouping. Bounds: 1,000 rows, 32 columns, 10 groups, a 16 KB data request and 24 KB output, further constrained by shared tool argument/context budgets (Chat defaults to a 4 KB argument budget). Group keys preserve typed JSON values; missing values are excluded from numeric statistics. No formulas, SQL, arbitrary Python, charts or implicit file reads run. Code Heavy has both tools without enabling research; Light cannot use these tools. Chat requires the separate **Calculator / Data tools** opt-in and a tool-capable model. Web access stays independently controlled; enabling both uses the configured Agentnik-managed route and its capability/access checks. Inputs sent by the user are already shared with the selected model; results return to that endpoint and retained tool activity/history. Attached CSV/JSON text can supply data; automatic full-dataset attachment retrieval remains future work.
 
 
 ## Scoped AGENTS.md guidance

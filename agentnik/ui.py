@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QScrollArea, QFrame, QFileDialog, QMessageBox, QInputDialog, QTableWidget, QTableWidgetItem,
     QHeaderView, QProgressBar, QStackedWidget, QAbstractItemView, QSizePolicy)
 
-from . import core, research, routing
+from . import core, research, routing, tls
 from .citations import cited_markdown
 from .research_ui import WebSettings, ResearchDetails, policy_label
 from .storage import Store
@@ -848,11 +848,13 @@ class SessionTab(QWidget):
 class Window(QMainWindow):
     def __init__(self,store):
         super().__init__(); self.store = store; self.repositories=RepositoryRegistry(store); self.local = {}; self.connections = {}; self.setWindowTitle('Agentnik'); self.resize(1320,850)
+        tls.configure(store.config['settings'].get('relaxed_tls',False))
         self._system_palette = QPalette(QApplication.palette())
         toolbar = self.addToolBar('Agentnik'); toolbar.setMovable(False)
         self.brand = QLabel(); self.brand.setContentsMargins(2,0,12,0); toolbar.addWidget(self.brand)
         for text, fn in [(self.tr('☰ History'),self.toggle_history),(self.tr('☆ Prompts'),self.toggle_prompts),(self.tr('＋ Chat'),lambda:self.new_session('chat')),(self.tr('＋ Decision'),lambda:self.new_session('decision')),(self.tr('＋ Code'),self.new_code),(self.tr('Repositories'),self.manage_repositories),(self.tr('Connections'),self.manage_connections),(self.tr('MCP servers'),self.manage_mcp_servers)]:
             action = QAction(text,self); action.triggered.connect(fn); toolbar.addAction(action)
+        self.tls_action=QAction(self.tr('TLS: relaxed') if tls.relaxed() else self.tr('TLS settings'),self);self.tls_action.triggered.connect(self.configure_tls);toolbar.addAction(self.tls_action)
         toolbar.addSeparator(); toolbar.addWidget(QLabel(self.tr('Theme: '))); self.theme = QComboBox(); self.theme.addItems(['System','Light','Dark']); toolbar.addWidget(self.theme); self.theme.setCurrentText(store.config['settings'].get('theme','System')); self.theme.currentTextChanged.connect(self.apply_theme)
         toolbar.addWidget(QLabel(self.tr('Language: ')));self.language=QComboBox();self.language.setToolTip(self.tr('Language changes take effect after restarting Agentnik.'))
         for code,name in localization.choices():self.language.addItem(self.tr('System default') if code=='system' else name,code)
@@ -886,6 +888,14 @@ class Window(QMainWindow):
         hint = QLabel(self.tr('Open a chat or decision tab to begin.\nConnections are discovered from your environment and local servers.')); hint.setAlignment(Qt.AlignmentFlag.AlignCenter); hint.setWordWrap(True); welcome.addWidget(hint); welcome.addStretch()
         self.tabs.addTab(self.empty,self.tr('Welcome')); self.update_branding()
         QApplication.styleHints().colorSchemeChanged.connect(self.system_theme_changed)
+    def configure_tls(self):
+        dlg=QDialog(self);dlg.setWindowTitle(self.tr('TLS settings'));layout=QVBoxLayout(dlg)
+        notice=QLabel(self.tr('Relaxing TLS disables certificate and hostname verification for model endpoints, search and retrieval providers, and remote MCP servers. A network intermediary can impersonate services, read credentials and requests, and alter responses. Use only when you accept this risk. Direct public page reads already use relaxed TLS. Restart Agentnik to apply changes.'));notice.setWordWrap(True);layout.addWidget(notice)
+        checkbox=QCheckBox(self.tr('Relax TLS verification globally'));checkbox.setChecked(self.store.config['settings'].get('relaxed_tls',False));layout.addWidget(checkbox)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dlg.accept);buttons.rejected.connect(dlg.reject);layout.addWidget(buttons)
+        if dlg.exec()==QDialog.DialogCode.Accepted:
+            self.store.config['settings']['relaxed_tls']=checkbox.isChecked();self.store.flush()
+            self.statusBar().showMessage(self.tr('TLS setting saved; restart Agentnik to apply it.'))
     def save_language(self,*_):
         self.store.config['settings']['language']=self.language.currentData();self.store.flush()
         self.statusBar().showMessage(self.tr('Language choice saved; restart Agentnik to apply it.'))

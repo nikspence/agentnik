@@ -5,6 +5,7 @@ from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkRepl
 from .mcp_support import MAX_OUTPUT,PROTOCOL,initialize_request,parse_initialize,rpc_error
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
+from . import tls
 
 HTTP_PROTOCOLS=(PROTOCOL,'2025-06-18','2025-03-26')
 MAX_PAGES=5
@@ -97,7 +98,9 @@ class RemoteProbe(QObject):
         if self.phase!='initialize':
             request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
             if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
-        self.buffer=bytearray();self.reply=self.manager.post(request,json.dumps(message).encode());self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
+        self.buffer=bytearray();self.reply=self.manager.post(request,json.dumps(message).encode());self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
+    def configure_reply(self):
+        if tls.relaxed(): self.reply.sslErrors.connect(lambda _errors,reply=self.reply:reply.ignoreSslErrors())
     def consume(self):
         if not self.reply:return
         self.buffer.extend(bytes(self.reply.readAll()))
@@ -202,7 +205,7 @@ class RemoteProbe(QObject):
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
         request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode());request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
-        self.buffer=bytearray();self.reply=self.manager.deleteResource(request);self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
+        self.buffer=bytearray();self.reply=self.manager.deleteResource(request);self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
     def complete(self,closed):
         self.timer.stop();self.token='';self.result['session_closed']=closed;self.finished.emit(self.result)
     def stop(self,message='MCP connection cancelled.'):
