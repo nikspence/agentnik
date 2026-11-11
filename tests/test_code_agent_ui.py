@@ -86,6 +86,14 @@ class CodingWorkspace(unittest.TestCase):
                     dialog.accept()
                 QTimer.singleShot(0,select_and_accept);tab.choose_skills()
                 original=read_skill(ProjectFiles(project),'review')['sha256'];self.assertEqual(tab.session['coding_skill_pins'],{'review':original})
+                def update_during_selection():
+                    dialog=app.activeModalWidget()
+                    path.write_text('---\nname: review\ndescription: Review\n---\nChanged during selection.',encoding='utf-8')
+                    dialog.accept()
+                with patch.object(QMessageBox,'warning') as warning:
+                    QTimer.singleShot(0,update_during_selection);tab.choose_skills()
+                    warning.assert_called_once()
+                self.assertEqual(tab.session['coding_skill_pins'],{'review':original})
                 path.write_text('---\nname: review\ndescription: Review\n---\nChanged.',encoding='utf-8')
                 with patch.object(QMessageBox,'warning') as warning,patch.object(tab,'launch') as launch:
                     tab.start_coding();warning.assert_called_once();launch.assert_not_called()

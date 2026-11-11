@@ -398,22 +398,23 @@ class CodeTab(QWidget):
     def choose_skills(self):
         if self.job: return
         from .code_agent import ProjectFiles
-        from .project_skills import list_skills
-        try: skills=list_skills(ProjectFiles(self.session['path_snapshot']))
-        except (OSError,ValueError) as exc:
+        from .project_skills import list_skills,read_skill
+        try:
+            files=ProjectFiles(self.session['path_snapshot']);skills=list_skills(files)
+            snapshots={skill['id']:read_skill(files,skill['id']) for skill in skills}
+        except (OSError,ValueError,UnicodeError) as exc:
             QMessageBox.warning(self,self.tr('Skills'),str(exc));return
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Choose skills'));layout=QVBoxLayout(dialog)
         layout.addWidget(QLabel(self.tr('Selected skill instructions are sent to the model. Scripts still require approval.')))
         scroll=QScrollArea();scroll.setWidgetResizable(True);container=QWidget();skill_layout=QVBoxLayout(container);scroll.setWidget(container);layout.addWidget(scroll);dialog.resize(720,500)
         checks=[]
         for skill in skills:
+            skill=snapshots[skill['id']]
             row=QHBoxLayout();skill_layout.addLayout(row)
             check=QCheckBox(skill['name']+' ['+skill['source']+'] — '+skill['description']);check.setChecked(skill['id'] in self.session.get('coding_skills',[]));row.addWidget(check);checks.append((skill['id'],check))
             preview=QPushButton(self.tr('Preview…'));row.addWidget(preview)
             def show_skill(checked=False,name=skill['id']):
-                from .project_skills import read_skill
-                try: text=read_skill(ProjectFiles(self.session['path_snapshot']),name)['instructions']
-                except (OSError,ValueError) as exc: QMessageBox.warning(dialog,self.tr('Skills'),str(exc));return
+                text=snapshots[name]['instructions']
                 viewer=QDialog(dialog);viewer.setWindowTitle(name);viewer.resize(700,500);box=QVBoxLayout(viewer);content=QPlainTextEdit();content.setReadOnly(True);content.setPlainText(text);box.addWidget(content);viewer.exec()
             preview.clicked.connect(show_skill)
         available={skill['id'] for skill in skills}
@@ -425,11 +426,12 @@ class CodeTab(QWidget):
         if dialog.exec()==QDialog.DialogCode.Accepted:
             selected=[name for name,check in checks if check.isChecked()]
             if len(selected)>5:QMessageBox.warning(self,self.tr('Skills'),self.tr('Select at most five skills.'));return
-            from .project_skills import read_skill
             previous=self.session.get('coding_skill_pins',{});pins={}
             try:
                 for ident in selected:
-                    if ident in available:pins[ident]=read_skill(ProjectFiles(self.session['path_snapshot']),ident)['sha256']
+                    if ident in available:
+                        pins[ident]=snapshots[ident]['sha256']
+                        if read_skill(files,ident)['sha256']!=pins[ident]:raise ValueError('Skill changed')
                     elif ident in previous:pins[ident]=previous[ident]
             except (OSError,ValueError,UnicodeError) as exc:
                 QMessageBox.warning(self,self.tr('Skills'),self.tr('A selected skill changed or became unavailable. Reopen Skills and try again.'));return
