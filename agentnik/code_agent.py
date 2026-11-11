@@ -607,12 +607,20 @@ class CodingRun:
                     event('skill_revision',skill={'id':skill['id'],'source':skill['source'],'sha256':skill['sha256']})
                     event('output',text='Selected skill: '+skill['id']+' (SHA-256 '+skill['sha256']+')')
             skill_hashes={skill['id']:skill['sha256'] for skill in selected_skills}
+            skill_resources={}
             def check_skill_versions():
                 for ident,digest in skill_hashes.items():
                     runtime.check()
                     try:current=read_skill(files,ident)['sha256']
                     except (OSError,ValueError):raise SkillChangedError('Selected skill became unavailable during this run; restart after reviewing it.') from None
                     if current!=digest:raise SkillChangedError('Selected skill changed during this run; restart after reviewing it: '+ident)
+                if skill_resources:
+                    from .project_skills import read_resource
+                    for (ident,path),digest in skill_resources.items():
+                        runtime.check()
+                        try:current=read_resource(files,ident,path)['sha256']
+                        except (OSError,ValueError,UnicodeError):raise SkillChangedError('A skill reference became unavailable during this run; restart after reviewing it: '+ident+'/'+path) from None
+                        if current!=digest:raise SkillChangedError('A skill reference changed during this run; restart after reviewing it: '+ident+'/'+path)
             guidance=RepositoryGuidance(files,runtime.check,lambda text:event('output',text=text))
             guidance.discover('.')
             guidance_payload=None
@@ -711,7 +719,7 @@ class CodingRun:
                         elif call.name=='read_skill_resource':
                             from .project_skills import read_resource
                             if args['name'] not in self.skills:raise ValueError('Select this skill in the Code pane before loading its resources')
-                            result=read_resource(files,args['name'],args['path']);event('output',text='Read skill reference: '+args['name']+'/'+args['path'])
+                            result=read_resource(files,args['name'],args['path']);skill_resources[(args['name'],args['path'])]=result['sha256'];event('output',text='Read skill reference: '+args['name']+'/'+args['path'])
                         elif call.name=='list_project_skills':
                             from .project_skills import list_skills
                             result={'skills':list_skills(files)}

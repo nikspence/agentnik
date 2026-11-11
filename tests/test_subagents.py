@@ -412,6 +412,35 @@ class Subagents(unittest.TestCase):
             self.assertEqual(len(requests),1);self.assertFalse((Path(root)/'new.txt').exists())
             self.assertEqual(events[-1]['status'],'failed');self.assertIn('unavailable',events[-1]['text'].lower())
 
+    def test_skill_reference_change_or_removal_stops_before_file_tool(self):
+        for removed in (False,True):
+            with self.subTest(removed=removed),tempfile.TemporaryDirectory() as root:
+                folder=Path(root)/'.agents/skills/review';folder.mkdir(parents=True)
+                (folder/'SKILL.md').write_text('---\nname: review\ndescription: Review\n---\nRead reference',encoding='utf-8')
+                reference=folder/'reference.md';reference.write_text('Original',encoding='utf-8')
+                events=[];requests=[]
+                def send(c,url,body,timeout):
+                    requests.append(copy.deepcopy(body))
+                    if len(requests)==1:return Wire(chat(calls=[call('read_skill_resource',{'name':'review','path':'reference.md'})],finish='tool_calls'),False)
+                    if removed:reference.unlink()
+                    else:reference.write_text('Updated',encoding='utf-8')
+                    return Wire(chat(calls=[call('write_file',{'path':'new.txt','content':'should not be written'})],finish='tool_calls'),False)
+                with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Create a file',skills=['review']).run(events.append)
+                self.assertEqual(len(requests),2);self.assertIn('Original',json.dumps(requests[1]));self.assertFalse((Path(root)/'new.txt').exists())
+                self.assertEqual(events[-1]['status'],'failed');self.assertIn('skill reference',events[-1]['text'].lower())
+
+    def test_unchanged_skill_reference_allows_follow_up(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder=Path(root)/'.agents/skills/review';folder.mkdir(parents=True)
+            (folder/'SKILL.md').write_text('---\nname: review\ndescription: Review\n---\nRead reference',encoding='utf-8')
+            (folder/'reference.md').write_text('Original',encoding='utf-8');events=[];requests=[]
+            def send(c,url,body,timeout):
+                requests.append(body)
+                if len(requests)==1:return Wire(chat(calls=[call('read_skill_resource',{'name':'review','path':'reference.md'})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',skills=['review']).run(events.append)
+            self.assertEqual(len(requests),2);self.assertEqual(events[-1]['status'],'completed')
+
     def test_file_snapshots_require_individual_approval_and_redact_credentials(self):
         with tempfile.TemporaryDirectory() as root:
             (Path(root)/'a.txt').write_text('data model-secret',encoding='utf-8')

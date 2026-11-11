@@ -142,7 +142,7 @@ User-level skills under `~/.agents/skills` are also available in the picker. Rep
 
 Selected skill IDs, sources, and exact instruction-file SHA-256 hashes are retained as metadata for the latest real coding run. Starting another run replaces those records; reopening never executes skills. Skill frontmatter uses bounded safe YAML parsing.
 
-The Skills picker previews a snapshot of each instruction file. If a selected skill changes while the picker is open, saving the selection is refused; reopen the picker to inspect and select the new revision. A selected skill that changes after saving also blocks the next run until the selection is confirmed again. Supporting resources are read separately when requested and are not pinned by the instruction-file hash.
+The Skills picker previews a snapshot of each instruction file. If a selected skill changes while the picker is open, saving the selection is refused; reopen the picker to inspect and select the new revision. A selected skill that changes after saving also blocks the next run until the selection is confirmed again. Supporting resources are read separately when requested and are not pinned by the instruction-file hash. Once read, each resource is checked for changes or removal during that run; a change stops the run before further work. Resources are loaded afresh on later runs.
 
 
 Code sessions retain skill revision metadata for the most recent 32 real coding runs. Each record identifies the run and selected skill sources and SHA-256 hashes; simulations do not add records. Older sessions remain readable. The hashes identify instruction-file contents without storing those contents in the revision history.
