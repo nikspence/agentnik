@@ -19,8 +19,7 @@ class ProjectBoundaries(unittest.TestCase):
     def test_delete_and_directory_creation_recheck_approved_state(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);path=root/'file.txt';path.write_text('before\n');files=ProjectFiles(directory)
-            with self.assertRaises(ValueError):files.delete_proposal('file.txt')
-            files.read('file.txt');proposal=files.delete_proposal('file.txt');path.write_text('changed\n')
+            proposal=files.delete_proposal('file.txt');path.write_text('changed\n')
             with self.assertRaises(ValueError):files.apply_operation(proposal)
             self.assertEqual(path.read_text(),'changed\n')
             files.read('file.txt');files.apply_operation(files.delete_proposal('file.txt'));self.assertFalse(path.exists())

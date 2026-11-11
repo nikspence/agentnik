@@ -6,7 +6,8 @@ import os
 import re
 import tomllib
 
-MAX_FILE=2_000_000
+from .code_limits import PATCH_FILE_BYTES,RANGE_TEXT_BYTES,PATCH_TEXT_BYTES
+MAX_FILE=PATCH_FILE_BYTES
 
 
 class ProjectToolError(ValueError):
@@ -19,14 +20,14 @@ class ProjectTools:
     def read_range(self,path,start_line,end_line):
         if any(not isinstance(n,str) or not re.fullmatch(r'[1-9][0-9]{0,7}',n) for n in (start_line,end_line)):raise ProjectToolError('Line numbers must be positive decimal strings')
         start,end=int(start_line),int(end_line)
-        if end<start or end-start>=200:raise ProjectToolError('Request an inclusive range of at most 200 lines')
+        if end<start or end-start>=1000:raise ProjectToolError('Request an inclusive range of at most 1000 lines')
         text=self.files.read(path,remember=False,max_bytes=MAX_FILE);lines=text.splitlines(True)
         if start>len(lines):raise ProjectToolError('Start line is beyond the end of the file')
         rows=[];size=0;position=sum(map(len,lines[:start-1]));begin=position
         for number in range(start,min(end,len(lines))+1):
             line=lines[number-1];length=len(line.encode())
-            if size+length>16000:
-                if not rows:raise ProjectToolError('One line exceeds the 16 KB range budget')
+            if size+length>RANGE_TEXT_BYTES:
+                if not rows:raise ProjectToolError('One line exceeds the 64 KB range budget')
                 break
             rows.append({'line':number,'text':line});size+=length;position+=len(line)
         digest=hashlib.sha256(text.encode()).hexdigest();key=str(self.files.path(path));old=self.views.get(key,{})
@@ -40,7 +41,7 @@ class ProjectTools:
         return {'path':path,'start_line':start,'end_line':last,'total_lines':len(lines),'lines':rows,'snapshot':digest,'truncated':last<min(end,len(lines)),'next_line':last+1 if last<len(lines) else None}
 
     def patch(self,path,old_text,new_text):
-        if not old_text or old_text==new_text or any(not isinstance(v,str) or len(v.encode())>16000 or '\x00' in v for v in (old_text,new_text)):raise ProjectToolError('Supply different old/new UTF-8 text of at most 16 KB, with a nonempty exact old match')
+        if not old_text or old_text==new_text or any(not isinstance(v,str) or len(v.encode())>PATCH_TEXT_BYTES or '\x00' in v for v in (old_text,new_text)):raise ProjectToolError('Supply different old/new UTF-8 text of at most 64 KB, with a nonempty exact old match')
         target=self.files.path(path);text=self.files.read(path,remember=False,max_bytes=MAX_FILE);digest=hashlib.sha256(text.encode()).hexdigest()
         index=text.find(old_text)
         if index<0:raise ProjectToolError('Old text was not found; read the current lines again')
@@ -49,10 +50,16 @@ class ProjectTools:
         seen=self.files.observed.get(str(target))==digest or (view.get('hash')==digest and any(left<=index and index+len(old_text)<=right for left,right in view.get('ranges',[])))
         if not seen:raise ProjectToolError('Read the exact target region at its current file version before patching')
         content=text[:index]+new_text+text[index+len(old_text):]
-        if len(content.encode())>MAX_FILE:raise ProjectToolError('Patched file exceeds the 2 MB budget')
-        diff=''.join(difflib.unified_diff(text.splitlines(True),content.splitlines(True),fromfile='a/'+path,tofile='b/'+path))
-        diff=''.join(line if line.endswith('\n') else line+'\n\\ No newline at end of file\n' for line in diff.splitlines(True))
-        if len(diff.encode())>64000:raise ProjectToolError('Patch diff exceeds the review budget')
+        if len(content.encode())>MAX_FILE:raise ProjectToolError('Patched file exceeds the 10 MB budget')
+        # Diff only the affected lines. Comparing the whole file can turn a tiny
+        # edit in a repetitive large file into a multi-megabyte diff.
+        start=text.rfind('\n',0,index)+1;end=text.find('\n',index+len(old_text))
+        end=len(text) if end<0 else end+1
+        before=text[start:end];after=text[start:index]+new_text+text[index+len(old_text):end]
+        offset=text.count('\n',0,start)
+        diff=''.join(line if line.endswith('\n') else line+'\n\\ No newline at end of file\n' for line in difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile='a/'+path,tofile='b/'+path,n=0))
+        diff=re.sub(r'^@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@',lambda match:'@@ -'+str(int(match[1])+offset)+(match[2] or '')+' +'+str(int(match[3])+offset)+(match[4] or '')+' @@',diff,flags=re.MULTILINE)
+        if len(diff.encode())>300000:raise ProjectToolError('Patch diff exceeds the activity budget')
         return {'operation':'apply_patch','path':path,'content':content,'base':digest,'diff':diff,'cwd':str(self.files.root),'max_bytes':MAX_FILE}
 
     def overview(self,check=lambda:None):

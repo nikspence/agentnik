@@ -12,6 +12,46 @@ from test_routing import Wire
 
 
 class ProjectInspection(unittest.TestCase):
+    def test_patch_diff_marks_missing_final_newlines(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'file.txt';path.write_bytes(b'old')
+            files=ProjectFiles(Path(folder));files.read('file.txt')
+            diff=ProjectTools(files).patch('file.txt','old','new')['diff']
+            self.assertIn('-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n',diff)
+
+    def test_expanded_full_reads_writes_and_large_range_patches(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);small=root/'full.txt';small.write_text('a'*100_000,encoding='utf-8')
+            files=ProjectFiles(root);self.assertEqual(len(files.read('full.txt')),100_000)
+            files.apply(files.proposal('full.txt','b'*120_000));self.assertEqual(small.stat().st_size,120_000)
+            large=root/'large.txt';large.write_bytes((b'x'*100+b'\n')*11000+b'target unique\n'+(b'x'*100+b'\n')*11000)
+            self.assertGreater(large.stat().st_size,2_000_000);tools=ProjectTools(files)
+            view=tools.read_range('large.txt','11001','11001');self.assertEqual(view['lines'][0]['text'],'target unique\n')
+            files.apply(tools.patch('large.txt','target unique','replacement'))
+            self.assertIn(b'replacement',large.read_bytes())
+
+    def test_larger_range_and_patch_arguments(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);path=root/'large-line.txt';path.write_bytes(('prefix\n'+'a'*50_000+'\nsuffix\n').encode('utf-8'))
+            files=ProjectFiles(root);tools=ProjectTools(files);view=tools.read_range('large-line.txt','1','3')
+            self.assertFalse(view['truncated']);self.assertEqual(len(view['lines'][1]['text']),50_001)
+            proposal=tools.patch('large-line.txt','a'*50_000,'b'*50_000);self.assertIn('@@ -2 +2 @@',proposal['diff'])
+            files.apply(proposal);self.assertEqual(path.read_text(), 'prefix\n'+'b'*50_000+'\nsuffix\n')
+
+    def test_expanded_text_capacity_through_model_tool_calls(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'source.txt';path.write_text('a'*90_000,encoding='utf-8');events=[];bodies=[];count=0
+            def send(connection,url,body,timeout):
+                nonlocal count
+                bodies.append(json.loads(json.dumps(body)));count+=1
+                if count==1:return Wire(chat(calls=[call('read_file',{'path':'source.txt'})],finish='tool_calls'),False)
+                if count==2:return Wire(chat(calls=[call('write_file',{'path':'source.txt','content':'b'*100_000})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            with patch('agentnik.core.open_request',side_effect=send):CodingRun(dict(C,stream=False),folder,'Update').run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(path.read_text(), 'b'*100_000)
+            result=next(json.loads(m['content']) for m in bodies[1]['messages'] if m['role']=='tool')
+            self.assertEqual(len(result['text']),90_000)
+
     def test_large_range_patch_preserves_other_lines_and_rejects_changed_files(self):
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'large.py';raw=b''.join(('line '+str(i)+'\r\n').encode() for i in range(10000));path.write_bytes(raw)
@@ -42,10 +82,10 @@ class ProjectInspection(unittest.TestCase):
 
     def test_range_budgets_and_exclusions(self):
         with tempfile.TemporaryDirectory() as folder:
-            path=Path(folder)/'code.txt';path.write_text(('x'*500+'\n')*100)
-            tools=ProjectTools(ProjectFiles(folder));result=tools.read_range('code.txt','1','100')
-            self.assertTrue(result['truncated']);self.assertLess(result['end_line'],100);self.assertEqual(result['next_line'],result['end_line']+1)
-            for start,end in (('0','1'),('-1','1'),('1','201'),('2','1'),('999','999')):
+            path=Path(folder)/'code.txt';path.write_text(('x'*500+'\n')*180)
+            tools=ProjectTools(ProjectFiles(folder));result=tools.read_range('code.txt','1','180')
+            self.assertTrue(result['truncated']);self.assertLess(result['end_line'],180);self.assertEqual(result['next_line'],result['end_line']+1)
+            for start,end in (('0','1'),('-1','1'),('1','1001'),('2','1'),('999','999')):
                 with self.assertRaises(ValueError):tools.read_range('code.txt',start,end)
             for path in ('../outside','.env','.git/config'):
                 with self.assertRaises(ValueError):tools.read_range(path,'1','2')

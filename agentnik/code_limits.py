@@ -7,8 +7,13 @@ FIELDS = {
     'calls': (16, 1, 128),
     'turn_seconds': (900, 10, 3600),
     'model_seconds': (300, 10, 3600),
-    'context_bytes': (100000, 4096, 1000000),
+    'context_bytes': (1000000, 4096, 8000000),
 }
+
+FULL_TEXT_BYTES=128_000
+PATCH_FILE_BYTES=10_000_000
+RANGE_TEXT_BYTES=64_000
+PATCH_TEXT_BYTES=64_000
 
 
 def coding_limits(value=None):
