@@ -1,4 +1,18 @@
-# Agentnik v0.7.3
+# Agentnik v0.8.0
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.7.3
+
+- **MCP servers:** configure local stdio servers and remote HTTPS servers, test connections, inspect discovered tools and make reviewed manual calls. Remote bearer tokens use the operating-system credential store. Local servers can map existing environment variable names without saving their values; local commands and arguments remain plaintext.
+- **MCP in Code:** select up to five servers per run. Models can request tools, text resources, text prompts and supported resource templates. Each server has an independent session and connection approval. Approve each operation, or explicitly allow that server's later MCP operations, including writes and data access, for the current run. Shell approvals remain separate.
+- **MCP boundaries:** tool inputs use bounded JSON Schema validation; definitions are rechecked before calls. Resource and prompt listings are bounded, and returned content is untrusted. Stateful remote servers retain their session during the run. OAuth, MCP task execution, binary resources, non-text prompt content, advanced URI-template expressions, and stream resumption remain unsupported.
+- **Project tools:** move and rename regular files of any size or encoding, delete individual files, and move or rename directories within the project, subject to conflict and no-overwrite checks. Text read and edit capacities have increased.
+- **Search handling:** Brave search omits individual results that fail public-address validation while retaining safe hits. A blocked coding search no longer requires discarding earlier sources; further searches in that run remain disabled.
+
+MCP transport was exercised on Windows against Parallel and Microsoft postgres-mcp, including Parallel searches and a PostgreSQL temporary-table workflow. Live model-driven MCP use remains unqualified. Offline tests use mocked providers and local fixtures. Build-host startup evidence is recorded in BUILD-MANIFEST.json; clean-machine installation, full native workflows, macOS/Linux, signing and a complete bundled-library license review remain open.
+
+## Earlier release: v0.7.3
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
