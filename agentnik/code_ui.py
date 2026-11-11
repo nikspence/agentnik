@@ -578,7 +578,10 @@ class CodeTab(QWidget):
             else:self.advice_label.hide()
             self.diff.setPlainText(proposal.get('diff',''));self.diff.setVisible(operation in ('delete_file','git_commit','git_commit_staged','git_stage','git_unstage','subagent_file_transfer','independent_review'))
             if operation=='independent_review':
-                text=self.tr('INDEPENDENT DOCUMENT REVIEW\nReview role: {role}\nProject: {cwd}\nDocument: {path}\nModel: {model}\nDestination: {destination}\nDocument SHA-256: {source_sha256}\nInput SHA-256: {payload_sha256}\nInput: {payload_bytes} UTF-8 bytes\n\nReview the complete reviewer instructions and document below. Approving sends this exact input to the selected endpoint. The reviewer has no tools and does not receive the drafting conversation, Skills, or project guidance. Its findings are untrusted.').format(**{'role':proposal.get('role','comprehension'),**proposal})
+                text=self.tr('INDEPENDENT DOCUMENT REVIEW\nReview role: {role}\nProject: {cwd}\nDocument: {path}\nModel: {model}\nDestination: {destination}\nDocument SHA-256: {source_sha256}\nInput SHA-256: {payload_sha256}\nInput: {payload_bytes} UTF-8 bytes\n\nReview the complete reviewer instructions, document and any evidence below. Approving sends this exact input to the selected endpoint. The reviewer has no tools and does not receive the drafting conversation, Skills, or project guidance. Its findings are untrusted.').format(**{'role':proposal.get('role','comprehension'),**proposal})
+                evidence=proposal.get('evidence',[])
+                if evidence:
+                    text+='\n\n'+self.tr('Additional evidence (path · source SHA-256 · transmitted text SHA-256):')+'\n'+'\n'.join(item['path']+' · '+item['sha256']+' · '+item['payload_sha256'] for item in evidence)
             elif operation=='subagent_file_transfer':
                 text=self.tr('SEND PROJECT FILE TO SUBAGENT\nProject: {cwd}\nFile: {path}\nModel: {model}\nDestination: {destination}\nSubagent: {child}\nTask: {task}\nPayload: {payload_bytes} UTF-8 bytes\nSHA-256: {payload_sha256}\n\nReview the exact file text to be sent below.').format(**proposal)
             elif operation in ('git_commit','git_commit_staged'):
