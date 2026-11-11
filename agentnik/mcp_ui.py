@@ -129,4 +129,4 @@ class MCPServers(QDialog):
         probe=self.remote;self.remote=None
         if probe:probe.deleteLater()
         if 'error' in result:self.status.setText(result['error']);return
-        self.status.setText('Connected: '+result['name']+' '+result['version']+' · MCP '+result['protocol']+' · tools: '+(', '.join(result.get('tools',[])) or 'none')+(' (more available)' if result.get('more_tools') else ''))
+        self.status.setText('Connected: '+result['name']+' '+result['version']+' · MCP '+result['protocol']+' · tools: '+(', '.join(result.get('tools',[])) or 'none')+(' (more available)' if result.get('more_tools') else '')+(' · session close not confirmed' if result.get('session_closed') is False else ''))
