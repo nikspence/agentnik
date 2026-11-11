@@ -18,9 +18,29 @@ class MCPFoundation(unittest.TestCase):
         for arguments in ({},{'query':3},{'query':'ok','n':0},{'query':'ok','extra':True}):
             with self.subTest(arguments=arguments),self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,arguments)
         self.assertTrue(validate_tool_arguments({'type':'object','properties':{'database':{'anyOf':[{'type':'string'},{'type':'null'}]}}},{'database':None}))
-        for unsafe in ({'type':'object','$ref':'https://example.com/schema'},{'type':'object','properties':{'q':{'type':'string','pattern':'(a+)+$'}}},{'type':'object','allOf':[]}):
+        for unsafe in ({'type':'object','$ref':'https://example.com/schema'},{'type':'object','properties':{'q':{'type':'string','pattern':'(a+)+$'}}}):
             with self.subTest(schema=unsafe),self.assertRaisesRegex(ValueError,'unsupported'):validate_tool_arguments(unsafe,{})
         with self.assertRaisesRegex(ValueError,'invalid'):validate_tool_arguments({'type':'object','required':'query'}, {})
+
+    def test_schema_local_definitions_unions_and_bounds(self):
+        from agentnik.mcp_schema import validate_tool_arguments
+        schema={'type':'object','$defs':{
+            'record':{'type':'object','properties':{'id':{'type':'integer','minimum':1}},'required':['id'],'additionalProperties':False},
+            'alias/name':{'type':'string','minLength':1}},
+            'properties':{'item':{'$ref':'#/$defs/record'},'name':{'$ref':'#/$defs/alias~1name'},
+                          'mode':{'oneOf':[{'const':'quick'},{'const':'full'}]},
+                          'value':{'anyOf':[{'type':'integer'},{'type':'string'},{'type':'null'}]}},
+            'allOf':[{'required':['item','name']},{'required':['mode']}],'additionalProperties':False}
+        self.assertTrue(validate_tool_arguments(schema,{'item':{'id':3},'name':'sample','mode':'quick','value':None}))
+        for arguments in ({'item':{'id':0},'name':'sample','mode':'quick'},{'item':{'id':1},'name':'sample','mode':'other'},{'item':{'id':1},'name':'','mode':'full'}):
+            with self.subTest(arguments=arguments),self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,arguments)
+        cyclic={'type':'object','$defs':{'x':{'$ref':'#/$defs/y'},'y':{'$ref':'#/$defs/x'}},'properties':{'x':{'$ref':'#/$defs/x'}}}
+        with self.assertRaisesRegex(ValueError,'recursive'):validate_tool_arguments(cyclic,{})
+        for reference in ('https://example.com/s.json','#','file:///secret','#/$defs/missing','#/$defs/a%2Fb','#/$defs/a~2b','#/$defs/a/extra'):
+            with self.subTest(reference=reference),self.assertRaises(ValueError):validate_tool_arguments({'type':'object','$defs':{'a':{'type':'string'}},'properties':{'x':{'$ref':reference}}},{})
+        broad={'type':'object','properties':{'x':{'anyOf':[{'anyOf':[{'const':n} for n in range(8)]} for _ in range(8)]}}}
+        with self.assertRaisesRegex(ValueError,'complex'):validate_tool_arguments(broad,{})
+        with self.assertRaises(ValueError):validate_tool_arguments({'type':'object','allOf':[]},{})
 
     def test_configuration_validation_and_persistence(self):
         item={'name':'Local','command':sys.executable,'args':['server.py'],'enabled':True}
