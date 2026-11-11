@@ -488,6 +488,9 @@ class ProjectFiles:
         else:self.observed[str(path)]=hashlib.sha256(proposal['content'].encode()).hexdigest()
 
 
+MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_call_remote','mcp_list_resources','mcp_read_resource','mcp_list_resource_templates','mcp_read_resource_template','mcp_list_prompts','mcp_get_prompt'))
+
+
 class CodingRun:
     def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None):
         self.connection=dict(connection);self.light=dict(light) if light else None;self.alternate=dict(alternate) if alternate else None;self.alternate2=dict(alternate2) if alternate2 else None;self.root=root;self.prompt=prompt;self.run_id=uuid.uuid4().hex
@@ -506,10 +509,10 @@ class CodingRun:
         self.search_provider=search_provider or ('managed' if self.web_backends else 'none')
         if type(self.web_enabled) is not bool or self.search_provider not in ('ollama','managed','google','none'):raise ValueError('Invalid coding research configuration')
         self.limits=coding_limits(limits);self.plan=None
-        self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self.denied=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
+        self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
 
     def stop(self):
-        with self.lock:self.cancel.set();self.pending=None;self.decision.set()
+        with self.lock:self.cancel.set();self.pending=None;self.mcp_run_allowed.clear();self.decision.set()
 
     def cancel_subagent(self,ident):
         with self.lock:
@@ -517,14 +520,24 @@ class CodingRun:
             if self.cancel.is_set() or cancel is None or cancel.is_set():return False
             cancel.set();return True
 
-    def decide(self,fingerprint,approved):
+    def decide(self,fingerprint,approved,scope='once'):
         with self.lock:
-            if self.cancel.is_set() or not self.pending or self.pending[0]!=fingerprint or self.answer is not None or type(approved) is not bool:return False
+            if self.cancel.is_set() or not self.pending or self.pending[0]!=fingerprint or self.answer is not None or type(approved) is not bool or scope not in ('once','mcp_server_run'):return False
+            if scope=='mcp_server_run':
+                proposal=self.pending[1]
+                if not approved or proposal.get('operation') not in MCP_APPROVAL_OPERATIONS or proposal.get('server') not in {bridge.server['name'] for bridge in self.mcp_bridges}:return False
+                self.mcp_run_allowed.add(proposal['server'])
             self.answer=approved;self.decision.set();return True
 
     def review(self,proposal,emit,runtime,kind='edit_proposal'):
         fingerprint=hashlib.sha256(json.dumps({'run_id':self.run_id,'proposal':proposal},sort_keys=True).encode()).hexdigest()
         if fingerprint in self.denied:return False
+        with self.lock:
+            automatic=(kind=='operation_proposal' and proposal.get('operation') in MCP_APPROVAL_OPERATIONS and proposal.get('server') in self.mcp_run_allowed)
+        if automatic:
+            runtime.check()
+            emit({'kind':'output','text':'MCP server allowed for this run: '+proposal['server']+' · '+proposal['operation']+(' · '+proposal['tool'] if proposal.get('tool') else '')})
+            return True
         with self.lock:self.pending=(fingerprint,proposal);self.answer=None;self.decision.clear()
         emit({'kind':kind,'fingerprint':fingerprint,'proposal':proposal})
         try:
@@ -1185,4 +1198,4 @@ class CodingRun:
         finally:
             for bridge in self.mcp_bridges:bridge.close_signal.emit()
             runtime.closed=True
-            with self.lock:self.pending=None
+            with self.lock:self.pending=None;self.mcp_run_allowed.clear()

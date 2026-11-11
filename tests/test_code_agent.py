@@ -124,6 +124,47 @@ class ModelCoding(unittest.TestCase):
             first.close_signal.emit.assert_called_once();second.close_signal.emit.assert_called_once()
             schemas={tool['function']['name']:tool['function']['parameters']['required'] for tool in bodies[0]['tools'] if tool['function']['name'].startswith('mcp_')};self.assertTrue(all('server' in fields for fields in schemas.values()))
 
+    def test_mcp_run_approval_is_scoped_to_one_server_and_expires(self):
+        from unittest.mock import Mock
+        tool={'name':'modify','description':'Change data','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            first=Mock();first.server={'name':'Database','command':'server','args':[],'enabled':True};first.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[]}},{'call_result':{'content':[]}}]
+            second=Mock();second.server={'name':'Search','transport':'http','url':'https://example.com/mcp','credential_id':'opaque','enabled':True};second.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{'server':'Database'}),call('mcp_discover',{'server':'Search'},'two')],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'server':'Database','tool':'modify','arguments':'{}'}),call('mcp_call',{'server':'Database','tool':'modify','arguments':'{}'},'again'),call('mcp_call',{'server':'Search','tool':'modify','arguments':'{}'},'other')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Use both',mcp_bridges=[first,second]);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':
+                    proposal=event['proposal'];scope='mcp_server_run' if proposal['server']=='Database' else 'once'
+                    self.assertTrue(run.decide(event['fingerprint'],True,scope))
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([(p['operation'],p['server']) for p in approvals],[('mcp_start','Database'),('mcp_connect','Search'),('mcp_call_remote','Search')])
+            self.assertEqual(first.request.call_count,3);self.assertEqual(second.request.call_count,2);self.assertEqual(len([e for e in events if 'MCP server allowed for this run:' in e.get('text','')]),2);self.assertEqual(run.mcp_run_allowed,set());self.assertEqual(events[-1]['status'],'completed')
+
+    def test_mcp_run_approval_does_not_bypass_argument_validation(self):
+        from unittest.mock import Mock
+        tool={'name':'query','description':'Query','description_clipped':False,'schema':{'type':'object','properties':{'value':{'type':'integer'}},'required':['value']},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'DB','command':'server','args':[],'enabled':True};bridge.request.return_value={'tool_details':[tool]}
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'query','arguments':'{"value":"invalid"}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Query',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':self.assertTrue(run.decide(event['fingerprint'],True,'mcp_server_run'))
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            self.assertEqual(bridge.request.call_count,1);self.assertEqual(events[-1]['status'],'completed');self.assertFalse(any('MCP server allowed for this run:' in e.get('text','') for e in events))
+
+    def test_mcp_run_approval_rejects_unrelated_operations_and_stale_fingerprints(self):
+        from unittest.mock import Mock
+        bridge=Mock();bridge.server={'name':'Server'}
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'test',mcp_bridge=bridge)
+            run.pending=('id',{'operation':'run_shell','server':'Server'})
+            self.assertFalse(run.decide('id',True,'mcp_server_run'));self.assertEqual(run.mcp_run_allowed,set())
+            run.pending=('id',{'operation':'mcp_start','server':'Server'})
+            self.assertFalse(run.decide('old',True,'mcp_server_run'));self.assertFalse(run.decide('id',False,'mcp_server_run'))
+            self.assertTrue(run.decide('id',True,'mcp_server_run'));self.assertFalse(run.decide('id',True,'mcp_server_run'));run.stop();self.assertEqual(run.mcp_run_allowed,set())
+
     def test_multiple_mcp_servers_reject_duplicate_names(self):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as directory:

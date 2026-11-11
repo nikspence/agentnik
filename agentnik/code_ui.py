@@ -226,7 +226,8 @@ class CodeTab(QWidget):
         actions=QHBoxLayout();review.addLayout(actions)
         self.approve=QPushButton(self.tr('Approve proposed step'));self.reject=QPushButton(self.tr('Reject proposed step'))
         for button in (self.approve,self.reject):actions.addWidget(button);button.setEnabled(False)
-        self.approve.clicked.connect(lambda:self.decide(True));self.reject.clicked.connect(lambda:self.decide(False))
+        self.approve_mcp_run=QPushButton(self.tr('Allow this MCP server for this run'));self.approve_mcp_run.setToolTip(self.tr('Allow this server to perform future MCP operations, including writes and data access, without further prompts until this run ends.'));self.approve_mcp_run.hide();actions.addWidget(self.approve_mcp_run)
+        self.approve.clicked.connect(lambda:self.decide(True));self.reject.clicked.connect(lambda:self.decide(False));self.approve_mcp_run.clicked.connect(lambda:self.decide(True,'mcp_server_run'))
         self.diff=QPlainTextEdit();self.diff.setReadOnly(True);self.diff.setPlaceholderText(self.tr('Review the complete proposed file diff before approving'));review.addWidget(self.diff)
         self.composer.textChanged.connect(self.save_draft)
 
@@ -598,6 +599,7 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
+        if kind in ('edit_proposal','operation_proposal','proposal'):self.approve_mcp_run.hide()
         if kind=='subagent':
             try:
                 value=validate_record(event.get('subagent'));value['text']=plain(value['text'])[:1600]
@@ -642,6 +644,9 @@ class CodeTab(QWidget):
             self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval for file edit: '+proposal['path'])
         elif kind=='operation_proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval';proposal=event['proposal'];operation=proposal['operation']
+            from .code_agent import MCP_APPROVAL_OPERATIONS
+            if operation in MCP_APPROVAL_OPERATIONS:
+                self.approve_mcp_run.show();self.approve_mcp_run.setEnabled(True)
             self.advice_fingerprint=self.pending_fingerprint if operation=='run_shell' else None
             if operation=='run_shell':self.show_advice()
             else:self.advice_label.hide()
@@ -684,6 +689,7 @@ class CodeTab(QWidget):
             else:
                 label=self.tr('DELETE FILE') if operation=='delete_file' else self.tr('CREATE DIRECTORY')
                 text=self.tr('{operation}\nProject: {project}\nPath: {path}\nSafety recommendation: Not checked.').format(operation=label,project=proposal['cwd'],path=proposal['path'])
+            if operation in MCP_APPROVAL_OPERATIONS:text+='\n\n'+self.tr('Allow this MCP server for this run permits all its later MCP operations, including writes and data access, without further prompts. Other servers still require approval. Permission ends when this run ends.')
             if proposal.get('purpose')=='tests':text=self.tr('TEST RUN · Report format: {format}').format(format=proposal['test_format'])+'\n'+text
             self.approval.setPlainText(text);self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval: '+operation+' '+proposal.get('path',''))
             if operation=='run_shell' and self.advice_connection:self.check_advice(proposal,self.pending_fingerprint)
@@ -705,20 +711,22 @@ class CodeTab(QWidget):
             self.stop_subagents('stopped');self.session['code_state']=event['status'];self.finish();self.record(kind,event['text'])
             if event.get('usage'):self.record('usage',event['usage'])
 
-    def decide(self,allowed):
+    def decide(self,allowed,scope='once'):
         if self.advice_job:return
-        if self.job and self.pending_fingerprint and self.job.decide(self.pending_fingerprint,allowed):
-            decision=self.pending_fingerprint;self.approve.setEnabled(False);self.reject.setEnabled(False);self.pending_fingerprint=None
+        accepted=self.job and self.pending_fingerprint and (self.job.decide(self.pending_fingerprint,allowed,scope) if scope!='once' else self.job.decide(self.pending_fingerprint,allowed))
+        if accepted:
+            decision=self.pending_fingerprint;self.approve.setEnabled(False);self.reject.setEnabled(False);self.approve_mcp_run.setEnabled(False);self.approve_mcp_run.hide();self.pending_fingerprint=None
             self.advice_fingerprint=None
             self.approval_panel.hide();self.approval.clear();self.diff.clear()
-            self.session['code_state']='running';self.record('decision',('Approved' if allowed else 'Rejected')+' proposal '+decision)
+            self.session['code_state']='running';self.record('decision',('Allowed MCP server for this run' if scope=='mcp_server_run' else 'Approved' if allowed else 'Rejected')+' proposal '+decision)
 
     def finish(self):
         if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
         self.advice_connection=None;self.advice_destination=''
         self.run_id=None;self.job=None;self.pending_fingerprint=None;self.advice_fingerprint=None
         self.approval_panel.hide()
-        for button in (self.approve,self.reject,self.cancel_button):button.setEnabled(False)
+        for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button):button.setEnabled(False)
+        self.approve_mcp_run.hide()
         self.simulate.setEnabled(True);self.send.setEnabled(True)
         self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))

@@ -122,7 +122,7 @@ class CodingWorkspace(unittest.TestCase):
                 tab.job=MagicMock();tab.run_id='mcp-run'
                 start={'operation':'mcp_start','server':'Database','command':'npx','arguments':['-y','server','run']}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'start','proposal':start})
-                self.assertIn('START LOCAL MCP SERVER',tab.approval.toPlainText());self.assertIn('npx',tab.approval.toPlainText());tab.decide(False)
+                self.assertIn('START LOCAL MCP SERVER',tab.approval.toPlainText());self.assertIn('npx',tab.approval.toPlainText());self.assertIn('including writes and data access',tab.approval.toPlainText());self.assertFalse(tab.approve_mcp_run.isHidden());tab.decide(True,'mcp_server_run');tab.job.decide.assert_called_with('start',True,'mcp_server_run')
                 proposal={'operation':'mcp_call','server':'Database','command':'npx','server_arguments':['-y','server','run'],'tool':'query','description':'Read data','schema':{'type':'object'},'arguments':{'sql':'SELECT 1'}}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'call','proposal':proposal})
                 for value in ('MCP TOOL CALL','Database','query','Read data','SELECT 1'):self.assertIn(value,tab.approval.toPlainText())
@@ -162,7 +162,7 @@ class CodingWorkspace(unittest.TestCase):
                 tab.job=MagicMock();tab.run_id='test-run';tab.advice_connection=None
                 proposal={'operation':'run_shell','purpose':'tests','test_format':'unittest','cwd':str(project),'path':'.','command':'python -m unittest','shell':'powershell.exe','environment_keys':['PATH'],'max_seconds':45,'max_output_bytes':32000}
                 tab.receive({'run_id':'test-run','kind':'operation_proposal','fingerprint':'test-proposal','proposal':proposal})
-                self.assertIn('TEST RUN',tab.approval.toPlainText());self.assertIn('unittest',tab.approval.toPlainText());self.assertIn('python -m unittest',tab.approval.toPlainText());self.assertTrue(tab.approve.isEnabled())
+                self.assertIn('TEST RUN',tab.approval.toPlainText());self.assertIn('unittest',tab.approval.toPlainText());self.assertIn('python -m unittest',tab.approval.toPlainText());self.assertTrue(tab.approve.isEnabled());self.assertTrue(tab.approve_mcp_run.isHidden())
                 tab.decide(False);self.assertTrue(tab.approval_panel.isHidden());tab.job=None;tab.run_id=None
             finally:window.close();app.processEvents();store.db.close()
 
