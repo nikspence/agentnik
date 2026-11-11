@@ -44,3 +44,15 @@ def classify(exc,partial=False,tool=''):
     elif isinstance(exc,(OSError,TimeoutError)): kind='uncertain'
     return {'kind':kind,'http_status':status,'retry_after':after,'partial':bool(partial),
             'fallback_allowed':not partial and kind in ('unsupported','authentication','rate_limit','temporary')}
+
+
+def unsupported_model_tools(exc):
+    """Recognize an explicit HTTP rejection of model tool calling, not general failures."""
+    if not isinstance(exc,EndpointError) or exc.status!=400:return False
+    payload=exc.payload if isinstance(exc.payload,dict) else {}
+    error=payload.get('error',{})
+    if isinstance(error,str):message=error;param=code=''
+    elif isinstance(error,dict):message=str(error.get('message',''));param=str(error.get('param',''));code=error.get('code','')
+    else:return False
+    if param.startswith('tools') and code in ('unsupported_tool','unsupported_tool_type','tools_not_supported'):return True
+    return bool(re.search(r'\b(?:does not support|doesn.t support|not support|unsupported) (?:the )?(?:tools|tool calling|tool use|function calling|function calls)\b|\b(?:tools|tool calling|tool use|function calling|function calls) (?:are |is )?(?:not supported|unsupported)\b',message,re.I))

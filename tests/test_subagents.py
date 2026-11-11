@@ -596,6 +596,103 @@ class Subagents(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
             self.assertEqual(bodies,['heavy','heavy']);self.assertEqual(events[-1]['status'],'completed')
 
+    def test_code_pane_remembers_rejection_for_next_run_and_can_clear_it(self):
+        import os
+        from PySide6.QtWidgets import QApplication
+        from agentnik.storage import Store,load_config
+        from agentnik.subagent_capabilities import unsupported
+        from agentnik.ui import Window
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen');app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();store=Store(Path(root)/'data')
+            store.config['connections']={'Primary':{'url':'https://example.com/v1','protocol':'chat','model':'base'}}
+            window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                for role in ('heavy','light'):
+                    combo,model=tab.roles[role];combo.setCurrentIndex(combo.findData('Primary'));model.setText(role)
+                tab.composer.setPlainText('Review');tab.save_models()
+                with patch.object(tab,'launch') as launch:
+                    tab.start_coding();run=launch.call_args.args[0]
+                self.assertEqual(run.unsupported_subagent_roles,set());tab.job=run;tab.run_id=run.run_id
+                tab.receive({'run_id':run.run_id,'kind':'subagent_tools_unsupported','role':'light'})
+                self.assertTrue(unsupported(load_config(store.config_path),tab.role_connection('light')))
+                self.assertIn('_capability_scope',store.config['connections']['Primary']);tab.job=None
+                with patch.object(tab,'launch') as launch:
+                    tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,{'light'})
+                tab.forget_subagent_capabilities();self.assertFalse(unsupported(load_config(store.config_path),tab.role_connection('light')))
+                with patch.object(tab,'launch') as launch:
+                    tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,set())
+            finally:tab.job=None;window.close();app.processEvents();store.db.close()
+
+    def test_remembered_unsupported_model_starts_with_snapshot_and_no_tools(self):
+        from agentnik import compat_tools
+        from agentnik.tools import ToolCall
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'a.py').write_text('approved data',encoding='utf-8');events=[];bodies=[];heavy_count=0
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=dict(C,model='other',stream=False),unsupported_subagent_roles={'light'})
+            tasks=[{'task':'Review','paths':['a.py'],'inspect':True},{'task':'Other','model':'alternate'}]
+            def request(connection,body,runtime,emit,state,*args,**kwargs):
+                nonlocal heavy_count
+                if connection['model']=='heavy':
+                    heavy_count+=1
+                    if heavy_count==1:return {'role':'assistant','content':''},[ToolCall('d','delegate_parallel',{'tasks':json.dumps(tasks)})]
+                    state['text']='Done';return {'role':'assistant','content':'Done'},[]
+                if connection['model']=='light':bodies.append(copy.deepcopy(body))
+                state['text']='Reviewed';return {'role':'assistant','content':'Reviewed'},[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(compat_tools,'request',side_effect=request):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(bodies),1);self.assertNotIn('tools',bodies[0]);self.assertIn('approved data',json.dumps(bodies[0]));self.assertTrue(any('previously rejected' in e.get('text','') for e in events))
+
+    def test_remembered_subagent_capability_persists_and_invalidates(self):
+        from agentnik.storage import Store,load_config
+        from agentnik.subagent_capabilities import remember,unsupported
+        from agentnik.research_settings import invalidate_capabilities
+        with tempfile.TemporaryDirectory() as root:
+            store=Store(root);connection={'url':'https://example.com/v1','protocol':'chat','model':'small','_capability_scope':'saved-profile','api_key':'top-secret'}
+            try:
+                remember(store.config,connection);store.flush();reloaded=load_config(store.config_path)
+                self.assertTrue(unsupported(reloaded,connection));self.assertNotIn('top-secret',store.config_path.read_text(encoding='utf-8'))
+                self.assertFalse(unsupported(reloaded,dict(connection,model='other')));self.assertFalse(unsupported(reloaded,dict(connection,_capability_scope='new-profile')))
+                invalidate_capabilities(reloaded,[connection]);self.assertFalse(unsupported(reloaded,connection))
+            finally:store.db.close()
+
+    def test_inspection_falls_back_only_on_explicit_pre_response_rejection(self):
+        from agentnik import compat_tools,responses_tools
+        from agentnik.tools import ToolCall
+        cases=[('native',400,{'error':'model does not support tools'},False,True),('provider',400,{'error':{'message':'Tool calling is not supported','param':'tools'}},False,True),('auth',401,{'error':'model does not support tools'},False,False),('generic',400,{'error':{'message':'invalid request','param':'tools'}},False,False),('partial',400,{'error':'model does not support tools'},True,False),('timeout',504,{'error':'model does not support tools'},False,False)]
+        for scenario,status,payload,partial,expect_fallback in cases:
+            for protocol in ('chat','messages','responses'):
+                with self.subTest(scenario=scenario,protocol=protocol),tempfile.TemporaryDirectory() as root:
+                    Path(root,'a.py').write_text('approved content',encoding='utf-8');Path(root,'private.py').write_text('private data',encoding='utf-8')
+                    events=[];child_bodies=[];heavy_count=0
+                    run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',protocol=protocol,stream=False),alternate=dict(C,model='other',stream=False))
+                    tasks=[{'task':'Review','paths':['a.py'],'inspect':True},{'task':'Other','model':'alternate'}]
+                    def request(connection,body,runtime,emit,state,*args,**kwargs):
+                        nonlocal heavy_count
+                        if connection['model']=='heavy':
+                            heavy_count+=1
+                            if heavy_count==1:return {'role':'assistant','content':''},[ToolCall('d','delegate_parallel',{'tasks':json.dumps(tasks)})]
+                            state['text']='Done';return {'role':'assistant','content':'Done'},[]
+                        if connection['model']=='other':state['text']='Other';return {},[]
+                        child_bodies.append(copy.deepcopy(body))
+                        if len(child_bodies)==1:
+                            if partial:state['text']='partial response'
+                            raise core.EndpointError(status,json.dumps(payload))
+                        state['text']='Reviewed approved content';return ([] if protocol=='responses' else {'role':'assistant','content':'Reviewed approved content'}),[]
+                    def emit(event):
+                        events.append(event)
+                        if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+                    with patch.object(compat_tools,'request',side_effect=request),patch.object(responses_tools,'request',side_effect=request):run.run(emit)
+                    self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(child_bodies),2 if expect_fallback else 1)
+                    self.assertIn('approved content',json.dumps(child_bodies[0]));self.assertNotIn('private data',json.dumps(child_bodies))
+                    if expect_fallback:
+                        self.assertIn('tools',child_bodies[0]);self.assertNotIn('tools',child_bodies[1]);self.assertIn('You have no tools',json.dumps(child_bodies[1]))
+                        self.assertTrue(any('rejected tool calling' in e.get('text','') for e in events));self.assertTrue(any('Reviewed approved content' in e.get('text','') for e in events))
+                    else:self.assertFalse(any('rejected tool calling' in e.get('text','') for e in events))
+
     def test_parallel_inspection_real_chat_tool_round_trip(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root,'a.py').write_text('def feature(): pass',encoding='utf-8');events=[];child_bodies=[];heavy_count=0;light_count=0
@@ -647,7 +744,7 @@ class Subagents(unittest.TestCase):
                 with patch.object(compat_tools,'request',side_effect=request),patch.object(responses_tools,'request',side_effect=request):run.run(emit)
                 self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(child_count,2)
                 self.assertEqual({t['name'] if protocol in ('responses','messages') else t['function']['name'] for t in bodies[0]['tools']},{'read_file','glob_files','grep_files'})
-                self.assertNotIn('FIND THIS',json.dumps(bodies[0]));payload=json.dumps(bodies[1]);self.assertIn('FIND THIS',payload);self.assertIn('outside the approved snapshots',payload);self.assertNotIn('private-marker',payload)
+                self.assertIn('FIND THIS',json.dumps(bodies[0]));payload=json.dumps(bodies[1]);self.assertIn('FIND THIS',payload);self.assertIn('outside the approved snapshots',payload);self.assertNotIn('private-marker',payload)
                 self.assertEqual(len([e for e in events if e['kind']=='operation_proposal']),1)
 
     def test_alternate_model_persists_and_launches_from_code_pane(self):

@@ -53,6 +53,8 @@ def load_config(path):
                 if field in entry and not isinstance(entry[field],str): raise ValueError()
         from .research_settings import validate_research_config
         validate_research_config(config)
+        from .subagent_capabilities import validate as validate_subagent_capabilities
+        validate_subagent_capabilities(config)
         from .mcp_support import validate_servers
         validate_servers(config.get('mcp_servers',[]))
         config.setdefault('connections',{}); config.setdefault('settings',{})

@@ -196,8 +196,9 @@ class CodeTab(QWidget):
             choose=QPushButton(self.tr('Choose model…'));choose.clicked.connect(lambda _,r=role:self.choose_model(r));row.addWidget(choose)
             connection.currentIndexChanged.connect(lambda _,r=role:self.role_changed(r))
             model.editingFinished.connect(self.save_models)
-        role_help=QLabel(self.tr('Heavy leads the work. Light handles delegated analysis. The two optional alternate models are additional choices Heavy may select for parallel subagents or independent document reviews; they are not automatic fallbacks and may use different connections. Delegation must be enabled and a Light model configured. For parallel reviews, project files are approved individually; optional inspection tools can access only those approved snapshots.'))
+        role_help=QLabel(self.tr('Heavy leads the work. Light handles delegated analysis. The two optional alternate models are additional choices Heavy may select for parallel subagents or independent document reviews; they are not automatic fallbacks and may use different connections. Delegation must be enabled and a Light model configured. For parallel reviews, project files are approved individually and supplied as snapshots; optional inspection tools only access those snapshots. If a model explicitly rejects tool calling, Agentnik retries without tools.'))
         role_help.setWordWrap(True);model_layout.addWidget(role_help)
+        self.reset_subagent_capabilities=QPushButton(self.tr('Forget remembered subagent tool support'));self.reset_subagent_capabilities.setToolTip(self.tr('Clear remembered tool-calling rejections so selected subagent models can be tried again.'));self.reset_subagent_capabilities.clicked.connect(self.forget_subagent_capabilities);model_layout.addWidget(self.reset_subagent_capabilities)
         self.advice_enabled=QCheckBox(self.tr('Check shell approvals with Decision model'))
         self.advice_enabled.setChecked(session.get('coding_advice_enabled',False));self.advice_enabled.toggled.connect(self.save_advice_enabled);model_layout.addWidget(self.advice_enabled)
         disclosure=QLabel(self.tr('When enabled, each shell proposal sends its command, working directory, shell, and environment variable names to the selected Decision endpoint. Environment values are not sent. Advice never approves a command.'))
@@ -374,6 +375,15 @@ class CodeTab(QWidget):
             self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('advice','System One advice unavailable for proposal '+fingerprint[:12]+' via '+self.advice_destination)
         self.advice_job=Job(lambda emit,cancel:decision_advice.request(connection,proposal,cancel),done,failed)
 
+    def subagent_capability_connection(self,role,connection):
+        scoped=dict(connection);name=self.roles[role][0].currentData()
+        if name not in self.store.config.get('connections',{}):scoped.pop('_capability_scope',None)
+        return scoped
+
+    def forget_subagent_capabilities(self):
+        self.store.config.pop('subagent_tool_capabilities',None);self.store.flush()
+        if self.job:self.record('output',self.tr('Remembered subagent tool support cleared for future runs.'))
+
     def role_connection(self,role):
         name=self.roles[role][0].currentData()
         if not name:return None
@@ -531,7 +541,10 @@ class CodeTab(QWidget):
                 servers.append(server)
             from .mcp_code import CodingMCPBridge
             mcp_bridges=[CodingMCPBridge(server,self.store.config,self) for server in servers]
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges)
+            from .subagent_capabilities import unsupported
+            role_models={'light':light,'alternate':alternate,'alternate2':alternate2}
+            unsupported_roles={role for role,connection in role_models.items() if connection and unsupported(self.store.config,self.subagent_capability_connection(role,connection))}
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles)
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.')
@@ -634,6 +647,18 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
+        if kind=='subagent_tools_unsupported':
+            role=event.get('role')
+            if role not in ('light','alternate','alternate2') or not isinstance(self.job,CodingRun):return
+            original=getattr(self.job,role,None)
+            try:current=self.role_connection(role)
+            except ValueError:return
+            fields=('url','protocol','model','api_key','reasoning','stream','context_limit','_capability_scope')
+            if not original or not current or any(original.get(key)!=current.get(key) for key in fields):return
+            name=self.roles[role][0].currentData();saved=self.store.config.get('connections',{}).get(name)
+            if saved is not None and not saved.get('_capability_scope') and current.get('_capability_scope'):saved['_capability_scope']=current['_capability_scope']
+            from .subagent_capabilities import remember
+            remember(self.store.config,self.subagent_capability_connection(role,current));self.store.flush();return
         if kind in ('edit_proposal','operation_proposal','proposal'):self.approve_mcp_run.hide()
         if kind=='subagent':
             try:

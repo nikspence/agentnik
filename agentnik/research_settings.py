@@ -37,6 +37,8 @@ def invalidate_capabilities(config, connections, reason='Connection settings or 
     for c in connections:
         try: scopes.add((core.base_url(c['url']),c.get('protocol','chat')))
         except (KeyError,ValueError,TypeError): continue
+    from .subagent_capabilities import invalidate
+    invalidate(config,scopes)
     for key,record in config.get('research_capabilities',{}).items():
         try: url,protocol,model=json.loads(key)[:3]
         except (ValueError,TypeError): continue
