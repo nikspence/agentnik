@@ -50,13 +50,13 @@ API references: [Exa Search](https://exa.ai/docs/reference/search), [Parallel Se
 
 ## Provider page retrieval after a filtered direct read
 
-Page reads remain direct first. Recognized branded block pages (including Zscaler), TLS errors, or connection resets can trigger provider retrieval. Initial URL and DNS addresses must be public before the URL is sent externally. URL-policy failures, private redirect destinations, generic HTTP 401/403/451 site denials without a recognizable network-filter page, timeout, cancellation, and strict public-only mode do not trigger fallback. Filter detection is deliberately narrow and is not a guarantee of recognizing every gateway.
+Page reads remain direct first and accept unverified TLS certificates and hostnames to support TLS-inspecting networks. An intermediary can impersonate a site or modify its content; direct page content is untrusted. Provider API connections still verify TLS. Recognized branded block pages (including Zscaler), TLS errors, connection resets or refusals, and HTTP 404, 410, 429 or 503 can trigger provider retrieval. Initial URL and DNS addresses must be public before the URL is sent externally. URL-policy failures, private redirect destinations, generic HTTP 401/403/451 site denials without a recognizable network-filter page, timeout, cancellation, and strict public-only mode do not trigger fallback. Filter detection is deliberately narrow and is not a guarantee of recognizing every gateway.
 
-Configured retrieval-capable profiles are considered in order, followed by Firecrawl Keyless when not already present. Brave, LangSearch, and Google are skipped because Agentnik has no URL-retrieval adapter for them. At most five configured profiles plus one automatic keyless provider can be tried. Only definite eligible provider rejections permit switching; ambiguous outcomes and access restrictions remain terminal.
+Only configured, credentialed retrieval-capable profiles are considered, in order. Firecrawl Keyless is never used for page-fetch fallback, including when explicitly configured for search. Brave, LangSearch, and Google are skipped because Agentnik has no URL-retrieval adapter for them. At most five configured profiles can be considered. Only definite eligible provider rejections permit switching; ambiguous outcomes and access restrictions remain terminal. If no eligible provider exists, the original direct-fetch failure is reported.
 
 | Provider | Retrieval request |
 | --- | --- |
-| Firecrawl / Firecrawl Keyless | `/v2/scrape`, one `url`, markdown and main content only; keyless omits Authorization |
+| Firecrawl | `/v2/scrape`, one `url`, markdown and main content only; requires a configured API key |
 | Exa | `/contents`, one URL and page text |
 | Parallel | `/v1/extract`, one URL, excerpts capped by `max_chars_total=8000` |
 | Ollama | `/api/web_fetch`, one URL; Code retains direct-Ollama-only eligibility |

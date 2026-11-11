@@ -70,8 +70,8 @@ def resolve_public(url,runtime):
 
 
 class PinnedConnection(http.client.HTTPConnection):
-    def __init__(self,url,addresses,timeout):
-        self.destination=urlsplit(url); self.addresses=addresses
+    def __init__(self,url,addresses,timeout,verify_tls=True):
+        self.destination=urlsplit(url); self.addresses=addresses;self.verify_tls=verify_tls
         super().__init__(self.destination.hostname,self.destination.port or (443 if self.destination.scheme=='https' else 80),timeout=timeout)
 
     def connect(self):
@@ -95,7 +95,10 @@ class PinnedConnection(http.client.HTTPConnection):
                 if remaining<=0: raise TimeoutError('Public connection deadline reached')
                 sock.settimeout(remaining)
                 if self.destination.scheme=='https':
-                    sock=ssl.create_default_context().wrap_socket(sock,server_hostname=self.destination.hostname)
+                    context=ssl.create_default_context()
+                    if not self.verify_tls:
+                        context.check_hostname=False;context.verify_mode=ssl.CERT_NONE
+                    sock=context.wrap_socket(sock,server_hostname=self.destination.hostname)
                 self.sock=sock; return
             except Exception:
                 sock.close(); raise
@@ -129,10 +132,11 @@ def read_bounded(response,connection,runtime):
 
 class PublicTransport:
     """No proxies, cookies, provider credentials, automatic redirects, or compression."""
+    def __init__(self,verify_tls=True):self.verify_tls=verify_tls
     def request(self,url,runtime,body=None,headers=None,redirects=True):
         for hop in range(runtime.limits.redirects+1):
             url,addresses=resolve_public(url,runtime)
-            c=PinnedConnection(url,addresses,runtime.timeout())
+            c=PinnedConnection(url,addresses,runtime.timeout(),verify_tls=self.verify_tls)
             p=urlsplit(url); path=p.path+('?' +p.query if p.query else '')
             request_headers={'Accept-Encoding':'identity','User-Agent':'Agentnik/'+__version__}
             request_headers.update(headers or {})
@@ -233,7 +237,7 @@ def excerpt(text,size):
 
 class PublicWeb:
     """Read public pages without any search credential."""
-    def __init__(self,transport=None,include_links=False):self.transport=transport or PublicTransport();self.include_links=include_links
+    def __init__(self,transport=None,include_links=False):self.transport=transport or PublicTransport(verify_tls=False);self.include_links=include_links
     def fetch(self,url,runtime):
         final,ctype,payload=self.transport.request(url,runtime)
         if filter_page(payload):raise FilteredPageError('Direct page response is a network web-filter block page')
@@ -254,6 +258,7 @@ class PublicWeb:
 
 class GoogleWeb(PublicWeb):
     """Search the public Google HTML page without cookies or challenge bypass."""
+    def __init__(self,transport=None,include_links=False):super().__init__(transport or PublicTransport(),include_links)
     def search(self,query,runtime):
         url='https://www.google.com/search?'+urlencode({'q':query})
         try:_,ctype,payload=self.transport.request(url,runtime,redirects=False)
@@ -287,7 +292,7 @@ class OllamaWeb(PublicWeb):
         if not isinstance(key,str) or not key.strip(): raise ResearchError('Configure a separate Ollama web-search key first')
         if len(key)>4096 or any(not 33<=ord(ch)<=126 for ch in key):
             raise ResearchError('Search credential must be a single visible ASCII token')
-        super().__init__(transport);self.key=key
+        super().__init__(transport or PublicTransport());self.key=key
 
     def search(self,query,runtime):
         body=json.dumps({'query':query,'max_results':min(runtime.limits.results,10)}).encode()
@@ -314,7 +319,7 @@ class KeyedSearch(PublicWeb):
     def __init__(self,key,transport=None):
         if not isinstance(key,str) or not key.strip():raise ResearchError('Configure a '+self.provider_label+' API key first')
         if len(key)>4096 or any(not 33<=ord(ch)<=126 for ch in key):raise ResearchError('Search credential must be a single visible ASCII token')
-        super().__init__(transport);self.key=key
+        super().__init__(transport or PublicTransport());self.key=key
 
 
 class BraveWeb(KeyedSearch):
@@ -398,7 +403,7 @@ class FirecrawlKeylessWeb(FirecrawlWeb):
     """Explicit keyless REST access; never consume an account or environment key."""
     def __init__(self,key='',transport=None):
         if key:raise ResearchError('Keyless Firecrawl must not receive an API key')
-        PublicWeb.__init__(self,transport);self.key=''
+        PublicWeb.__init__(self,transport or PublicTransport());self.key=''
 
 
 class ExcerptSearch(KeyedSearch):

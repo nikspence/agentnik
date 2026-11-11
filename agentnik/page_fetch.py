@@ -6,19 +6,18 @@ from .failures import classify
 from .tools import AccessError,ResearchError,Source,utc_now
 from .web import PublicWeb,PublicTransport,FilteredPageError,resolve_public,excerpt,filter_page
 
-FETCH_KINDS=('firecrawl','firecrawl-keyless','exa','parallel','ollama')
+FETCH_KINDS=('firecrawl','exa','parallel','ollama')
 
 
 def provider_page(spec,url,runtime,transport=None):
     kind=spec['kind'];key=spec.get('key','')
     if kind not in FETCH_KINDS:raise ResearchError('Provider has no page retrieval adapter')
-    if kind!='firecrawl-keyless' and not key:raise ResearchError('Provider page retrieval requires its search credential')
-    if kind=='firecrawl-keyless' and key:raise AccessError('Keyless retrieval must not receive a key')
+    if not key:raise ResearchError('Provider page retrieval requires its search credential')
     if key and (len(key)>4096 or any(not 33<=ord(ch)<=126 for ch in key)):raise ResearchError('Invalid provider credential')
     url,_=resolve_public(url,runtime)
     if key and key in url:raise AccessError('Credential transmission blocked')
     headers={'Content-Type':'application/json','Accept':'application/json'}
-    if kind in ('firecrawl','firecrawl-keyless'):
+    if kind=='firecrawl':
         endpoint='https://api.firecrawl.dev/v2/scrape';body={'url':url,'formats':['markdown'],'onlyMainContent':True}
     elif kind=='exa':endpoint='https://api.exa.ai/contents';body={'urls':[url],'text':True}
     elif kind=='parallel':endpoint='https://api.parallel.ai/v1/extract';body={'urls':[url],'max_chars_total':8000}
@@ -30,7 +29,7 @@ def provider_page(spec,url,runtime,transport=None):
     try:
         data=json.loads(raw);final=url;title=url
         if not isinstance(data,dict):raise ValueError()
-        if kind in ('firecrawl','firecrawl-keyless'):
+        if kind=='firecrawl':
             if data.get('success') is not True:raise ValueError()
             page=data['data'];text=page['markdown'];metadata=page.get('metadata',{})
             if not isinstance(metadata,dict):raise ValueError()
@@ -62,27 +61,29 @@ class PageFetcher:
     def __init__(self,specs,direct=None,allow_external=True):
         self.direct=direct or PublicWeb();self.allow_external=allow_external
         self.specs=[dict(spec) for spec in specs if spec.get('kind') in FETCH_KINDS]
-        if not any(spec['kind']=='firecrawl-keyless' for spec in self.specs):
-            self.specs.append({'id':'builtin-firecrawl-keyless','kind':'firecrawl-keyless','name':'Firecrawl Keyless','key':''})
 
     def fetch(self,url,runtime):
         try:return self.direct.fetch(url,runtime)
-        except (FilteredPageError,ssl.SSLError,ConnectionResetError):
+        except (FilteredPageError,ssl.SSLError,ConnectionResetError,ConnectionRefusedError) as exc:
             if not self.allow_external:raise
-            runtime.check();url,_=resolve_public(url,runtime)
+            direct_error=exc
+        except EndpointError as exc:
+            if not self.allow_external or exc.status not in (404,410,429,503):raise
+            direct_error=exc
+        runtime.check();url,_=resolve_public(url,runtime)
         seen=set();last=None
         for spec in self.specs:
             runtime.check();kind=spec['kind'];key=spec.get('key','')
-            if kind!='firecrawl-keyless' and not key:continue
+            if not key:continue
             identity=(kind,key)
             if identity in seen:continue
             seen.add(identity)
             notify=getattr(runtime,'notify',None)
-            if notify:notify('fetch_fallback','Direct fetch was filtered or its TLS/connection failed; sending the public page URL to '+spec.get('name',kind)+' for provider retrieval. Provider navigation is external and charges may apply.')
+            if notify:notify('fetch_fallback','Direct fetch failed; sending the public page URL to '+spec.get('name',kind)+' for provider retrieval. Provider navigation is external and charges may apply.')
             try:return provider_page(spec,url,runtime)
             except Exception as exc:
                 last=exc;failure=classify(exc,False)
                 if not failure['fallback_allowed']:raise
                 if notify:notify('fetch_provider_failed',spec.get('name',kind)+': '+failure['kind'])
         if last:raise last
-        raise ResearchError('No eligible provider page retrieval service')
+        raise direct_error

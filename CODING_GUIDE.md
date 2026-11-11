@@ -81,7 +81,7 @@ In the Code pane, open **Limits…** and adjust **Model call timeout (seconds)**
 
 ## Filtered page reads
 
-If a direct public page read encounters a recognized network-filter page, TLS failure, or connection reset, Code can use configured Firecrawl, Exa, Parallel, or eligible direct-Ollama retrieval APIs, with Firecrawl Keyless last. This sends the page URL to that provider and may incur provider charges. Activity records the fallback and Sources retain provider provenance. It does not forward browser/proxy credentials. Strict public-only mode, private or policy-blocked destinations, generic site denials, and timeouts do not use this path. See SEARCH_PROVIDERS.md for scope and validation limits.
+Direct public page reads accept unverified TLS certificates and hostnames to support TLS-inspecting networks; intermediaries can impersonate sites or alter returned content. Provider API connections still verify TLS. If a direct read encounters a recognized network-filter page or an eligible TLS, connection, or HTTP failure, Code can use configured keyed Firecrawl, Exa, Parallel, or eligible direct-Ollama retrieval APIs. Firecrawl Keyless is not used for page-fetch fallback. This sends the page URL to that provider and may incur provider charges. Activity records the fallback and Sources retain provider provenance. It does not forward browser/proxy credentials. Strict public-only mode, private or policy-blocked destinations, generic site denials, and timeouts do not use this path. See SEARCH_PROVIDERS.md for scope and validation limits.
 
 
 ## Focused project tools and test reports
