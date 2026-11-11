@@ -19,7 +19,7 @@ from agentnik import __version__
 from tools.live_compat import revision
 from tools.frozen_smoke import smoke
 
-PINNED={'PyYAML':'6.0.3','PySide6':'6.12.0','keyring':'25.7.0','dulwich':'0.25.2','pyinstaller':'6.22.3','pyinstaller-hooks-contrib':'2026.9'}
+PINNED={'PyYAML':'6.0.3','PySide6':'6.12.0','keyring':'25.7.0','dulwich':'0.25.2','regex':'2026.9.29','pyinstaller':'6.22.3','pyinstaller-hooks-contrib':'2026.9'}
 
 
 def clean_environment():
@@ -49,6 +49,7 @@ def package_bundle(bundle, archive, metadata):
         packaged=catalogs/catalog.name
         if not packaged.is_file() or packaged.read_bytes()!=catalog.read_bytes(): raise ValueError('Missing or mismatched packaged translation catalog: '+catalog.name)
     if not (bundle/'_internal'/'PySide6'/'plugins'/'platforms'/'qwindows.dll').is_file(): raise ValueError('Missing Qt Windows platform plugin')
+    if not any((bundle/'_internal'/'regex').glob('_regex*.pyd')):raise ValueError('Missing regex native module')
     files=list(bundle.rglob('*'))
     if any(path.is_symlink() for path in files): raise ValueError('Symlink in release bundle')
     for path in files:

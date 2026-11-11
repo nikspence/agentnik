@@ -1,4 +1,18 @@
-# Agentnik v0.7.2
+# Agentnik v0.7.3
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.7.2
+
+- Code can find project files using glob patterns and search text using literal or time-limited regular expressions, with filename filters and case control. Rename and move previously read UTF-8 project files without overwriting existing destinations.
+- Project file edits, individual deletions, renames, moves and directory creation no longer pause for per-file approval. Read-before-edit, project path restrictions and conflict checks remain; shell commands and structured Git mutations still require approval.
+- Code activity follows new output when scrolled to the bottom and preserves your position when reading earlier output. Sessions retain up to 10,000 entries and 4 million text characters; expanded histories use a newer session format that older Agentnik versions preserve as unavailable.
+- Independent requirements, design and readiness reviews can include up to three explicitly approved project evidence files, with source hashes and changed-file checks.
+- Direct public page reads accept unverified TLS certificates and hostnames for TLS-inspecting networks. This allows intermediaries to impersonate sites or alter content. Eligible page-fetch fallback uses configured retrieval-capable providers, excluding Firecrawl Keyless; provider API connections retain TLS verification.
+
+The Windows offline suite passed 373 tests, including mocked endpoints and offscreen Qt checks. No live-model qualification was performed for these changes. Build-host startup evidence is recorded in BUILD-MANIFEST.json; clean-machine, full native workflow, macOS/Linux, signing and full bundled-library license review remain open.
+
+## Earlier release: v0.7.2
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 

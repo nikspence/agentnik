@@ -306,3 +306,11 @@ The full Windows offline suite passed 357 tests. Tests verify that direct page t
 ## Project search and automatic file changes
 
 The Windows offline suite passed 363 tests. Temporary-project tests cover bounded recursive globbing, literal case-sensitive and case-insensitive search, Unicode, filename filters, excluded paths, hard links, oversized/binary files, cancellation and credential redaction. Mocked coding runs and offscreen Qt checks cover applying project file changes without per-file approval, stale-file and changed-guidance/skill protection, cancellation, and continued shell/Git approval. No live coding-model or native macOS/Linux checks were performed.
+
+## Regex search and project file moves
+
+The Windows offline suite passed 370 tests. Temporary-project and mocked coding tests cover regex matching, invalid patterns and bounded pathological expressions; read-before-move, source conflicts, destination collisions, project boundary checks, destination guidance, cancellation, and partial-move failure. A dirty Windows development build included the native regex module and passed its Qt window, isolated SQLite and graceful-exit startup smoke check. The smoke check did not run a frozen-app coding task; live-model and native macOS/Linux behavior remain unqualified.
+
+## Code activity scrolling and retention
+
+The Windows offline suite passed 373 tests. Offscreen Qt checks cover following the bottom, keeping the visible location while scrolled up, resuming at the bottom, preserving the view when old wrapped lines are trimmed, and reopening the enlarged saved history. Native visual review, frozen-build and macOS/Linux validation were not performed for this change.

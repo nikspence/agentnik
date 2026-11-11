@@ -4,8 +4,8 @@ import json
 import re
 import threading
 from urllib.parse import urlsplit
-from PySide6.QtCore import Qt,Signal,QObject,QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt,Signal,QObject,QUrl,QPoint,QTimer
+from PySide6.QtGui import QDesktopServices,QTextCursor
 from PySide6.QtWidgets import QScrollArea,QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox
 from .repositories import RepositoryRegistry
 from .coding import SimulationRun,plain
@@ -15,6 +15,7 @@ from . import decision_advice
 from .decision_advice import parse_advice
 from .task_plan import validate_plan
 from .subagent_status import validate_record
+from .sessions import append_code_activity
 from .code_limits import FIELDS,coding_limits
 from .web import public_url
 from . import core,routing
@@ -142,8 +143,7 @@ class CodeTab(QWidget):
             session["code_state"]="interrupted"
             for item in session.get("coding_subagents",[]):
                 if item["status"]=="running":item["status"]="interrupted"
-            session.setdefault("code_activity",[]).append({"kind":"interrupted","text":"Interrupted coding run; nothing resumes automatically."})
-            session["code_activity"]=session["code_activity"][-32:]
+            append_code_activity(session,'interrupted','Interrupted coding run; nothing resumes automatically.')
             self.store.save(session)
         layout=QVBoxLayout(self)
         header=QHBoxLayout();layout.addLayout(header)
@@ -168,7 +168,10 @@ class CodeTab(QWidget):
         self.subagent_choice=QComboBox();self.subagent_choice.setAccessibleName(self.tr('Running subagent'));self.subagent_choice.setMinimumContentsLength(30);self.subagent_choice.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon);self.subagent_choice.setMaximumWidth(360);subagent_actions.addWidget(self.subagent_choice)
         self.stop_subagent_button=QPushButton(self.tr('Cancel subagent'));self.stop_subagent_button.clicked.connect(self.cancel_selected_subagent);subagent_actions.addWidget(self.stop_subagent_button);subagent_actions.addStretch();layout.addWidget(self.subagents_controls)
         self.subagents_toggle.toggled.connect(self.subagents_view.setVisible);self.subagents_toggle.toggled.connect(self.subagents_controls.setVisible);self.subagents_view.hide();self.subagents_controls.hide();self.refresh_subagents()
-        self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])) or self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
+        self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])));self.activity.setPlaceholderText(self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
+        self.activity.moveCursor(QTextCursor.MoveOperation.End)
+        self._activity_revision=0;self._activity_initial_follow=True;self.activity.verticalScrollBar().actionTriggered.connect(self.activity_scrolled)
+        QTimer.singleShot(0,self.finish_activity_open)
         self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);layout.addWidget(self.composer)
         context=session.get('coding_context')
         self.context_view=QPlainTextEdit(self.context_text(context))
@@ -518,9 +521,38 @@ class CodeTab(QWidget):
                 return self.tr('Usage: {details}').format(details='; '.join(parts))
         return text
 
+    def activity_scrolled(self,*_):
+        self._activity_initial_follow=False;self._activity_revision+=1
+
+    def finish_activity_open(self):
+        if not self._closed and self._activity_initial_follow:
+            scroll=self.activity.verticalScrollBar();scroll.setValue(scroll.maximum())
+        self._activity_initial_follow=False
+
     def record(self,kind,text):
-        history=self.session.setdefault('code_activity',[]);history.append({'kind':kind,'text':plain(text)})
-        self.session['code_activity']=history[-32:];self.activity.setPlainText('\n'.join(self.activity_text(e) for e in self.session['code_activity']))
+        self._activity_revision+=1;revision=self._activity_revision
+        scroll=self.activity.verticalScrollBar();position=scroll.value();following=self._activity_initial_follow or position==scroll.maximum()
+        anchor=self.activity.cursorForPosition(QPoint(2,2));anchor_block=anchor.blockNumber();anchor_offset=anchor.positionInBlock();anchor_y=self.activity.cursorRect(anchor).top()
+        cleaned=plain(text);removed=append_code_activity(self.session,kind,cleaned)
+        if removed:
+            removed_blocks=sum(self.activity_text(e).count('\n')+1 for e in removed)
+            self.activity.setPlainText('\n'.join(self.activity_text(e) for e in self.session['code_activity']))
+            position=max(0,position-removed_blocks)
+        else:self.activity.appendPlainText(self.activity_text({'kind':kind,'text':cleaned}))
+        scroll.setValue(scroll.maximum() if following else position)
+        if removed and not following and anchor_block>=removed_blocks:
+            def restore_anchor():
+                if self._closed or self._activity_revision!=revision:return
+                block=self.activity.document().findBlockByNumber(anchor_block-removed_blocks)
+                if not block.isValid():return
+                cursor=QTextCursor(block);cursor.setPosition(min(block.position()+anchor_offset,block.position()+block.length()-1))
+                for _ in range(5):
+                    delta=self.activity.cursorRect(cursor).top()-anchor_y
+                    if abs(delta)<2:break
+                    step=round(delta/max(1,self.activity.fontMetrics().lineSpacing())) or (1 if delta>0 else -1)
+                    previous=scroll.value();scroll.setValue(previous+step)
+                    if scroll.value()==previous:break
+            QTimer.singleShot(0,restore_anchor)
         self.store.save(self.session);self.updated.emit()
 
     def start_simulation(self):

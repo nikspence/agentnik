@@ -1,8 +1,9 @@
-"""Bounded filename globbing and literal text search within a project."""
+"""Bounded filename globbing and literal or timeout-limited regex search."""
 import fnmatch
 from functools import lru_cache
 import json
 import os
+import time
 from pathlib import Path
 
 MAX_ENTRIES=2000
@@ -71,11 +72,17 @@ def glob_files(files,relative,pattern,check=lambda:None):
     return {'paths':sorted(found),'incomplete':incomplete,'notice':'Project-relative files; excluded and linked paths are not searched.'}
 
 
-def grep_files(files,relative,query,pattern,case_sensitive,check=lambda:None):
+def grep_files(files,relative,query,pattern,case_sensitive,check=lambda:None,regex_mode=False):
     if not isinstance(query,str) or not query or len(query.encode('utf-8'))>256 or '\n' in query or '\r' in query:
         raise ValueError('Search requires a single-line literal query of at most 256 UTF-8 bytes')
     if case_sensitive not in ('true','false'):raise ValueError('case_sensitive must be true or false')
     matches=glob_matcher(pattern);walker=walk_files(files,relative,check);needle=query if case_sensitive=='true' else query.casefold()
+    expression=None;deadline=None;reason=None
+    if regex_mode:
+        import regex
+        try:expression=regex.compile(query,0 if case_sensitive=='true' else regex.IGNORECASE)
+        except (regex.error,ValueError,OverflowError):raise ValueError('Invalid regular expression') from None
+        deadline=time.monotonic()+2.0
     found=[];scanned=0;input_bytes=0;output_bytes=0;incomplete=False;stop=False
     while True:
         try:name=next(walker)
@@ -91,13 +98,22 @@ def grep_files(files,relative,query,pattern,case_sensitive,check=lambda:None):
         if input_bytes+size>MAX_INPUT:incomplete=True;continue
         input_bytes+=size;scanned+=1
         for number,line in enumerate(content.splitlines(),1):
-            check();haystack=line if case_sensitive=='true' else line.casefold()
-            if needle not in haystack:continue
-            if case_sensitive=='true':position=line.find(query)
+            check()
+            if expression is not None:
+                remaining=deadline-time.monotonic()
+                if remaining<=0:incomplete=True;stop=True;reason='Regular expression time limit reached';break
+                try:match=expression.search(line,timeout=min(.05,remaining))
+                except TimeoutError:incomplete=True;stop=True;reason='Regular expression time limit reached';break
+                if match is None:continue
+                position=match.start()
             else:
-                folded_position=haystack.find(needle);position=0;offset=0
-                while position<len(line) and offset+len(line[position].casefold())<=folded_position:
-                    offset+=len(line[position].casefold());position+=1
+                haystack=line if case_sensitive=='true' else line.casefold()
+                if needle not in haystack:continue
+                if case_sensitive=='true':position=line.find(query)
+                else:
+                    folded_position=haystack.find(needle);position=0;offset=0
+                    while position<len(line) and offset+len(line[position].casefold())<=folded_position:
+                        offset+=len(line[position].casefold());position+=1
             start=max(0,position-100)
             item={'path':name,'line':number,'text':line[start:start+500]}
             length=len(json.dumps(item,ensure_ascii=False).encode('utf-8'))
@@ -105,4 +121,6 @@ def grep_files(files,relative,query,pattern,case_sensitive,check=lambda:None):
             found.append(item);output_bytes+=length
             if start or len(line)>start+500:incomplete=True
         if stop:break
-    return {'matches':found,'files_scanned':scanned,'incomplete':incomplete,'notice':'Literal search; excluded, linked, binary, oversized or unreadable files are not searched.'}
+    result={'matches':found,'files_scanned':scanned,'incomplete':incomplete,'notice':('Regex' if regex_mode else 'Literal')+' search; excluded, linked, binary, oversized or unreadable files are not searched.'}
+    if reason:result['reason']=reason
+    return result

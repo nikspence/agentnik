@@ -72,11 +72,11 @@
 - Searchable **＋ Code** picker and independent coding panes with remembered directory snapshots.
 - Coding runs use your existing connections: Heavy plans and proposes edits, and can delegate bounded routine analysis to an independent Light model.
 - **Run coding task** inspects and changes UTF-8 project files without per-file approval; activity reports applied changes and bounded diff excerpts.
-- Bounded project overview, glob and literal grep tools, numbered file-range reads (up to 2 MB files), and snapshot-bound exact patches.
+- Bounded project overview, glob, literal grep and time-limited regex tools, numbered file-range reads (up to 2 MB files), and snapshot-bound exact patches.
 - Model-maintained task plans with pending/in-progress/completed/blocked steps, a collapsible checklist, and persisted last-reported progress.
 - Approved test commands return reported unittest/pytest/Jest/Vitest counts, failure excerpts, and explicit unknown/truncated states.
 - Read-before-write enforced; conflicting changes stop the write; cancellation retains drafts and applied changes.
-- Project file deletion and directory creation proceed without per-operation approval; shell commands require approval. Reopening never restarts a run.
+- Previously read UTF-8 files can be renamed or moved within the project without overwriting; project file deletion and directory creation also proceed without per-operation approval. Shell commands require approval. Reopening never restarts a run.
 - Structured Dulwich Git tools: status, working/staged diffs, recent history, local branches, reviewed staging/unstaging, explicit-file or staged-snapshot commits, and branch creation without switching. Remote Git tools remain planned.
 - Optional **Try simulated workflow (no execution)** mode.
 

@@ -46,6 +46,18 @@ class CodeSearch(unittest.TestCase):
             for flag in ('yes','','False'):
                 with self.assertRaises(ValueError):grep_files(files,'.','value','**/*',flag)
 
+    def test_regex_search_supports_groups_case_and_safe_timeouts(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'code.py').write_text('def one():\nDEF Two():\n',encoding='utf-8')
+            files=ProjectFiles(root)
+            result=grep_files(files,'.',r'^def\s+\w+\(', '**/*.py','false',regex_mode=True)
+            self.assertEqual([item['line'] for item in result['matches']],[1,2]);self.assertFalse(result['incomplete'])
+            self.assertEqual([item['line'] for item in grep_files(files,'.',r'^def\s+\w+\(', '**/*.py','true',regex_mode=True)['matches']],[1])
+            with self.assertRaises(ValueError):grep_files(files,'.','[','**/*.py','true',regex_mode=True)
+            (root/'code.py').write_text('a'*12000+'!\n',encoding='utf-8')
+            result=grep_files(files,'.',r'(a+)+$','**/*.py','true',regex_mode=True)
+            self.assertTrue(result['incomplete']);self.assertIn('time limit',result['reason'])
+
     def test_bounded_results_and_cancellation(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)

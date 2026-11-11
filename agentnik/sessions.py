@@ -6,15 +6,36 @@ import math
 class SessionError(ValueError):
     pass
 
+MAX_CODE_ACTIVITY_EVENTS=10_000
+MAX_CODE_ACTIVITY_CHARS=4_000_000
+
+
+def append_code_activity(session,kind,text):
+    """Keep a large bounded history and signal a new session version when needed."""
+    history=session.setdefault('code_activity',[])
+    history.append({'kind':kind,'text':text})
+    total=sum(len(item['text']) for item in history)
+    removed=[]
+    if len(history)>MAX_CODE_ACTIVITY_EVENTS or total>MAX_CODE_ACTIVITY_CHARS:
+        target_events=MAX_CODE_ACTIVITY_EVENTS*9//10
+        target_chars=MAX_CODE_ACTIVITY_CHARS*9//10
+        count=0
+        while count<len(history)-1 and (len(history)-count>target_events or total>target_chars):
+            total-=len(history[count]['text']);count+=1
+        removed=history[:count];del history[:count]
+    if len(history)>32:session['version']=5
+    return removed
+
 
 def validate_session(value, ident=None):
     def require(ok):
         if not ok: raise SessionError('Session data is invalid or uses an unsupported version. The stored record has been preserved.')
     require(isinstance(value,dict) and not value.get('_unavailable'))
     data=copy.deepcopy(value)
-    require(type(data.get('version',1)) is int and 1<=data.get('version',1)<=4)
+    require(type(data.get('version',1)) is int and 1<=data.get('version',1)<=5)
     require(isinstance(data.get('id'),str) and bool(data['id']) and (ident is None or data['id']==ident))
     require(data.get('mode') in ('chat','decision','code'))
+    if data['mode']!='code':require(data.get('version',1)<=4)
     require(isinstance(data.get('connection'),dict))
     for key in ('url','model','protocol','reasoning','api_key','credential_id'):
         if key in data['connection']: require(isinstance(data['connection'][key],str))
@@ -36,7 +57,7 @@ def validate_session(value, ident=None):
     if 'enabled' in options: require(type(options['enabled']) is bool)
     if 'policy' in options: require(options['policy'] in (None,'Provider first','Agentnik first','Provider only','Agentnik only'))
     if data['mode']=='code':
-        require(data.get('version')==4)
+        require(data.get('version') in (4,5))
         for field in ('project_id','project_name','path_snapshot'): require(isinstance(data.get(field),str) and bool(data[field]))
         require(not data['messages'] and not data['runs'] and 'research_pending' not in data)
         bindings=data.get('coding_models',{});require(isinstance(bindings,dict) and not set(bindings)-{'heavy','light'})
@@ -44,8 +65,9 @@ def validate_session(value, ident=None):
             require(isinstance(binding,dict) and set(binding)=={'connection','model'})
             require(all(isinstance(v,str) and len(v)<=1000 for v in binding.values()))
         activity=data.get('code_activity',[])
-        require(isinstance(activity,list) and len(activity)<=32)
+        require(isinstance(activity,list) and len(activity)<=(32 if data['version']==4 else MAX_CODE_ACTIVITY_EVENTS))
         require(all(isinstance(e,dict) and isinstance(e.get('kind'),str) and isinstance(e.get('text'),str) and len(e['text'])<=2048 for e in activity))
+        require(sum(len(e['text']) for e in activity)<=MAX_CODE_ACTIVITY_CHARS)
         if 'coding_subagents' in data:
             from .subagent_status import validate_records
             try:validate_records(data['coding_subagents'])

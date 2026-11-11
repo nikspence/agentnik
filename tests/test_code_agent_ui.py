@@ -14,6 +14,58 @@ from test_compat_tools import chat
 from test_code_agent import call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_activity_follows_bottom_and_respects_scrolled_position(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store);window.resize(800,650)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);window.show();app.processEvents()
+                tab=window.tabs.currentWidget()
+                for number in range(120):tab.record('output','Activity line '+str(number))
+                app.processEvents();scroll=tab.activity.verticalScrollBar();self.assertGreater(scroll.maximum(),0)
+                self.assertEqual(scroll.value(),scroll.maximum())
+                scroll.setValue(scroll.maximum()//3);app.processEvents();before=scroll.value()
+                top=tab.activity.cursorForPosition(QPoint(2,2)).block().text()
+                tab.record('output','New line while reading');app.processEvents()
+                self.assertEqual(scroll.value(),before);self.assertEqual(tab.activity.cursorForPosition(QPoint(2,2)).block().text(),top)
+                scroll.setValue(scroll.maximum());tab.record('output','New line at bottom\nSecond line');app.processEvents()
+                self.assertEqual(scroll.value(),scroll.maximum());self.assertIn('Second line',tab.activity.toPlainText())
+                saved=next(item for item in store.list_sessions() if item['id']==session['id'])
+                self.assertEqual(saved['version'],5);self.assertEqual(len(saved['code_activity']),122)
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents()
+                reopened=window.tabs.currentWidget();self.assertIn('Activity line 0',reopened.activity.toPlainText());self.assertIn('Second line',reopened.activity.toPlainText())
+                self.assertEqual(reopened.activity.verticalScrollBar().value(),reopened.activity.verticalScrollBar().maximum())
+            finally:window.close();app.processEvents();store.db.close()
+
+    def test_activity_retention_preserves_recent_entries_and_legacy_sessions(self):
+        from agentnik import sessions
+        data={'version':4,'code_activity':[]}
+        with patch.object(sessions,'MAX_CODE_ACTIVITY_EVENTS',40),patch.object(sessions,'MAX_CODE_ACTIVITY_CHARS',10000):
+            for number in range(60):sessions.append_code_activity(data,'output','Entry '+str(number))
+        self.assertEqual(data['version'],5);self.assertLessEqual(len(data['code_activity']),40)
+        self.assertEqual(data['code_activity'][-1]['text'],'Entry 59');self.assertNotEqual(data['code_activity'][0]['text'],'Entry 0')
+
+    def test_activity_retention_keeps_view_on_same_text_when_trimmed(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QApplication
+        from agentnik import sessions
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(sessions,'MAX_CODE_ACTIVITY_EVENTS',40):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store);window.resize(800,650)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);window.show();app.processEvents();tab=window.tabs.currentWidget()
+                for number in range(40):tab.record('output','Line '+str(number)+' '+('long text '*25))
+                app.processEvents();scroll=tab.activity.verticalScrollBar();scroll.setValue(scroll.maximum()*3//4);app.processEvents()
+                top=tab.activity.cursorForPosition(QPoint(2,2)).block().text();tab.record('output','Additional activity');app.processEvents()
+                self.assertEqual(tab.activity.cursorForPosition(QPoint(2,2)).block().text(),top)
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_skill_selection_pins_version_and_requires_review_after_change(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QTimer
