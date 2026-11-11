@@ -256,10 +256,14 @@ for line in sys.stdin:
     def test_resource_template_expansion_and_pagination(self):
         from agentnik.mcp_resources import TemplatePages,expand_template
         self.assertEqual(expand_template('test://item/{id}',{'id':'a/b ?'}),'test://item/a%2Fb%20%3F')
-        for template,values in [('test://x/{+id}',{'id':'a'}),('test://x/{id}',{}),('test://x/{id}',{'id':['bad']}),('test://x/{id',{'id':'a'})]:
+        self.assertEqual(expand_template('test://x{/id,part}{?query,empty}{&next}',{'id':'a/b','part':'雪','query':'a&b =','empty':'','next':'%'}),'test://x/a%2Fb/%E9%9B%AA?query=a%26b%20%3D&empty=&next=%25')
+        self.assertEqual(expand_template('test://x/{a,b}/{a}',{'a':'x,y','b':'z'}),'test://x/x%2Cy,z/x%2Cy')
+        for template,values in [('test://x/{+id}',{'id':'a'}),('test://x/{id}',{}),('test://x/{id}',{'id':['bad']}),('test://x/{id',{'id':'a'}),('test://x/{?x*}',{'x':'a'}),('test://x/{?x,y}',{'x':'a'}),('test://x/{?x}',{'x':'a','extra':'b'}),('test://x/{/x}',{'x':'a'*2040})]:
             with self.subTest(template=template),self.assertRaises(ValueError):expand_template(template,values)
         pages=TemplatePages();cursor,result=pages.accept({'resourceTemplates':[{'uriTemplate':'test://x/{id}','name':'One'},{'uriTemplate':'test://x/{+id}','name':'Complex'}],'nextCursor':'next'})
         self.assertEqual(cursor,'next');self.assertTrue(result['templates'][0]['supported']);self.assertFalse(result['templates'][1]['supported'])
+        query=TemplatePages().accept({'resourceTemplates':[{'uriTemplate':'test://x{/id}{?q,limit}','name':'Search'}]})[1]['templates'][0]
+        self.assertTrue(query['supported']);self.assertEqual(query['variables'],['id','q','limit'])
         with self.assertRaises(ValueError):pages.accept({'resourceTemplates':[],'nextCursor':'next'})
 
     def test_local_resource_template_listing_and_read(self):
@@ -275,7 +279,7 @@ for line in sys.stdin:
  req=json.loads(line);method=req['method']
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
- elif method=='resources/templates/list':result={'resourceTemplates':[{'uriTemplate':'test://item/{id}','name':'Item'}]}
+ elif method=='resources/templates/list':result={'resourceTemplates':[{'uriTemplate':'test://item{/id}{?q}','name':'Item'}]}
  elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'text':'content'}]}
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
@@ -284,10 +288,10 @@ for line in sys.stdin:
             def received(result):
                 out.append(result)
                 if len(out)==1:
-                    template=result['templates'][0];self.assertFalse(session.read_resource_template(template,{'id':'a/b'},'test://item/a/b'));self.assertTrue(session.read_resource_template(template,{'id':'a/b'},'test://item/a%2Fb'))
+                    template=result['templates'][0];values={'id':'a/b','q':'x&y'};self.assertFalse(session.read_resource_template(template,values,'test://item/a/b?q=x&y'));self.assertTrue(session.read_resource_template(template,values,'test://item/a%2Fb?q=x%26y'))
                 else:loop.quit()
             session.discovered.connect(lambda _:session.list_resource_templates());session.resources.connect(received);session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
-            self.assertEqual(out[1]['contents'][0]['uri'],'test://item/a%2Fb');self.assertEqual(out[1]['contents'][0]['text'],'content')
+            self.assertEqual(out[1]['contents'][0]['uri'],'test://item/a%2Fb?q=x%26y');self.assertEqual(out[1]['contents'][0]['text'],'content')
 
     def test_resource_pagination_limits_and_invalid_cursors(self):
         from agentnik.mcp_resources import ResourcePages

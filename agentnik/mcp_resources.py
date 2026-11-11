@@ -50,29 +50,47 @@ class ResourcePages:
         return next_cursor,{'resources':list(self.items),'more_resources':more}
 
 
-def template_variables(template):
-    """Support scalar level-one RFC 6570 expressions; reject other forms."""
+def template_parts(template):
+    """Parse a bounded scalar subset of RFC 6570 without reserved expansion."""
     if not isinstance(template,str) or not template or len(template)>2048 or any(ord(ch)<33 or ord(ch)==127 for ch in template):raise ValueError('Invalid resource template')
-    variables=[];pos=0
+    parts=[];variables=[];pos=0;literal=0
     while pos<len(template):
         if template[pos]=='}':raise ValueError('Unsupported resource template')
         if template[pos]!='{':pos+=1;continue
+        if literal<pos:parts.append((None,template[literal:pos]))
         end=template.find('}',pos+1)
         if end<0:raise ValueError('Unsupported resource template')
-        name=template[pos+1:end]
-        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}',name):raise ValueError('Unsupported resource template')
-        if name not in variables:variables.append(name)
-        if len(variables)>32:raise ValueError('Resource template too complex')
-        pos=end+1
-    return variables
+        expression=template[pos+1:end];operator=expression[:1] if expression[:1] in ('/','?','&') else ''
+        names=expression[1:].split(',') if operator else expression.split(',')
+        if any(not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}',name) for name in names):raise ValueError('Unsupported resource template')
+        for name in names:
+            if name not in variables:variables.append(name)
+        if len(variables)>32 or len(names)>32:raise ValueError('Resource template too complex')
+        parts.append((operator,names));pos=end+1;literal=pos
+    if literal<len(template):parts.append((None,template[literal:]))
+    return parts,variables
+
+
+def template_variables(template):
+    return template_parts(template)[1]
 
 
 def expand_template(template,arguments):
-    names=template_variables(template)
+    parts,names=template_parts(template)
     if not isinstance(arguments,dict) or set(arguments)!=set(names) or any(not isinstance(value,str) or len(value.encode('utf-8'))>1024 for value in arguments.values()):raise ValueError('Invalid resource template variables')
-    uri=template
-    for name in names:uri=uri.replace('{'+name+'}',quote(arguments[name],safe=''))
-    if len(uri)>2048 or any(ord(ch)<33 or ord(ch)==127 for ch in uri):raise ValueError('Expanded resource URI is invalid')
+    chunks=[];size=0
+    for operator,value in parts:
+        if operator is None:chunk=value
+        else:
+            encoded=[quote(arguments[name],safe='') for name in value]
+            if operator in ('?','&'):chunk=operator+'&'.join(name+'='+item for name,item in zip(value,encoded))
+            elif operator=='/':chunk='/'+'/'.join(encoded)
+            else:chunk=','.join(encoded)
+        size+=len(chunk)
+        if size>2048:raise ValueError('Expanded resource URI is invalid')
+        chunks.append(chunk)
+    uri=''.join(chunks)
+    if any(ord(ch)<33 or ord(ch)==127 for ch in uri):raise ValueError('Expanded resource URI is invalid')
     return uri
 
 
