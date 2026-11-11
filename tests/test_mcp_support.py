@@ -264,6 +264,11 @@ for line in sys.stdin:
             with self.assertRaises(ValueError):validate_servers([dict(remote,url=url)])
         body=b': keepalive\n\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n\n'
         self.assertEqual(response_message(body,'text/event-stream',1)['id'],1)
+        for newline in (b'\n',b'\r\n',b'\r'):
+            framed=newline.join([b'\xef\xbb\xbf: comment',b'id: 1',b'data:',b'',b'event: message',b'data: {"jsonrpc":"2.0",',b'data: "id":1,"result":{}}',b'',b''])
+            self.assertEqual(response_message(framed,'text/event-stream',1)['id'],1)
+        for incomplete in (b'data: {"jsonrpc":"2.0","id":1}\n',body+b'data: {"jsonrpc":',body+b'data:'):
+            with self.subTest(incomplete=incomplete),self.assertRaises(ValueError):response_message(incomplete,'text/event-stream',1)
         with self.assertRaises(ValueError):response_message(body+body,'text/event-stream',1)
         with self.assertRaises(ValueError):response_message(b'{"jsonrpc":"2.0","id":9}','application/json',1)
         detail=preview_tool({'description':'Search','inputSchema':{'type':'object'}})
@@ -293,12 +298,14 @@ for line in sys.stdin:
                 body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append((body['method'],self.headers.get('Mcp-Session-Id'),self.headers.get('MCP-Protocol-Version'),self.headers.get('Authorization')))
                 method=body['method']
                 if method=='notifications/initialized':self.send_response(202);self.end_headers();return
-                if method=='tools/call' and body['params']['arguments'].get('query')=='uncertain':self.connection.close();return
+                if method=='tools/call' and body['params']['arguments'].get('query')=='uncertain':
+                    incomplete=('data: '+json.dumps({'jsonrpc':'2.0','id':body['id'],'result':{'content':[]}})+'\r').encode()
+                    self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(incomplete)));self.end_headers();self.wfile.write(incomplete);return
                 if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':''},'capabilities':{'tools':{}}}
                 elif method=='tools/call':result={'content':[{'type':'text','text':'A search result'}],'isError':False}
                 elif not body.get('params',{}).get('cursor'):result={'tools':[{'name':'web_search','description':'Search the web','inputSchema':{'type':'object','properties':{'query':{'type':'string'}}}}],'nextCursor':'page-2'}
                 else:result={'tools':[{'name':'web_fetch','inputSchema':{'type':'object'}}]}
-                payload=('data: '+json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result})+'\n\n').encode()
+                payload=('data: '+json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result})+'\r\r').encode()
                 self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-1');self.end_headers();self.wfile.write(payload)
             def do_DELETE(self):
                 calls.append(('DELETE',self.headers.get('Mcp-Session-Id'),self.headers.get('MCP-Protocol-Version'),self.headers.get('Authorization')));self.send_response(204);self.end_headers()

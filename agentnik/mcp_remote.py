@@ -53,10 +53,21 @@ def contains_secret(value,secret):
 def response_message(data,content_type,expected_id):
     if content_type=='application/json':messages=[data]
     elif content_type=='text/event-stream':
-        messages=[]
-        for event in data.replace(b'\r\n',b'\n').split(b'\n\n'):
-            parts=[line[5:].lstrip(b' ') for line in event.split(b'\n') if line.startswith(b'data:')]
-            if parts and any(parts):messages.append(b'\n'.join(parts))
+        messages=[];parts=[]
+        if data.startswith(b'\xef\xbb\xbf'):data=data[3:]
+        # Normalize the three SSE line terminators; a blank line dispatches an event.
+        lines=data.replace(b'\r\n',b'\n').replace(b'\r',b'\n').split(b'\n')
+        for line in lines[:-1]:
+            if not line:
+                if parts and any(parts):messages.append(b'\n'.join(parts))
+                parts=[];continue
+            if line.startswith(b':'):continue
+            field,separator,value=line.partition(b':')
+            if field==b'data':
+                if separator and value.startswith(b' '):value=value[1:]
+                parts.append(value)
+        # Never accept an unterminated data event, even after a valid response.
+        if parts or lines[-1].partition(b':')[0]==b'data':raise ValueError('Incomplete MCP event stream')
     else:raise ValueError('Unsupported MCP response type')
     found=[]
     for raw in messages:

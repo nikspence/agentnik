@@ -284,6 +284,8 @@ Code can opt into one enabled local stdio server for a run. The model may reques
 
 Remote Streamable HTTP negotiation accepts server-selected versions 2025-03-26, 2025-06-18, and 2025-11-25, and uses that version in subsequent request and session-termination headers. Unsupported versions are rejected before initialization completes. Offline HTTP fixtures test both older versions and session reuse; live compatibility with older remote servers remains unqualified.
 
+Streamable HTTP SSE response parsing supports LF, CRLF and CR line endings, UTF-8 BOMs, empty priming events and multiline data. It rejects unfinished data events, including an otherwise valid response lacking its event terminator. Offline HTTP fixtures cover CR-only responses and an incomplete tool response with an uncertain outcome; stream resumption is not implemented.
+
 Local and remote MCP protocol errors now expose a bounded, sanitized, explicitly untrusted server message and code, without error data. A protocol error during a tool call is treated as uncertain because server-side effects may have occurred; the session stops rather than replaying the call. Offline stdio and HTTP fixtures cover diagnostics and uncertainty.
 
 MCP argument validation accepts acyclic references to root `$defs` and legacy `definitions` and bounded `anyOf`, `oneOf`, and `allOf` combinations, supporting common generated tool schemas. External references, recursive references, nested definition scopes, regular expressions, and excessive complexity remain unsupported; the validator never retrieves schemas from the network. Offline tests exercise valid and invalid arguments and reject recursive and external references.
