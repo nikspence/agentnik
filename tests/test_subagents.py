@@ -400,6 +400,18 @@ class Subagents(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',skills=['review']).run(events.append)
             self.assertEqual(events[-1]['status'],'failed');self.assertIn('skill changed',events[-1]['text'].lower())
 
+    def test_skill_removal_during_request_stops_before_file_tool(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder=Path(root)/'.agents/skills/review';folder.mkdir(parents=True)
+            skill=folder/'SKILL.md';skill.write_text('---\nname: review\ndescription: Review\n---\nOriginal',encoding='utf-8')
+            events=[];requests=[]
+            def send(c,url,body,timeout):
+                requests.append(body);skill.unlink()
+                return Wire(chat(calls=[call('write_file',{'path':'new.txt','content':'should not be written'})],finish='tool_calls'),False)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Create a file',skills=['review']).run(events.append)
+            self.assertEqual(len(requests),1);self.assertFalse((Path(root)/'new.txt').exists())
+            self.assertEqual(events[-1]['status'],'failed');self.assertIn('unavailable',events[-1]['text'].lower())
+
     def test_file_snapshots_require_individual_approval_and_redact_credentials(self):
         with tempfile.TemporaryDirectory() as root:
             (Path(root)/'a.txt').write_text('data model-secret',encoding='utf-8')

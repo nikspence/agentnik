@@ -86,6 +86,9 @@ def read_skill(files,name,user_root=None):
     if name not in skills:raise ValueError('Skill is unavailable or invalid')
     skill=skills[name]
     text=files.read(skill['path'],remember=False,max_bytes=16000)
+    description=parse_frontmatter(text,name)
+    if description is None:raise ValueError('Skill is unavailable or invalid')
+    skill=dict(skill,description=description)
     return dict(skill,id=('user:'+name if source=='user' else name),source=source,instructions=text,sha256=hashlib.sha256(text.encode('utf-8')).hexdigest())
 
 

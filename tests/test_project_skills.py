@@ -5,6 +5,28 @@ from agentnik.code_agent import ProjectFiles
 from agentnik.project_skills import list_skills,read_skill,read_resource,list_resources
 
 class ProjectSkills(unittest.TestCase):
+    def test_skill_changed_during_discovery_uses_validated_returned_snapshot(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as root:
+            skill=Path(root)/'.agents/skills/review';skill.mkdir(parents=True)
+            path=skill/'SKILL.md';path.write_text('---\nname: review\ndescription: Original\n---\nOriginal.',encoding='utf-8')
+            files=ProjectFiles(root);read=files.read;count=0
+            def change_between_reads(*args,**kwargs):
+                nonlocal count
+                count+=1
+                if count==2:path.write_text('---\nname: review\ndescription: Updated\n---\nUpdated.',encoding='utf-8')
+                return read(*args,**kwargs)
+            with patch.object(files,'read',side_effect=change_between_reads):result=read_skill(files,'review')
+            self.assertEqual(result['description'],'Updated');self.assertIn('Updated.',result['instructions'])
+            count=0
+            def invalidate_between_reads(*args,**kwargs):
+                nonlocal count
+                count+=1
+                if count==2:path.write_text('invalid metadata',encoding='utf-8')
+                return read(*args,**kwargs)
+            with patch.object(files,'read',side_effect=invalidate_between_reads):
+                with self.assertRaisesRegex(ValueError,'unavailable or invalid'):read_skill(files,'review')
+
     def test_selected_skill_pins_prevent_changed_or_missing_skill_from_running(self):
         from unittest.mock import patch
         from agentnik import core

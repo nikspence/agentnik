@@ -317,6 +317,8 @@ Google's [Elephant Goldfish Model (EGM)](https://github.com/google/elephant-gold
 
 Priority order: **1. Complete F3 Skills support. 2. Implement F4 bounded coding subagents. 3. Implement F1 MCP server configuration/connections and F2 reviewed tool integration. 4. Reassess other roadmap milestones against user priorities. Image generation is the lowest-priority extension and must not delay Skills, MCP, or other planned milestones.** Finish Skills qualification by validating the update behavior and running Windows/macOS/Linux native checks. Keep dependencies optional where practical. Suggested activation remains later than explicit selection.
 
+Windows offline update checks cover a selected skill changing during picker selection, between selection and a run, during discovery, and during a model request. Removing a selected skill during a request stops the run before returned file operations execute. The instruction hash does not pin supporting resources. These tests use mocked endpoints and offscreen Qt; macOS/Linux native checks and live-model behavior remain unverified.
+
 Use fake servers and temporary skill libraries for ordinary tests. Cover disabled/missing servers, malformed/changing schemas, tool-name collisions, credential isolation, approval denial, cancellation/late responses, reconnect and process cleanup, hostile resource paths, bounded context/output, skill updates, and reopen without execution. Live server compatibility is recorded separately by server/version/transport/capability. MCP remains planned. Skills are partially implemented; finish and validate F3, then F4, before starting MCP work.
 
 ## F5: Spec-driven Code workflows — planned
