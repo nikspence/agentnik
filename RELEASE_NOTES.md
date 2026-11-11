@@ -1,4 +1,16 @@
-# Agentnik v0.8.0
+# Agentnik v0.8.1
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.8.0
+
+- MCP server selections persist per Code session, with improved process cleanup, protocol negotiation, error handling, stream parsing, resource template support and schema validation.
+- Parallel subagents can inspect approved file snapshots with bounded read, glob and grep tools. Confirmed model tool-calling rejections are remembered, with an option to forget them.
+- Successful managed searches and eligible read-only MCP searches can be reused for 30 minutes, subject to their respective scope and approval checks.
+
+Offline tests use mocked providers and local fixtures; no live model compatibility is implied. Build-host startup evidence is recorded in BUILD-MANIFEST.json. Clean-machine installation, full native workflows, macOS/Linux, signing and a complete bundled-library license review remain open.
+
+## Earlier release: v0.8.0
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
