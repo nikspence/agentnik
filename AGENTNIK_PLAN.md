@@ -270,6 +270,8 @@ Add optional extensibility through **Model Context Protocol (MCP) servers** and 
 
 ### F1: MCP server configuration and connections
 
+First preview: the MCP servers manager saves and removes local stdio commands, enables/disables them, and runs an explicitly confirmed, time- and output-bounded initialization probe using protocol 2025-11-25. It displays reported identity and capabilities without exposing tools to models. Commands and arguments are plaintext settings, so credentials must not be placed there. The probe closes the process after the initial response; it does not establish an operational MCP session. Remote HTTP, credentials, full lifecycle, discovery and tool use remain future work. Windows validation uses an offline fake server; real servers and other platforms are unqualified.
+
 - Provide a server manager to add, edit, enable/disable, remove, and test configured servers. Plan for local process-based and remote HTTP connections; select supported transports, protocol versions, and authentication flows against the official MCP specification during implementation.
 - Show server identity, connection status, discovered capabilities, and the permissions/data exposure involved. Store credentials through the existing credential mechanism and exclude them from exports. Review local launch commands and remote destinations before connecting; discovery of a server is not authorization to launch or use it.
 - Start with a small explicit capability set, then add tools, resources, and prompts in reviewed slices. Namespace identifiers by server, validate schemas and payloads, handle capability changes, and preserve source provenance. Server descriptions and returned content are untrusted input.

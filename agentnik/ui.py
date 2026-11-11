@@ -851,7 +851,7 @@ class Window(QMainWindow):
         self._system_palette = QPalette(QApplication.palette())
         toolbar = self.addToolBar('Agentnik'); toolbar.setMovable(False)
         self.brand = QLabel(); self.brand.setContentsMargins(2,0,12,0); toolbar.addWidget(self.brand)
-        for text, fn in [(self.tr('☰ History'),self.toggle_history),(self.tr('☆ Prompts'),self.toggle_prompts),(self.tr('＋ Chat'),lambda:self.new_session('chat')),(self.tr('＋ Decision'),lambda:self.new_session('decision')),(self.tr('＋ Code'),self.new_code),(self.tr('Repositories'),self.manage_repositories),(self.tr('Connections'),self.manage_connections)]:
+        for text, fn in [(self.tr('☰ History'),self.toggle_history),(self.tr('☆ Prompts'),self.toggle_prompts),(self.tr('＋ Chat'),lambda:self.new_session('chat')),(self.tr('＋ Decision'),lambda:self.new_session('decision')),(self.tr('＋ Code'),self.new_code),(self.tr('Repositories'),self.manage_repositories),(self.tr('Connections'),self.manage_connections),(self.tr('MCP servers'),self.manage_mcp_servers)]:
             action = QAction(text,self); action.triggered.connect(fn); toolbar.addAction(action)
         toolbar.addSeparator(); toolbar.addWidget(QLabel(self.tr('Theme: '))); self.theme = QComboBox(); self.theme.addItems(['System','Light','Dark']); toolbar.addWidget(self.theme); self.theme.setCurrentText(store.config['settings'].get('theme','System')); self.theme.currentTextChanged.connect(self.apply_theme)
         toolbar.addWidget(QLabel(self.tr('Language: ')));self.language=QComboBox();self.language.setToolTip(self.tr('Language changes take effect after restarting Agentnik.'))
@@ -957,6 +957,10 @@ class Window(QMainWindow):
             session=self.repositories.session(picker.selected_id);self.store.save(session);self.open_session(session);self.refresh_history()
         except (OSError,ValueError) as exc: error(self,exc)
     def manage_connections(self): Connections(self).exec()
+
+    def manage_mcp_servers(self):
+        from .mcp_ui import MCPServers
+        MCPServers(self).exec()
     def toggle_history(self):
         self.sidebar.setVisible(not self.sidebar.isVisible()); self.store.config['settings']['history_visible'] = not self.sidebar.isHidden(); self.store.flush()
     def toggle_prompts(self):
