@@ -1,4 +1,16 @@
-# Agentnik v0.8.3
+# Agentnik v0.8.4
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.8.3
+
+- A configured Parallel search profile adds Place Search, Image Search and beta Entity Search to managed Chat research and Code. Results are bounded structured data; image search returns links without downloading images and entity matches are not verified.
+- The Parallel MCP server's documented tool-selection URL is accepted. Direct Task, FindAll, Monitor, Decisions and account-management API workflows are not included; the separate Task MCP can be configured through the MCP manager.
+- These additions have offline contract and mocked-model tests. The new APIs and live-model workflows have not been verified against Parallel; provider charges may apply.
+
+Build-host startup evidence is recorded in BUILD-MANIFEST.json. Clean-machine installation, full native workflows, macOS/Linux, signing and a complete bundled-library license review remain open.
+
+## Earlier release: v0.8.3
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 

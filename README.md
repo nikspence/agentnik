@@ -50,7 +50,7 @@ Optional key files can be supplied with `--litellm-key-file PATH` and `--ollama-
 
 ## Windows release
 
-The **v0.8.3** Windows x64 build is an unsigned onedir ZIP. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. Verify the accompanying SHA-256 checksum. Build-host startup results are recorded in the archive; clean-machine, full native workflow, and macOS/Linux validation remain outstanding. See [release notes](RELEASE_NOTES.md) and the archive's `BUILD-MANIFEST.json` for details.
+The **v0.8.4** Windows x64 build is an unsigned onedir ZIP. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. Verify the accompanying SHA-256 checksum. Build-host startup results are recorded in the archive; clean-machine, full native workflow, and macOS/Linux validation remain outstanding. See [release notes](RELEASE_NOTES.md) and the archive's `BUILD-MANIFEST.json` for details.
 
 ## Screenshots
 
