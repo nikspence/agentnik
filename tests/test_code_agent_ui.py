@@ -161,9 +161,9 @@ class CodingWorkspace(unittest.TestCase):
                     dialog=app.activeModalWidget();next(check for check in dialog.findChildren(QCheckBox) if check.text().startswith('Remote')).setChecked(True);dialog.accept()
                 QTimer.singleShot(0,choose_extra);tab.choose_additional_mcp();self.assertEqual(tab.mcp_extra,['Remote']);self.assertIn('(1)',tab.mcp_extra_button.text())
                 tab.job=MagicMock();tab.run_id='mcp-run'
-                start={'operation':'mcp_start','server':'Database','command':'npx','arguments':['-y','server','run']}
+                start={'operation':'mcp_start','server':'Database','command':'npx','arguments':['-y','server','run'],'working_directory':'D:/mcp-work'}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'start','proposal':start})
-                self.assertIn('START LOCAL MCP SERVER',tab.approval.toPlainText());self.assertIn('npx',tab.approval.toPlainText());self.assertIn('including writes and data access',tab.approval.toPlainText());self.assertFalse(tab.approve_mcp_run.isHidden());tab.decide(True,'mcp_server_run');tab.job.decide.assert_called_with('start',True,'mcp_server_run')
+                self.assertIn('START LOCAL MCP SERVER',tab.approval.toPlainText());self.assertIn('npx',tab.approval.toPlainText());self.assertIn('D:/mcp-work',tab.approval.toPlainText());self.assertIn('including writes and data access',tab.approval.toPlainText());self.assertFalse(tab.approve_mcp_run.isHidden());tab.decide(True,'mcp_server_run');tab.job.decide.assert_called_with('start',True,'mcp_server_run')
                 proposal={'operation':'mcp_call','server':'Database','command':'npx','server_arguments':['-y','server','run'],'tool':'query','description':'Read data','schema':{'type':'object'},'output_schema':{'type':'object','required':['rows']},'annotations':{'readOnlyHint':True},'arguments':{'sql':'SELECT 1'}}
                 tab.receive({'run_id':'mcp-run','kind':'operation_proposal','fingerprint':'call','proposal':proposal})
                 for value in ('MCP TOOL CALL','Database','query','Read data','SELECT 1','readOnlyHint','untrusted','Output schema','rows'):self.assertIn(value,tab.approval.toPlainText())

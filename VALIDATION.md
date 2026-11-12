@@ -1,5 +1,13 @@
 # Baseline validation
 
+## Local MCP working directories (2026-11-11)
+
+Offline Windows fixtures cover saved absolute working directories, invalid and legacy configuration, Code selection fingerprints, startup approval, real subprocess working directory, local session cleanup, and a scrollable manager in a small offscreen window. The full offline suite ran 493 tests successfully with one skip; the directory browser and small-window checks passed separately after the suite. Compilation and whitespace checks passed. The user-provided Parquet server was initialized and its three tools listed again with the field left blank; no tools or data queries were run. Native macOS/Linux process behavior was not checked.
+
+## Local Parquet MCP connection (2026-11-11)
+
+Using `C:\Python315\python.exe` and `D:/dev/parquet_mcp/server.py`, Agentnik's local stdio session initialized the user-provided server and discovered `list_tables`, `describe_table`, and `query`. No tool calls or data queries were made. Offline Qt checks cover the saved-profile requirement, unsaved edits and Windows JSON path guidance. All 48 MCP tests and compilation passed on this Windows host.
+
 ## MCP content audiences (2026-11-11)
 
 Offline tests cover unspecified, user-only, assistant-only, mixed and empty audience lists; invalid audience metadata; bounded user-directed activity; and exclusion of user-only blocks from model context on both fresh and cached results. Manual MCP results remain complete. The full offline suite ran 487 tests successfully with one skip; the additional invalid-audience cache regression passed separately. Compilation and whitespace checks passed. Audience annotations are server-provided per-block hints, and other fields may repeat the same data. No live server or model was used.

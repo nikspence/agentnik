@@ -119,6 +119,42 @@ class MCPFoundation(unittest.TestCase):
             for value in (0,901,True,1.5,'60',None):
                 with self.subTest(value=value),self.assertRaises(ValueError):validate_servers([dict(item,timeout_seconds=value)])
 
+    def test_working_directory_configuration_is_absolute_and_fingerprinted(self):
+        from agentnik.mcp_support import server_fingerprint
+        item={'name':'Local','command':sys.executable,'args':[],'enabled':True}
+        with tempfile.TemporaryDirectory() as directory:
+            changed=dict(item,working_directory=directory);validate_servers([changed])
+            self.assertNotEqual(server_fingerprint(item),server_fingerprint(changed))
+            with tempfile.TemporaryDirectory() as data:
+                store=Store(data)
+                try:store.config['mcp_servers']=[changed];store.flush();self.assertEqual(load_config(store.config_path)['mcp_servers'],[changed])
+                finally:store.db.close()
+        for value in ('relative/path','../folder','C:relative',3,'x\x00y'):
+            with self.subTest(value=value),self.assertRaises(ValueError):validate_servers([dict(item,working_directory=value)])
+        remote={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True,'working_directory':'/tmp'}
+        with self.assertRaises(ValueError):validate_servers([remote])
+
+    def test_local_server_launches_in_configured_working_directory(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);work=root/'server-work';work.mkdir();server=root/'server.py'
+            server.write_text('''import json,os,sys
+for line in sys.stdin:
+ req=json.loads(line)
+ if req['method']=='initialize':
+  result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':os.getcwd(),'version':'1'},'capabilities':{}}
+  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server)],working_directory=str(work));loop=QEventLoop();out=[]
+            session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+            session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertEqual(Path(out[0]['name']).resolve(),work.resolve())
+        with self.assertRaises(ValueError):LocalSession(sys.executable,[],working_directory='relative')
+
     def test_local_and_remote_operation_timers_use_configured_timeout(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
@@ -143,17 +179,37 @@ class MCPFoundation(unittest.TestCase):
 
     def test_manager_saves_and_loads_per_server_timeout(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-        from PySide6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication,QFileDialog
         from agentnik.ui import Window
         from agentnik.mcp_ui import MCPServers
         app=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as folder,patch('agentnik.core.discover',return_value={}),patch('agentnik.core.environment_connections',return_value={}):
             store=Store(folder);window=Window(store);dialog=MCPServers(window)
             try:
-                dialog.new();dialog.name.setText('Local');dialog.command.setText(sys.executable);dialog.timeout.setValue(300);dialog.save()
+                dialog.new();dialog.name.setText('Local');dialog.command.setText(sys.executable);dialog.timeout.setValue(300)
+                with patch.object(QFileDialog,'getExistingDirectory',return_value=folder):dialog.working_directory_button.click()
+                self.assertEqual(dialog.working_directory.text(),folder);dialog.save()
                 self.assertEqual(store.config['mcp_servers'][0]['timeout_seconds'],300)
+                self.assertEqual(store.config['mcp_servers'][0]['working_directory'],folder)
                 dialog.timeout.setValue(1);dialog.load_row(0);self.assertEqual(dialog.timeout.value(),300)
+                self.assertEqual(dialog.working_directory.text(),folder)
                 self.assertEqual(load_config(store.config_path)['mcp_servers'][0]['timeout_seconds'],300)
+            finally:dialog.close();window.close();app.processEvents();store.db.close()
+
+    def test_manager_fits_small_window_and_scrolls_to_controls(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QScrollArea
+        from agentnik.ui import Window
+        from agentnik.mcp_ui import MCPServers
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder,patch('agentnik.core.discover',return_value={}),patch('agentnik.core.environment_connections',return_value={}):
+            store=Store(folder);window=Window(store);dialog=MCPServers(window)
+            try:
+                dialog.resize(520,400);dialog.show();app.processEvents()
+                scroll=dialog.findChild(QScrollArea,'mcpSettingsScroll')
+                self.assertLessEqual(dialog.height(),400);self.assertGreater(scroll.verticalScrollBar().maximum(),0)
+                scroll.ensureWidgetVisible(dialog.tool_result);app.processEvents()
+                self.assertGreater(scroll.verticalScrollBar().value(),0)
             finally:dialog.close();window.close();app.processEvents();store.db.close()
 
     @unittest.skipUnless(os.name=='nt','Windows job-object behavior')
@@ -591,6 +647,29 @@ for line in sys.stdin:
             self.assertIn('error',results[0]);self.assertEqual(calls.count('tools/list'),2)
         finally:server.shutdown();server.server_close();thread.join(2)
 
+    def test_manager_explains_unsaved_server_and_invalid_windows_json(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QMessageBox
+        from agentnik.mcp_ui import MCPServers
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder,patch('agentnik.core.discover',return_value={}),patch('agentnik.core.environment_connections',return_value={}):
+            store=Store(folder);window=Window(store);dialog=MCPServers(window)
+            try:
+                dialog.name.setText('Local');dialog.command.setText(sys.executable)
+                dialog.args.setPlainText('["D:\\dev\\parquet_mcp\\server.py"]')
+                dialog.test();self.assertIn('Save and select',dialog.status.text())
+                with patch.object(QMessageBox,'warning') as warning:
+                    dialog.save();self.assertIn('double each backslash',warning.call_args.args[2])
+                self.assertEqual(store.config.get('mcp_servers',[]),[])
+                dialog.args.setPlainText('["D:/dev/parquet_mcp/server.py"]');dialog.save()
+                self.assertEqual(store.config['mcp_servers'][0]['args'],['D:/dev/parquet_mcp/server.py'])
+                dialog.args.setPlainText('["D:/dev/parquet_mcp/different.py"]')
+                with patch.object(QMessageBox,'question') as confirm:
+                    dialog.test();confirm.assert_not_called()
+                self.assertIn('Save your changes',dialog.status.text());self.assertIsNone(dialog.process)
+            finally:dialog.close();window.close();app.processEvents();store.db.close()
+
     def test_explicit_local_initialization_and_no_launch_on_open(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
@@ -611,10 +690,11 @@ for line in sys.stdin:
  else: result={'content':[{'type':'text','text':'success'}]}
  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            store=Store(root/'data');store.config['mcp_servers']=[{'name':'Fake','command':sys.executable,'args':[str(server),str(marker)],'enabled':True}];store.flush();window=Window(store)
+            store=Store(root/'data');store.config['mcp_servers']=[{'name':'Fake','command':sys.executable,'args':[str(server),str(marker)],'enabled':True,'working_directory':str(root)}];store.flush();window=Window(store)
             try:
                 dialog=MCPServers(window);dialog.list.setCurrentRow(0);self.assertFalse(marker.exists())
-                with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.Yes):dialog.test()
+                with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.Yes) as review:
+                    dialog.test();self.assertIn('Working directory: '+str(root),review.call_args.args[2])
                 loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if dialog.discovered else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop()
                 self.assertIsNotNone(dialog.process);self.assertTrue(marker.exists());self.assertIn('Connected: Fake',dialog.status.text());self.assertEqual(dialog.tool_choice.currentText(),'query')
                 session=dialog.process;results=[];session.called.connect(lambda result:results.append(result))
@@ -623,7 +703,7 @@ for line in sys.stdin:
                 self.assertEqual(len(results),2);self.assertEqual(results[1]['call_result']['content'][0]['text'],'success')
                 with patch.object(QDialog,'exec',return_value=QDialog.DialogCode.Accepted):
                     dialog.call_remote();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if len(results)>2 else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop()
-                self.assertEqual(len(results),3);self.assertIn('success',dialog.tool_result.toPlainText());dialog.close()
+                self.assertEqual(len(results),3);self.assertIn('success',dialog.tool_result.toPlainText());dialog.finish_test('Closed');dialog.close()
             finally:window.close();app.processEvents();store.db.close()
 
     def test_resource_template_expansion_and_pagination(self):
@@ -993,12 +1073,12 @@ for line in sys.stdin:
 for line in sys.stdin:
  request=json.loads(line);method=request['method']
  if method=='notifications/initialized':continue
- if method=='initialize':result={'protocolVersion':request['params']['protocolVersion'],'serverInfo':{'name':'Fake' if os.environ.get('TARGET_TOKEN')=='snapshot-unique-value' else 'Incorrect','version':'1'},'capabilities':{'tools':{}}}
+ if method=='initialize':result={'protocolVersion':request['params']['protocolVersion'],'serverInfo':{'name':'Fake' if os.environ.get('TARGET_TOKEN')=='snapshot-unique-value' else 'Incorrect','version':os.getcwd()},'capabilities':{'tools':{}}}
  elif method=='tools/list':result={'tools':[{'name':'query','inputSchema':{'type':'object'}}]}
  else:result={'content':[{'type':'text','text':'ok'}]}
  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            config={'mcp_servers':[{'name':'Fake','command':sys.executable,'args':[str(server)],'env':{'TARGET_TOKEN':'AGENTNIK_MCP_TEST_SOURCE'},'enabled':True,'timeout_seconds':180}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config)
+            config={'mcp_servers':[{'name':'Fake','command':sys.executable,'args':[str(server)],'env':{'TARGET_TOKEN':'AGENTNIK_MCP_TEST_SOURCE'},'enabled':True,'timeout_seconds':180,'working_directory':folder}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config)
             os.environ['AGENTNIK_MCP_TEST_SOURCE']='changed-after-snapshot'
             runtime=Runtime(threading.Event(),Limits());out=[];timeouts=[]
             def work():
@@ -1007,7 +1087,7 @@ for line in sys.stdin:
                 config['mcp_servers']=[]
                 out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime));bridge.close_signal.emit()
             thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1);app.processEvents()
-            self.assertFalse(thread.is_alive());self.assertEqual(timeouts,[180000]);self.assertEqual(out[1]['call_result']['content'][0]['text'],'ok');self.assertIn('changed',out[2]['error']);self.assertTrue(bridge.closed)
+            self.assertFalse(thread.is_alive());self.assertEqual(Path(out[0]['version']).resolve(),Path(folder).resolve());self.assertEqual(timeouts,[180000]);self.assertEqual(out[1]['call_result']['content'][0]['text'],'ok');self.assertIn('changed',out[2]['error']);self.assertTrue(bridge.closed)
 
     def test_local_environment_mapping_editor_saves_and_reloads(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')

@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import unicodedata
+from pathlib import PurePosixPath,PureWindowsPath
 from urllib.parse import urlsplit
 
 PROTOCOL='2025-11-25'
@@ -25,7 +26,7 @@ def validate_servers(servers):
         if not isinstance(server,dict):raise ValueError('Invalid MCP server configuration')
         remote=server.get('transport')=='http'
         required=({'name','transport','url','credential_id','enabled'} if remote else {'name','command','args','enabled'})
-        if not required.issubset(server) or set(server)-required-({'env','timeout_seconds'} if not remote else {'timeout_seconds'}):raise ValueError('Invalid MCP server configuration')
+        if not required.issubset(server) or set(server)-required-({'env','timeout_seconds','working_directory'} if not remote else {'timeout_seconds'}):raise ValueError('Invalid MCP server configuration')
         server_timeout(server)
         name=server['name']
         if not isinstance(name,str) or not name.strip() or len(name)>80 or name.casefold() in names:raise ValueError('MCP server names must be unique and nonempty')
@@ -41,6 +42,8 @@ def validate_servers(servers):
             command=server['command'];args=server['args']
             if not isinstance(command,str) or not command.strip() or len(command)>1024 or '\x00' in command:raise ValueError('Invalid MCP executable')
             if not isinstance(args,list) or len(args)>32 or any(not isinstance(arg,str) or len(arg)>2048 or '\x00' in arg for arg in args):raise ValueError('Invalid MCP argument list')
+            directory=server.get('working_directory','')
+            if not isinstance(directory,str) or len(directory)>2048 or any(ord(ch)<32 or ord(ch)==127 for ch in directory) or (directory and not (PurePosixPath(directory).is_absolute() or PureWindowsPath(directory).is_absolute())):raise ValueError('Invalid MCP working directory; use an absolute path')
             validate_environment_references(server.get('env',{}))
         if type(server['enabled']) is not bool:raise ValueError('Invalid MCP enabled state')
     return servers

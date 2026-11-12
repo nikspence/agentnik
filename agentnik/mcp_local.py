@@ -19,8 +19,9 @@ class LocalSession(QObject):
     resources = Signal(object)
     prompts = Signal(object)
 
-    def __init__(self, command, args, parent=None, env_refs=None, env_values=None, timeout_seconds=60):
+    def __init__(self, command, args, parent=None, env_refs=None, env_values=None, timeout_seconds=60, working_directory=''):
         super().__init__(parent)
+        if not isinstance(working_directory,str) or (working_directory and not os.path.isabs(working_directory)):raise ValueError('The MCP working directory must be absolute on this system.')
         self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds})
         self.process = QProcess(self);self.job=None
         values=resolve_environment_references(env_refs or {}) if env_values is None else dict(env_values)
@@ -38,6 +39,7 @@ class LocalSession(QObject):
                 command, args = node, [str(cli), *args]
         self.process.setProgram(command)
         self.process.setArguments(args)
+        if working_directory:self.process.setWorkingDirectory(working_directory)
         self.process.readyReadStandardOutput.connect(self.read)
         self.process.readyReadStandardError.connect(lambda: self.process.readAllStandardError())
         self.process.started.connect(self.started)
@@ -249,4 +251,4 @@ class LocalSession(QObject):
             if self.process.state()!=QProcess.ProcessState.NotRunning:self.process.waitForFinished(50)
         if self.job:self.job.close();self.job=None
         if isValid(self.process) and self.process.state()!=QProcess.ProcessState.NotRunning:
-            self.process.kill()
+            self.process.kill();self.process.waitForFinished(250)

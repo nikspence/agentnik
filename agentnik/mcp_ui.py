@@ -2,7 +2,7 @@
 import json
 import uuid
 from PySide6.QtCore import QProcess, QTimer, Qt
-from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QPlainTextEdit,QCheckBox,QPushButton,QListWidget,QMessageBox,QComboBox,QDialogButtonBox,QSpinBox)
+from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QPlainTextEdit,QCheckBox,QPushButton,QListWidget,QMessageBox,QComboBox,QDialogButtonBox,QSpinBox,QScrollArea,QWidget,QFileDialog)
 from .mcp_support import MAX_OUTPUT,validate_servers,initialize_request,parse_initialize,server_timeout,DEFAULT_TIMEOUT_SECONDS,MAX_TIMEOUT_SECONDS
 
 
@@ -10,11 +10,17 @@ class MCPServers(QDialog):
     def __init__(self,window):
         super().__init__(window);self.store=window.store;self.setWindowTitle(self.tr('MCP servers'));self.resize(680,520)
         self.process=None;self.remote=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test('Connection test timed out.'))
-        layout=QVBoxLayout(self);layout.addWidget(QLabel(self.tr('Servers can access your data. Local commands and arguments are stored in plaintext; do not put secrets in them.')))
+        outer=QVBoxLayout(self);scroll=QScrollArea();scroll.setObjectName('mcpSettingsScroll');scroll.setWidgetResizable(True);outer.addWidget(scroll)
+        content=QWidget();scroll.setWidget(content);layout=QVBoxLayout(content)
+        notice=QLabel(self.tr('Servers can access your data. Local commands and arguments are stored in plaintext; do not put secrets in them.'));notice.setWordWrap(True);layout.addWidget(notice)
         self.list=QListWidget();layout.addWidget(self.list);self.list.currentRowChanged.connect(self.load_row)
         form=QFormLayout();layout.addLayout(form);self.name=QLineEdit();self.transport=QComboBox();self.transport.addItems(['Local stdio','Remote HTTPS']);self.command=QLineEdit();self.args=QPlainTextEdit();self.args.setPlaceholderText('["argument", "argument"]');self.args.setMaximumHeight(80);self.env=QPlainTextEdit();self.env.setPlaceholderText('{"TARGET_NAME": "EXISTING_ENV_NAME"}');self.env.setMaximumHeight(70);self.env.setToolTip(self.tr('Map environment variable names to existing variables in Agentnik’s environment. Values are never stored in settings.'));self.url=QLineEdit();self.url.setPlaceholderText('https://mcp.parallel.ai/mcp');self.token=QLineEdit();self.token.setEchoMode(QLineEdit.EchoMode.Password);self.token.setPlaceholderText(self.tr('Leave blank to keep the saved credential'));self.enabled=QCheckBox(self.tr('Enabled'));self.enabled.setChecked(True)
         self.timeout=QSpinBox();self.timeout.setObjectName('mcpTimeout');self.timeout.setRange(1,MAX_TIMEOUT_SECONDS);self.timeout.setValue(DEFAULT_TIMEOUT_SECONDS);self.timeout.setSuffix(self.tr(' seconds'));self.timeout.setToolTip(self.tr('Maximum time for an MCP operation, including discovery or tool verification. Coding run limits may end it sooner.'))
-        form.addRow(self.tr('Name'),self.name);form.addRow(self.tr('Transport'),self.transport);form.addRow(self.tr('Executable'),self.command);form.addRow(self.tr('Arguments (JSON array)'),self.args);form.addRow(self.tr('Environment names (JSON object)'),self.env);form.addRow(self.tr('HTTPS URL'),self.url);form.addRow(self.tr('Bearer token'),self.token);form.addRow(self.tr('Operation timeout'),self.timeout);form.addRow('',self.enabled)
+        self.working_directory=QLineEdit();self.working_directory.setObjectName('mcpWorkingDirectory');self.working_directory.setPlaceholderText(self.tr('Optional absolute path; blank uses Agentnik working directory'))
+        self.working_directory_button=QPushButton(self.tr('Browse…'));self.working_directory_button.clicked.connect(self.choose_working_directory)
+        directory_row=QHBoxLayout();directory_row.addWidget(self.working_directory);directory_row.addWidget(self.working_directory_button)
+        self.transport.currentIndexChanged.connect(lambda index:(self.working_directory.setEnabled(index==0),self.working_directory_button.setEnabled(index==0)))
+        form.addRow(self.tr('Name'),self.name);form.addRow(self.tr('Transport'),self.transport);form.addRow(self.tr('Executable'),self.command);form.addRow(self.tr('Arguments (JSON array)'),self.args);form.addRow(self.tr('Working directory'),directory_row);form.addRow(self.tr('Environment names (JSON object)'),self.env);form.addRow(self.tr('HTTPS URL'),self.url);form.addRow(self.tr('Bearer token'),self.token);form.addRow(self.tr('Operation timeout'),self.timeout);form.addRow('',self.enabled)
         row=QHBoxLayout();layout.addLayout(row)
         for label,handler in ((self.tr('New'),self.new),(self.tr('Save'),self.save),(self.tr('Remove'),self.remove),(self.tr('Test connection'),self.test)):
             button=QPushButton(label);button.clicked.connect(handler);row.addWidget(button)
@@ -31,15 +37,30 @@ class MCPServers(QDialog):
         self.list.clear()
         for server in self.store.config.get('mcp_servers',[]):self.list.addItem(server['name']+('' if server['enabled'] else ' (disabled)'))
 
+    def choose_working_directory(self):
+        path=QFileDialog.getExistingDirectory(self,self.tr('Choose MCP working directory'),self.working_directory.text())
+        if path:self.working_directory.setText(path)
+
     def new(self):
-        self.list.setCurrentRow(-1);self.name.clear();self.transport.setCurrentIndex(0);self.command.clear();self.args.setPlainText('[]');self.env.setPlainText('{}');self.url.clear();self.token.clear();self.timeout.setValue(DEFAULT_TIMEOUT_SECONDS);self.enabled.setChecked(True)
+        self.list.setCurrentRow(-1);self.name.clear();self.transport.setCurrentIndex(0);self.command.clear();self.args.setPlainText('[]');self.working_directory.clear();self.env.setPlainText('{}');self.url.clear();self.token.clear();self.timeout.setValue(DEFAULT_TIMEOUT_SECONDS);self.enabled.setChecked(True)
 
     def load_row(self,index):
         if self.process:self.finish_test('Local MCP session closed.')
         self.tool_details.clear();self.tool_choice.clear();self.tool_result.clear();self.discovered=None
         entries=self.store.config.get('mcp_servers',[])
         if 0<=index<len(entries):
-            item=entries[index];remote=item.get('transport')=='http';self.name.setText(item['name']);self.transport.setCurrentIndex(1 if remote else 0);self.command.setText(item.get('command',''));self.args.setPlainText(json.dumps(item.get('args',[]),ensure_ascii=False));self.env.setPlainText(json.dumps(item.get('env',{}),ensure_ascii=False));self.url.setText(item.get('url',''));self.token.clear();self.timeout.setValue(server_timeout(item));self.enabled.setChecked(item['enabled'])
+            item=entries[index];remote=item.get('transport')=='http';self.name.setText(item['name']);self.transport.setCurrentIndex(1 if remote else 0);self.command.setText(item.get('command',''));self.args.setPlainText(json.dumps(item.get('args',[]),ensure_ascii=False));self.working_directory.setText(item.get('working_directory',''));self.env.setPlainText(json.dumps(item.get('env',{}),ensure_ascii=False));self.url.setText(item.get('url',''));self.token.clear();self.timeout.setValue(server_timeout(item));self.enabled.setChecked(item['enabled'])
+
+    def form_matches(self,item):
+        """Do not test a saved configuration while the editor shows different values."""
+        remote=item.get('transport')=='http'
+        if (self.name.text().strip()!=item['name'] or (self.transport.currentIndex()==1)!=remote or
+                self.enabled.isChecked()!=item['enabled'] or self.timeout.value()!=server_timeout(item)):
+            return False
+        if remote:return self.url.text().strip()==item['url'] and not self.token.text()
+        try:args=json.loads(self.args.toPlainText() or '[]');env=json.loads(self.env.toPlainText() or '{}')
+        except (ValueError,RecursionError):return False
+        return self.command.text().strip()==item['command'] and self.working_directory.text().strip()==item.get('working_directory','') and args==item['args'] and env==item.get('env',{})
 
     def save(self):
         try:
@@ -52,8 +73,14 @@ class MCPServers(QDialog):
                 if token:credential=uuid.uuid4().hex;new_id=credential
                 item={'name':self.name.text().strip(),'transport':'http','url':url,'credential_id':credential,'enabled':self.enabled.isChecked()}
             else:
-                item={'name':self.name.text().strip(),'command':self.command.text().strip(),'args':json.loads(self.args.toPlainText() or '[]'),'enabled':self.enabled.isChecked()}
-                env=json.loads(self.env.toPlainText() or '{}')
+                try:args=json.loads(self.args.toPlainText() or '[]')
+                except (ValueError,RecursionError):
+                    QMessageBox.warning(self,self.tr('MCP servers'),self.tr('Arguments must be a valid JSON array. In Windows paths, use forward slashes or double each backslash.'));return
+                try:env=json.loads(self.env.toPlainText() or '{}')
+                except (ValueError,RecursionError):
+                    QMessageBox.warning(self,self.tr('MCP servers'),self.tr('Environment names must be a valid JSON object.'));return
+                item={'name':self.name.text().strip(),'command':self.command.text().strip(),'args':args,'enabled':self.enabled.isChecked()}
+                if self.working_directory.text().strip():item['working_directory']=self.working_directory.text().strip()
                 if env:item['env']=env
                 elif not isinstance(env,dict):raise ValueError('Invalid MCP environment mappings')
             if self.timeout.value()!=DEFAULT_TIMEOUT_SECONDS or 'timeout_seconds' in prior:item['timeout_seconds']=self.timeout.value()
@@ -94,16 +121,21 @@ class MCPServers(QDialog):
 
     def test(self):
         entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
-        if self.process or self.remote or not 0<=index<len(entries):return
+        if self.process or self.remote:
+            self.status.setText(self.tr('An MCP connection is already active. Close it or select another server before testing.'));return
+        if not 0<=index<len(entries):
+            self.status.setText(self.tr('Save and select a server before testing the connection.'));return
         item=entries[index]
+        if not self.form_matches(item):self.status.setText(self.tr('Save your changes before testing this server.'));return
         if not item['enabled']:self.status.setText(self.tr('Enable and save this server before testing.'));return
         self.tool_details.clear();self.tool_choice.clear();self.tool_result.clear();self.discovered=None
         if item.get('transport')=='http':self.test_remote(item);return
         details=self.tr('Start this local program with your user permissions?\n\nExecutable: {command}\nArguments: {args}\nEnvironment mappings (target: source name): {env}\n\nThe server inherits the app environment and can access your files and network. Mapped values are hidden.').format(command=item['command'],args=json.dumps(item['args'],ensure_ascii=False),env=json.dumps(item.get('env',{}),ensure_ascii=True))
+        details+='\n\n'+self.tr('Working directory: {directory}').format(directory=item.get('working_directory') or self.tr('Agentnik process working directory'))
         if QMessageBox.question(self,self.tr('Test MCP server'),details,QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)!=QMessageBox.StandardButton.Yes:return
         from .mcp_local import LocalSession
-        try:self.process=LocalSession(item['command'],item['args'],self,env_refs=item.get('env',{}),timeout_seconds=server_timeout(item))
-        except ValueError:self.status.setText(self.tr('A configured MCP environment variable is missing or invalid.'));return
+        try:self.process=LocalSession(item['command'],item['args'],self,env_refs=item.get('env',{}),timeout_seconds=server_timeout(item),working_directory=item.get('working_directory',''))
+        except ValueError:self.status.setText(self.tr('The MCP environment or working directory is invalid on this system.'));return
         self.discovered_config=dict(item)
         self.process.discovered.connect(self.local_discovered);self.process.called.connect(self.local_called);self.process.ended.connect(self.local_ended)
         self.status.setText(self.tr('Connecting…'));self.process.start()

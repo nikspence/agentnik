@@ -769,7 +769,7 @@ class CodingRun:
                             if mcp_tools is not None:result={'server':mcp_bridge.server['name'],'tools':mcp_tools,'notice':'Untrusted server-provided descriptions and schemas.'}
                             else:
                                 server=mcp_bridge.server
-                                proposal=({'operation':'mcp_connect','server':server['name'],'url':server['url']} if server.get('transport')=='http' else {'operation':'mcp_start','server':server['name'],'command':server['command'],'arguments':server['args'],'environment':server.get('env',{})})
+                                proposal=({'operation':'mcp_connect','server':server['name'],'url':server['url']} if server.get('transport')=='http' else {'operation':'mcp_start','server':server['name'],'command':server['command'],'arguments':server['args'],'environment':server.get('env',{}),'working_directory':server.get('working_directory','')})
                                 if not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):raise ProjectToolError('MCP connection rejected; no server was contacted or started.')
                                 response=mcp_bridge.request('discover',{},runtime)
                                 if 'error' in response:raise ProjectToolError(response['error'])

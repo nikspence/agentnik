@@ -45,7 +45,8 @@ class CodingMCPBridge(QObject):
             if self.session:
                 self._reply(request, {'error':'MCP session already started.'}); return
             if self.environment_error:self._reply(request, {'error':self.environment_error});return
-            self.session = LocalSession(self.server['command'], self.server['args'], self,env_values=self.environment_values,timeout_seconds=server_timeout(self.server))
+            try:self.session = LocalSession(self.server['command'], self.server['args'], self,env_values=self.environment_values,timeout_seconds=server_timeout(self.server),working_directory=self.server.get('working_directory',''))
+            except ValueError:self._reply(request, {'error':'MCP working directory or timeout is invalid on this system.'});return
             self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called)
             self.session.start()
         elif request['action'] in ('prompts_list','prompts_get') and self.session:
