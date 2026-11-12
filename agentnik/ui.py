@@ -22,7 +22,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 
 from . import core, research, routing, tls
 from .citations import cited_markdown
-from .research_ui import WebSettings, ResearchDetails, policy_label
+from .research_ui import WebSettings, ResearchDetails, ResearchLimitsDialog, policy_label
+from .tools import chat_limits
 from .storage import Store
 from .repositories import RepositoryRegistry
 from .code_ui import RepositoryPicker, CodeTab
@@ -462,7 +463,8 @@ class SessionTab(QWidget):
             web_row.addWidget(self.route_policy)
             self.route_policy.currentIndexChanged.connect(self.save_draft)
 
-            self.web_settings = button(self.tr('Web settings…'),self.configure_web,web_row); web_row.addStretch()
+            self.web_settings = button(self.tr('Web settings…'),self.configure_web,web_row)
+            self.research_limits_button=button(self.tr('Research limits…'),self.configure_research_limits,web_row); web_row.addStretch()
             self.web_access.toggled.connect(self.save_draft)
 
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True); self.results_widget = QWidget(); self.results = QVBoxLayout(self.results_widget); self.results.addStretch(); self.scroll.setWidget(self.results_widget)
@@ -558,6 +560,11 @@ class SessionTab(QWidget):
                 routing.save_defaults(self.store.config,self.session['connection_name'],c,dlg.default_policy.currentData(),dlg.access_policy.currentData())
                 self.store.flush(); self.info.setText(self.tr('Research defaults and scoped capabilities saved.')); return
             except Exception as exc: error(self,exc)
+
+    def configure_research_limits(self):
+        dialog=ResearchLimitsDialog(self,self.session.get('research_options',{}).get('limits'))
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            self.session.setdefault('research_options',{})['limits']=dialog.values();self.save_draft()
 
     def complete_research(self,result):
         if hasattr(self,'live_bubble'):
@@ -666,7 +673,8 @@ class SessionTab(QWidget):
         if self.loading: return
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
         if self.session['mode'] == 'chat':
-            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData(),'local_tools':self.local_tools.isChecked()})
+            options=self.session.get('research_options',{})
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData(),'local_tools':self.local_tools.isChecked(),**({'limits':copy.deepcopy(options['limits'])} if 'limits' in options else {})})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -678,7 +686,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-            self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
+            self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.research_limits_button.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
     def submit(self):
         if self.job: return
         try:
@@ -696,8 +704,9 @@ class SessionTab(QWidget):
             else:
                 form = copy.deepcopy(self.form_value()); body = core.decision_body(c,form); self.pending = form
             self.research_running = mode=='chat' and (self.web_access.isChecked() or self.local_tools.isChecked())
-            key = ''; backend_specs=[]; research_config={}; selected_policy=None; access_policy='public_fetch'
+            key = ''; backend_specs=[]; research_config={}; selected_policy=None; access_policy='public_fetch';research_limits=None
             if self.research_running:
+                research_limits=chat_limits(self.session.get('research_options',{}).get('limits'))
                 defaults=routing.connection_defaults(self.store.config,self.session['connection_name'],c)
                 selected_policy=self.route_policy.currentData() or defaults['policy']; access_policy=defaults['access_policy']
                 research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{})),'local_tools':self.local_tools.isChecked(),'web_enabled':self.web_access.isChecked()}
@@ -714,7 +723,7 @@ class SessionTab(QWidget):
             request_messages = copy.deepcopy(self.session['messages']+[self.pending]) if research_enabled else []
             self.research_connection = c
             self.last_research_save = 0
-            self.job = Job(lambda emit,cancel:research.run(c,request_messages,key,emit,cancel,run_id=token,config=research_config,policy=selected_policy,backends=backend_specs,access_policy=access_policy) if research_enabled else core.run_request(c,mode,body,emit,cancel),
+            self.job = Job(lambda emit,cancel:research.run(c,request_messages,key,emit,cancel,limits=research_limits,run_id=token,config=research_config,policy=selected_policy,backends=backend_specs,access_policy=access_policy) if research_enabled else core.run_request(c,mode,body,emit,cancel),
                            lambda value:self.finished(value) if self.request_token == token else None,
                            lambda message:self.failed(message) if self.request_token == token else None,
                            lambda value:self.progress(value) if self.request_token == token else None)

@@ -31,19 +31,19 @@ class AccessError(ResearchError):
 
 @dataclass(frozen=True)
 class Limits:
-    rounds: int = 4
-    calls: int = 8
+    rounds: int = 8
+    calls: int = 16
     results: int = 5
     response_bytes: int = 1_000_000
     retrieved_bytes: int = 3_000_000
     record_bytes: int = 256_000
-    context_bytes: int = 32_000
+    context_bytes: int = 64_000
     argument_bytes: int = 4096
     model_bytes: int = 512_000
-    request_seconds: float = 45
-    turn_seconds: float = 180
+    request_seconds: float = 600
+    turn_seconds: float = 1800
     redirects: int = 3
-    requests: int = 6
+    requests: int = 12
     attempts: int = 8
     backoff_seconds: float = 5
 
@@ -54,6 +54,20 @@ class Limits:
                 raise ValueError(f'{name} must be positive')
             if name not in ('request_seconds', 'turn_seconds', 'backoff_seconds') and not isinstance(value, int):
                 raise ValueError(f'{name} must be an integer')
+
+
+CHAT_LIMIT_FIELDS = {'rounds':(1,50), 'calls':(1,100), 'requests':(2,100),
+                     'request_seconds':(1,3600), 'turn_seconds':(1,14400),
+                     'context_bytes':(2048,1_000_000), 'results':(1,20)}
+
+
+def chat_limits(values=None):
+    if values is None: values={}
+    if not isinstance(values,dict) or set(values)-set(CHAT_LIMIT_FIELDS): raise ValueError('Invalid research limits')
+    for name,value in values.items():
+        low,high=CHAT_LIMIT_FIELDS[name]
+        if type(value) is not int or not low<=value<=high: raise ValueError('Invalid research limit: '+name)
+    return Limits(**values)
 
 
 @dataclass(frozen=True)

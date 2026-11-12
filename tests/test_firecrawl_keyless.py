@@ -47,7 +47,7 @@ class KeylessFirecrawl(unittest.TestCase):
         spec=[{'id':'primary','kind':'brave','key':'fixture'}]
         for error in (core.EndpointError(401,'{}'),core.EndpointError(403,'{}'),TimeoutError()):
             provider=MagicMock();provider.search.side_effect=error
-            with patch.object(web,'BraveWeb',return_value=provider),patch.object(web,'FirecrawlKeylessWeb',return_value=Backend()) as fallback,patch.object(web,'GoogleWeb') as google:
+            with patch('agentnik.search_cache.get',return_value=None),patch('agentnik.search_cache.put'),patch.object(web,'BraveWeb',return_value=provider),patch.object(web,'FirecrawlKeylessWeb',return_value=Backend()) as fallback,patch.object(web,'GoogleWeb') as google:
                 service=web.OrderedSearch(spec)
                 if isinstance(error,core.EndpointError) and error.status==401:
                     self.assertEqual(service.search('query',Runtime())[0].backend,'builtin-firecrawl-keyless');fallback.assert_called_once_with('')
@@ -55,6 +55,21 @@ class KeylessFirecrawl(unittest.TestCase):
                     with self.assertRaises(type(error)):service.search('query',Runtime())
                     fallback.assert_not_called()
                 google.assert_not_called()
+
+    def test_rejected_credential_is_not_retried_through_duplicate_profile(self):
+        for status in (401,429):
+            with self.subTest(status=status):
+                specs=[{'id':'first','kind':'brave','key':'shared-fixture'},
+                       {'id':'duplicate','kind':'brave','key':'shared-fixture'}]
+                provider=MagicMock();provider.search.side_effect=core.EndpointError(status,'{}',retry_after='0')
+                fallback=Backend()
+                with patch('agentnik.search_cache.get',return_value=None),patch('agentnik.search_cache.put'),patch.object(web,'BraveWeb',return_value=provider),patch.object(web,'FirecrawlKeylessWeb',return_value=fallback):
+                    service=web.OrderedSearch(specs)
+                    service.search('first query',Runtime())
+                    service.search('second query',Runtime())
+                self.assertEqual(provider.search.call_count,1)
+                self.assertEqual(fallback.searches,['first query','second query'])
+                self.assertEqual(service.attempts[-2]['status'],'skipped')
 
     def test_keyless_profile_persists_without_credential_store_writes(self):
         fake=MagicMock()

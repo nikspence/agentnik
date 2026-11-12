@@ -155,6 +155,19 @@ class LoopContracts(unittest.TestCase):
         result,_,bodies,backend=self.run_loop([Response([answer('',[call()])]),Response([answer('',[call()])])],limits=Limits(rounds=1))
         self.assertEqual(result['research']['status'],'limited'); self.assertEqual(len(backend.searches),1)
 
+    def test_call_and_request_limits_reserve_final_synthesis(self):
+        for limits in (Limits(calls=1),Limits(requests=2)):
+            with self.subTest(limits=limits):
+                result,_,bodies,backend=self.run_loop([Response([answer('',[call()])]),Response([answer('Final [S1]')])],limits=limits)
+                self.assertEqual(result['status'],'ok');self.assertEqual(result['text'],'Final [S1]')
+                self.assertEqual(len(backend.searches),1);self.assertNotIn('tools',bodies[1])
+                self.assertIn('final answer now',bodies[1]['messages'][0]['content'])
+
+    def test_empty_terminal_answer_is_not_marked_complete(self):
+        result,_,_,_=self.run_loop([Response([answer('',[call()])]),Response([answer('')])])
+        self.assertEqual(result['status'],'failed');self.assertIn('no final answer',result['error'])
+        self.assertEqual(len(result['research']['sources']),1)
+
     def test_malformed_or_unregistered_batch_does_not_execute_first_valid_call(self):
         for bad in (call('shell',{'command':'anything'},1),call(args='{broken',index=1)):
             result,_,_,backend=self.run_loop([Response([answer('',[call(),bad])])])

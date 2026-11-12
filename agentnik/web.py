@@ -461,7 +461,7 @@ class OrderedSearch:
     """Resolve one logical search call across an explicit ordered backend list."""
     def __init__(self,specs,allow_fallback=True):
         if len(specs)>5:raise ResearchError('At most five configured search profiles are supported')
-        self.specs=search_chain(specs) if allow_fallback else specs; self.allow_fallback=allow_fallback; self.attempts=[];self.unavailable=set()
+        self.specs=search_chain(specs) if allow_fallback else specs; self.allow_fallback=allow_fallback; self.attempts=[];self.unavailable=set();self.unavailable_credentials=set()
         self.secret_values=[s.get('key','') for s in specs]
 
     def notify(self,runtime,kind,detail):
@@ -479,7 +479,7 @@ class OrderedSearch:
             self.attempts.append(record)
             keyless=spec.get('kind') in ('firecrawl-keyless','google')
             credential=(spec.get('kind'),'' if keyless else spec.get('key'))
-            if ident in self.unavailable:
+            if ident in self.unavailable or credential in self.unavailable_credentials:
                 record.update(status='skipped',reason='Backend unavailable for this run after rejection',ended_at=utc_now())
                 self.notify(runtime,'backend_skipped',name+': '+record['reason']);continue
             if ident in seen_ids or ((spec.get('key') or keyless) and credential in seen_credentials):
@@ -517,7 +517,8 @@ class OrderedSearch:
                     if str(exc) in known:detail+=' ('+known[str(exc)]+')'
                 self.notify(runtime,'backend_failed',detail)
                 if not self.allow_fallback or not failure['fallback_allowed']: raise
-                if failure['kind'] in ('rate_limit','authentication'):self.unavailable.add(ident)
+                if failure['kind'] in ('rate_limit','authentication'):
+                    self.unavailable.add(ident);self.unavailable_credentials.add(credential)
                 if failure['kind'] in ('rate_limit','temporary'):
                     delay=failure['retry_after'] or 0
                     self.notify(runtime,'backend_wait',f'{delay:g}s retry guidance from '+name)

@@ -56,6 +56,10 @@ def validate_session(value, ident=None):
     if 'local_tools' in options: require(type(options['local_tools']) is bool)
     if 'enabled' in options: require(type(options['enabled']) is bool)
     if 'policy' in options: require(options['policy'] in (None,'Provider first','Agentnik first','Provider only','Agentnik only'))
+    if 'limits' in options:
+        from .tools import chat_limits
+        try: chat_limits(options['limits'])
+        except ValueError: require(False)
     if data['mode']=='code':
         require(data.get('version') in (4,5))
         for field in ('project_id','project_name','path_snapshot'): require(isinstance(data.get(field),str) and bool(data[field]))

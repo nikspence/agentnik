@@ -33,6 +33,27 @@ class ResearchDesktop(unittest.TestCase):
         self.assertTrue(predicate())
         self.app.processEvents()
 
+    def test_chat_research_limits_persist_and_reach_run(self):
+        from PySide6.QtWidgets import QDialog
+        captured=[]
+        def fake_run(*args,**kwargs):
+            captured.append(kwargs['limits'])
+            return {'status':'ok','text':'Done','thinking':'','metrics':{},'research':{'status':'completed','route':'managed','sources':[],'events':[]}}
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]),patch.object(research,'run',side_effect=fake_run):
+            store=Store(root);w=Window(store);w.connections={'test':dict(C)}
+            try:
+                w.new_session('chat','test');tab=w.tabs.currentWidget()
+                def accept(dialog):
+                    dialog.fields['request_seconds'].setValue(900);dialog.fields['rounds'].setValue(12)
+                    return QDialog.DialogCode.Accepted
+                with patch('agentnik.research_ui.ResearchLimitsDialog.exec',accept):tab.configure_research_limits()
+                self.assertEqual(tab.session['research_options']['limits']['request_seconds'],900)
+                self.assertEqual(store.list_sessions()[0]['research_options']['limits']['rounds'],12)
+                tab.web_access.setChecked(True);tab.composer.setPlainText('Research');tab.submit()
+                self.settle_until(lambda:tab.job is None)
+                self.assertEqual(captured[0].request_seconds,900);self.assertEqual(captured[0].rounds,12)
+            finally:w.close();self.app.processEvents();store.db.close()
+
     def test_web_is_off_by_default_and_decision_has_no_web_controls(self):
         with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
             store=Store(root); w=Window(store)

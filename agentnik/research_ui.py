@@ -3,9 +3,9 @@ from PySide6.QtCore import QUrl, Qt, QCoreApplication
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QCheckBox,QDialog,QDialogButtonBox,QFormLayout,QLabel,
                                QLineEdit,QPlainTextEdit,QPushButton,QToolButton,QVBoxLayout,QWidget,
-                               QComboBox,QHBoxLayout,QListWidget,QInputDialog,QMessageBox)
+                               QComboBox,QHBoxLayout,QListWidget,QInputDialog,QMessageBox,QSpinBox)
 from . import research, routing, hosted
-from .tools import Limits
+from .tools import Limits,CHAT_LIMIT_FIELDS,chat_limits
 from .web import public_url
 from .search_providers import SEARCH_PROVIDERS
 
@@ -16,6 +16,27 @@ def policy_label(policy):
             'Provider only':QCoreApplication.translate('ResearchPolicy','Provider only'),
             'Agentnik only':QCoreApplication.translate('ResearchPolicy','Agentnik only')}
     return labels.get(policy,policy)
+
+
+class ResearchLimitsDialog(QDialog):
+    def __init__(self,parent,values=None):
+        super().__init__(parent);self.setWindowTitle(self.tr('Chat research limits'))
+        layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form);self.fields={}
+        labels={'rounds':self.tr('Tool rounds'),'calls':self.tr('Tool calls'),'requests':self.tr('Model requests'),
+                'request_seconds':self.tr('Request timeout (seconds)'),'turn_seconds':self.tr('Total turn time (seconds)'),
+                'context_bytes':self.tr('Research context (bytes)'),'results':self.tr('Results per search')}
+        current=chat_limits(values)
+        for name,(minimum,maximum) in CHAT_LIMIT_FIELDS.items():
+            box=QSpinBox();box.setObjectName('researchLimit_'+name);box.setRange(minimum,maximum);box.setValue(int(getattr(current,name)));self.fields[name]=box;form.addRow(labels[name],box)
+        hint=QLabel(self.tr('Limits apply to this chat, including route attempts. The request timeout covers waiting for the first token and the full response; the total turn limit may end it sooner. Larger limits can increase time and provider charges.'));hint.setWordWrap(True);layout.addWidget(hint)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.RestoreDefaults)
+        buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject);buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults).clicked.connect(self.reset);layout.addWidget(buttons)
+
+    def reset(self):
+        defaults=Limits()
+        for name,box in self.fields.items():box.setValue(int(getattr(defaults,name)))
+
+    def values(self): return {name:box.value() for name,box in self.fields.items()}
 
 
 class SearchBackends(QDialog):
@@ -107,9 +128,7 @@ class WebSettings(QDialog):
         states={'unknown':self.tr('unknown'),'configured':self.tr('configured'),'verified':self.tr('verified'),'unsupported':self.tr('unsupported')}
         status=self.tr('Model: {model} · managed: {managed} · hosted: {hosted}\nEnabling is configuration, not verification. Hosted search requires the official OpenAI Responses endpoint and a model that supports web_search. No background inference probes are run.')
         label=QLabel(status.format(model=c.get('model',''),managed=states[current.state],hosted=states[hosted_cap.state])); label.setTextFormat(Qt.TextFormat.PlainText); label.setWordWrap(True); layout.addRow(label)
-        bounds=Limits()
-        limits=self.tr('Limits: {rounds} managed rounds, {calls} tool calls, {requests} model requests across attempts; {request_seconds}s/request, {turn_seconds}s/turn. One retry per route on explicit 429/503 rejection, with bounded Retry-After. Partial or uncertain work always requires explicit restart.')
-        info=QLabel(limits.format(rounds=bounds.rounds,calls=bounds.calls,requests=bounds.requests,request_seconds=f'{bounds.request_seconds:g}',turn_seconds=f'{bounds.turn_seconds:g}')); info.setWordWrap(True); layout.addRow(info)
+        info=QLabel(self.tr('Configure per-chat limits using Research limits. One retry per route is allowed on explicit 429/503 rejection, with bounded Retry-After. Partial or uncertain work always requires explicit restart.')); info.setWordWrap(True); layout.addRow(info)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addRow(buttons)
 

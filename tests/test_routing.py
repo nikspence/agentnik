@@ -57,6 +57,18 @@ class HostedContracts(unittest.TestCase):
             result=hosted.run_hosted(c or C,MESSAGES,'web-test-key',updates.append,threading.Event(),**kwargs)
         return result,updates,transport
 
+    def test_managed_responses_synthesizes_at_round_limit(self):
+        wires=[Wire(response([function_call()]),False),Wire(response([message('Synthesis [S1]')]),False)]
+        bodies=[]
+        def transport(c,url,body,timeout):
+            bodies.append(json.loads(json.dumps(body)));return wires.pop(0)
+        with patch.object(core,'open_request',side_effect=transport):
+            result=research.run_managed(dict(C,stream=False),MESSAGES,'',lambda _:None,threading.Event(),backend=Backend(),limits=Limits(rounds=1))
+        self.assertEqual(result['status'],'ok');self.assertEqual(result['text'],'Synthesis [S1]')
+        self.assertNotIn('tools',bodies[1]);self.assertIn('final answer now',bodies[1]['instructions'])
+        self.assertTrue(any(item.get('type')=='function_call_output' and 'Saved evidence' in item.get('output','') for item in bodies[1]['input']))
+        self.assertTrue(any(event['kind']=='synthesizing' for event in result['research']['events']))
+
     def test_streaming_search_annotations_usage_and_stateless_continuation(self):
         reasoning={'type':'reasoning','id':'rs-1','summary':[],'encrypted_content':'opaque-continuation'}
         output=[reasoning,search_call(),message(annotations=[citation()])]
