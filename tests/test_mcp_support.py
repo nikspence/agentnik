@@ -11,6 +11,11 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_parallel_mcp_documented_tool_selector_only(self):
+        profile={'name':'Parallel','transport':'http','url':'https://mcp.parallel.ai/mcp?tools=web_search,web_research,find_verticals,search_vertical','credential_id':'','enabled':True}
+        self.assertEqual(validate_servers([profile]),[profile])
+        for url in ('https://mcp.parallel.ai/mcp?login','https://mcp.parallel.ai/mcp?tools=web_search&key=secret','https://mcp.parallel.ai/mcp?tools=web_search,web_search','https://mcp.parallel.ai/mcp?tools=unknown','https://evil.example/mcp?tools=web_search','https://mcp.parallel.ai/other?tools=web_search'):
+            with self.subTest(url=url),self.assertRaises(ValueError):validate_servers([dict(profile,url=url)])
     def test_local_stdio_limit_applies_per_message_when_reads_are_coalesced(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

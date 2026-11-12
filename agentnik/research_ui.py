@@ -43,7 +43,7 @@ class SearchBackends(QDialog):
     def __init__(self,parent,store):
         super().__init__(parent); self.store=store; self.setWindowTitle(self.tr('Search backends')); self.resize(580,360)
         layout=QVBoxLayout(self)
-        label=QLabel(self.tr('Profiles run in this order, with a separate key for each provider. Changes save immediately. Up to five saved/environment profiles participate. Exa uses auto search with highlights; Parallel uses basic search with excerpts. Provider charges may apply. Search falls back to Firecrawl Keyless, then Google after eligible rejections. Code uses Ollama search only with direct Ollama Cloud.')); label.setWordWrap(True); layout.addWidget(label)
+        label=QLabel(self.tr('Profiles run in this order, with a separate key for each provider. Changes save immediately. Up to five saved/environment profiles participate. Exa uses auto search with highlights; Parallel uses basic search with excerpts and enables place, image and entity search in managed research and Code. Provider charges may apply. Search falls back to Firecrawl Keyless, then Google after eligible rejections. Code uses Ollama search only with direct Ollama Cloud.')); label.setWordWrap(True); layout.addWidget(label)
         self.list=QListWidget(); layout.addWidget(self.list)
         row=QHBoxLayout(); layout.addLayout(row)
         for text,fn in [(self.tr('Add'),lambda:self.edit(True)),(self.tr('Edit'),lambda:self.edit(False)),(self.tr('Remove'),self.remove),('↑',lambda:self.move(-1)),('↓',lambda:self.move(1))]:

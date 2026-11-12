@@ -11,6 +11,14 @@ PROTOCOL='2025-11-25'
 MAX_OUTPUT=65536
 DEFAULT_TIMEOUT_SECONDS=60
 MAX_TIMEOUT_SECONDS=900
+PARALLEL_MCP_TOOLS=frozenset(('web_search','web_fetch','web_decisions','web_research','find_verticals','search_vertical'))
+
+def safe_parallel_tool_query(parts):
+    """Allow Parallel's documented non-secret tool selector, not arbitrary URL queries."""
+    if parts.hostname!='mcp.parallel.ai' or parts.port not in (None,443) or parts.path!='/mcp':return False
+    if not parts.query.startswith('tools='):return False
+    names=parts.query[len('tools='):].split(',')
+    return bool(names) and len(names)==len(set(names)) and all(name in PARALLEL_MCP_TOOLS for name in names)
 
 
 def server_timeout(server):
@@ -36,7 +44,7 @@ def validate_servers(servers):
             if not isinstance(url,str) or len(url)>2048 or any(ord(c)<33 or ord(c)==127 for c in url):raise ValueError('Invalid MCP URL')
             try:parts=urlsplit(url);port=parts.port
             except ValueError:raise ValueError('Invalid MCP URL') from None
-            if parts.scheme!='https' or not parts.hostname or parts.username or parts.password or parts.fragment or parts.query:raise ValueError('MCP URL must use HTTPS without credentials, a query, or a fragment')
+            if parts.scheme!='https' or not parts.hostname or parts.username or parts.password or parts.fragment or (parts.query and not safe_parallel_tool_query(parts)):raise ValueError('MCP URL must use HTTPS without credentials or a fragment; only the documented Parallel tool selector query is supported')
             if not isinstance(credential,str) or len(credential)>128:raise ValueError('Invalid MCP credential reference')
         else:
             command=server['command'];args=server['args']

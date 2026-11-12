@@ -264,6 +264,8 @@ class Registry:
             if call.name=='mcp_call' and isinstance(result,dict) and isinstance(result.get('result'),dict) and result['result'].get('isError') is True:
                 return ToolResult(call.id,call.name,error='MCP tool reported an error.',data=result)
             return ToolResult(call.id,call.name,data=result)
+        if call.name.startswith('parallel_') and self.extra_handler:
+            return ToolResult(call.id,call.name,data=runtime.wait(lambda:self.extra_handler(call.name,args,runtime)))
         if call.name in ('calculate','analyze_data'):
             from .analysis_tools import AnalysisError
             try: result=self.handlers[call.name](**args)
