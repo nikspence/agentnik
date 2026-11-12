@@ -209,7 +209,7 @@ class Localization(unittest.TestCase):
                         self.assertEqual(dialog.windowTitle(),'웹 조사')
                         texts=[label.text() for label in dialog.findChildren(QLabel)]
                         self.assertTrue(any('모델: model' in text and '설정일 뿐 검증이 아닙니다' in text for text in texts))
-                        self.assertTrue(any('429/503' in text and '요청당 45초' in text for text in texts))
+                        self.assertTrue(any('429/503' in text and '조사 제한' in text for text in texts))
                         dialog.access_policy.setCurrentIndex(dialog.access_policy.findData('strict_public'))
                         self.assertIn('공개',dialog.access_policy.currentText());self.assertEqual(dialog.access_policy.currentData(),'strict_public')
                         self.assertEqual(dialog.default_policy.currentText(),'제공자 우선');self.assertEqual(dialog.default_policy.currentData(),'Provider first')

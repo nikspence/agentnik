@@ -45,7 +45,7 @@ class ResponsesIntegrity(unittest.TestCase):
                 {'type':'response.output_text.delta','output_index':1,'delta':'stale'},
                 {'type':'response.completed','response':response([])}]
         result,backend=self.managed(events)
-        self.assertEqual(result['status'],'ok'); self.assertFalse(backend.searches)
+        self.assertEqual(result['status'],'failed'); self.assertIn('no final answer',result['error']); self.assertFalse(backend.searches)
         self.assertEqual(result['text'],''); self.assertEqual(result['research']['response_items'],[])
 
     def test_final_identity_preserves_opaque_reasoning(self):

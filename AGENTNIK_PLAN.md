@@ -68,7 +68,7 @@ The ordered managed backend list now supports Brave Search, LangSearch, Firecraw
 
 Direct page fetch validates public destinations, pins approved DNS addresses, retains the original TLS hostname, and revalidates redirects. It uses a separate transport without model credentials/browser cookies. Both provider-hosted navigation and search-service internal navigation are outside Agentnik's transport controls. Consequently the current strict navigation policy disables **both current search routes before inference**; it does not provide a strict managed-search alternative.
 
-Default limits currently include four tool rounds, eight tool calls, five search results, 1 MB per web response, 3 MB retrieved per turn, 32 KB tool context, 256 KB retained research metadata, 4 KB arguments, 512 KB model response, six model requests, eight route attempts, 45-second request and 180-second turn deadlines, three redirects, and five-second maximum backoff. These are separate limits, not a guarantee that total retained session storage is 32 KB.
+Default limits include eight tool rounds, sixteen tool calls, five search results, 1 MB per web response, 3 MB retrieved per turn, 64 KB tool context, 256 KB retained research metadata, 4 KB arguments, 512 KB model response, twelve model requests, eight route attempts, 600-second request and 1,800-second turn deadlines, three redirects, and five-second maximum backoff. Chat research limits can be adjusted per chat. These are separate limits, not a guarantee that total retained session storage is 64 KB.
 
 ## 3. Lessons retained from implementation
 

@@ -2,6 +2,7 @@
 import copy,json,threading,unittest
 from unittest.mock import patch
 from agentnik import core,research
+from agentnik.tools import Limits
 from test_research import Backend,MESSAGES
 from test_routing import Wire
 
@@ -20,6 +21,17 @@ def msg(content,stop='end_turn'):
 
 
 class Matrix(unittest.TestCase):
+    def test_messages_oversized_batch_results_are_grouped_before_final_answer(self):
+        c={'url':'https://example.com/v1','protocol':'messages','model':'test','stream':False}
+        def tool(ident):return {'type':'tool_use','id':ident,'name':'web_search','input':{'query':'evidence'}}
+        replies=[Wire(msg([tool('a')],'tool_use'),False),Wire(msg([tool('b'),tool('c')],'tool_use'),False),Wire(msg([{'type':'text','text':'Answer [S1]'}]),False)]
+        bodies=[];backend=Backend()
+        def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):
+            result=research.run_managed(c,MESSAGES,'',lambda _:None,threading.Event(),backend=backend,limits=Limits(calls=2))
+        self.assertEqual(result['status'],'ok');self.assertEqual(len(backend.searches),1)
+        self.assertNotIn('tools',bodies[-1]);self.assertEqual([block['tool_use_id'] for block in bodies[-1]['messages'][-1]['content']],['b','c'])
+
     def run_loop(self,protocol,replies,stream=False):
         c={'url':'https://example.com/v1','protocol':protocol,'model':'test','stream':stream}
         bodies=[]; backend=Backend()

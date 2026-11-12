@@ -72,7 +72,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
     secrets=(c.get('api_key',''),key,*getattr(backend,'secret_values',[]))
     result={'text':'','thinking':'','metrics':{},'research':state,'status':'failed'}
     metrics={}; requested=0; all_usage=True; generation_seconds=0; generated_with_time=0
-    tool_seconds=model_seconds=0; active={}; last_input=None; all_generation_timed=True
+    tool_seconds=model_seconds=0; active={}; last_input=None; all_generation_timed=True; force_final=False
     def snapshot():
         value=copy.deepcopy(result)
         if state['status']=='running':
@@ -98,6 +98,21 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
             generation_seconds+=reported['generation_seconds']; generated_with_time+=reported.get('output_tokens',0)
         if active.get('provider_usage'): state['provider_usage'].append(copy.deepcopy(active['provider_usage']))
         active.clear()
+    def append_tool_output(call,content):
+        if is_responses:
+            wire={'type':'function_call_output','call_id':call.id,'output':content}
+            body['input'].append(wire); state['response_items'].append(wire)
+        elif protocol=='messages':
+            block={'type':'tool_result','tool_use_id':call.id,'content':content}
+            if body['messages'][-1]['role']=='user': body['messages'][-1]['content'].append(block)
+            else:
+                wire={'role':'user','content':[block]}
+                body['messages'].append(wire); state['exchanges'].append(wire)
+        else:
+            wire={'role':'tool','tool_name':call.name,'content':content}
+            if not native: wire={'role':'tool','tool_call_id':call.id,'content':content}
+            elif call.provider.get('id'): wire['tool_call_id']=call.provider['id']
+            body['messages'].append(wire); state['exchanges'].append(wire)
     try:
         runtime.check()
         if protocol not in core.PROTOCOLS: raise ResearchError('Unsupported managed protocol')
@@ -115,7 +130,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
         runtime.notify=lambda kind,detail:event(kind,detail)
         event('route','Agentnik managed: '+('calculator and data analysis'+('; configured search and public page reader' if web_tools else '; web tools disabled') if local_tools else 'configured search backends and public page reader.'))
         for round_number in range(runtime.limits.rounds+1):
-            final_only=round_number>0 and (round_number>=runtime.limits.rounds or runtime.calls>=runtime.limits.calls or runtime.requests+1>=runtime.limits.requests)
+            final_only=round_number>0 and (force_final or round_number>=runtime.limits.rounds or runtime.calls>=runtime.limits.calls or runtime.requests+1>=runtime.limits.requests)
             if final_only:
                 body.pop('tools',None)
                 if is_responses: body['instructions']=instructions+'\n\n'+FINAL_INSTRUCTION
@@ -151,11 +166,21 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
             if any(call.name in ('web_search','web_fetch') for call in calls): state['capability_state']='verified'
             if round_number>=runtime.limits.rounds: raise LimitError('Research tool round limit reached')
             # Validate the whole batch before the first side effect.
-            if runtime.calls+len(calls)>runtime.limits.calls: raise LimitError('Research tool call limit reached')
             for call in calls:
                 arguments=registry.validate(call,runtime.limits)
                 if any(secret and secret in str(arguments) for secret in secrets):
                     raise AccessError('Tool arguments contain a configured credential; transmission blocked')
+            if runtime.calls+len(calls)>runtime.limits.calls:
+                if not runtime.calls or runtime.requests>=runtime.limits.requests:
+                    raise LimitError('Research tool call limit reached')
+                for call in calls:
+                    content=json.dumps(ToolResult(call.id,call.name,error='Tool call limit reached; this batch was not executed.').wire(),ensure_ascii=False)
+                    runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
+                    append_tool_output(call,content)
+                    state['tool_records'].append({'call_id':call.id,'name':call.name,'status':'skipped','source_ids':[],'error':'Tool call limit reached; batch not executed'})
+                force_final=True
+                event('tool_limit','The requested batch exceeds the remaining tool-call limit; no calls in the batch were executed.')
+                continue
             for call in calls:
                 runtime.check()
                 event('calculating' if call.name in ('calculate','analyze_data') else 'searching' if call.name=='web_search' else 'reading',call.name if call.name=='analyze_data' else f'{call.name}: {next(iter(registry.validate(call,runtime.limits).values()))[:200]}')
@@ -178,20 +203,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 content=json.dumps(scrub(tool_result.wire(),secrets),ensure_ascii=False)
                 runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
                 if call.name in ('calculate','analyze_data'): event('tool_result',call.name+': '+content[:440])
-                wire={'role':'tool','tool_name':call.name,'content':content}
-                if is_responses:
-                    wire={'type':'function_call_output','call_id':call.id,'output':content}
-                    body['input'].append(wire); state['response_items'].append(wire)
-                elif protocol=='messages':
-                    block={'type':'tool_result','tool_use_id':call.id,'content':content}
-                    if body['messages'][-1]['role']=='user': body['messages'][-1]['content'].append(block)
-                    else:
-                        wire={'role':'user','content':[block]}
-                        body['messages'].append(wire); state['exchanges'].append(wire)
-                else:
-                    if not native: wire={'role':'tool','tool_call_id':call.id,'content':content}
-                    elif call.provider.get('id'): wire['tool_call_id']=call.provider['id']
-                    body['messages'].append(wire); state['exchanges'].append(wire)
+                append_tool_output(call,content)
                 event('tool_completed',f'{call.name}: {len(sources)} source(s)')
         else: raise LimitError('Research round limit reached')
     except Exception as exc:

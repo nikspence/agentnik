@@ -1,5 +1,11 @@
 # Baseline validation
 
+## Research continuation and limits follow-up (2026-11-11)
+
+The user reported that research works after the final-synthesis and configurable-limit changes, including managed Responses through their LiteLLM gateway. This is user-reported live evidence; the individual requests were not recorded or repeated in this validation run. An offline regression checks that a later tool batch exceeding the remaining call budget is skipped as a whole and that the model receives correlated tool results and can synthesize earlier evidence. Responses and Messages fixtures cover continuation; invalid calls still stop without execution. The Code workspace retains its separate 45-second web/shell deadline despite the longer default chat research request timeout.
+
+The complete offline suite passed 474 tests with one skip on Windows, including offscreen Qt checks. Compilation and whitespace checks passed. No live inference, search requests, or native interactive platform validation were performed for this follow-up. Hosted-search and other endpoint/model/platform combinations retain their existing qualification limits.
+
 Validated on Windows on 2026-11-08 using Python 3.15 and PySide6 6.12.0.
 
 ## Passed

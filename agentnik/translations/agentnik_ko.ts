@@ -1742,6 +1742,10 @@ Enabling is configuration, not verification. Hosted search requires the official
             <translation>비워 두면 저장된 키 또는 해당 검색 공급자의 환경 변수 키를 유지합니다.</translation>
         </message>
         <message>
+            <source>Configure per-chat limits using Research limits. One retry per route is allowed on explicit 429/503 rejection, with bounded Retry-After. Partial or uncertain work always requires explicit restart.</source>
+            <translation>조사 제한에서 채팅별 제한을 설정하세요. 명시적인 429/503 거부 시 경로당 한 번 재시도하며 Retry-After 대기 시간은 제한됩니다. 부분적으로 수행되었거나 결과가 불확실한 작업은 항상 명시적으로 다시 시작해야 합니다.</translation>
+        </message>
+        <message>
             <source>Firecrawl Keyless (default)</source>
             <translation>Firecrawl Keyless(기본값)</translation>
         </message>

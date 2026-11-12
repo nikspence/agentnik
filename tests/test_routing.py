@@ -130,6 +130,31 @@ class HostedContracts(unittest.TestCase):
 
 
 class ManagedResponses(unittest.TestCase):
+    def test_oversized_later_batch_is_skipped_and_existing_evidence_is_synthesized(self):
+        replies=[Wire(response([function_call('first')]),False),
+                 Wire(response([function_call('second'),function_call('third')]),False),
+                 Wire(response([message('Answer using [S1]')]),False)]
+        bodies=[];backend=Backend()
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):
+            result=research.run_managed(dict(C,stream=False),MESSAGES,'',lambda _:None,threading.Event(),backend=backend,limits=Limits(calls=2))
+        self.assertEqual(result['status'],'ok');self.assertEqual(len(backend.searches),1)
+        self.assertEqual([r['status'] for r in result['research']['tool_records']],['completed','skipped','skipped'])
+        final=bodies[-1];self.assertNotIn('tools',final)
+        outputs=[x for x in final['input'] if x.get('type')=='function_call_output']
+        self.assertEqual([x['call_id'] for x in outputs],['first','second','third'])
+        self.assertTrue(all('batch was not executed' in x['output'] for x in outputs[1:]))
+        self.assertIn('Saved evidence',outputs[0]['output'])
+
+    def test_invalid_oversized_batch_does_not_execute_or_synthesize(self):
+        for invalid in (dict(function_call('third'),name='shell'),function_call('third',arguments='{bad')):
+            with self.subTest(invalid=invalid):
+                replies=[Wire(response([function_call('first')]),False),Wire(response([function_call('second'),invalid]),False)]
+                backend=Backend()
+                with patch.object(core,'open_request',side_effect=replies) as send:
+                    result=research.run_managed(dict(C,stream=False),MESSAGES,'',lambda _:None,threading.Event(),backend=backend,limits=Limits(calls=2))
+                self.assertEqual(result['status'],'failed');self.assertEqual(len(backend.searches),1);self.assertEqual(send.call_count,2)
+
     def test_streamed_multi_call_arguments_and_encrypted_reasoning_are_replayed(self):
         reasoning={'type':'reasoning','id':'r1','summary':[],'encrypted_content':'opaque'}
         first=function_call(); second=function_call('call-2')

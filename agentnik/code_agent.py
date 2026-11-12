@@ -553,7 +553,7 @@ class CodingRun:
             with self.lock:self.pending=None
 
     def run(self,emit):
-        runtime=Runtime(self.cancel,Limits(argument_bytes=1000000,model_bytes=2000000,**{key:value for key,value in self.limits.items() if key!='model_seconds'}))
+        runtime=Runtime(self.cancel,Limits(argument_bytes=1000000,model_bytes=2000000,request_seconds=45,**{key:value for key,value in self.limits.items() if key!='model_seconds'}))
         next_source=1;research_action=None;google_unavailable=False;search_access_blocked=False
         secrets=[self.connection.get('api_key',''),(self.light or {}).get('api_key',''),(self.alternate or {}).get('api_key',''),(self.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in self.web_backends]
         for bridge in self.mcp_bridges:
