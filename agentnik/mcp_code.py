@@ -3,7 +3,7 @@ import copy
 import threading
 from PySide6.QtCore import QObject, Signal, Slot
 from .mcp_local import LocalSession
-from .mcp_support import resolve_environment_references
+from .mcp_support import resolve_environment_references,server_timeout
 
 
 class CodingMCPBridge(QObject):
@@ -45,7 +45,7 @@ class CodingMCPBridge(QObject):
             if self.session:
                 self._reply(request, {'error':'MCP session already started.'}); return
             if self.environment_error:self._reply(request, {'error':self.environment_error});return
-            self.session = LocalSession(self.server['command'], self.server['args'], self,env_values=self.environment_values)
+            self.session = LocalSession(self.server['command'], self.server['args'], self,env_values=self.environment_values,timeout_seconds=server_timeout(self.server))
             self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called)
             self.session.start()
         elif request['action'] in ('prompts_list','prompts_get') and self.session:
@@ -79,7 +79,7 @@ class CodingMCPBridge(QObject):
                 if not token or len(token)>4096 or any(not 33<=ord(ch)<=126 for ch in token):
                     self._reply(request, {'error':'MCP credential is unavailable or invalid.'}); return
             from .mcp_remote import RemoteSession
-            session=RemoteSession(self.server['url'],token,self);self.session=session
+            session=RemoteSession(self.server['url'],token,self,timeout_seconds=server_timeout(self.server));self.session=session
             session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended);session.resources.connect(self._called);session.prompts.connect(self._called)
             session.finished.connect(lambda _result:session.deleteLater());session.start();return
         if action in ('prompts_list','prompts_get') and self.session:

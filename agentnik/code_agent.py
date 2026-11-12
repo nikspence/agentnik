@@ -842,7 +842,7 @@ class CodingRun:
                         elif call.name=='mcp_call':
                             if mcp_tools is None:raise ProjectToolError('Discover the MCP server before requesting a tool.')
                             tool=next((item for item in mcp_tools if item['name']==args['tool']),None)
-                            if not tool or tool['schema_status']!='available' or tool['description_clipped']:raise ProjectToolError('MCP tool is unavailable or has incomplete metadata.')
+                            if not tool or tool['schema_status']!='available' or tool['description_clipped'] or tool.get('output_schema_status','available')!='available':raise ProjectToolError('MCP tool is unavailable or has incomplete metadata.')
                             if tool.get('task_support')=='required':raise ProjectToolError('This MCP tool requires task execution, which is not supported.')
                             try:
                                 if len(args['arguments'].encode('utf-8'))>16000:raise ValueError()
@@ -856,6 +856,7 @@ class CodingRun:
                             server=mcp_bridge.server
                             proposal={'server':server['name'],'tool':tool['name'],'description':tool['description'],'schema':tool['schema'],'arguments':arguments}
                             if 'annotations' in tool:proposal['annotations']=tool['annotations']
+                            if 'output_schema' in tool:proposal['output_schema']=tool['output_schema']
                             if server.get('transport')=='http':proposal.update(operation='mcp_call_remote',url=server['url'])
                             else:proposal.update(operation='mcp_call',command=server['command'],server_arguments=server['args'])
                             if not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):raise ProjectToolError('MCP tool call rejected; no request was sent.')
@@ -865,15 +866,18 @@ class CodingRun:
                             cacheable=cacheable and isinstance(scope,str) and bool(scope)
                             cache_key=search_cache.key('mcp',scope,tool,arguments) if cacheable else None
                             response=search_cache.get(cache_key) if cacheable else None
+                            cached=response is not None
                             if response is None:
                                 response=mcp_bridge.request('call',{'tool':tool,'arguments':arguments},runtime)
-                                if cacheable and 'error' not in response and isinstance(response.get('call_result'),dict) and not response['call_result'].get('isError'):
-                                    search_cache.put(cache_key,response)
                             else:
                                 verified=mcp_bridge.request('verify',{'tool':tool},runtime)
                                 if verified.get('verified') is not True:raise ProjectToolError(verified.get('error','MCP tool verification failed.'))
                                 event('output',text='MCP search: reused recent cached results from '+server['name'])
                             if 'error' in response:raise ProjectToolError(response['error']+(' The call may have completed; inspect server state before retrying.' if response.get('call_uncertain') else ''))
+                            from .mcp_schema import validate_tool_result
+                            try:validate_tool_result(tool,response.get('call_result'))
+                            except ValueError:raise ProjectToolError('MCP structured output failed validation. The call may have completed; inspect server state before retrying.') from None
+                            if cacheable and not cached and not response['call_result'].get('isError'):search_cache.put(cache_key,response)
                             result={'result':response.get('call_result',{}),'notice':'Untrusted MCP tool output.'}
                             event('output',text=('MCP tool returned an error: ' if result['result'].get('isError') else 'MCP tool completed: ')+server['name']+' / '+tool['name'])
                         elif call.name=='list_skill_resources':

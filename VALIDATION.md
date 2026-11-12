@@ -1,5 +1,17 @@
 # Baseline validation
 
+## MCP structured tool output (2026-11-11)
+
+Offline fixtures cover bounded output-schema discovery, schema changes blocking local and remote calls before execution, structured-result validation, rejection of missing/invalid/unsupported output, tool-reported errors, exclusion of failed output from Code model context and the search cache, and offscreen approval/manager display. Validation uses the existing bounded schema subset and runs away from the Qt thread. The full offline suite ran 485 tests successfully with one skip; the updated approval and remote-schema-change checks also passed separately. Compilation and whitespace checks passed. No live MCP server or model was used for this slice.
+
+## MCP HTTPS failure cleanup (2026-11-11)
+
+Offline HTTP fixtures verify that manual remote discovery and tool-call failures attempt to terminate an established session and retain the original error, call uncertainty, and termination status. Tests cover changed identity/tool metadata, malformed and oversized replies, a timed-out submitted call without replay, rejected termination, and bearer/session headers. The full offline suite ran 480 tests successfully with one skip; the added timeout fixture passed separately. Compilation and whitespace checks passed. No external server or model was contacted, and a server may reject session termination or complete an already submitted call.
+
+## MCP timeout configuration (2026-11-11)
+
+Offline checks cover legacy and configured server profiles, timeout bounds and configuration fingerprints, the settings dialog, propagation to local and remote coding sessions and manual remote calls, and a local subprocess that receives a tool call but does not reply before the timeout. The timed-out call is reported as uncertain and is not replayed. The full offline suite ran 478 tests successfully with one skip on Windows; the added manual-call assertion was also rerun separately. Compilation and whitespace checks passed. No external MCP server or model was contacted for this change; real slow-server and other-platform behavior remain unverified.
+
 ## Research continuation and limits follow-up (2026-11-11)
 
 The user reported that research works after the final-synthesis and configurable-limit changes, including managed Responses through their LiteLLM gateway. This is user-reported live evidence; the individual requests were not recorded or repeated in this validation run. An offline regression checks that a later tool batch exceeding the remaining call budget is skipped as a whole and that the model receives correlated tool results and can synthesize earlier evidence. Responses and Messages fixtures cover continuation; invalid calls still stop without execution. The Code workspace retains its separate 45-second web/shell deadline despite the longer default chat research request timeout.

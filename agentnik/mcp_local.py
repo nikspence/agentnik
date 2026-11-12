@@ -6,7 +6,7 @@ import time
 from collections import deque
 from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
-from .mcp_support import MAX_OUTPUT, initialize_request, parse_initialize, resolve_environment_references, rpc_error
+from .mcp_support import MAX_OUTPUT, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
@@ -19,8 +19,9 @@ class LocalSession(QObject):
     resources = Signal(object)
     prompts = Signal(object)
 
-    def __init__(self, command, args, parent=None, env_refs=None, env_values=None):
+    def __init__(self, command, args, parent=None, env_refs=None, env_values=None, timeout_seconds=60):
         super().__init__(parent)
+        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds})
         self.process = QProcess(self);self.job=None
         values=resolve_environment_references(env_refs or {}) if env_values is None else dict(env_values)
         self.environment_secrets=[value for value in values.values() if value]
@@ -55,7 +56,7 @@ class LocalSession(QObject):
                 self.job=WindowsJob()
             except OSError:
                 self.fail('Unable to prepare local MCP process cleanup.');return
-        self.timer.start(30000); self.process.start()
+        self.timer.start(self.timeout_ms); self.process.start()
 
     def started(self):
         if self.job:
@@ -131,7 +132,7 @@ class LocalSession(QObject):
                 if self.phase == 'resource_read':
                     outcome=parse_resource_text(result,self.resource_uri);self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
                 if self.phase == 'call':
-                    if not isinstance(result.get('content'), list) or ('isError' in result and type(result['isError']) is not bool): raise ValueError()
+                    if not isinstance(result.get('content'), list) or ('isError' in result and type(result['isError']) is not bool) or ('structuredContent' in result and not isinstance(result['structuredContent'],dict)): raise ValueError()
                     self.phase = 'ready'; self.timer.stop(); self.called.emit({'call_result':result}); continue
                 if self.phase != 'tools' or not isinstance(result.get('tools'), list) or len(result['tools']) > MAX_TOOLS: raise ValueError()
                 for item in result['tools']:
@@ -176,19 +177,19 @@ class LocalSession(QObject):
         if self.closed or self.phase != 'ready' or tool not in self.details or tool.get('task_support')=='required': return False
         self.invocation={'tool':tool,'verify_only':True}
         self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
-        self.timer.start(30000);self.list_page(None)
+        self.timer.start(self.timeout_ms);self.list_page(None)
         return True
 
     def call(self, tool, args):
         if self.closed or self.phase != 'ready' or tool not in self.details or tool.get('task_support')=='required': return False
         self.invocation={'tool':tool,'arguments':args}
         self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
-        self.timer.start(30000);self.list_page(None)
+        self.timer.start(self.timeout_ms);self.list_page(None)
         return True
 
     def list_resources(self):
         if self.closed or self.phase!='ready' or 'resources' not in self.info['capabilities']:return False
-        self.resource_items=[];self.resource_pages=ResourcePages();self.phase='resource_list';self.timer.start(30000)
+        self.resource_items=[];self.resource_pages=ResourcePages();self.phase='resource_list';self.timer.start(self.timeout_ms)
         self.resource_list_page(None);return True
 
     def resource_list_page(self,cursor):
@@ -197,12 +198,12 @@ class LocalSession(QObject):
 
     def read_resource(self,uri):
         if self.closed or self.phase!='ready' or uri not in [item['uri'] for item in getattr(self,'resource_items',[])]:return False
-        self.resource_uri=uri;self.phase='resource_read';self.next_id+=1;self.timer.start(30000)
+        self.resource_uri=uri;self.phase='resource_read';self.next_id+=1;self.timer.start(self.timeout_ms)
         self.send({'jsonrpc':'2.0','id':self.next_id,'method':'resources/read','params':{'uri':uri}});return True
 
     def list_resource_templates(self):
         if self.closed or self.phase!='ready' or 'resources' not in self.info['capabilities']:return False
-        self.template_items=[];self.template_pages=TemplatePages();self.phase='template_list';self.timer.start(30000)
+        self.template_items=[];self.template_pages=TemplatePages();self.phase='template_list';self.timer.start(self.timeout_ms)
         self.template_list_page(None);return True
 
     def template_list_page(self,cursor):
@@ -214,7 +215,7 @@ class LocalSession(QObject):
         try:
             if expand_template(template['uriTemplate'],arguments)!=uri:return False
         except (ValueError,UnicodeError):return False
-        self.resource_uri=uri;self.phase='resource_read';self.next_id+=1;self.timer.start(30000)
+        self.resource_uri=uri;self.phase='resource_read';self.next_id+=1;self.timer.start(self.timeout_ms)
         self.send({'jsonrpc':'2.0','id':self.next_id,'method':'resources/read','params':{'uri':uri}});return True
 
     def list_prompts(self,invocation=None):
@@ -223,7 +224,7 @@ class LocalSession(QObject):
             if invocation['prompt'] not in getattr(self,'prompt_items',[]):return False
             try:validate_prompt_arguments(invocation['prompt'],invocation['arguments'])
             except (ValueError,UnicodeError,RecursionError):return False
-        self.prompt_invocation=invocation;self.prompt_items=[];self.prompt_pages=PromptPages();self.phase='prompt_list';self.timer.start(30000)
+        self.prompt_invocation=invocation;self.prompt_items=[];self.prompt_pages=PromptPages();self.phase='prompt_list';self.timer.start(self.timeout_ms)
         self.prompt_list_page(None);return True
 
     def prompt_list_page(self,cursor):

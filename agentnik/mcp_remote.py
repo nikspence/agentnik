@@ -2,7 +2,7 @@
 import json
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
-from .mcp_support import MAX_OUTPUT,PROTOCOL,initialize_request,parse_initialize,rpc_error
+from .mcp_support import MAX_OUTPUT,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
@@ -38,6 +38,12 @@ def preview_tool(item):
             elif type(value) is not bool:raise ValueError('Invalid MCP tool annotation')
             hints[key]=value
         detail['annotations']=hints
+    if 'outputSchema' in item:
+        output=item['outputSchema']
+        if not isinstance(output,dict):raise ValueError('Invalid MCP output schema')
+        encoded_output=json.dumps(output,ensure_ascii=True,separators=(',',':'),allow_nan=False).encode('ascii')
+        detail['output_schema']=output if len(encoded_output)<=MAX_SCHEMA else None
+        detail['output_schema_status']='available' if len(encoded_output)<=MAX_SCHEMA else 'oversized'
     if schema is None:return dict(detail,schema=None,schema_status='missing')
     encoded=json.dumps(schema,ensure_ascii=True,separators=(',',':'),allow_nan=False).encode('ascii')
     if len(encoded)>MAX_SCHEMA:return dict(detail,schema=None,schema_status='oversized')
@@ -84,11 +90,12 @@ def response_message(data,content_type,expected_id):
 
 class RemoteProbe(QObject):
     finished=Signal(object)
-    def __init__(self,url,token,parent=None,invocation=None,expected_identity=None):
+    def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
+        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
-        self.timer.start(15000);self.send(initialize_request())
+        self.timer.start(self.timeout_ms);self.send(initialize_request())
     def send(self,message):
         if 'id' in message:
             self.next_id+=1;self.current_id=self.next_id;message=dict(message,id=self.current_id)
@@ -109,7 +116,7 @@ class RemoteProbe(QObject):
         reply=self.reply
         if reply is None:return
         self.consume()
-        if self.reply is None:return
+        if self.reply is not reply:return
         self.reply=None;reply.deleteLater()
         status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
         if self.phase=='closing':
@@ -129,11 +136,12 @@ class RemoteProbe(QObject):
             if 'error' in message:self.stop(rpc_error(message));return
             if self.phase=='initialize':
                 self.result=parse_initialize(json.dumps(message).encode(),HTTP_PROTOCOLS);self.protocol=self.result['protocol']
-                if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
                 session=reply.rawHeader('Mcp-Session-Id')
                 if not isinstance(session,str):session=bytes(session).decode('ascii')
                 if len(session)>512 or any(ord(ch)<33 or ord(ch)>126 for ch in session):raise ValueError('Invalid MCP session identifier')
-                self.session=session;self.phase='initialized';self.send({'jsonrpc':'2.0','method':'notifications/initialized'});return
+                self.session=session
+                if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
+                self.phase='initialized';self.send({'jsonrpc':'2.0','method':'notifications/initialized'});return
             if self.phase in ('prompt_list','prompt_get'):
                 outcome=message.get('result')
                 if not isinstance(outcome,dict):raise ValueError('Invalid MCP prompt response')
@@ -163,7 +171,7 @@ class RemoteProbe(QObject):
                 self.timer.stop();self.phase='ready';self.resources.emit(outcome);return
             if self.phase=='call':
                 outcome=message.get('result')
-                if not isinstance(outcome,dict) or not isinstance(outcome.get('content'),list) or ('isError' in outcome and type(outcome['isError']) is not bool):raise ValueError('Invalid MCP tool result')
+                if not isinstance(outcome,dict) or not isinstance(outcome.get('content'),list) or ('isError' in outcome and type(outcome['isError']) is not bool) or ('structuredContent' in outcome and not isinstance(outcome['structuredContent'],dict)):raise ValueError('Invalid MCP tool result')
                 self.result['call_result']=outcome;self.finish_call();return
             result=message.get('result');tools=result.get('tools') if isinstance(result,dict) else None
             if not isinstance(tools,list) or len(tools)>MAX_TOOLS:raise ValueError('Invalid MCP tool list')
@@ -207,12 +215,17 @@ class RemoteProbe(QObject):
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
         self.buffer=bytearray();self.reply=self.manager.deleteResource(request);self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
     def complete(self,closed):
-        self.timer.stop();self.token='';self.result['session_closed']=closed;self.finished.emit(self.result)
+        self.timer.stop();self.token=''
+        result=self.failure if self.failure is not None else self.result
+        result['session_closed']=closed;self.finished.emit(result)
     def stop(self,message='MCP connection cancelled.'):
         self.timer.stop();reply=self.reply;self.reply=None
-        if reply:reply.abort();reply.deleteLater()
-        if self.phase=='closing' and self.result:self.complete(False);return
-        self.token='';self.finished.emit({'error':message,'call_uncertain':self.phase=='call'})
+        if reply:
+            reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort();reply.deleteLater()
+        if self.phase=='closing' and (self.result is not None or self.failure is not None):self.complete(False);return
+        self.failure={'error':message,'call_uncertain':self.phase=='call'}
+        if self.session:self.close_session();return
+        self.complete(None)
 
 
 class RemoteSession(RemoteProbe):
@@ -223,8 +236,8 @@ class RemoteSession(RemoteProbe):
     resources=Signal(object)
     prompts=Signal(object)
 
-    def __init__(self,url,token,parent=None):
-        super().__init__(url,token,parent)
+    def __init__(self,url,token,parent=None,timeout_seconds=60):
+        super().__init__(url,token,parent,timeout_seconds=timeout_seconds)
         self.closed=False
 
     def finish_discovery(self):
@@ -240,7 +253,7 @@ class RemoteSession(RemoteProbe):
         if self.closed or self.phase!='ready':return False
         self.invocation={'tool':tool,'verify_only':True}
         self.pages=1;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
-        self.phase='tools';self.timer.start(15000)
+        self.phase='tools';self.timer.start(self.timeout_ms)
         self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}})
         return True
 
@@ -248,13 +261,13 @@ class RemoteSession(RemoteProbe):
         if self.closed or self.phase!='ready':return False
         self.invocation={'tool':tool,'arguments':arguments}
         self.pages=1;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
-        self.phase='tools';self.timer.start(15000)
+        self.phase='tools';self.timer.start(self.timeout_ms)
         self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}})
         return True
 
     def list_resources(self):
         if self.closed or self.phase!='ready' or 'resources' not in self.result['capabilities']:return False
-        self.resource_items=[];self.resource_pages=ResourcePages();self.phase='resource_list';self.timer.start(15000)
+        self.resource_items=[];self.resource_pages=ResourcePages();self.phase='resource_list';self.timer.start(self.timeout_ms)
         self.resource_list_page(None);return True
 
     def resource_list_page(self,cursor):
@@ -263,12 +276,12 @@ class RemoteSession(RemoteProbe):
     def read_resource(self,uri):
         if self.closed or self.phase!='ready' or uri not in [item['uri'] for item in getattr(self,'resource_items',[])]:return False
         if self.token and self.token in uri:return False
-        self.resource_uri=uri;self.phase='resource_read';self.timer.start(15000)
+        self.resource_uri=uri;self.phase='resource_read';self.timer.start(self.timeout_ms)
         self.send({'jsonrpc':'2.0','id':0,'method':'resources/read','params':{'uri':uri}});return True
 
     def list_resource_templates(self):
         if self.closed or self.phase!='ready' or 'resources' not in self.result['capabilities']:return False
-        self.template_items=[];self.template_pages=TemplatePages();self.phase='template_list';self.timer.start(15000)
+        self.template_items=[];self.template_pages=TemplatePages();self.phase='template_list';self.timer.start(self.timeout_ms)
         self.template_list_page(None);return True
 
     def template_list_page(self,cursor):
@@ -279,7 +292,7 @@ class RemoteSession(RemoteProbe):
         try:
             if expand_template(template['uriTemplate'],arguments)!=uri or (self.token and (contains_secret(arguments,self.token) or self.token in uri)):return False
         except (ValueError,UnicodeError):return False
-        self.resource_uri=uri;self.phase='resource_read';self.timer.start(15000)
+        self.resource_uri=uri;self.phase='resource_read';self.timer.start(self.timeout_ms)
         self.send({'jsonrpc':'2.0','id':0,'method':'resources/read','params':{'uri':uri}});return True
 
     def list_prompts(self,invocation=None):
@@ -290,7 +303,7 @@ class RemoteSession(RemoteProbe):
                 validate_prompt_arguments(invocation['prompt'],invocation['arguments'])
                 if self.token and contains_secret(invocation['arguments'],self.token):return False
             except (ValueError,UnicodeError,RecursionError):return False
-        self.prompt_invocation=invocation;self.prompt_items=[];self.prompt_pages=PromptPages();self.phase='prompt_list';self.timer.start(15000)
+        self.prompt_invocation=invocation;self.prompt_items=[];self.prompt_pages=PromptPages();self.phase='prompt_list';self.timer.start(self.timeout_ms)
         self.prompt_list_page(None);return True
 
     def prompt_list_page(self,cursor):
@@ -300,7 +313,8 @@ class RemoteSession(RemoteProbe):
         if self.closed:return
         self.closed=True;self.timer.stop()
         reply=self.reply;self.reply=None
-        if reply:reply.abort();reply.deleteLater()
+        if reply:
+            reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort();reply.deleteLater()
         if self.session:
             self.close_session()
         else:

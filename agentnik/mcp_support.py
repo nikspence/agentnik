@@ -8,6 +8,14 @@ from urllib.parse import urlsplit
 
 PROTOCOL='2025-11-25'
 MAX_OUTPUT=65536
+DEFAULT_TIMEOUT_SECONDS=60
+MAX_TIMEOUT_SECONDS=900
+
+
+def server_timeout(server):
+    value=server.get('timeout_seconds',DEFAULT_TIMEOUT_SECONDS)
+    if type(value) is not int or not 1<=value<=MAX_TIMEOUT_SECONDS:raise ValueError('Invalid MCP timeout')
+    return value
 
 
 def validate_servers(servers):
@@ -17,7 +25,8 @@ def validate_servers(servers):
         if not isinstance(server,dict):raise ValueError('Invalid MCP server configuration')
         remote=server.get('transport')=='http'
         required=({'name','transport','url','credential_id','enabled'} if remote else {'name','command','args','enabled'})
-        if not required.issubset(server) or set(server)-required-({'env'} if not remote else set()):raise ValueError('Invalid MCP server configuration')
+        if not required.issubset(server) or set(server)-required-({'env','timeout_seconds'} if not remote else {'timeout_seconds'}):raise ValueError('Invalid MCP server configuration')
+        server_timeout(server)
         name=server['name']
         if not isinstance(name,str) or not name.strip() or len(name)>80 or name.casefold() in names:raise ValueError('MCP server names must be unique and nonempty')
         names.add(name.casefold())

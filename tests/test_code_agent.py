@@ -128,6 +128,25 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             self.assertEqual([x.args[0] for x in bridge.request.call_args_list],['discover','call','call'])
 
+    def test_mcp_structured_results_are_validated_before_caching(self):
+        from unittest.mock import Mock
+        detail={'name':'search','description':'Search','description_clipped':False,'schema':{'type':'object'},'schema_status':'available','annotations':{'readOnlyHint':True},'output_schema_status':'available','output_schema':{'type':'object','properties':{'count':{'type':'integer'}},'required':['count']}}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Search','command':'search','args':[],'enabled':True};bridge.cache_scope='account-one'
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[],'structuredContent':{'count':'bad'}}},{'call_result':{'content':[],'structuredContent':{'count':2}}}]
+            args={'tool':'search','arguments':'{"query":"same"}'};bodies=[]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args)],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args,'second')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Search',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual([x.args[0] for x in bridge.request.call_args_list],['discover','call','call'])
+            self.assertTrue(any('failed validation' in m.get('content','') for m in bodies[2]['messages'] if m.get('role')=='tool'))
+            self.assertNotIn('"count": "bad"',json.dumps(bodies[2]));self.assertEqual(events[-1]['status'],'completed')
+            self.assertEqual([e['proposal']['output_schema'] for e in events if e['kind']=='operation_proposal' and e['proposal'].get('operation')=='mcp_call'],[detail['output_schema'],detail['output_schema']])
+
     def test_local_mcp_model_requests_require_start_and_call_approvals(self):
         from unittest.mock import Mock
         detail={'name':'query','description':'Run query','description_clipped':False,'schema':{'$schema':'http://json-schema.org/draft-07/schema#','type':'object','definitions':{'statement':{'anyOf':[{'type':'string','minLength':1},{'type':'null'}]}},'properties':{'sql':{'$ref':'#/definitions/statement'}},'required':['sql'],'additionalProperties':False},'schema_status':'available','annotations':{'readOnlyHint':True}}

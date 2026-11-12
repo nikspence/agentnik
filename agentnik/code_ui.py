@@ -751,6 +751,7 @@ class CodeTab(QWidget):
             else:
                 label=self.tr('DELETE FILE') if operation=='delete_file' else self.tr('CREATE DIRECTORY')
                 text=self.tr('{operation}\nProject: {project}\nPath: {path}\nSafety recommendation: Not checked.').format(operation=label,project=proposal['cwd'],path=proposal['path'])
+            if operation in ('mcp_call','mcp_call_remote') and 'output_schema' in proposal:text+='\n\n'+self.tr('Output schema (server-provided):')+'\n'+json.dumps(proposal['output_schema'],ensure_ascii=True,indent=2)
             if operation in MCP_APPROVAL_OPERATIONS:text+='\n\n'+self.tr('Allow this MCP server for this run permits all its later MCP operations, including writes and data access, without further prompts. Other servers still require approval. Permission ends when this run ends.')
             if proposal.get('purpose')=='tests':text=self.tr('TEST RUN · Report format: {format}').format(format=proposal['test_format'])+'\n'+text
             self.approval.setPlainText(text);self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval: '+operation+' '+proposal.get('path',''))
