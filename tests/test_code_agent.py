@@ -114,6 +114,56 @@ class ModelCoding(unittest.TestCase):
             self.assertTrue(any('reused recent cached' in x.get('text','') for x in events))
             self.assertEqual(events[-1]['status'],'completed')
 
+    def test_mcp_user_directed_content_does_not_enter_model_context_or_cache_hits(self):
+        from unittest.mock import Mock
+        detail={'name':'search','description':'Search','description_clipped':False,'schema':{'type':'object'},'schema_status':'available','annotations':{'readOnlyHint':True}}
+        result={'content':[{'type':'text','text':'user-only-fixture','annotations':{'audience':['user']}},{'type':'text','text':'model-fixture','annotations':{'audience':['assistant']}}]}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Search','command':'search','args':[],'enabled':True};bridge.cache_scope='account-audience'
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':result},{'verified':True}]
+            args={'tool':'search','arguments':'{"query":"same"}'};bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args),call('mcp_call',args,'second')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Search',mcp_bridge=bridge)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual([item.args[0] for item in bridge.request.call_args_list],['discover','call','verify'])
+            self.assertNotIn('user-only-fixture',json.dumps(bodies));self.assertIn('model-fixture',json.dumps(bodies))
+            self.assertEqual(sum('user-only-fixture' in event.get('text','') for event in events),2);self.assertEqual(events[-1]['status'],'completed')
+
+    def test_invalid_mcp_audience_does_not_enter_model_context_or_cache(self):
+        from unittest.mock import Mock
+        detail={'name':'search','description':'Search','description_clipped':False,'schema':{'type':'object'},'schema_status':'available','annotations':{'readOnlyHint':True}}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Search','command':'search','args':[],'enabled':True};bridge.cache_scope='account-invalid-audience'
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'text','text':'do-not-forward','annotations':{'audience':'user'}}]}},{'call_result':{'content':[{'type':'text','text':'valid'}]}}]
+            args={'tool':'search','arguments':'{"query":"same"}'};bodies=[]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args)],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args,'second')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Search',mcp_bridge=bridge)
+            def emit(event):
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual([item.args[0] for item in bridge.request.call_args_list],['discover','call','call'])
+            self.assertNotIn('do-not-forward',json.dumps(bodies));self.assertIn('invalid audience metadata',json.dumps(bodies))
+
+    def test_mcp_user_directed_activity_is_bounded_and_redacted(self):
+        from unittest.mock import Mock
+        detail={'name':'query','description':'Query','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Local','command':'server','args':[],'enabled':True}
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'text','text':'private-key-fixture '+('x'*3000),'annotations':{'audience':['user']}}]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'query','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False,api_key='private-key-fixture'),directory,'Query',mcp_bridge=bridge);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            text=next(e['text'] for e in events if e.get('kind')=='output' and 'user-directed content' in e.get('text',''))
+            self.assertIn('[redacted]',text);self.assertIn('[Content truncated]',text);self.assertNotIn('private-key-fixture',text);self.assertLess(len(text),2000)
+
     def test_mcp_search_errors_are_not_cached(self):
         from unittest.mock import Mock
         detail={'name':'search','description':'Search','description_clipped':False,'schema':{'type':'object','properties':{'query':{'type':'string'}},'required':['query']},'schema_status':'available','annotations':{'readOnlyHint':True}}

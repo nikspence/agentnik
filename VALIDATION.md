@@ -1,5 +1,9 @@
 # Baseline validation
 
+## MCP content audiences (2026-11-11)
+
+Offline tests cover unspecified, user-only, assistant-only, mixed and empty audience lists; invalid audience metadata; bounded user-directed activity; and exclusion of user-only blocks from model context on both fresh and cached results. Manual MCP results remain complete. The full offline suite ran 487 tests successfully with one skip; the additional invalid-audience cache regression passed separately. Compilation and whitespace checks passed. Audience annotations are server-provided per-block hints, and other fields may repeat the same data. No live server or model was used.
+
 ## MCP structured tool output (2026-11-11)
 
 Offline fixtures cover bounded output-schema discovery, schema changes blocking local and remote calls before execution, structured-result validation, rejection of missing/invalid/unsupported output, tool-reported errors, exclusion of failed output from Code model context and the search cache, and offscreen approval/manager display. Validation uses the existing bounded schema subset and runs away from the Qt thread. The full offline suite ran 485 tests successfully with one skip; the updated approval and remote-schema-change checks also passed separately. Compilation and whitespace checks passed. No live MCP server or model was used for this slice.

@@ -877,8 +877,15 @@ class CodingRun:
                             from .mcp_schema import validate_tool_result
                             try:validate_tool_result(tool,response.get('call_result'))
                             except ValueError:raise ProjectToolError('MCP structured output failed validation. The call may have completed; inspect server state before retrying.') from None
+                            from .mcp_content import model_tool_result
+                            try:model_result,user_text,user_nontext=model_tool_result(response.get('call_result'))
+                            except ValueError:raise ProjectToolError('MCP output contained invalid audience metadata. The call may have completed; inspect server state before retrying.') from None
                             if cacheable and not cached and not response['call_result'].get('isError'):search_cache.put(cache_key,response)
-                            result={'result':response.get('call_result',{}),'notice':'Untrusted MCP tool output.'}
+                            if user_text:
+                                summary='\n'.join(user_text)
+                                event('output',text='MCP user-directed content from '+server['name']+' / '+tool['name']+':\n'+summary[:1800]+('\n[Content truncated]' if len(summary)>1800 else ''))
+                            if user_nontext:event('output',text='MCP user-directed content: '+str(user_nontext)+' non-text block(s) not displayed.')
+                            result={'result':model_result,'notice':'Untrusted MCP tool output.'}
                             event('output',text=('MCP tool returned an error: ' if result['result'].get('isError') else 'MCP tool completed: ')+server['name']+' / '+tool['name'])
                         elif call.name=='list_skill_resources':
                             from .project_skills import list_resources

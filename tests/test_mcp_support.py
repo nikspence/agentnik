@@ -11,6 +11,21 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_tool_result_audiences_are_separated_without_mutation(self):
+        from agentnik.mcp_content import model_tool_result
+        content=[{'type':'text','text':'public'}, {'type':'text','text':'user-only','annotations':{'audience':['user']}},
+                 {'type':'text','text':'model-only','annotations':{'audience':['assistant']}},
+                 {'type':'text','text':'both','annotations':{'audience':['user','assistant']}},
+                 {'type':'image','data':'user-binary','mimeType':'image/png','annotations':{'audience':['user']}},
+                 {'type':'text','text':'neither','annotations':{'audience':[]}}]
+        result={'content':content,'structuredContent':{'count':1},'isError':False};model,user,nontext=model_tool_result(result)
+        self.assertEqual([x['text'] for x in model['content']],['public','model-only','both']);self.assertEqual(user,['user-only']);self.assertEqual(nontext,1)
+        self.assertEqual(result['content'],content);self.assertEqual(model['structuredContent'],{'count':1})
+        for invalid in (None,{},['user',3],['invalid'],'user'):
+            with self.subTest(audience=invalid),self.assertRaises(ValueError):model_tool_result({'content':[{'type':'text','text':'x','annotations':{'audience':invalid}}]})
+        for invalid in (None,[],{'audience':None}):
+            with self.subTest(annotations=invalid),self.assertRaises(ValueError):model_tool_result({'content':[{'type':'text','text':'x','annotations':invalid}]})
+
     def test_structured_tool_output_schema_validation_and_definition_identity(self):
         from agentnik.mcp_schema import validate_tool_result
         from agentnik.mcp_remote import preview_tool
