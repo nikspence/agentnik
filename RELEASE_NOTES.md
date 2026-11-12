@@ -1,4 +1,17 @@
-# Agentnik v0.8.1
+# Agentnik v0.8.3
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.8.1
+
+- **MCP in Chat:** select a configured server, use its tools during a conversation, and reconnect on follow-up requests. Activity shows the tool and outcome, and invalid requests can be returned to the model for correction without executing the batch.
+- **MCP operation:** discovery and tool calls in Chat, Code and manual use run without approval, including write-capable tools. Server definitions and arguments are checked before calls; uncertain submitted calls are not automatically replayed. Local stdio framing and MCP content audience handling are more reliable.
+- **Research and search:** configure per-chat research limits, including model request and total turn timeouts, and use improved search handling and diagnostics.
+- **Connections and documentation:** an optional global relaxed-TLS setting supports TLS-inspecting networks. It weakens server identity verification and takes effect after restart. The README and feature guides were reorganized.
+
+Offline tests use mocked providers and local fixtures. The local Parquet MCP server was exercised separately; no live-model compatibility is implied. Build-host startup evidence is recorded in BUILD-MANIFEST.json. Clean-machine installation, full native workflows, macOS/Linux, signing and a complete bundled-library license review remain open.
+
+## Earlier release: v0.8.1
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
