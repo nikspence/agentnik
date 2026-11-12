@@ -165,13 +165,15 @@ class ResearchDetails(QWidget):
 
     def set_data(self,data):
         sources=data.get('sources',[]); events=data.get('events',[])
-        signature=(data.get('status'),len(events),len(sources),tuple(data.get('unverified_citations',[])),data.get('unverified_annotations',0))
+        signature=(data.get('status'),len(events),len(sources),tuple(data.get('unverified_citations',[])),data.get('unverified_annotations',0),bool(data.get('mcp_only')),len(data.get('tool_records',[])))
         if signature==self.signature: return
         self.signature=signature
         route={'hosted':self.tr('Provider hosted'),'managed':self.tr('Agentnik managed')}.get(data.get('route'),self.tr('Selecting route'))
         status=data.get('status','running')
         status_labels={'running':self.tr('Running'),'completed':self.tr('Completed'),'failed':self.tr('Failed'),'cancelled':self.tr('Cancelled'),'limited':self.tr('Limited'),'interrupted':self.tr('Interrupted')}
-        self.toggle.setText(self.tr('Research · {route} · {status} · {count} source(s)').format(route=route,status=status_labels.get(status,status),count=len(sources)))
+        if data.get('mcp_only'):
+            self.toggle.setText(self.tr('MCP activity · {status} · {count} operation(s)').format(status=status_labels.get(status,status),count=len(data.get('tool_records',[]))))
+        else:self.toggle.setText(self.tr('Research · {route} · {status} · {count} source(s)').format(route=route,status=status_labels.get(status,status),count=len(sources)))
         self.activity.setPlainText('\n'.join(f'{e.get("kind", "")}: {e.get("detail", "")}' for e in events))
         while self.links_layout.count():
             item=self.links_layout.takeAt(0)

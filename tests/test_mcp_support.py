@@ -686,7 +686,7 @@ for line in sys.stdin:
  request=json.loads(line); method=request['method']
  if method=='notifications/initialized': continue
  if method=='initialize': result={'protocolVersion':request['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
- elif method=='tools/list': result={'tools':[{'name':'query','description':'Run a query','inputSchema':{'type':'object'}}]}
+ elif method=='tools/list': result={'tools':[{'name':'query','description':'Run a query','inputSchema':{'type':'object'},'annotations':{'readOnlyHint':True}}]}
  else: result={'content':[{'type':'text','text':'success'}]}
  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
@@ -694,15 +694,16 @@ for line in sys.stdin:
             try:
                 dialog=MCPServers(window);dialog.list.setCurrentRow(0);self.assertFalse(marker.exists())
                 with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.Yes) as review:
-                    dialog.test();self.assertIn('Working directory: '+str(root),review.call_args.args[2])
+                    dialog.test();review.assert_not_called()
                 loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if dialog.discovered else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop()
                 self.assertIsNotNone(dialog.process);self.assertTrue(marker.exists());self.assertIn('Connected: Fake',dialog.status.text());self.assertEqual(dialog.tool_choice.currentText(),'query')
                 session=dialog.process;results=[];session.called.connect(lambda result:results.append(result))
                 for _ in range(2):
                     self.assertTrue(session.call(dialog.discovered['tools'][0],{}));loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if len(results)>_ else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop()
                 self.assertEqual(len(results),2);self.assertEqual(results[1]['call_result']['content'][0]['text'],'success')
-                with patch.object(QDialog,'exec',return_value=QDialog.DialogCode.Accepted):
+                with patch.object(QDialog,'exec',return_value=QDialog.DialogCode.Accepted) as review_call:
                     dialog.call_remote();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if len(results)>2 else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop()
+                    review_call.assert_not_called()
                 self.assertEqual(len(results),3);self.assertIn('success',dialog.tool_result.toPlainText());dialog.finish_test('Closed');dialog.close()
             finally:window.close();app.processEvents();store.db.close()
 

@@ -2,6 +2,8 @@
 
 Reviewed after the v0.2.0 release: 2026-11-08. This roadmap describes the current development tree and the remaining acceptance gates. Detailed historical evidence is in [VALIDATION.md](VALIDATION.md); installation and delivered behavior are in [README.md](README.md).
 
+Current MCP approval policy supersedes the older milestone notes below: discovery and supported resource and prompt reads need no approval; tools advertising `readOnlyHint: true` run without approval, while write-capable and unclassified tools require approval. The server supplies that hint and Agentnik cannot enforce it.
+
 ## Objective and preserved contracts
 
 Agentnik is an independent Python/Qt desktop application for chat, Ollama System One decisions, bounded web research, and a repository-based Coding Agent workspace. Keep runtime dependencies small and support Windows, macOS, and Linux without claiming untested platform compatibility. Plan a localized interface without changing the language of user or model content.
@@ -23,7 +25,7 @@ Agentnik is an independent Python/Qt desktop application for chat, Ollama System
 | D — Hardening and release readiness | D0 complete; D1 harness delivered; isolated Windows v0.2.0 archive built and tagged | Native/clean-machine, additional live protocols, licensing and macOS/Linux gates remain open |
 | E — Coding Agent | E1 registry/picker and an Agentnik-owned Heavy/Light coding and approved file-edit preview implemented after v0.2.0 | Live coding compatibility, role accounting, longer workflows, and a separate command execution boundary remain open |
 | L — Localization | Planned; current interface text is English and largely embedded in Qt views | Extract user-facing strings, ship reviewed translations and validate locale behavior before claiming language support |
-| F — MCP servers and Skills | Implemented preview: local and HTTPS servers, reviewed tools, text resources/prompts, multi-server Code use, and selected Skills | OAuth, task execution, broader content types, Chat integration, and wider live/platform qualification remain open |
+| F — MCP servers and Skills | Implemented preview: local and HTTPS servers, reviewed tools in Chat and Code, text resources/prompts and multiple servers in Code, and selected Skills | OAuth, task execution, broader content types, expanded Chat capabilities, and wider live/platform qualification remain open |
 
 The release baseline is **144 passing offline tests**, including protocol/transport mocks and offscreen Qt integration. The annotated **v0.2.0** tag points to **efffd07** and was pushed with the release commits. The unsigned Windows x64 archive was built from that clean revision in an isolated virtual environment, passed real Qt-window/temporary-database startup and graceful exit, and passed archive/checksum checks. It includes release notes, documentation/images, dependency notices and a build manifest. The archive is local under `dist/build-v0.2.0/`; pushing the Git tag did not upload the binary as a GitHub Release asset. v0.1.0 remains unchanged.
 
@@ -267,6 +269,8 @@ Sequence **L1 foundation → L2 reviewed catalogs → L3 release validation**. N
 ## 9. F — MCP servers and Skills (long term)
 
 Add optional extensibility through **Model Context Protocol (MCP) servers** and reusable **Skills** after the core execution and approval contracts are established. Support chat and coding where appropriate, with capabilities explicitly enabled for each session/project. Do not automatically expose extensions to System One decisions or bypass research navigation policy.
+
+Chat MCP preview: each chat may select one enabled local or remote server with a configuration fingerprint. A tool-capable model can request discovery and calls, each subject to separate user approval showing server destination, tool metadata/arguments and model endpoint. The bounded managed loop preserves structured continuation, cancellation, credentials and user-only content handling. Reopening does not start servers; changed configuration requires reselection. This first slice excludes resources/prompts, run-wide approval, simultaneous web/local tools and strict public-only navigation. Offline protocol and Qt fixtures plus a mocked Responses model against the user's local Parquet MCP server cover the initial workflow; no live model was used.
 
 ### F1: MCP server configuration and connections
 

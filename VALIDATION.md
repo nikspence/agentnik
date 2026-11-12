@@ -1,5 +1,9 @@
 # Baseline validation
 
+## Chat MCP preview (2026-11-11)
+
+Offline tests cover selection and save/reopen without server startup, Responses/native Ollama/Chat Completions/Messages continuations with mocked models, approval for write-capable or unknown tools, stale configuration, strict navigation, batched argument validation, credential protection and user-only content. A separate offscreen check used a mocked Responses model and the user's real local Parquet MCP server for two consecutive one-row query turns, including reconnection when the model skipped discovery. Both turns completed; the server's unannotated query tool required approval each time. No live inference or external service was used. Chat use with actual model/provider combinations and native interactive platforms remains unqualified.
+
 ## Local MCP working directories (2026-11-11)
 
 Offline Windows fixtures cover saved absolute working directories, invalid and legacy configuration, Code selection fingerprints, startup approval, real subprocess working directory, local session cleanup, and a scrollable manager in a small offscreen window. The full offline suite ran 493 tests successfully with one skip; the directory browser and small-window checks passed separately after the suite. Compilation and whitespace checks passed. The user-provided Parquet server was initialized and its three tools listed again with the field left blank; no tools or data queries were run. Native macOS/Linux process behavior was not checked.

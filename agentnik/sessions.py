@@ -56,6 +56,9 @@ def validate_session(value, ident=None):
     if 'local_tools' in options: require(type(options['local_tools']) is bool)
     if 'enabled' in options: require(type(options['enabled']) is bool)
     if 'policy' in options: require(options['policy'] in (None,'Provider first','Agentnik first','Provider only','Agentnik only'))
+    if 'mcp' in options and options['mcp'] is not None:
+        ref=options['mcp'];require(isinstance(ref,dict) and set(ref)=={'name','sha256'})
+        require(isinstance(ref['name'],str) and 0<len(ref['name'])<=80 and isinstance(ref['sha256'],str) and len(ref['sha256'])==64 and all(ch in '0123456789abcdef' for ch in ref['sha256']))
     if 'limits' in options:
         from .tools import chat_limits
         try: chat_limits(options['limits'])

@@ -130,9 +130,6 @@ class MCPServers(QDialog):
         if not item['enabled']:self.status.setText(self.tr('Enable and save this server before testing.'));return
         self.tool_details.clear();self.tool_choice.clear();self.tool_result.clear();self.discovered=None
         if item.get('transport')=='http':self.test_remote(item);return
-        details=self.tr('Start this local program with your user permissions?\n\nExecutable: {command}\nArguments: {args}\nEnvironment mappings (target: source name): {env}\n\nThe server inherits the app environment and can access your files and network. Mapped values are hidden.').format(command=item['command'],args=json.dumps(item['args'],ensure_ascii=False),env=json.dumps(item.get('env',{}),ensure_ascii=True))
-        details+='\n\n'+self.tr('Working directory: {directory}').format(directory=item.get('working_directory') or self.tr('Agentnik process working directory'))
-        if QMessageBox.question(self,self.tr('Test MCP server'),details,QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)!=QMessageBox.StandardButton.Yes:return
         from .mcp_local import LocalSession
         try:self.process=LocalSession(item['command'],item['args'],self,env_refs=item.get('env',{}),timeout_seconds=server_timeout(item),working_directory=item.get('working_directory',''))
         except ValueError:self.status.setText(self.tr('The MCP environment or working directory is invalid on this system.'));return
@@ -167,8 +164,6 @@ class MCPServers(QDialog):
         super().done(result)
 
     def test_remote(self,item):
-        details=self.tr('Connect to this MCP server and send a discovery request?\n\n{url}\n\nIts operator receives the request and any configured bearer token.').format(url=item['url'])
-        if QMessageBox.question(self,self.tr('Test MCP server'),details,QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)!=QMessageBox.StandardButton.Yes:return
         token=''
         if item.get('credential_id'):
             try:
@@ -242,7 +237,7 @@ class MCPServers(QDialog):
         layout.addWidget(QLabel(self.tr('The server receives these arguments and may perform external actions.')))
         preview=QPlainTextEdit();preview.setReadOnly(True);preview.setPlainText('Server: '+item['name']+'\nDestination: '+(item['url'] if item.get('transport')=='http' else item['command']+' '+json.dumps(item['args'],ensure_ascii=True))+'\nTool: '+tool['name']+'\n\nDescription:\n'+tool['description']+('\n\nServer-supplied hints (untrusted; do not grant permissions):\n'+json.dumps(tool['annotations'],ensure_ascii=True,indent=2) if tool.get('annotations') else '')+'\n\nInput schema:\n'+json.dumps(tool['schema'],ensure_ascii=True,indent=2)+('\n\nOutput schema:\n'+json.dumps(tool['output_schema'],ensure_ascii=True,indent=2) if 'output_schema' in tool else '')+'\n\nArguments:\n'+json.dumps(args,ensure_ascii=True,indent=2));layout.addWidget(preview)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(review.accept);buttons.rejected.connect(review.reject);layout.addWidget(buttons)
-        if review.exec()!=QDialog.DialogCode.Accepted:return
+        if tool.get('annotations',{}).get('readOnlyHint') is not True and review.exec()!=QDialog.DialogCode.Accepted:return
         if self.list.currentRow()!=index or self.store.config.get('mcp_servers',[])!=entries or self.discovered is None or entries[index]!=self.discovered['config']:
             self.status.setText(self.tr('Server configuration changed. Test it again.'));return
         self.call_tool=dict(tool)

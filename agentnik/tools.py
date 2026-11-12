@@ -230,12 +230,13 @@ class Runtime:
 
 class Registry:
     """Dispatch explicitly enabled tool definitions; no dynamic attribute lookup."""
-    def __init__(self, search, fetch, local_tools=False, web_tools=True):
+    def __init__(self, search, fetch, local_tools=False, web_tools=True, extra_definitions=(), extra_handler=None):
         self.handlers={'web_search':search,'web_fetch':fetch} if web_tools else {}
         definitions=list(DEFINITIONS) if web_tools else []
         if local_tools:
             from .analysis_tools import HANDLERS
             self.handlers.update(HANDLERS); definitions.extend(LOCAL_DEFINITIONS)
+        definitions.extend(extra_definitions);self.extra_handler=extra_handler
         self.definitions={item.name:item for item in definitions}
 
     def validate(self, call, limits):
@@ -257,6 +258,12 @@ class Registry:
     def execute(self, call, runtime):
         args=self.validate(call,runtime.limits)
         runtime.charge('calls',1,runtime.limits.calls)
+        if call.name in ('mcp_discover','mcp_call') and self.extra_handler:
+            result=self.extra_handler(call.name,args,runtime)
+            if isinstance(result,dict) and set(result)=={'error'} and isinstance(result['error'],str):return ToolResult(call.id,call.name,error=result['error'])
+            if call.name=='mcp_call' and isinstance(result,dict) and isinstance(result.get('result'),dict) and result['result'].get('isError') is True:
+                return ToolResult(call.id,call.name,error='MCP tool reported an error.',data=result)
+            return ToolResult(call.id,call.name,data=result)
         if call.name in ('calculate','analyze_data'):
             from .analysis_tools import AnalysisError
             try: result=self.handlers[call.name](**args)

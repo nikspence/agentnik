@@ -110,7 +110,7 @@ class ModelCoding(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             self.assertEqual([x.args[0] for x in bridge.request.call_args_list],['discover','call','verify'])
-            self.assertEqual(len([x for x in events if x['kind']=='operation_proposal']),3)
+            self.assertEqual(len([x for x in events if x['kind']=='operation_proposal']),0)
             self.assertTrue(any('reused recent cached' in x.get('text','') for x in events))
             self.assertEqual(events[-1]['status'],'completed')
 
@@ -195,7 +195,7 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual([x.args[0] for x in bridge.request.call_args_list],['discover','call','call'])
             self.assertTrue(any('failed validation' in m.get('content','') for m in bodies[2]['messages'] if m.get('role')=='tool'))
             self.assertNotIn('"count": "bad"',json.dumps(bodies[2]));self.assertEqual(events[-1]['status'],'completed')
-            self.assertEqual([e['proposal']['output_schema'] for e in events if e['kind']=='operation_proposal' and e['proposal'].get('operation')=='mcp_call'],[detail['output_schema'],detail['output_schema']])
+            self.assertFalse(any(e['kind']=='operation_proposal' for e in events))
 
     def test_local_mcp_model_requests_require_start_and_call_approvals(self):
         from unittest.mock import Mock
@@ -209,8 +209,7 @@ class ModelCoding(unittest.TestCase):
                 events.append(event)
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_start','mcp_call'])
-            self.assertEqual([e['proposal'] for e in events if e['kind']=='operation_proposal'][-1]['annotations'],{'readOnlyHint':True})
+            self.assertFalse(any(e['kind']=='operation_proposal' for e in events))
             self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','call'])
             self.assertEqual(bridge.request.call_args_list[1].args[1]['arguments'],{'sql':'SELECT 1'})
             self.assertEqual(events[-1]['status'],'completed');bridge.close_signal.emit.assert_called_once()
@@ -228,7 +227,7 @@ class ModelCoding(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['server'] for p in approvals],['Database','Search','Search','Database'])
+            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['server'] for p in approvals],['Search','Database'])
             self.assertEqual([entry.args[0] for entry in first.request.call_args_list],['discover','call']);self.assertEqual([entry.args[0] for entry in second.request.call_args_list],['discover','call'])
             self.assertTrue(any('exact selected MCP server' in m.get('content','') for m in bodies[-1]['messages'] if m.get('role')=='tool'));self.assertEqual(events[-1]['status'],'completed')
             first.close_signal.emit.assert_called_once();second.close_signal.emit.assert_called_once()
@@ -248,8 +247,8 @@ class ModelCoding(unittest.TestCase):
                     proposal=event['proposal'];scope='mcp_server_run' if proposal['server']=='Database' else 'once'
                     self.assertTrue(run.decide(event['fingerprint'],True,scope))
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([(p['operation'],p['server']) for p in approvals],[('mcp_start','Database'),('mcp_connect','Search'),('mcp_call_remote','Search')])
-            self.assertEqual(first.request.call_count,3);self.assertEqual(second.request.call_count,2);self.assertEqual(len([e for e in events if 'MCP server allowed for this run:' in e.get('text','')]),2);self.assertEqual(run.mcp_run_allowed,set());self.assertEqual(events[-1]['status'],'completed')
+            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([(p['operation'],p['server']) for p in approvals],[('mcp_call','Database'),('mcp_call_remote','Search')])
+            self.assertEqual(first.request.call_count,3);self.assertEqual(second.request.call_count,2);self.assertEqual(len([e for e in events if 'MCP server allowed for this run:' in e.get('text','')]),1);self.assertEqual(run.mcp_run_allowed,set());self.assertEqual(events[-1]['status'],'completed')
 
     def test_mcp_environment_values_are_excluded_from_model_results_and_calls(self):
         from unittest.mock import Mock
@@ -307,7 +306,7 @@ class ModelCoding(unittest.TestCase):
                 events.append(event)
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_start','mcp_list_resources','mcp_read_resource'])
+            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],[])
             self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','resources_list','resources_read']);self.assertEqual(events[-1]['status'],'completed')
 
     def test_remote_resource_requests_use_approval_and_exact_uri(self):
@@ -323,7 +322,7 @@ class ModelCoding(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal']
-            self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_list_resources','mcp_read_resource']);self.assertEqual(proposals[-1]['url'],'https://example.com/mcp');self.assertEqual(proposals[-1]['resource']['uri'],'test://one');self.assertNotIn('credential_id',str(proposals));self.assertEqual(events[-1]['status'],'completed')
+            self.assertEqual(proposals,[]);self.assertEqual(bridge.request.call_args.args[1]['uri'],'test://one');self.assertEqual(events[-1]['status'],'completed')
 
     def test_mcp_prompts_require_approval_and_remain_tool_results(self):
         from unittest.mock import Mock
@@ -338,22 +337,9 @@ class ModelCoding(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_list_prompts','mcp_get_prompt']);self.assertEqual(proposals[-1]['arguments'],{'code':'abc'})
+            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual(proposals,[]);self.assertEqual(bridge.request.call_args.args[1]['arguments'],{'code':'abc'})
             self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','prompts_list','prompts_get']);self.assertEqual(events[-1]['status'],'completed')
             self.assertTrue(any(message.get('role')=='tool' and 'untrusted' in message.get('content','').lower() and 'Review this' in message.get('content','') for message in bodies[-1]['messages']))
-
-    def test_mcp_prompt_rejection_does_not_send_get(self):
-        from unittest.mock import Mock
-        prompt={'name':'review','description':'Review','arguments':[]}
-        with tempfile.TemporaryDirectory() as directory:
-            bridge=Mock();bridge.server={'name':'Local','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':[],'capabilities':['prompts']},{'prompts':[prompt]}]
-            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_prompts',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_get_prompt',{'name':'review','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
-            run=CodingRun(dict(C,stream=False),directory,'Review',mcp_bridge=bridge);events=[]
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['operation']!='mcp_get_prompt')
-            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','prompts_list']);self.assertEqual(events[-1]['status'],'completed')
 
     def test_mcp_resource_template_approved_with_expanded_uri(self):
         from unittest.mock import Mock
@@ -367,7 +353,7 @@ class ModelCoding(unittest.TestCase):
                 events.append(event)
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_list_resource_templates','mcp_read_resource_template']);self.assertEqual(proposals[-1]['uri'],'test://item/a%2Fb?limit=10');self.assertEqual(bridge.request.call_args.args[1]['uri'],'test://item/a%2Fb?limit=10');self.assertEqual(events[-1]['status'],'completed')
+            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual(proposals,[]);self.assertEqual(bridge.request.call_args.args[1]['uri'],'test://item/a%2Fb?limit=10');self.assertEqual(events[-1]['status'],'completed')
 
     def test_mcp_task_required_tool_is_not_sent_or_approved(self):
         from unittest.mock import Mock
@@ -380,7 +366,7 @@ class ModelCoding(unittest.TestCase):
                 events.append(event)
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_start']);self.assertEqual(bridge.request.call_count,1)
+            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],[]);self.assertEqual(bridge.request.call_count,1)
             self.assertEqual(events[-1]['status'],'completed')
 
     def test_remote_mcp_model_approves_connection_and_exact_call(self):
@@ -396,8 +382,8 @@ class ModelCoding(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal']
-            self.assertEqual([p['operation'] for p in proposals],['mcp_connect','mcp_call_remote'])
-            self.assertEqual(proposals[1]['url'],'https://example.com/mcp');self.assertNotIn('credential_id',str(proposals));self.assertEqual(events[-1]['status'],'completed')
+            self.assertEqual([p['operation'] for p in proposals],['mcp_call_remote'])
+            self.assertEqual(proposals[0]['url'],'https://example.com/mcp');self.assertNotIn('credential_id',str(proposals));self.assertEqual(events[-1]['status'],'completed')
 
     def test_mcp_rejected_call_and_invalid_arguments_never_execute(self):
         from unittest.mock import Mock
@@ -411,7 +397,7 @@ class ModelCoding(unittest.TestCase):
                 events.append(event)
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['operation']=='mcp_start')
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_start','mcp_call'])
+            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_call'])
             self.assertEqual(bridge.request.call_count,1)
             self.assertEqual(events[-1]['status'],'completed')
 

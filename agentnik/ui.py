@@ -436,7 +436,7 @@ class SessionTab(QWidget):
             value['research'].setdefault('events',[]).append({'kind':'interrupted','detail':'Application closed during research; restart explicitly.'})
             session['messages'].extend([dict(interrupted['user'],status='failed'),dict(role='assistant',**value)])
             self.store.save(session)
-        self.research_running = False
+        self.research_running = False;self.chat_mcp=None
 
         layout = QVBoxLayout(self); layout.setContentsMargins(18,12,18,12)
         top = QHBoxLayout(); layout.addLayout(top)
@@ -466,6 +466,10 @@ class SessionTab(QWidget):
             self.web_settings = button(self.tr('Web settings…'),self.configure_web,web_row)
             self.research_limits_button=button(self.tr('Research limits…'),self.configure_research_limits,web_row); web_row.addStretch()
             self.web_access.toggled.connect(self.save_draft)
+            mcp_row=QHBoxLayout();mcp_row.addWidget(QLabel(self.tr('MCP server:')))
+            self.mcp_choice=QComboBox();self.mcp_choice.setAccessibleName(self.tr('Chat MCP server'));self.mcp_choice.setToolTip(self.tr('Optional server for this chat. Read-only tools run without approval; tools that may write or have unknown effects require approval. Tool results are sent to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
+            self.mcp_refresh=button(self.tr('Refresh MCP'),self.refresh_chat_mcp,mcp_row)
+            self.refresh_chat_mcp();self.mcp_choice.currentIndexChanged.connect(self.save_draft)
 
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True); self.results_widget = QWidget(); self.results = QVBoxLayout(self.results_widget); self.results.addStretch(); self.scroll.setWidget(self.results_widget)
         self.results.setSpacing(10)
@@ -511,7 +515,7 @@ class SessionTab(QWidget):
             self.local_tools.toggled.connect(lambda checked:self.route_policy.setEnabled(not checked))
             self.route_policy.setEnabled(not self.local_tools.isChecked())
         button(self.tr('Export session…'),self.export_session,bottom)
-        if session['mode'] == 'chat': bottom.addLayout(web_row)
+        if session['mode'] == 'chat':layout.addLayout(web_row);layout.addLayout(mcp_row)
         self.refresh_connections(); self.model.setEditText(session['connection'].get('model',''))
         self.connection.currentIndexChanged.connect(self.change_connection)
         self.model.currentTextChanged.connect(self.save_draft); self.reasoning.textChanged.connect(self.save_draft); self.stream.toggled.connect(self.save_draft)
@@ -566,9 +570,34 @@ class SessionTab(QWidget):
         if dialog.exec()==QDialog.DialogCode.Accepted:
             self.session.setdefault('research_options',{})['limits']=dialog.values();self.save_draft()
 
+    def refresh_chat_mcp(self):
+        from .mcp_support import server_fingerprint
+        ref=self.mcp_choice.currentData() if self.mcp_choice.count() else self.session.get('research_options',{}).get('mcp')
+        self.mcp_choice.blockSignals(True);self.mcp_choice.clear();self.mcp_choice.addItem(self.tr('No MCP server'),None)
+        for server in self.store.config.get('mcp_servers',[]):
+            if server.get('enabled'):
+                entry={'name':server['name'],'sha256':server_fingerprint(server)}
+                self.mcp_choice.addItem(server['name']+(' · HTTPS' if server.get('transport')=='http' else ' · local'),entry)
+        if isinstance(ref,dict):
+            index=self.mcp_choice.findData(ref)
+            if index<0:self.mcp_choice.addItem(ref.get('name','')+self.tr(' (changed or unavailable; reselect)'),ref);index=self.mcp_choice.count()-1
+            self.mcp_choice.setCurrentIndex(index)
+        self.mcp_choice.blockSignals(False)
+
+    def review_chat_mcp(self,request):
+        try:
+            if self._closed or request['cancelled'].is_set() or not self.job or self.job.cancel.is_set():return
+            dialog=QDialog(self);dialog.setWindowTitle(self.tr('Review MCP request'));dialog.resize(720,500)
+            layout=QVBoxLayout(dialog);label=QLabel(self.tr('This server can access data and perform actions. Review the complete request. Tool results may be sent to your selected model.'));label.setWordWrap(True);layout.addWidget(label)
+            preview=QPlainTextEdit();preview.setReadOnly(True);preview.setPlainText(json.dumps({'model':self.research_connection.get('model',''),'model_endpoint':self.research_connection.get('url',''),'request':request['proposal']},ensure_ascii=True,indent=2));layout.addWidget(preview)
+            buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
+            request['approved']=dialog.exec()==QDialog.DialogCode.Accepted and not request['cancelled'].is_set() and bool(self.job) and not self.job.cancel.is_set()
+        finally:request['done'].set()
+
     def complete_research(self,result):
         if hasattr(self,'live_bubble'):
             result=dict(result,thinking_visible=self.live_bubble.thinking_toggle.isChecked())
+        if self.chat_mcp:self.chat_mcp.close();self.chat_mcp=None
         self.request_token = None; self.job = None; self.busy(False); self.partial = None; self.research_running = False
         self.session.pop('research_pending',None)
         ok = result.get('status')=='ok'
@@ -589,6 +618,7 @@ class SessionTab(QWidget):
         switched=any(e.get('kind')=='route_switch' for e in result['research'].get('events',[]))
         self.info.setText((self.tr('Research completed · {route}').format(route=route_label)+(self.tr(' · Route switched; see Research activity') if switched else '')) if ok else result.get('error',self.tr('Research stopped'))+self.tr(' · Partial work saved; restart explicitly.'))
         if ok and result['research'].get('local_only'): self.info.setText(self.tr('Local tools completed'))
+        if ok and result['research'].get('mcp_only'): self.info.setText(self.tr('MCP chat completed'))
         if result['research'].get('retention',{}).get('truncated'):
             self.info.setText(self.info.text()+self.tr(' · Saved research detail limited; start a new chat to continue research.'))
         self.save_draft(); self.render(); self.updated.emit()
@@ -674,7 +704,7 @@ class SessionTab(QWidget):
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
         if self.session['mode'] == 'chat':
             options=self.session.get('research_options',{})
-            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData(),'local_tools':self.local_tools.isChecked(),**({'limits':copy.deepcopy(options['limits'])} if 'limits' in options else {})})
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData(),'local_tools':self.local_tools.isChecked(),'mcp':copy.deepcopy(self.mcp_choice.currentData()),**({'limits':copy.deepcopy(options['limits'])} if 'limits' in options else {})})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -686,7 +716,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-            self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.research_limits_button.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
+            self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.research_limits_button.setEnabled(not value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
     def submit(self):
         if self.job: return
         try:
@@ -703,12 +733,21 @@ class SessionTab(QWidget):
                 self.pending = user
             else:
                 form = copy.deepcopy(self.form_value()); body = core.decision_body(c,form); self.pending = form
-            self.research_running = mode=='chat' and (self.web_access.isChecked() or self.local_tools.isChecked())
+            mcp_ref=self.mcp_choice.currentData() if mode=='chat' else None
+            if mcp_ref and (self.web_access.isChecked() or self.local_tools.isChecked()):raise ValueError('For now, use MCP separately from web research and local tools in Chat.')
+            self.research_running = mode=='chat' and (self.web_access.isChecked() or self.local_tools.isChecked() or bool(mcp_ref))
             key = ''; backend_specs=[]; research_config={}; selected_policy=None; access_policy='public_fetch';research_limits=None
             if self.research_running:
                 research_limits=chat_limits(self.session.get('research_options',{}).get('limits'))
                 defaults=routing.connection_defaults(self.store.config,self.session['connection_name'],c)
                 selected_policy=self.route_policy.currentData() or defaults['policy']; access_policy=defaults['access_policy']
+                if mcp_ref:
+                    from .mcp_support import server_fingerprint
+                    server=next((s for s in self.store.config.get('mcp_servers',[]) if s.get('name')==mcp_ref['name'] and s.get('enabled')),None)
+                    if not server or server_fingerprint(server)!=mcp_ref['sha256']:raise ValueError('The selected MCP server changed or is unavailable; refresh and reselect it.')
+                    if access_policy=='strict_public':raise ValueError('Strict public-only navigation does not allow MCP in Chat.')
+                    from .chat_mcp import ChatMCP
+                    self.chat_mcp=ChatMCP(server,self.store.config,self,extra_secrets=(c.get('api_key',''),));self.chat_mcp.approval_requested.connect(self.review_chat_mcp)
                 research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{})),'local_tools':self.local_tools.isChecked(),'web_enabled':self.web_access.isChecked()}
                 backend_specs=self.store.web_backend_specs()
                 key=next((b['key'] for b in backend_specs if b.get('key')),'')
@@ -723,7 +762,14 @@ class SessionTab(QWidget):
             request_messages = copy.deepcopy(self.session['messages']+[self.pending]) if research_enabled else []
             self.research_connection = c
             self.last_research_save = 0
-            self.job = Job(lambda emit,cancel:research.run(c,request_messages,key,emit,cancel,limits=research_limits,run_id=token,config=research_config,policy=selected_policy,backends=backend_specs,access_policy=access_policy) if research_enabled else core.run_request(c,mode,body,emit,cancel),
+            chat_mcp=self.chat_mcp if mcp_ref else None
+            def work(emit,cancel):
+                try:
+                    if chat_mcp:return research.run_managed(c,request_messages,'',emit,cancel,limits=research_limits,run_id=token,web_tools=False,mcp=chat_mcp)
+                    return research.run(c,request_messages,key,emit,cancel,limits=research_limits,run_id=token,config=research_config,policy=selected_policy,backends=backend_specs,access_policy=access_policy) if research_enabled else core.run_request(c,mode,body,emit,cancel)
+                finally:
+                    if chat_mcp:chat_mcp.close()
+            self.job = Job(work,
                            lambda value:self.finished(value) if self.request_token == token else None,
                            lambda message:self.failed(message) if self.request_token == token else None,
                            lambda value:self.progress(value) if self.request_token == token else None)
@@ -776,6 +822,7 @@ class SessionTab(QWidget):
         self.render()
     def cancel(self):
         if self.job:
+            if self.chat_mcp:self.chat_mcp.close();self.chat_mcp=None
             self.job.cancel.set(); self.request_token = None; self.failed('Request cancelled')
     def save_composer_height(self,*_):
         if not self.loading:
