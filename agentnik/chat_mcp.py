@@ -42,12 +42,14 @@ class ChatMCP(QObject):
         try:
             value=json.loads(args['request'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
             if not isinstance(value,dict) or set(value)!={'tool','arguments'} or not isinstance(value['tool'],str) or not isinstance(value['arguments'],dict):raise ValueError()
-            tool=next(item for item in self.tools if item['name']==value['tool'])
-            if tool.get('schema_status')!='available' or tool.get('description_clipped') or tool.get('output_schema_status','available')!='available' or tool.get('task_support')=='required':raise ValueError()
-            from .mcp_remote import contains_secret
-            if any(secret and contains_secret(value,secret) for secret in self.secret_values):raise ValueError()
-            validate_tool_arguments(tool['schema'],value['arguments'])
-        except (ValueError,StopIteration,RecursionError,UnicodeError):raise ResearchError('MCP tool or arguments are invalid or unsupported.') from None
+        except (ValueError,RecursionError,UnicodeError):raise ResearchError('MCP request must be a JSON string containing exactly tool and arguments.') from None
+        tool=next((item for item in self.tools if item['name']==value['tool']),None)
+        if not tool:raise ResearchError('MCP tool was not found in the selected server tool list.')
+        if tool.get('schema_status')!='available' or tool.get('description_clipped') or tool.get('output_schema_status','available')!='available' or tool.get('task_support')=='required':raise ResearchError('MCP tool metadata is incomplete or its execution mode is unsupported.')
+        from .mcp_remote import contains_secret
+        if any(secret and contains_secret(value,secret) for secret in self.secret_values):raise ResearchError('MCP tool arguments are invalid or unsupported.')
+        try:validate_tool_arguments(tool['schema'],value['arguments'])
+        except (ValueError,RecursionError,UnicodeError):raise ResearchError('MCP tool arguments do not match its supported input schema.') from None
         return value,tool
 
     def validate_batch(self,calls):
@@ -69,23 +71,31 @@ class ChatMCP(QObject):
 
     def invoke(self,name,args,runtime):
         server=self.server
+        notify=getattr(runtime,'notify',lambda *_:None)
         validated=self.validate_call(name,args)
         if name=='mcp_discover':
-            runtime.notify('mcp','Connecting to the selected MCP server.')
+            notify('mcp','Connecting to the selected MCP server.')
             response=self.bridge.request('discover',{},runtime)
             if 'error' in response:raise ResearchError(response['error'])
             self.tools=response.get('tool_details',[])
+            notify('mcp','Connected to '+server['name']+'; discovered '+str(len(self.tools))+' tool(s).'+(' More tools were not listed.' if response.get('more_tools',False) else ''))
             return {'server':server['name'],'tools':self.tools,'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata.'}
         value,tool=validated
+        notify('mcp','Calling '+tool['name']+' on '+server['name']+'.')
         response=self.bridge.request('call',{'tool':tool,'arguments':value['arguments']},runtime)
-        if 'error' in response:raise ResearchError(response['error']+(' The call may have completed; inspect server state before retrying.' if response.get('call_uncertain') else ''))
+        if 'error' in response:
+            notify('mcp','Tool '+tool['name']+' failed.'+(' The call may have completed; inspect server state before retrying.' if response.get('call_uncertain') else ''))
+            raise ResearchError(response['error']+(' The call may have completed; inspect server state before retrying.' if response.get('call_uncertain') else ''))
         try:
             validate_tool_result(tool,response.get('call_result'))
             result,user_text,user_nontext=model_tool_result(response['call_result'])
-        except ValueError:raise ResearchError('MCP output validation failed. The call may have completed; inspect server state before retrying.') from None
+        except ValueError:
+            notify('mcp','Tool '+tool['name']+' returned invalid output. The call may have completed; inspect server state before retrying.')
+            raise ResearchError('MCP output validation failed. The call may have completed; inspect server state before retrying.') from None
+        notify('mcp','Tool '+tool['name']+(' reported an error.' if result.get('isError') is True else ' completed.'))
         if user_text:
-            text='\n'.join(user_text);runtime.notify('mcp_user',text[:400]+(' [truncated]' if len(text)>400 else ''))
-        if user_nontext:runtime.notify('mcp_user',str(user_nontext)+' user-directed non-text block(s) not displayed.')
+            text='\n'.join(user_text);notify('mcp_user',text[:400]+(' [truncated]' if len(text)>400 else ''))
+        if user_nontext:notify('mcp_user',str(user_nontext)+' user-directed non-text block(s) not displayed.')
         return {'result':result,'notice':'Untrusted MCP tool output.'}
 
     def _close_on_gui(self):

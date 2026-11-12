@@ -11,6 +11,34 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_local_stdio_limit_applies_per_message_when_reads_are_coalesced(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        from agentnik.mcp_support import MAX_OUTPUT
+        app=QApplication.instance() or QApplication([])
+        session=LocalSession(sys.executable,[]);session.phase='call';session.next_id=7;results=[];ended=[]
+        session.called.connect(results.append);session.ended.connect(ended.append)
+        notification={'jsonrpc':'2.0','method':'notifications/message','params':{'data':'x'*40000}}
+        reply={'jsonrpc':'2.0','id':7,'result':{'content':[{'type':'text','text':'y'*40000}]}}
+        payload=(json.dumps(notification)+'\n'+json.dumps(reply)+'\n').encode()
+        self.assertGreater(len(payload),MAX_OUTPUT)
+        with patch.object(session.process,'readAllStandardOutput',return_value=payload):session.read()
+        self.assertEqual(len(results),1);self.assertFalse(ended);self.assertFalse(session.closed);session.close()
+
+    def test_local_stdio_rejects_one_oversized_complete_or_partial_message(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        from agentnik.mcp_support import MAX_OUTPUT
+        app=QApplication.instance() or QApplication([])
+        for complete in (False,True):
+            with self.subTest(complete=complete):
+                session=LocalSession(sys.executable,[]);session.phase='call';ended=[];session.ended.connect(ended.append)
+                payload=b'x'*(MAX_OUTPUT+1)+(b'\n' if complete else b'')
+                with patch.object(session.process,'readAllStandardOutput',return_value=payload):session.read()
+                self.assertTrue(session.closed);self.assertEqual(len(ended),1);self.assertIn('output limit',ended[0]['error']);self.assertTrue(ended[0]['call_uncertain'])
+
     def test_tool_result_audiences_are_separated_without_mutation(self):
         from agentnik.mcp_content import model_tool_result
         content=[{'type':'text','text':'public'}, {'type':'text','text':'user-only','annotations':{'audience':['user']}},

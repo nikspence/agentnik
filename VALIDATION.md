@@ -4,6 +4,12 @@
 
 Offline tests cover selection and save/reopen without server startup, Responses/native Ollama/Chat Completions/Messages continuations with mocked models, MCP tool calls without approval, stale configuration, strict navigation, batched argument validation, credential protection and user-only content. A separate offscreen check used a mocked Responses model and the user's real local Parquet MCP server for two consecutive one-row query turns, including reconnection when the model skipped discovery. Both turns completed under the earlier approval policy; the current policy no longer prompts for any MCP tool. No live inference or external service was used. Chat use with actual model/provider combinations and native interactive platforms remains unqualified.
 
+An additional local Parquet check used a mocked Responses model to send an invalid query argument, receive validation feedback, correct the argument, and complete a one-row query. Offline tests cover rejecting an entire mixed valid/invalid batch before any call, both with an existing connection and after reconnection. No live model was used.
+
+An offscreen Chat check with the local Parquet server and a mocked Responses model verified that the activity panel names the server and query tool and reports completion without including SQL or returned rows. Offline fixtures cover tool-reported errors and uncertain call outcomes without retrying the call.
+
+Local stdio framing tests cover multiple valid messages delivered in one read whose combined size exceeds the per-message limit, plus oversized complete and incomplete messages. The saved Parquet profile also passed a local discovery and one-row query after this change; no live model was used.
+
 ## Local MCP working directories (2026-11-11)
 
 Offline Windows fixtures cover saved absolute working directories, invalid and legacy configuration, Code selection fingerprints, startup approval, real subprocess working directory, local session cleanup, and a scrollable manager in a small offscreen window. The full offline suite ran 493 tests successfully with one skip; the directory browser and small-window checks passed separately after the suite. Compilation and whitespace checks passed. The user-provided Parquet server was initialized and its three tools listed again with the field left blank; no tools or data queries were run. Native macOS/Linux process behavior was not checked.

@@ -72,10 +72,10 @@ class LocalSession(QObject):
 
     def read(self):
         self.buffer.extend(bytes(self.process.readAllStandardOutput()))
-        if len(self.buffer) > MAX_OUTPUT:
-            self.fail('MCP response exceeded the output limit.'); return
         while b'\n' in self.buffer and not self.closed:
             line, _, rest = self.buffer.partition(b'\n'); self.buffer = bytearray(rest)
+            if len(line)>MAX_OUTPUT:
+                self.fail('MCP response exceeded the output limit.'); return
             try:
                 message = json.loads(line)
                 if not isinstance(message, dict) or message.get('jsonrpc') != '2.0': raise ValueError()
@@ -155,6 +155,8 @@ class LocalSession(QObject):
                 else: self.finish_discovery(bool(cursor) or len(self.names)>MAX_TOOLS)
             except (ValueError, TypeError, UnicodeError, RecursionError):
                 self.fail('Invalid or unsupported local MCP server response.'); return
+        if not self.closed and len(self.buffer)>MAX_OUTPUT:
+            self.fail('MCP response exceeded the output limit.')
 
     def list_page(self, cursor):
         self.phase = 'tools'; self.pages += 1; self.next_id += 1

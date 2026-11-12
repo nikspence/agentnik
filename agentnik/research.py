@@ -113,6 +113,14 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
             if not native: wire={'role':'tool','tool_call_id':call.id,'content':content}
             elif call.provider.get('id'): wire['tool_call_id']=call.provider['id']
             body['messages'].append(wire); state['exchanges'].append(wire)
+    def reject_mcp_batch(calls,exc):
+        detail=scrub(str(exc)[:300]+' No tools in this batch were executed. Check the selected server and tool schema before trying again.',secrets)
+        for call in calls:
+            content=json.dumps(ToolResult(call.id,call.name,error=detail).wire(),ensure_ascii=False)
+            runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
+            append_tool_output(call,content)
+            state['tool_records'].append({'call_id':call.id,'name':call.name,'status':'failed','source_ids':[],'error':detail})
+        event('tool_failed','Invalid MCP tool batch; no tools were executed.')
     try:
         runtime.check()
         if protocol not in core.PROTOCOLS: raise ResearchError('Unsupported managed protocol')
@@ -167,13 +175,25 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
             if any(call.name in ('web_search','web_fetch') for call in calls): state['capability_state']='verified'
             if round_number>=runtime.limits.rounds: raise LimitError('Research tool round limit reached')
             # Validate the whole batch before the first side effect.
-            for call in calls:
-                arguments=registry.validate(call,runtime.limits)
-                if any(secret and secret in json.dumps(arguments,ensure_ascii=False) for secret in secrets):
-                    raise AccessError('Tool arguments contain a configured credential; transmission blocked')
-            batch=[(call.name,registry.validate(call,runtime.limits)) for call in calls]
-            reconnect=bool(mcp and hasattr(mcp,'needs_reconnect') and mcp.needs_reconnect(batch))
-            if not reconnect and mcp:mcp.validate_batch(batch)
+            batch=[]
+            try:
+                for call in calls:
+                    arguments=registry.validate(call,runtime.limits)
+                    if any(secret and secret in json.dumps(arguments,ensure_ascii=False) for secret in secrets):
+                        raise AccessError('Tool arguments contain a configured credential; transmission blocked')
+                    batch.append((call.name,arguments))
+            except (AccessError,LimitError):raise
+            except ResearchError as exc:
+                if not mcp or any(call.name not in ('mcp_discover','mcp_call') for call in calls):raise
+                reject_mcp_batch(calls,exc)
+                continue
+            try:
+                reconnect=bool(mcp and hasattr(mcp,'needs_reconnect') and mcp.needs_reconnect(batch))
+                if not reconnect and mcp:mcp.validate_batch(batch)
+            except ResearchError as exc:
+                if not mcp:raise
+                reject_mcp_batch(calls,exc)
+                continue
             if runtime.calls+len(calls)+int(reconnect)>runtime.limits.calls:
                 if not runtime.calls or runtime.requests>=runtime.limits.requests:
                     raise LimitError('Research tool call limit reached')
@@ -197,7 +217,10 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                         state['tool_records'].append({'call_id':call.id,'name':call.name,'status':'failed','source_ids':[],'error':connection['error']})
                     event('tool_failed','MCP connection was not approved; no tool calls were sent.')
                     continue
-                mcp.validate_batch(batch)
+                try:mcp.validate_batch(batch)
+                except ResearchError as exc:
+                    reject_mcp_batch(calls,exc)
+                    continue
             for call in calls:
                 runtime.check()
                 event('mcp' if call.name.startswith('mcp_') else 'calculating' if call.name in ('calculate','analyze_data') else 'searching' if call.name=='web_search' else 'reading',call.name if call.name=='analyze_data' or call.name.startswith('mcp_') else f'{call.name}: {next(iter(registry.validate(call,runtime.limits).values()))[:200]}')
@@ -221,7 +244,8 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
                 if call.name in ('calculate','analyze_data'): event('tool_result',call.name+': '+content[:440])
                 append_tool_output(call,content)
-                event('tool_failed' if returned.error else 'tool_completed',f'{call.name}: '+('tool reported an error' if returned.error else f'{len(sources)} source(s)'))
+                detail=('tool reported an error' if returned.error else 'completed' if call.name.startswith('mcp_') else f'{len(sources)} source(s)')
+                event('tool_failed' if returned.error else 'tool_completed',f'{call.name}: '+detail)
         else: raise LimitError('Research round limit reached')
     except Exception as exc:
         if isinstance(exc,core.EndpointError): active.setdefault('metrics',{}).update(core.usage_metrics(exc.payload if isinstance(exc.payload,dict) else {}))

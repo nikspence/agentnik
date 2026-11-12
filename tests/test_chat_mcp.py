@@ -59,6 +59,31 @@ class ChatMCPIntegration(unittest.TestCase):
         result=controller.invoke('mcp_call',{'request':json.dumps({'tool':'query','arguments':{}})},Runtime())
         self.assertIn('result',result);bridge.request.assert_called_once()
 
+    def test_activity_names_tool_and_outcome_without_arguments_or_result(self):
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Runtime
+        server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock()
+        controller.tools=[{'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}]
+        controller.bridge.request.side_effect=[{'call_result':{'content':[{'type':'text','text':'private-result'}]}},{'call_result':{'isError':True,'content':[{'type':'text','text':'private-error'}]}}]
+        events=[];runtime=Runtime();runtime.notify=lambda kind,detail:events.append((kind,detail))
+        for _ in range(2):controller.invoke('mcp_call',{'request':json.dumps({'tool':'query','arguments':{'sql':'private-query'}})},runtime)
+        details='\n'.join(detail for _,detail in events)
+        self.assertIn('Calling query on Remote.',details);self.assertIn('Tool query completed.',details);self.assertIn('Tool query reported an error.',details)
+        self.assertNotIn('private-query',details);self.assertNotIn('private-result',details);self.assertNotIn('private-error',details)
+
+    def test_activity_reports_uncertain_tool_call_without_retrying(self):
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock()
+        controller.tools=[{'name':'write','description':'Write','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}]
+        controller.bridge.request.return_value={'error':'Connection closed','call_uncertain':True}
+        events=[];runtime=Runtime();runtime.notify=lambda kind,detail:events.append(detail)
+        with self.assertRaisesRegex(ResearchError,'may have completed'):
+            controller.invoke('mcp_call',{'request':json.dumps({'tool':'write','arguments':{}})},runtime)
+        controller.bridge.request.assert_called_once();self.assertIn('Tool write failed. The call may have completed; inspect server state before retrying.',events)
+
     def test_nested_arguments_cannot_send_inference_or_mapped_credentials(self):
         from agentnik.chat_mcp import ChatMCP
         from agentnik.tools import Runtime,ResearchError
@@ -113,6 +138,40 @@ class ChatMCPIntegration(unittest.TestCase):
         self.assertIn('tool_failed',[event['kind'] for event in result['research']['events']])
         self.assertIn('fixture failure',json.dumps(bodies[-1]))
 
+    def test_invalid_batch_is_not_executed_and_model_can_correct_it(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True}
+        tool={'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object','properties':{'value':{'type':'integer'}},'required':['value']}}
+        for reconnect in (False,True):
+            with self.subTest(reconnect=reconnect):
+                controller=ChatMCP(server,{'mcp_servers':[server]});bridge=Mock();controller.bridge=bridge
+                if reconnect:bridge.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[{'type':'text','text':'ok'}]}}]
+                else:controller.tools=[tool];bridge.request.return_value={'call_result':{'content':[{'type':'text','text':'ok'}]}}
+                good=json.dumps({'tool':'query','arguments':{'value':1}});bad=json.dumps({'tool':'query','arguments':{'value':'bad'}})
+                replies=[Wire(response([function('mcp_call',{'request':good},'first'),function('mcp_call',{'request':bad},'second')]),False),Wire(response([function('mcp_call',{'request':good},'corrected')]),False),Wire(response([message('Done')]),False)]
+                bodies=[]
+                def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):
+                    result=research.run_managed(C,[{'role':'user','content':'Query'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
+                self.assertEqual(result['status'],'ok');self.assertEqual(result['text'],'Done')
+                self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],(['discover','call'] if reconnect else ['call']))
+                self.assertIn('No tools in this batch were executed',json.dumps(bodies[1]))
+                self.assertEqual([r['status'] for r in result['research']['tool_records']],['failed','failed','completed'])
+
+    def test_wrong_outer_argument_shape_is_returned_to_model(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock()
+        wrong={'request':{'tool':'query','arguments':{}}}
+        replies=[Wire(response([function('mcp_call',wrong,'first')]),False),Wire(response([message('I could not form the request.')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):
+            result=research.run_managed(C,[{'role':'user','content':'Query'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');controller.bridge.request.assert_not_called()
+        self.assertIn('Invalid request',json.dumps(bodies[-1]));self.assertEqual(result['research']['tool_records'][0]['status'],'failed')
+
     def test_mcp_continuation_across_other_chat_protocols(self):
         import threading
         from agentnik.tools import ToolDefinition
@@ -132,6 +191,29 @@ class ChatMCPIntegration(unittest.TestCase):
             with self.subTest(protocol=connection['protocol'],url=connection['url']),patch.object(core,'open_request',side_effect=replies):
                 result=research.run_managed(connection,MESSAGES,'',lambda _:None,threading.Event(),web_tools=False,mcp=FakeMCP())
                 self.assertEqual(result['status'],'ok');self.assertEqual(result['text'],'Done')
+
+    def test_invalid_call_feedback_continues_across_chat_protocols(self):
+        import threading
+        from agentnik.tools import ToolDefinition,ResearchError
+        from test_research import C as native,MESSAGES,Response,answer,call
+        from test_compat_tools import chat,msg,chat_call
+        class InvalidMCP:
+            secret_values=[]
+            definitions=(ToolDefinition('mcp_call','request','Call.',200),)
+            def validate_batch(self,calls):raise ResearchError('Invalid fixture request')
+            def invoke(self,*args):self.fail('Invalid request must not execute')
+        one=chat_call();one['function'].update(name='mcp_call',arguments='{"request":"{}"}')
+        block={'type':'tool_use','id':'call-1','name':'mcp_call','input':{'request':'{}'}}
+        fixtures=[(dict(native,stream=False),[Response([answer('',[call('mcp_call',{'request':'{}'})])],False),Response([answer('Done')],False)]),
+                  ({'url':'https://example.com/v1','protocol':'chat','model':'test','stream':False},[Wire(chat(calls=[one],finish='tool_calls'),False),Wire(chat('Done'),False)]),
+                  ({'url':'https://example.com/v1','protocol':'messages','model':'test','stream':False},[Wire(msg([block],'tool_use'),False),Wire(msg([{'type':'text','text':'Done'}]),False)])]
+        for connection,replies in fixtures:
+            bodies=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with self.subTest(protocol=connection['protocol'],url=connection['url']),patch.object(core,'open_request',side_effect=send):
+                result=research.run_managed(connection,MESSAGES,'',lambda _:None,threading.Event(),web_tools=False,mcp=InvalidMCP())
+                self.assertEqual(result['status'],'ok');self.assertEqual(result['text'],'Done')
+                self.assertIn('Invalid fixture request',json.dumps(bodies[-1]))
 
     def test_approved_responses_turn_persists_and_reopens_without_server_restart(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
@@ -165,7 +247,8 @@ for line in sys.stdin:
                 self.assertEqual(approvals.call_count,0);self.assertTrue(marker.exists());self.assertEqual(tab.session['messages'][-1]['text'],'Still 42 rows.')
                 self.assertIn('Reconnecting',str(tab.session['messages'][-1]['research']['events']))
                 from agentnik.research_ui import ResearchDetails
-                self.assertIn('MCP activity',tab.findChildren(ResearchDetails)[-1].toggle.text())
+                details=tab.findChildren(ResearchDetails)[-1]
+                self.assertIn('MCP activity',details.toggle.text());self.assertIn('Calling count on Database.',details.activity.toPlainText());self.assertIn('Tool count completed.',details.activity.toPlainText())
                 saved=next(item for item in store.list_sessions() if item['id']==tab.session['id'])
                 marker.unlink();window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);self.app.processEvents()
                 self.assertFalse(marker.exists());self.assertEqual(window.tabs.currentWidget().mcp_choice.currentData()['name'],'Database')
