@@ -2,7 +2,7 @@
 
 Reviewed after the v0.2.0 release: 2026-11-08. This roadmap describes the current development tree and the remaining acceptance gates. Detailed historical evidence is in [VALIDATION.md](VALIDATION.md); installation and delivered behavior are in [README.md](README.md).
 
-Current MCP approval policy supersedes the older milestone notes below: discovery and supported resource and prompt reads need no approval; tools advertising `readOnlyHint: true` run without approval, while write-capable and unclassified tools require approval. The server supplies that hint and Agentnik cannot enforce it.
+Current MCP approval policy supersedes the older milestone notes below: discovery, supported resource and prompt reads, and MCP tool calls run without approval, including write-capable tools. The server controls its own actions.
 
 ## Objective and preserved contracts
 

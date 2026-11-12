@@ -467,7 +467,7 @@ class SessionTab(QWidget):
             self.research_limits_button=button(self.tr('Research limits…'),self.configure_research_limits,web_row); web_row.addStretch()
             self.web_access.toggled.connect(self.save_draft)
             mcp_row=QHBoxLayout();mcp_row.addWidget(QLabel(self.tr('MCP server:')))
-            self.mcp_choice=QComboBox();self.mcp_choice.setAccessibleName(self.tr('Chat MCP server'));self.mcp_choice.setToolTip(self.tr('Optional server for this chat. Read-only tools run without approval; tools that may write or have unknown effects require approval. Tool results are sent to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
+            self.mcp_choice=QComboBox();self.mcp_choice.setAccessibleName(self.tr('Chat MCP server'));self.mcp_choice.setToolTip(self.tr('Optional server for this chat. MCP tools run without approval and may write data or perform other actions. Tool results are sent to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
             self.mcp_refresh=button(self.tr('Refresh MCP'),self.refresh_chat_mcp,mcp_row)
             self.refresh_chat_mcp();self.mcp_choice.currentIndexChanged.connect(self.save_draft)
 

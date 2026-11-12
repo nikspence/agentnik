@@ -20,7 +20,7 @@ class ChatMCP(QObject):
         self.secret_values=[*self.bridge.environment_values.values(),*(secret for secret in extra_secrets if secret)]
         self.definitions=(
             ToolDefinition('mcp_discover','server','Connect to the user-selected MCP server and list its tools. Pass "connect" or the selected server name.',200),
-            ToolDefinition('mcp_call','request','Call a discovered MCP tool. Write-capable or unknown tools require approval. request is a JSON object encoded as a string: {"tool":"name","arguments":{...}}.',16000),
+            ToolDefinition('mcp_call','request','Call a discovered MCP tool. request is a JSON object encoded as a string: {"tool":"name","arguments":{...}}.',16000),
         )
 
     def approve(self,proposal,runtime):
@@ -71,21 +71,12 @@ class ChatMCP(QObject):
         server=self.server
         validated=self.validate_call(name,args)
         if name=='mcp_discover':
-            proposal={'operation':'Connect to MCP server','server':server['name']}
-            if server.get('transport')=='http':proposal['destination']=server['url']
-            else:proposal.update(executable=server['command'],arguments=server['args'],working_directory=server.get('working_directory',''),environment_names=server.get('env',{}))
             runtime.notify('mcp','Connecting to the selected MCP server.')
             response=self.bridge.request('discover',{},runtime)
             if 'error' in response:raise ResearchError(response['error'])
             self.tools=response.get('tool_details',[])
             return {'server':server['name'],'tools':self.tools,'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata.'}
         value,tool=validated
-        proposal={'operation':'MCP tool call','server':server['name'],'tool':tool['name'],'description':tool['description'],'input_schema':tool['schema'],'arguments':value['arguments']}
-        if 'output_schema' in tool:proposal['output_schema']=tool['output_schema']
-        if 'annotations' in tool:proposal['annotations']=tool['annotations']
-        if server.get('transport')=='http':proposal['destination']=server['url']
-        else:proposal.update(executable=server['command'],server_arguments=server['args'],working_directory=server.get('working_directory',''))
-        if tool.get('annotations',{}).get('readOnlyHint') is not True and not self.approve(proposal,runtime):return {'error':'MCP tool call rejected; no call was sent.'}
         response=self.bridge.request('call',{'tool':tool,'arguments':value['arguments']},runtime)
         if 'error' in response:raise ResearchError(response['error']+(' The call may have completed; inspect server state before retrying.' if response.get('call_uncertain') else ''))
         try:

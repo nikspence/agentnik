@@ -43,11 +43,11 @@ class ChatMCPIntegration(unittest.TestCase):
         controller.approval_requested.connect(accept);runtime=Runtime();events=[];runtime.notify=lambda *args:events.append(args)
         controller.invoke('mcp_discover',{'server':'connect'},runtime)
         result=controller.invoke('mcp_call',{'request':json.dumps({'tool':'query','arguments':{'q':'abc'}})},runtime)
-        self.assertEqual(proposals[0]['destination'],'https://example.com/mcp');self.assertEqual(proposals[0]['arguments'],{'q':'abc'})
+        self.assertEqual(proposals,[]);self.assertEqual(bridge.request.call_args_list[-1].args[1]['arguments'],{'q':'abc'})
         self.assertNotIn('private-for-user',json.dumps(result));self.assertIn('model-evidence',json.dumps(result));self.assertIn('private-for-user',str(events))
         self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','call'])
 
-    def test_denied_tool_call_does_not_reach_server(self):
+    def test_tool_call_runs_without_approval(self):
         from agentnik.chat_mcp import ChatMCP
         from agentnik.tools import Runtime
         server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True}
@@ -55,8 +55,9 @@ class ChatMCPIntegration(unittest.TestCase):
         controller.tools=[{'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}]
         def deny(request):request['approved']=False;request['done'].set()
         controller.approval_requested.connect(deny)
+        bridge.request.return_value={'call_result':{'content':[]}}
         result=controller.invoke('mcp_call',{'request':json.dumps({'tool':'query','arguments':{}})},Runtime())
-        self.assertIn('rejected',result['error']);bridge.request.assert_not_called()
+        self.assertIn('result',result);bridge.request.assert_called_once()
 
     def test_nested_arguments_cannot_send_inference_or_mapped_credentials(self):
         from agentnik.chat_mcp import ChatMCP
@@ -155,13 +156,13 @@ for line in sys.stdin:
                 self.assertFalse(marker.exists());tab.composer.setPlainText('Count AP rows')
                 with patch.object(core,'open_request',side_effect=send),patch.object(QDialog,'exec',return_value=QDialog.DialogCode.Accepted) as approvals:
                     tab.submit();self.settle(lambda:tab.job is None)
-                self.assertEqual(approvals.call_count,1);self.assertTrue(marker.exists());self.assertEqual(tab.session['messages'][-1]['text'],'There are 42 rows.')
+                self.assertEqual(approvals.call_count,0);self.assertTrue(marker.exists());self.assertEqual(tab.session['messages'][-1]['text'],'There are 42 rows.')
                 self.assertIn('Count: 42',json.dumps(bodies[-1]));self.assertEqual(tab.session['messages'][-1]['research']['status'],'completed')
                 marker.unlink();tab.composer.setPlainText('Count again')
                 replies.extend([Wire(response([function('mcp_call',{'request':request},'third')]),False),Wire(response([message('Still 42 rows.')]),False)])
                 with patch.object(core,'open_request',side_effect=send),patch.object(QDialog,'exec',return_value=QDialog.DialogCode.Accepted) as approvals:
                     tab.submit();self.settle(lambda:tab.job is None)
-                self.assertEqual(approvals.call_count,1);self.assertTrue(marker.exists());self.assertEqual(tab.session['messages'][-1]['text'],'Still 42 rows.')
+                self.assertEqual(approvals.call_count,0);self.assertTrue(marker.exists());self.assertEqual(tab.session['messages'][-1]['text'],'Still 42 rows.')
                 self.assertIn('Reconnecting',str(tab.session['messages'][-1]['research']['events']))
                 from agentnik.research_ui import ResearchDetails
                 self.assertIn('MCP activity',tab.findChildren(ResearchDetails)[-1].toggle.text())
@@ -187,7 +188,7 @@ for line in sys.stdin:
             finally:window.close();self.app.processEvents();store.db.close()
 
 
-    def test_read_only_tool_needs_no_approval_but_unknown_and_write_do(self):
+    def test_read_only_unknown_and_write_tools_need_no_approval(self):
         from agentnik.chat_mcp import ChatMCP
         from agentnik.tools import Runtime
         server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True}
@@ -200,4 +201,4 @@ for line in sys.stdin:
         controller.approval_requested.connect(deny)
         for name in ('read','write','unknown'):
             controller.invoke('mcp_call',{'request':json.dumps({'tool':name,'arguments':{}})},Runtime())
-        self.assertEqual([p['tool'] for p in proposals],['write','unknown']);self.assertEqual(bridge.request.call_count,1)
+        self.assertEqual(proposals,[]);self.assertEqual(bridge.request.call_count,3)

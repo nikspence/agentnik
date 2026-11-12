@@ -2,7 +2,7 @@
 
 ## Chat MCP preview (2026-11-11)
 
-Offline tests cover selection and save/reopen without server startup, Responses/native Ollama/Chat Completions/Messages continuations with mocked models, approval for write-capable or unknown tools, stale configuration, strict navigation, batched argument validation, credential protection and user-only content. A separate offscreen check used a mocked Responses model and the user's real local Parquet MCP server for two consecutive one-row query turns, including reconnection when the model skipped discovery. Both turns completed; the server's unannotated query tool required approval each time. No live inference or external service was used. Chat use with actual model/provider combinations and native interactive platforms remains unqualified.
+Offline tests cover selection and save/reopen without server startup, Responses/native Ollama/Chat Completions/Messages continuations with mocked models, MCP tool calls without approval, stale configuration, strict navigation, batched argument validation, credential protection and user-only content. A separate offscreen check used a mocked Responses model and the user's real local Parquet MCP server for two consecutive one-row query turns, including reconnection when the model skipped discovery. Both turns completed under the earlier approval policy; the current policy no longer prompts for any MCP tool. No live inference or external service was used. Chat use with actual model/provider combinations and native interactive platforms remains unqualified.
 
 ## Local MCP working directories (2026-11-11)
 

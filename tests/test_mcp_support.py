@@ -1133,12 +1133,10 @@ for line in sys.stdin:
                 with patch.object(QDialog,'exec') as review:
                     dialog.call_remote();wait_validation();review.assert_not_called();self.assertIn('do not match',dialog.status.text())
                 dialog.discovered['tools'][0]['schema']={'type':'object'}
-                with patch.object(QDialog,'exec',return_value=QDialog.DialogCode.Rejected) as review:
-                    dialog.call_remote();wait_validation();review.assert_called_once()
-                self.assertIsNone(dialog.remote)
                 dialog.tool_args.setPlainText('{"query":"MCP"}')
-                with patch.object(QDialog,'exec',return_value=QDialog.DialogCode.Accepted),patch('agentnik.mcp_remote.RemoteProbe') as remote:
+                with patch.object(QDialog,'exec',return_value=QDialog.DialogCode.Accepted) as review,patch('agentnik.mcp_remote.RemoteProbe') as remote:
                     dialog.call_remote();wait_validation();remote.assert_called_once()
+                    review.assert_not_called()
                     self.assertEqual(remote.call_args.kwargs['invocation']['arguments'],{'query':'MCP'});self.assertEqual(remote.call_args.kwargs['timeout_seconds'],240);remote.return_value.start.assert_called_once()
                     dialog.remote=None
                 dialog.close()

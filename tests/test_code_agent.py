@@ -227,7 +227,7 @@ class ModelCoding(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([p['server'] for p in approvals],['Search','Database'])
+            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual(approvals,[])
             self.assertEqual([entry.args[0] for entry in first.request.call_args_list],['discover','call']);self.assertEqual([entry.args[0] for entry in second.request.call_args_list],['discover','call'])
             self.assertTrue(any('exact selected MCP server' in m.get('content','') for m in bodies[-1]['messages'] if m.get('role')=='tool'));self.assertEqual(events[-1]['status'],'completed')
             first.close_signal.emit.assert_called_once();second.close_signal.emit.assert_called_once()
@@ -247,8 +247,8 @@ class ModelCoding(unittest.TestCase):
                     proposal=event['proposal'];scope='mcp_server_run' if proposal['server']=='Database' else 'once'
                     self.assertTrue(run.decide(event['fingerprint'],True,scope))
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual([(p['operation'],p['server']) for p in approvals],[('mcp_call','Database'),('mcp_call_remote','Search')])
-            self.assertEqual(first.request.call_count,3);self.assertEqual(second.request.call_count,2);self.assertEqual(len([e for e in events if 'MCP server allowed for this run:' in e.get('text','')]),1);self.assertEqual(run.mcp_run_allowed,set());self.assertEqual(events[-1]['status'],'completed')
+            approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual(approvals,[])
+            self.assertEqual(first.request.call_count,3);self.assertEqual(second.request.call_count,2);self.assertEqual(run.mcp_run_allowed,set());self.assertEqual(events[-1]['status'],'completed')
 
     def test_mcp_environment_values_are_excluded_from_model_results_and_calls(self):
         from unittest.mock import Mock
@@ -382,8 +382,8 @@ class ModelCoding(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal']
-            self.assertEqual([p['operation'] for p in proposals],['mcp_call_remote'])
-            self.assertEqual(proposals[0]['url'],'https://example.com/mcp');self.assertNotIn('credential_id',str(proposals));self.assertEqual(events[-1]['status'],'completed')
+            self.assertEqual(proposals,[])
+            self.assertNotIn('credential_id',str(events));self.assertEqual(events[-1]['status'],'completed')
 
     def test_mcp_rejected_call_and_invalid_arguments_never_execute(self):
         from unittest.mock import Mock
@@ -397,8 +397,8 @@ class ModelCoding(unittest.TestCase):
                 events.append(event)
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['operation']=='mcp_start')
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
-            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['mcp_call'])
-            self.assertEqual(bridge.request.call_count,1)
+            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],[])
+            self.assertEqual(bridge.request.call_count,2)
             self.assertEqual(events[-1]['status'],'completed')
 
     def test_git_mutations_require_separate_approvals(self):
