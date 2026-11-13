@@ -513,7 +513,7 @@ MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_cal
 
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,review_guard=None):
+    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,review_guard=None,save_review_progress=False):
         from .code_artifacts import validate_notes, Artifacts
         self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.project_memory=project_memory
         from .track_execution import validate_runtime_track,initial_progress
@@ -545,6 +545,11 @@ class CodingRun:
         self.unsupported_subagent_roles=set(unsupported_subagent_roles or ())
         if self.unsupported_subagent_roles-{'light','alternate','alternate2'}:raise ValueError('Invalid subagent capability roles')
         self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
+        if type(save_review_progress) is not bool:raise ValueError('Invalid review progress setting')
+        self.save_review_progress=save_review_progress;self.manifest_ack=threading.Event();self.manifest_saved=False
+
+    def acknowledge_manifest(self,saved):
+        with self.lock:self.manifest_saved=saved is True;self.manifest_ack.set()
 
     def stop(self):
         with self.lock:self.cancel.set();self.pending=None;self.mcp_run_allowed.clear();self.decision.set()
@@ -994,11 +999,20 @@ class CodingRun:
                                 if not allowed:raise ProjectToolError('Independent review rejected; no batch requests were sent.')
                                 item['approved']=True
                             batch_id=uuid.uuid4().hex;cancellations=[threading.Event() for _ in passes];ids=[batch_id+'-'+str(i+1) for i in range(len(passes))]
+                            track_context={'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None
+                            def pending_review(ident,item):
+                                p=item['proposal'];return {'id':ident,'role':p['role'],'model':p['model'],'path':p['path'],'source_sha256':p['source_sha256'],'payload_sha256':p['payload_sha256'],'evidence':p['evidence'],'track_context':track_context,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
+                            if self.save_review_progress:
+                                with self.lock:self.manifest_saved=False;self.manifest_ack.clear()
+                                event('independent_review_manifest',snapshot_id=batch_id,reviews=[pending_review(ident,item) for ident,item in zip(ids,passes)])
+                                while not self.manifest_ack.wait(.05):runtime.check()
+                                runtime.check()
+                                if not self.manifest_saved:raise ProjectToolError('Could not save review progress; no reviewer requests were sent.')
                             with self.lock:
                                 for ident,cancel in zip(ids,cancellations):self.child_cancellations[ident]=cancel
                             for ident,item in zip(ids,passes):
                                 p=item['proposal']
-                                event('independent_review_result',review={'id':ident,'role':p['role'],'model':p['model'],'path':p['path'],'source_sha256':p['source_sha256'],'payload_sha256':p['payload_sha256'],'evidence':p['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':'pending','structured':{'status':'not_available','findings':[]}})
+                                event('independent_review_result',review=pending_review(ident,item))
                                 event('subagent',subagent={'id':ident,'status':'running','text':'Independent '+p['role']+' review queued · '+p['model']})
                             def send_review(connection,body,child):
                                 adapter=responses_tools if connection.get('protocol')=='responses' else ollama_tools if core.native_ollama(connection) else compat_tools
@@ -1020,10 +1034,11 @@ class CodingRun:
                                 event('independent_review_result',review={'id':ident,'role':outcome['role'],'model':outcome['model'],'path':args['path'],'source_sha256':outcome['source_sha256'],'payload_sha256':outcome['payload_sha256'],'evidence':outcome['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':outcome['status'],'structured':outcome['structured']})
                                 reported=outcome['usage'];detail=' · input '+str(reported['input_tokens'] if reported['input_tokens'] is not None else 'unknown')+' tokens, output '+str(reported['output_tokens'] if reported['output_tokens'] is not None else 'unknown')+' tokens'
                                 if 'elapsed_seconds' in outcome:detail+=' · '+str(outcome['elapsed_seconds'])+'s'
-                                text='Independent '+outcome['role']+' review · '+outcome['model']+' · '+outcome['status']+(' · '+outcome['structured']['status'] if 'structured' in outcome else '')+detail+' · '+outcome.get('analysis','')[:900]
+                                text='Independent '+outcome['role']+' review · '+outcome['model']+' · '+outcome['status']+(' · '+outcome['structured']['status'] if 'structured' in outcome else '')+detail+' · '+(outcome.get('analysis') or outcome.get('reason',''))[:900]
                                 event('subagent',subagent={'id':ident,'status':outcome['status'] if outcome['status'] in ('completed','cancelled','failed') else 'failed','text':text[:1600]});event('output',text=text[:1600])
                             try:
-                                batch=execute_review_batch(files,passes,runtime,send_review,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=review_completed)
+                                # The complete serialized tool result is charged once before Heavy continuation.
+                                batch=execute_review_batch(files,passes,runtime,send_review,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=review_completed,charge_output=False)
                             except Exception:
                                 for ident in ids:event('subagent',subagent={'id':ident,'status':'failed','text':'Independent review batch stopped before completion.'})
                                 raise

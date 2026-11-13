@@ -140,6 +140,7 @@ def validate_session(value, ident=None):
                 binding=data[key];require(isinstance(binding,dict) and set(binding)=={'connection','model'})
                 require(all(isinstance(v,str) and len(v)<=1000 for v in binding.values()))
         if 'coding_light_enabled' in data: require(type(data['coding_light_enabled']) is bool)
+        if 'coding_save_review_progress' in data: require(type(data['coding_save_review_progress']) is bool)
         if 'coding_web_enabled' in data: require(type(data['coding_web_enabled']) is bool)
         if 'coding_advice_enabled' in data: require(type(data['coding_advice_enabled']) is bool)
         if 'coding_decision_model' in data:

@@ -13,6 +13,27 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_heavy_review_manifest_ack_controls_reviewer_requests(self):
+        for saved in (True,False):
+            with self.subTest(saved=saved),tempfile.TemporaryDirectory() as root:
+                Path(root,'spec.md').write_text('Specification',encoding='utf-8');events=[];models=[];bodies=[];count=0
+                run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),save_review_progress=True)
+                def send(connection,url,body,timeout):
+                    nonlocal count
+                    models.append(connection['model']);bodies.append(copy.deepcopy(body))
+                    if connection['model']=='light':return Wire(chat('{"version":1,"findings":[]}'),False)
+                    count+=1
+                    if count==1:return Wire(chat(calls=[call('review_document_parallel',{'path':'spec.md','passes':json.dumps([{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'light','paths':[]}])})],finish='tool_calls'),False)
+                    return Wire(chat('Done'),False)
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+                    if event['kind']=='independent_review_manifest':run.acknowledge_manifest(saved)
+                with patch.object(core,'open_request',side_effect=send):run.run(emit)
+                self.assertEqual(events[-1]['status'],'completed',events);manifest=next(event for event in events if event['kind']=='independent_review_manifest')
+                self.assertEqual(len(manifest['reviews']),2);self.assertEqual(sum(model=='light' for model in models),2 if saved else 0)
+                if not saved:self.assertIn('no reviewer requests were sent',json.dumps(bodies[-1]).lower())
+
     def test_parallel_independent_review_failure_emits_terminal_record(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root,'spec.md').write_text('Specification',encoding='utf-8');events=[];count=0

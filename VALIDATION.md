@@ -1,5 +1,13 @@
 # Baseline validation
 
+## Independent review output budget (2026-11-13)
+
+Offline direct-review and scheduler tests check UTF-8 byte accounting against the shared context limit, including discarded over-budget output and the Heavy continuation path's separate serialized-result charge. Focused direct-review, independent-review, subagent and forced-process-stop recovery tests passed. No live model or endpoint was used.
+
+## Independent review forced-stop recovery (2026-11-12)
+
+On this Windows host, an offline offscreen test started separate Agentnik processes for direct and Heavy-requested independent-review batches with progress saving enabled. Each used a mocked reviewer that blocked after the pass manifest was committed; the test forcibly terminated its own child process, reopened the temporary SQLite session, and verified that all approved passes remained marked interrupted. Opening the saved session made no model request and did not resume the work. The test covers one forced process stop during a submitted mocked request for each route; it does not simulate power loss, storage failure, all crash points, remote cancellation, or other operating systems. No live endpoint was contacted.
+
 ## Chat MCP preview (2026-11-11)
 
 Offline tests cover selection and save/reopen without server startup, Responses/native Ollama/Chat Completions/Messages continuations with mocked models, MCP tool calls without approval, stale configuration, strict navigation, batched argument validation, credential protection and user-only content. A separate offscreen check used a mocked Responses model and the user's real local Parquet MCP server for two consecutive one-row query turns, including reconnection when the model skipped discovery. Both turns completed under the earlier approval policy; the current policy no longer prompts for any MCP tool. No live inference or external service was used. Chat use with actual model/provider combinations and native interactive platforms remains unqualified.
@@ -272,6 +280,10 @@ All 288 offline tests passed. Six plan-specific groups cover strict schema/size/
 
 Both theme screenshots were rendered with temporary data and the project's explicit Windows screenshot font setup; the dark-theme expanded panel was inspected for status labels, checkboxes, explanation and remaining transcript space. The list height now follows short plans up to its 140-pixel cap; the checklist starts collapsed. The Korean catalog contains 381 compiled translations. No live model request was issued; native interactive behavior and live model planning quality remain unverified.
 
+
+## Direct independent-review adapter checks
+
+Offline adapter mocks exercise direct reviews through Chat Completions, Messages, Responses and native Ollama routing. They check the exact approved single-message input, selected evidence, exclusion of credentials and unselected project files, tool-free requests, Responses `store: false`, and failure without retry for unexpected tool calls. Existing mocked transport and offscreen tests cover approval, cancellation and persistence. These adapter checks do not exercise provider wire compatibility, live model behavior or provider-side isolation.
 
 ## Document Reader qualification
 

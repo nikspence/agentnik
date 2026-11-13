@@ -26,7 +26,7 @@ class PromptHistory(unittest.TestCase):
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);app.processEvents();tab=window.tabs.currentWidget()
                 spec=project/'spec.md';spec.write_text('spec',encoding='utf-8');evidence=project/'source.txt';evidence.write_text('evidence',encoding='utf-8')
                 tab.job=object();tab.run_id='active';finding={'id':'finding-1','severity':'high','title':'Gap','rationale':'No test criterion','location':'spec.md:1','assumptions':'','verification':'Ask owner'}
-                review={'id':'a'*32+'-1','role':'design','model':'reviewer','path':'spec.md','source_sha256':hashlib.sha256(b'spec').hexdigest(),'payload_sha256':'c'*64,'evidence':[{'path':'source.txt','sha256':hashlib.sha256(b'evidence').hexdigest(),'payload_sha256':'d'*64}],'track_context':{'id':'missing_track','digest':'e'*64},'pass_status':'completed','structured':{'status':'valid','findings':[finding]}}
+                review={'id':'a'*32+'-1','role':'repository_fit','model':'reviewer','path':'spec.md','source_sha256':hashlib.sha256(b'spec').hexdigest(),'payload_sha256':'c'*64,'evidence':[{'path':'source.txt','sha256':hashlib.sha256(b'evidence').hexdigest(),'payload_sha256':'d'*64}],'track_context':{'id':'missing_track','digest':'e'*64},'pass_status':'completed','structured':{'status':'valid','findings':[finding]}}
                 tab.receive({'run_id':'other','kind':'independent_review_result','review':review});self.assertFalse(tab.review_results)
                 tab.receive({'run_id':'active','kind':'independent_review_result','review':review});self.assertTrue(tab.review_results_button.isEnabled())
                 displayed=[]
@@ -145,6 +145,9 @@ class PromptHistory(unittest.TestCase):
             try:
                 registry=RepositoryRegistry(store);ident=registry.put(directory);session=registry.session(ident)
                 session['coding_prompt_history']=['one','two'];self.assertEqual(validate_session(session)['coding_prompt_history'],['one','two'])
+                session['coding_save_review_progress']='yes'
+                with self.assertRaises(SessionError):validate_session(session)
+                session.pop('coding_save_review_progress')
                 session['coding_prompt_history']=['']
                 with self.assertRaises(SessionError):validate_session(session)
             finally:store.db.close()

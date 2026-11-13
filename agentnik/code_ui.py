@@ -126,24 +126,38 @@ class CodingLimitsDialog(QDialog):
 
 class DirectReviewDialog(QDialog):
     def __init__(self,parent,models,default_path=''):
-        super().__init__(parent);self.setWindowTitle(self.tr('Independent document review'));self.resize(700,470)
-        layout=QVBoxLayout(self);note=QLabel(self.tr('Choose one to three independent passes. Each exact input and destination requires approval before requests start. Reviewers receive no coding conversation, Skills, guidance, or tools.'));note.setWordWrap(True);layout.addWidget(note)
+        super().__init__(parent);self.setWindowTitle(self.tr('Independent document review'));self.resize(700,650)
+        layout=QVBoxLayout(self);note=QLabel(self.tr('Choose one to three independent passes. Each exact input and destination requires approval before requests start. Comprehension receives only the document; repository fit and drift require project evidence. Reviewers receive no coding conversation, Skills, guidance, or tools.'));note.setWordWrap(True);layout.addWidget(note)
         form=QFormLayout();layout.addLayout(form);self.target=QLineEdit(default_path);self.target.setObjectName('directReviewTarget');form.addRow(self.tr('Project-relative document path'),self.target)
-        self.evidence=QPlainTextEdit();self.evidence.setObjectName('directReviewEvidence');self.evidence.setMaximumHeight(75);self.evidence.setPlaceholderText(self.tr('Optional project-relative evidence paths, one per line (up to three). Comprehension receives no evidence.'));form.addRow(self.tr('Evidence'),self.evidence)
-        self.passes=[]
+        self.passes=[];self.evidence_fields=[]
         for index in range(3):
             row=QHBoxLayout();role=QComboBox();role.setObjectName('directReviewRole'+str(index));role.addItem(self.tr('Not selected'),'')
-            for label,value in [(self.tr('Comprehension'),'comprehension'),(self.tr('Requirements'),'requirements'),(self.tr('Design'),'design'),(self.tr('Readiness'),'readiness')]:role.addItem(label,value)
+            for label,value in [(self.tr('Comprehension'),'comprehension'),(self.tr('Requirements'),'requirements'),(self.tr('Design'),'design'),(self.tr('Repository fit'),'repository_fit'),(self.tr('Readiness'),'readiness'),(self.tr('Specification / evidence drift'),'drift')]:role.addItem(label,value)
             model=QComboBox();model.setObjectName('directReviewModel'+str(index))
             for key,connection in models.items():model.addItem(key+' · '+connection['model'],key)
             if index==0:role.setCurrentIndex(1)
             row.addWidget(role);row.addWidget(model);form.addRow(self.tr('Pass {number}').format(number=index+1),row);self.passes.append((role,model))
-        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Prepare approvals'));buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject);layout.addWidget(buttons)
+            evidence=QPlainTextEdit();evidence.setObjectName('directReviewEvidence'+str(index));evidence.setMaximumHeight(58);evidence.setPlaceholderText(self.tr('Optional project-relative paths, one per line (up to three).'));form.addRow(self.tr('Pass {number} evidence').format(number=index+1),evidence);self.evidence_fields.append(evidence)
+            def update_enabled(_=None,r=role,m=model,e=evidence):
+                m.setEnabled(bool(r.currentData()));e.setEnabled(r.currentData() not in ('','comprehension'))
+            role.currentIndexChanged.connect(update_enabled);update_enabled()
+        self.save_progress=QCheckBox(self.tr('Save pass progress to this session during the review'));self.save_progress.setObjectName('directReviewSaveProgress');self.save_progress.setToolTip(self.tr('Approved passes are saved before requests start. Unfinished passes reopen as interrupted. Finding dispositions are saved separately.'));layout.addWidget(self.save_progress)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Prepare approvals'));buttons.accepted.connect(self.validate_and_accept);buttons.rejected.connect(self.reject);layout.addWidget(buttons)
+
+    def validate_and_accept(self):
+        try:self.values()
+        except ValueError as exc:QMessageBox.warning(self,self.tr('Independent review'),str(exc));return
+        self.accept()
 
     def values(self):
-        target=self.target.text().strip();paths=[line.strip() for line in self.evidence.toPlainText().splitlines() if line.strip()]
-        if not target or len(paths)>3 or len(set(paths))!=len(paths):raise ValueError(self.tr('Enter a document and up to three distinct evidence paths.'))
-        passes=[{'role':role.currentData(),'model':model.currentData(),'paths':[] if role.currentData()=='comprehension' else paths} for role,model in self.passes if role.currentData()]
+        target=self.target.text().strip();passes=[]
+        if not target:raise ValueError(self.tr('Enter a document path.'))
+        for (role,model),evidence in zip(self.passes,self.evidence_fields):
+            if not role.currentData():continue
+            paths=[] if role.currentData()=='comprehension' else [line.strip() for line in evidence.toPlainText().splitlines() if line.strip()]
+            if len(paths)>3 or len(set(paths))!=len(paths):raise ValueError(self.tr('Each pass accepts up to three distinct evidence paths.'))
+            if role.currentData() in ('drift','repository_fit') and not paths:raise ValueError(self.tr('Repository fit and drift checks require at least one project evidence file.'))
+            passes.append({'role':role.currentData(),'model':model.currentData(),'paths':paths})
         if not passes:raise ValueError(self.tr('Choose at least one review pass.'))
         return target,passes
 
@@ -181,7 +195,7 @@ class CodingSourcesDialog(QDialog):
 class CodeTab(QWidget):
     updated=Signal()
     def __init__(self,window,session):
-        super().__init__();self.window=window;self.store=window.store;self.session=session;self.job=None;self.model_jobs={};self._closed=False;self.run_id=None;self.pending_fingerprint=None;self.advice_fingerprint=None;self.advice_job=None;self.advice_connection=None;self.advice_destination='';self.review_results={};self.review_dispositions={}
+        super().__init__();self.window=window;self.store=window.store;self.session=session;self.job=None;self.model_jobs={};self._closed=False;self.run_id=None;self.pending_fingerprint=None;self.advice_fingerprint=None;self.advice_job=None;self.advice_connection=None;self.advice_destination='';self.review_results={};self.review_dispositions={};self.review_progress_ids={}
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
         if session.get("code_state") in ("running","awaiting_approval"):
             session["code_state"]="interrupted"
@@ -274,6 +288,7 @@ class CodeTab(QWidget):
         self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);options.addWidget(self.skills_history_button)
         self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setToolTip(self.tr('Allow Light delegation, parallel analysis, and independent reviews. Heavy may choose either configured alternate for parallel tasks or reviews; alternates are not fallbacks. Each project file sent to a subagent requires approval; optional read, glob, and grep tools only inspect approved snapshots. Run limits are shared.'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
+        self.save_review_progress=QCheckBox(self.tr('Save Heavy review progress'));self.save_review_progress.setToolTip(self.tr('Save approved Heavy-requested review batches to this session before reviewer requests start. Unfinished passes reopen as interrupted.'));self.save_review_progress.setChecked(session.get('coding_save_review_progress',False));self.save_review_progress.toggled.connect(self.save_heavy_review_progress);options.addWidget(self.save_review_progress)
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.'))
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));options.addWidget(self.web_enabled)
         self.web_enabled.toggled.connect(self.save_web_enabled)
@@ -447,6 +462,9 @@ class CodeTab(QWidget):
 
     def save_light_enabled(self,enabled):
         self.session['coding_light_enabled']=enabled;self.store.save(self.session)
+
+    def save_heavy_review_progress(self,enabled):
+        self.session['coding_save_review_progress']=enabled;self.store.save(self.session)
 
     def save_web_enabled(self,enabled):
         self.session['coding_web_enabled']=enabled;self.store.save(self.session)
@@ -1051,6 +1069,7 @@ class CodeTab(QWidget):
             dialog=DirectReviewDialog(self,models,default_path)
             if dialog.exec()!=QDialog.DialogCode.Accepted:return
             target,passes=dialog.values()
+            if dialog.save_progress.isChecked() and len(self.session.get('coding_review_history',[]))>=10:raise ValueError(self.tr('The session already has ten review snapshots. Delete one before saving progress.'))
             from .code_agent import ProjectFiles
             files=ProjectFiles(self.session['path_snapshot']);files.path(target)
             for item in passes:
@@ -1061,7 +1080,7 @@ class CodeTab(QWidget):
                 from .track_execution import prepare_track
                 selected=prepare_track(files,ident,secrets,coding_limits(self.session.get('coding_limits'))['context_bytes'])
             from .direct_review import DirectReviewRun
-            run=DirectReviewRun(self.session['path_snapshot'],target,passes,models,limits=self.session.get('coding_limits'),selected_track=selected,extra_secrets=secrets)
+            run=DirectReviewRun(self.session['path_snapshot'],target,passes,models,limits=self.session.get('coding_limits'),selected_track=selected,extra_secrets=secrets,save_progress=dialog.save_progress.isChecked())
         except (OSError,ValueError,TypeError) as exc:QMessageBox.warning(self,self.tr('Independent review'),str(exc));return
         self.launch(run,self.tr('Independent document review started. Each reviewer input and destination requires approval.'))
 
@@ -1125,7 +1144,7 @@ class CodeTab(QWidget):
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
                 if track_review_summary(files,selected,self.session.get('coding_review_history',[]))!=summary:raise ValueError(self.tr('Saved review records or source status changed during review; review and start again.'))
                 review_guard={'history':history,'summary':summary}
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=self.attachments.paths,documents=self.documents,review_guard=review_guard)
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=self.attachments.paths,documents=self.documents,review_guard=review_guard,save_review_progress=self.save_review_progress.isChecked())
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.advice_connection=advice;self.advice_destination=destination
@@ -1134,7 +1153,7 @@ class CodeTab(QWidget):
 
     def launch(self,run,notice):
         if isinstance(run,CodingRun):
-            self.review_results.clear();self.review_dispositions.clear();self.review_results_button.setEnabled(False)
+            self.review_results.clear();self.review_dispositions.clear();self.review_progress_ids.clear();self.review_results_button.setEnabled(False)
             self.session['coding_subagents']=[];self.refresh_subagents()
             if not getattr(run,'direct_review',False):
                 history=self.session.setdefault('coding_skill_history',[])
@@ -1142,7 +1161,7 @@ class CodeTab(QWidget):
                 self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.send.setEnabled(False);self.direct_review_button.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
+        self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.save_review_progress.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -1440,6 +1459,27 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
+        if kind=='independent_review_manifest':
+            from .independent_review import validate_review_history
+            job=self.job
+            if not isinstance(job,CodingRun) or not (getattr(job,'save_progress',False) or getattr(job,'save_review_progress',False)):return
+            saved=False
+            try:
+                reviews=event.get('reviews');snapshot_id=event.get('snapshot_id')
+                if not isinstance(snapshot_id,str) or not re.fullmatch('[0-9a-f]{32}',snapshot_id):raise ValueError('Invalid review snapshot id')
+                if not isinstance(reviews,list) or not 1<=len(reviews)<=3:raise ValueError('Invalid review progress manifest')
+                records=[]
+                for review in reviews:
+                    if not isinstance(review,dict) or review.get('pass_status')!='pending':raise ValueError('Invalid review progress manifest')
+                    item=copy.deepcopy(review);item['pass_status']='interrupted';item['dispositions']={};records.append(item)
+                snapshot={'version':1,'id':snapshot_id,'track_id':None,'reviews':records}
+                history=validate_review_history([*self.session.get('coding_review_history',[]),snapshot])
+                updated=copy.deepcopy(self.session);updated['coding_review_history']=history;self.store.save(updated);self.session['coding_review_history']=history
+                for review in records:self.review_progress_ids[review['id']]=snapshot_id
+                self.saved_reviews_button.setEnabled(True);self.updated.emit();saved=True
+            except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError,RecursionError):pass
+            if not saved:self.activity.appendPlainText(self.tr('Review progress could not be saved; no reviewer requests were sent.'))
+            job.acknowledge_manifest(saved);return
         if kind=='independent_review_result':
             from .independent_review import parse_structured_findings,validate_track_context
             review=event.get('review')
@@ -1447,7 +1487,7 @@ class CodeTab(QWidget):
             try:validate_track_context(review['track_context'])
             except (ValueError,TypeError):return
             if review['pass_status'] not in ('pending','completed','failed','cancelled','stale','skipped'):return
-            if not isinstance(review['id'],str) or not re.fullmatch(r'[0-9a-f]{32}-[1-3]',review['id']) or review['role'] not in ('comprehension','requirements','design','readiness'):return
+            if not isinstance(review['id'],str) or not re.fullmatch(r'[0-9a-f]{32}-[1-3]',review['id']) or review['role'] not in ('comprehension','requirements','design','repository_fit','readiness','drift'):return
             if any(not isinstance(review[key],str) or not 0<len(review[key])<=4096 for key in ('model','path')) or any(not isinstance(review[key],str) or not re.fullmatch('[0-9a-f]{64}',review[key]) for key in ('source_sha256','payload_sha256')):return
             evidence=review['evidence']
             if not isinstance(evidence,list) or len(evidence)>3:return
@@ -1464,7 +1504,17 @@ class CodeTab(QWidget):
             previous=self.review_results.get(review['id'])
             if previous and (previous['pass_status']!='pending' or review['pass_status']=='pending'):return
             if len(self.review_results)>=32 and review['id'] not in self.review_results:return
-            self.review_results[review['id']]=copy.deepcopy(review);self.review_results_button.setEnabled(True);return
+            self.review_results[review['id']]=copy.deepcopy(review);self.review_results_button.setEnabled(True)
+            if review['id'] in self.review_progress_ids and review['pass_status']!='pending':
+                from .independent_review import validate_review_history
+                try:
+                    history=validate_review_history(self.session.get('coding_review_history',[]));snapshot=next(item for item in history if item['id']==self.review_progress_ids[review['id']])
+                    index=next(index for index,item in enumerate(snapshot['reviews']) if item['id']==review['id'])
+                    item=copy.deepcopy(review);item['dispositions']=snapshot['reviews'][index]['dispositions'];snapshot['reviews'][index]=item
+                    history=validate_review_history(history);updated=copy.deepcopy(self.session);updated['coding_review_history']=history;self.store.save(updated);self.session['coding_review_history']=history;self.updated.emit()
+                except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError,RecursionError,StopIteration):
+                    self.cancel();self.record('output',self.tr('Review progress could not be saved. The run was stopped; the last saved snapshot may show interrupted passes.'))
+            return
         if kind=='track_progress':
             from .track_execution import validate_progress,projected_plan
             try:
@@ -1619,7 +1669,7 @@ class CodeTab(QWidget):
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
         self.send.setEnabled(True);self.direct_review_button.setEnabled(True)
-        self.coding_context_button.setEnabled(True);self.coding_auto_compact.setEnabled(True);self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
+        self.coding_context_button.setEnabled(True);self.coding_auto_compact.setEnabled(True);self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.save_review_progress.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 

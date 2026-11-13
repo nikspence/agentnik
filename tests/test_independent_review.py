@@ -8,13 +8,18 @@ import threading
 import unittest
 
 from agentnik.code_agent import ProjectFiles, REVIEW_RUBRICS
-from agentnik.independent_review import prepare_snapshot, sources_unchanged, validate_result, build_review_request, preflight_review_batch, execute_review_batch, parse_structured_findings, RUBRIC_VERSION
+from agentnik.independent_review import prepare_snapshot, sources_unchanged, validate_result, validate_review_history, build_review_request, preflight_review_batch, execute_review_batch, parse_structured_findings, RUBRIC_VERSION
 from agentnik.project_tools import ProjectToolError
 from agentnik import core
 from agentnik.tools import Runtime, Limits, LimitError
 
 
 class IndependentReviewSnapshots(unittest.TestCase):
+    def test_drift_review_records_are_valid_saved_history(self):
+        review={'id':'a'*32+'-1','role':'drift','model':'light','path':'spec.md','source_sha256':'b'*64,'payload_sha256':'c'*64,'evidence':[{'path':'code.py','sha256':'d'*64,'payload_sha256':'e'*64}],'pass_status':'completed','structured':{'status':'valid','findings':[]},'dispositions':{}}
+        history=[{'version':1,'id':'f'*32,'track_id':None,'reviews':[review]}]
+        self.assertEqual(validate_review_history(history),history)
+        review['role']='repository_fit';self.assertEqual(validate_review_history(history),history)
     def test_batch_scheduler_runs_independent_passes_and_reports_failure(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root,'spec.md').write_text('spec',encoding='utf-8');files=ProjectFiles(root);snapshot=prepare_snapshot(files,'spec.md','rubric ',[]);passes=[]
@@ -86,6 +91,16 @@ class IndependentReviewSnapshots(unittest.TestCase):
             current=Runtime(limits=Limits(requests=1,context_bytes=2048))
             with self.assertRaises(LimitError):preflight_review_batch(files,[item,item],current)
             self.assertEqual((current.requests,current.context_bytes),(0,0))
+            budget=Runtime(limits=Limits(context_bytes=snapshot['payload_bytes']+3));outcomes=[]
+            result=execute_review_batch(files,[item],budget,lambda connection,body,child:'éé',[threading.Event()],model_timeout=5,on_complete=lambda index,value:outcomes.append(copy.deepcopy(value)))
+            self.assertEqual(result[0]['status'],'failed');self.assertIn('remaining context budget',result[0]['reason']);self.assertNotIn('analysis',result[0]);self.assertEqual(budget.context_bytes,snapshot['payload_bytes']);self.assertEqual(outcomes,result)
+            budget=Runtime(limits=Limits(context_bytes=snapshot['payload_bytes']+3))
+            result=execute_review_batch(files,[item],budget,lambda connection,body,child:'é',[threading.Event()],model_timeout=5)
+            self.assertEqual(result[0]['status'],'completed');self.assertEqual(budget.context_bytes,snapshot['payload_bytes']+2)
+            # Heavy's caller charges the complete serialized continuation once.
+            budget=Runtime(limits=Limits(context_bytes=snapshot['payload_bytes']+3))
+            result=execute_review_batch(files,[item],budget,lambda connection,body,child:'éé',[threading.Event()],model_timeout=5,charge_output=False)
+            self.assertEqual(result[0]['status'],'completed');self.assertEqual(budget.context_bytes,snapshot['payload_bytes'])
             path.write_text('changed',encoding='utf-8');current=Runtime()
             with self.assertRaises(ValueError):preflight_review_batch(files,[item],current)
             self.assertEqual((current.requests,current.context_bytes),(0,0))
