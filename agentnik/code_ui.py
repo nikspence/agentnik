@@ -1375,6 +1375,7 @@ class CodeTab(QWidget):
         project_actions=QHBoxLayout();layout.addLayout(project_actions)
         publish=QPushButton(self.tr('Save snapshot to project track…'));publish.setObjectName('publishReviewSnapshot');project_actions.addWidget(publish)
         view_project=QPushButton(self.tr('View project track reviews…'));view_project.setObjectName('viewProjectReviews');project_actions.addWidget(view_project)
+        export=QPushButton(self.tr('Export snapshot…'));export.setObjectName('exportReviewSnapshot');export.setEnabled(bool(history));layout.addWidget(export)
         def selected_track_id(record):
             if not record:return None
             contexts=[item.get('track_context') for item in record['reviews']]
@@ -1447,6 +1448,28 @@ class CodeTab(QWidget):
             if not files or not track_id:return
             self.show_project_track_reviews(track_id,dialog)
         publish.clicked.connect(save_project_snapshot);view_project.clicked.connect(show_project_reviews)
+        def export_snapshot():
+            from .review_export import prepare_review_export,write_new_review_export
+            record=next((item for item in history if item['id']==choice.currentData()),None)
+            if not record:return
+            def known_secrets():return [item.get('api_key','') for item in self.window.connections.values()]+[item.get('key','') for item in self.store.web_backend_specs()]
+            try:
+                current=validate_review_history(self.session.get('coding_review_history',[]))
+                if not any(item==record for item in current):raise ValueError(self.tr('The selected snapshot changed or is unavailable.'))
+                content=prepare_review_export(record,known_secrets())
+                preview=QDialog(dialog);preview.setWindowTitle(self.tr('Export review snapshot'));preview.resize(760,540);box=QVBoxLayout(preview)
+                label=QLabel(self.tr('Review the complete export before saving. Findings, paths and dispositions may contain sensitive information. Known configured credentials are blocked, but other secrets may remain. A new file will be created; existing files are not replaced.'));label.setWordWrap(True);box.addWidget(label)
+                text=QPlainTextEdit(content);text.setObjectName('reviewExportPreview');text.setReadOnly(True);box.addWidget(text)
+                controls=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);controls.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Choose export file'));controls.accepted.connect(preview.accept);controls.rejected.connect(preview.reject);box.addWidget(controls)
+                if preview.exec()!=QDialog.DialogCode.Accepted:return
+                path,_=QFileDialog.getSaveFileName(dialog,self.tr('Export review snapshot'),'review-snapshot.json',self.tr('JSON files (*.json)'))
+                if not path:return
+                current=validate_review_history(self.session.get('coding_review_history',[]))
+                if not any(item==record for item in current) or prepare_review_export(record,known_secrets())!=content:raise ValueError(self.tr('The selected snapshot or configured credentials changed; review the export again.'))
+                write_new_review_export(path,content)
+                QMessageBox.information(dialog,self.tr('Export review snapshot'),self.tr('Review snapshot exported.'))
+            except (ValueError,TypeError,UnicodeError,OSError,sqlite3.Error,RecursionError) as exc:QMessageBox.warning(dialog,self.tr('Export review snapshot'),str(exc))
+        export.clicked.connect(export_snapshot)
         delete=QPushButton(self.tr('Delete selected snapshot…'));delete.setObjectName('deleteSavedReview');delete.setEnabled(bool(history));layout.addWidget(delete)
         def delete_selected():
             ident=choice.currentData()
@@ -1458,7 +1481,7 @@ class CodeTab(QWidget):
                 remaining=validate_review_history([record for record in current if record['id']!=ident])
                 updated=copy.deepcopy(self.session);updated['coding_review_history']=remaining;self.store.save(updated);self.session['coding_review_history']=remaining
             except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError) as exc:QMessageBox.warning(dialog,self.tr('Saved reviews'),str(exc));return
-            history[:]=remaining;choice.removeItem(choice.currentIndex());delete.setEnabled(bool(remaining));self.saved_reviews_button.setEnabled(bool(remaining));self.updated.emit()
+            history[:]=remaining;choice.removeItem(choice.currentIndex());delete.setEnabled(bool(remaining));export.setEnabled(bool(remaining));self.saved_reviews_button.setEnabled(bool(remaining));self.updated.emit()
             if not remaining:dialog.accept()
         delete.clicked.connect(delete_selected)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
