@@ -1490,7 +1490,7 @@ class CodeTab(QWidget):
             if not saved:self.activity.appendPlainText(self.tr('Review progress could not be saved; no reviewer requests were sent.'))
             job.acknowledge_manifest(saved);return
         if kind=='independent_review_result':
-            from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements,validate_review_endpoint_identity,validate_review_batch_approved_at,RUBRIC_VERSION
+            from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements,validate_review_endpoint_identity,validate_review_batch_approved_at,review_provenance_matches,RUBRIC_VERSION
             review=event.get('review')
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','pass_status','track_context'}
             if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements','reason','rubric_version','endpoint','target_payload_sha256','batch_approved_at'}:return
@@ -1522,19 +1522,27 @@ class CodeTab(QWidget):
             elif structured['findings']:return
             previous=self.review_results.get(review['id'])
             if previous and (previous['pass_status']!='pending' or review['pass_status']=='pending'):return
+            if previous and not review_provenance_matches(previous,review):
+                if review['id'] in self.review_progress_ids:
+                    self.cancel();self.record('output',self.tr('Review progress could not be saved. The run was stopped; the last saved snapshot may show interrupted passes.'))
+                return
             if len(self.review_results)>=32 and review['id'] not in self.review_results:return
-            self.review_results[review['id']]=copy.deepcopy(review);self.review_results_button.setEnabled(True)
-            if review['id'] in self.review_progress_ids and review['pass_status']!='pending':
+            if review['id'] in self.review_progress_ids:
                 from .independent_review import validate_review_history
                 try:
                     history=validate_review_history(self.session.get('coding_review_history',[]));snapshot=next(item for item in history if item['id']==self.review_progress_ids[review['id']])
                     index=next(index for index,item in enumerate(snapshot['reviews']) if item['id']==review['id'])
-                    item=copy.deepcopy(review);item['dispositions']=snapshot['reviews'][index]['dispositions']
-                    if item==snapshot['reviews'][index]:return
-                    snapshot['reviews'][index]=item
-                    history=validate_review_history(history);updated=copy.deepcopy(self.session);updated['coding_review_history']=history;self.store.save(updated);self.session['coding_review_history']=history;self.updated.emit()
+                    saved_review=snapshot['reviews'][index]
+                    if not review_provenance_matches(saved_review,review):raise ValueError('Review provenance changed')
+                    if review['pass_status']!='pending':
+                        item=copy.deepcopy(review);item['dispositions']=saved_review['dispositions']
+                        if item!=saved_review:
+                            snapshot['reviews'][index]=item
+                            history=validate_review_history(history);updated=copy.deepcopy(self.session);updated['coding_review_history']=history;self.store.save(updated);self.session['coding_review_history']=history;self.updated.emit()
                 except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError,RecursionError,StopIteration):
                     self.cancel();self.record('output',self.tr('Review progress could not be saved. The run was stopped; the last saved snapshot may show interrupted passes.'))
+                    return
+            self.review_results[review['id']]=copy.deepcopy(review);self.review_results_button.setEnabled(True)
             return
         if kind=='track_progress':
             from .track_execution import validate_progress,projected_plan

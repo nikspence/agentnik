@@ -16,6 +16,44 @@ from agentnik.storage import Store
 
 
 class PromptHistory(unittest.TestCase):
+    def test_review_terminal_events_cannot_change_approved_provenance(self):
+        import copy
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget();tab.job=object();tab.run_id='active'
+                pending={'id':'a'*32+'-1','role':'design','model':'reviewer','path':'spec.md','source_sha256':'a'*64,'target_payload_sha256':'b'*64,'payload_sha256':'c'*64,'evidence':[{'path':'evidence.txt','sha256':'d'*64,'payload_sha256':'e'*64}],'track_context':None,'rubric_version':1,'endpoint':{'protocol':'chat','origin':'https://example.invalid'},'batch_approved_at':'2026-11-13T19:20:21Z','pass_status':'pending','structured':{'status':'not_available','findings':[]}}
+                tab.receive({'kind':'independent_review_result','run_id':'active','review':pending})
+                completed=dict(pending,pass_status='completed',structured={'status':'valid','findings':[]})
+                changes={'role':'requirements','model':'different','path':'other.md','source_sha256':'f'*64,'target_payload_sha256':'f'*64,'payload_sha256':'f'*64,'evidence':[],'track_context':{'id':'other','digest':'f'*64},'endpoint':{'protocol':'messages','origin':'https://example.invalid'},'batch_approved_at':'2026-11-13T19:20:22Z'}
+                for key,value in changes.items():
+                    altered=copy.deepcopy(completed);altered[key]=value
+                    with self.subTest(field=key):
+                        tab.receive({'kind':'independent_review_result','run_id':'active','review':altered});self.assertEqual(tab.review_results[pending['id']],pending)
+                altered=copy.deepcopy(completed);del altered['target_payload_sha256'];tab.receive({'kind':'independent_review_result','run_id':'active','review':altered});self.assertEqual(tab.review_results[pending['id']],pending)
+                tab.receive({'kind':'independent_review_result','run_id':'active','review':completed});self.assertEqual(tab.review_results[pending['id']]['pass_status'],'completed')
+            finally:tab.job=None;window.close();app.processEvents();store.db.close()
+
+    def test_saved_review_manifest_rejects_mismatched_terminal_record(self):
+        from agentnik.ui import Window
+        from agentnik.direct_review import DirectReviewRun
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                connection={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer'}
+                run=DirectReviewRun(project,'spec.md',[{'role':'design','model':'light','paths':[]}],{'light':connection},save_progress=True);tab.job=run;tab.run_id=run.run_id;session['code_state']='running'
+                pending={'id':'a'*32+'-1','role':'design','model':'reviewer','path':'spec.md','source_sha256':'a'*64,'payload_sha256':'b'*64,'evidence':[],'track_context':None,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
+                tab.receive({'kind':'independent_review_manifest','run_id':run.run_id,'snapshot_id':'c'*32,'reviews':[pending]});self.assertTrue(run.manifest_saved)
+                altered=dict(pending,model='different',pass_status='completed',structured={'status':'valid','findings':[]})
+                tab.receive({'kind':'independent_review_result','run_id':run.run_id,'review':altered})
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);review=saved['coding_review_history'][0]['reviews'][0]
+                self.assertEqual(review['pass_status'],'interrupted');self.assertEqual(review['model'],'reviewer');self.assertIsNone(tab.job)
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_parallel_review_findings_view_is_bounded_and_session_local(self):
         from agentnik.ui import Window
         from PySide6.QtWidgets import QDialog,QPlainTextEdit,QComboBox,QLineEdit,QPushButton,QMessageBox

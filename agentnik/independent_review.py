@@ -121,6 +121,13 @@ def validate_review_measurements(value):
     return dict(value)
 
 
+def review_provenance_matches(first, second):
+    """Compare immutable pass identity and approved-input metadata."""
+    fields=('id','role','model','path','source_sha256','target_payload_sha256','payload_sha256',
+            'evidence','track_context','rubric_version','endpoint','batch_approved_at')
+    return all((key in first)==(key in second) and first.get(key)==second.get(key) for key in fields)
+
+
 def review_endpoint_identity(connection, secrets=()):
     """Keep only the endpoint origin and protocol; do not retain paths or credentials."""
     protocol=connection.get('protocol','chat')

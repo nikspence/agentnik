@@ -78,6 +78,8 @@ Rejecting any pass stops the whole batch without reviewer requests and creates s
 
 When post-approval batch preflight fails before submission, each changed or unavailable source is recorded as stale and other unsubmitted passes as skipped, with bounded reasons. This includes shared-limit failures, for which all unchanged passes are skipped. Progress-saving updates the pre-request interrupted placeholders to these terminal states. If cancellation, deadline expiry or a storage failure prevents event delivery, interrupted placeholders may remain.
 
+Terminal review events are accepted only when their pass identity and approved provenance match the pending record and any saved manifest, including target and evidence hashes, model, endpoint, rubric, track context and approval time. A mismatch is not applied; a mismatch with progress saving stops the run and retains the saved record. This validates local event consistency, not provider behavior or review correctness.
+
 The Subagents panel distinguishes queued passes from locally dispatched workers and shows separate counts. Queued and running passes can both be cancelled; a queued cancellation prevents its request from starting. A running label does not establish provider receipt. If a session is interrupted, both active states reopen as interrupted and no request resumes.
 
 Offline simulated transport now exercises the real adapters for all four routes with non-streaming completed and incomplete replies and successful streaming replies. Incomplete replies fail the pass without retaining findings or replaying the request. This does not test a real endpoint or establish review quality.
