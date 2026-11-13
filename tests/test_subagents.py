@@ -13,6 +13,69 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_single_structured_manifest_gates_submission_and_rechecks_sources(self):
+        for mode in ('saved','save_failed','changed_after_save','changed_during_request'):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as root:
+                (Path(root)/'spec.md').write_text('SPEC',encoding='utf-8');evidence=Path(root)/'evidence.txt';evidence.write_text('EVIDENCE',encoding='utf-8')
+                events=[];models=[];count=0;run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),save_review_progress=True)
+                def send(connection,url,body,timeout):
+                    nonlocal count
+                    models.append(connection['model'])
+                    if connection['model']=='light':
+                        if mode=='changed_during_request':evidence.write_text('CHANGED',encoding='utf-8')
+                        return Wire(chat('{"version":1,"findings":[]}'),False)
+                    count+=1
+                    if count==1:return Wire(chat(calls=[call('review_document_structured',{'path':'spec.md','paths':'["evidence.txt"]','model':'light','role':'design'})],finish='tool_calls'),False)
+                    return Wire(chat('Done'),False)
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+                    if event['kind']=='independent_review_manifest':
+                        if mode=='changed_after_save':evidence.write_text('CHANGED',encoding='utf-8')
+                        run.acknowledge_manifest(mode!='save_failed')
+                with patch.object(core,'open_request',side_effect=send):run.run(emit)
+                manifest=next(event for event in events if event['kind']=='independent_review_manifest');self.assertEqual(len(manifest['reviews']),1);self.assertEqual(manifest['reviews'][0]['pass_status'],'pending')
+                self.assertEqual(models.count('light'),int(mode in ('saved','changed_during_request')))
+                terminal=[e['review'] for e in events if e['kind']=='independent_review_result' and e['review']['pass_status']!='pending']
+                if mode=='save_failed':self.assertEqual(terminal,[])
+                else:self.assertEqual(terminal[0]['pass_status'],'completed' if mode=='saved' else 'stale')
+
+    def test_single_structured_progress_is_saved_before_request_and_updated(self):
+        import os,time
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');(project/'evidence.txt').write_text('EVIDENCE',encoding='utf-8')
+            store=Store(Path(root)/'data');window=Window(store);started=threading.Event();release=threading.Event();heavy_count=0
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                window.connections['Heavy']=dict(C,stream=False);window.connections['Review']=dict(C,model='light',stream=False)
+                for role,name,alias in [('heavy','Heavy','heavy'),('light','Review','light')]:
+                    box,model=tab.roles[role];box.addItem(name,name);box.setCurrentIndex(box.findData(name));model.setText(alias)
+                tab.light_enabled.setChecked(True);tab.save_review_progress.setChecked(True);tab.composer.setPlainText('Review the document')
+                def send(connection,url,body,timeout):
+                    nonlocal heavy_count
+                    if connection['model']=='light':started.set();release.wait(5);return Wire(chat('{"version":1,"findings":[]}'),False)
+                    heavy_count+=1
+                    if heavy_count==1:return Wire(chat(calls=[call('review_document_structured',{'path':'spec.md','paths':'["evidence.txt"]','model':'light','role':'design'})],finish='tool_calls'),False)
+                    return Wire(chat('Done'),False)
+                with patch.object(core,'open_request',side_effect=send):
+                    tab.start_coding();deadline=time.monotonic()+5
+                    while not started.is_set() and time.monotonic()<deadline:
+                        app.processEvents()
+                        if tab.pending_fingerprint:tab.decide(True)
+                        time.sleep(.01)
+                    self.assertTrue(started.is_set());saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual(saved['coding_review_history'][0]['reviews'][0]['pass_status'],'interrupted')
+                    release.set();deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.01)
+                    app.processEvents()
+                self.assertIsNone(tab.job);saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual(saved['coding_review_history'][0]['reviews'][0]['pass_status'],'completed')
+                with patch.object(core,'open_request') as request:window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
+            finally:release.set();window.close();app.processEvents();store.db.close()
+
     def test_single_structured_review_findings_can_be_saved(self):
         import os,time
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')

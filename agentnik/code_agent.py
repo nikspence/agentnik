@@ -1087,18 +1087,27 @@ class CodingRun:
                             child_id=uuid.uuid4().hex+'-1';child_cancel=threading.Event()
                             if structured:
                                 review_record={'id':child_id,'role':role,'rubric_version':RUBRIC_VERSION,'batch_approved_at':review_batch_approved_at(),'endpoint':review_endpoint_identity(model,secrets),'model':model['model'],'path':args['path'],'source_sha256':source_hash,'target_payload_sha256':proposal['target_payload_sha256'],'payload_sha256':proposal['payload_sha256'],'evidence':proposal['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
+                                if self.save_review_progress:
+                                    with self.lock:self.manifest_saved=False;self.manifest_ack.clear()
+                                    event('independent_review_manifest',snapshot_id=child_id[:-2],reviews=[review_record])
+                                    while not self.manifest_ack.wait(.05):runtime.check()
+                                    runtime.check()
+                                    if not self.manifest_saved:raise ProjectToolError('Could not save review progress; no reviewer requests were sent.')
                                 event('independent_review_result',review=review_record)
                             with self.lock:self.child_cancellations[child_id]=child_cancel
                             event('subagent',subagent={'id':child_id,'status':'running','text':'Independent '+role+' review · '+model['model']+' · '+args['path']+' · SHA-256 '+source_hash})
                             event('output',text='Independent '+role+' review started · '+model['model']+' · '+args['path']+' · SHA-256 '+source_hash)
                             child_runtime=Runtime(ChildCancellation(self.cancel,child_cancel),replace(runtime.limits,request_seconds=self.limits['model_seconds']),self.run_id);child_runtime.started=runtime.started
                             adapter_review=responses_tools if model.get('protocol')=='responses' else ollama_tools if core.native_ollama(model) else compat_tools
-                            state={};started=time.monotonic();usage['Light']['requests']+=1
+                            state={};started=time.monotonic();usage['Light']['requests']+=1;stale_stage=None
                             try:
                                 review_body=build_review_request(model,proposal)
+                                if not sources_unchanged(files,snapshot['sources']):
+                                    stale_stage='before submission';raise ValueError('Document or evidence changed before review; no request was sent')
                                 _,review_calls=child_runtime.wait(lambda:adapter_review.request(model,review_body,child_runtime,lambda _:None,state))
                                 if review_calls:raise ValueError('Reviewer requested unavailable tools')
-                                if not sources_unchanged(files,snapshot['sources']):raise ValueError('Document or evidence changed during review; findings are stale')
+                                if not sources_unchanged(files,snapshot['sources']):
+                                    stale_stage='during review';raise ValueError('Document or evidence changed during review; findings are stale')
                                 with self.lock:
                                     child_runtime.check();self.child_cancellations.pop(child_id,None)
                                 answer=state.get('text','')
@@ -1124,9 +1133,10 @@ class CodingRun:
                                 result['structured']=parse_structured_findings(result['analysis'],truncated=result['truncated'])
                                 event('output',text='Structured independent review output: '+result['structured']['status']+'; findings are untrusted and an empty list is not proof of correctness.')
                             if structured:
-                                review_record=dict(review_record,pass_status=result['status'],structured=result.get('structured',{'status':'not_available','findings':[]}))
+                                review_status='stale' if stale_stage and result['status']=='failed' else result['status']
+                                review_record=dict(review_record,pass_status=review_status,structured=result.get('structured',{'status':'not_available','findings':[]}))
                                 if result['status']=='completed':review_record['measurements']={**reported,'elapsed_seconds':result['elapsed_seconds']}
-                                else:review_record['reason']=result['error']
+                                else:review_record['reason']='Reviewed source changed '+stale_stage+'; findings were discarded.' if review_status=='stale' else result['error']
                                 event('independent_review_result',review=review_record)
                             details=' · '+str(result['elapsed_seconds'])+'s · input '+str(reported['input_tokens'] if reported['input_tokens'] is not None else 'unknown')+' tokens, output '+str(reported['output_tokens'] if reported['output_tokens'] is not None else 'unknown')+' tokens'
                             evidence_summary=''.join(' · evidence '+item['path'][:120]+' SHA-256 '+item['sha256'] for item in proposal['evidence'])

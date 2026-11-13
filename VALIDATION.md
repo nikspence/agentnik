@@ -283,7 +283,7 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 ## Direct independent-review adapter checks
 
-Mocked and offscreen tests cover single structured-review visibility, individual cancellation with late output discarded, valid/invalid/truncated finding records, and explicit session saving and reopening without a request. The Heavy progress-saving opt-in does not automatically persist single-review progress. No live inference was used.
+Mocked and offscreen tests cover single structured-review visibility, individual cancellation with late output discarded, valid/invalid/truncated finding records, and explicit session saving and reopening without a request. The Heavy progress-saving opt-in now also persists a single structured-review manifest before submission and updates the result; tests cover failed manifest acknowledgment, changed evidence after acknowledgment and forced-stop recovery. No live inference was used.
 
 Offscreen Qt checks cover the three-pass preset, preservation of model and evidence selections, the document-only comprehension boundary, and the approval text about redaction and provider retention or charges. Selecting the preset does not issue a request. Visual inspection of an offscreen render was limited by missing fonts in this environment; native layout remains unverified.
 
