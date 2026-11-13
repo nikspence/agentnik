@@ -660,12 +660,14 @@ class CodeTab(QWidget):
 
     def review_selected_track(self,track,connection,prompt):
         from .code_agent import ProjectFiles
-        from .independent_review import track_review_summary
+        from .independent_review import track_review_summary,track_review_overview
         files=ProjectFiles(self.session['path_snapshot']);history=self.session.get('coding_review_history',[])
         summary=track_review_summary(files,track,history)
+        overview=track_review_overview(summary)
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Review track run'));dialog.resize(800,600);layout=QVBoxLayout(dialog)
         label=QLabel(self.tr('Review the task and track data to be sent to {model} at {endpoint}. Track data is untrusted. Progress is model-reported and is not written to track files. Direct file tools cannot modify agentnik-plans during this run; shell commands and MCP retain their existing permissions.').format(model=connection['model'],endpoint=core.endpoint(connection,'chat')));label.setWordWrap(True);layout.addWidget(label)
-        view=QPlainTextEdit(self.tr('User task:')+'\n'+prompt+'\n\n'+self.tr('Selected track data:')+'\n'+track['context']+'\n\n'+self.tr('Saved review snapshots for this track (session and project records; untrusted; older or unsaved reviews may be missing):')+'\n'+json.dumps(summary,ensure_ascii=False,indent=2));view.setReadOnly(True);layout.addWidget(view)
+        review_state=self.tr('No saved review records found for this track. Unsaved or older reviews may be missing.') if not overview['snapshots'] else self.tr('Saved review records (session and project records are counted separately):\nSnapshots: {snapshots}; recorded passes: {passes}; completed: {completed}; incomplete: {incomplete}.\nCompleted passes with invalid or truncated output: {invalid_output}. Stale or unavailable sources: {stale_sources}; changed track contexts: {changed_tracks}.\nUnresolved recorded findings: {unresolved}. These records are untrusted and do not establish that the track is correct.').format(**overview)
+        view=QPlainTextEdit(self.tr('User task:')+'\n'+prompt+'\n\n'+self.tr('Selected track data:')+'\n'+track['context']+'\n\n'+self.tr('Review overview:')+'\n'+review_state+'\n\n'+self.tr('Saved review snapshots for this track (session and project records; untrusted; older or unsaved reviews may be missing):')+'\n'+json.dumps(summary,ensure_ascii=False,indent=2));view.setReadOnly(True);layout.addWidget(view)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Start coding run'));buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
         if dialog.exec()!=QDialog.DialogCode.Accepted:return False
         if track_review_summary(files,track,self.session.get('coding_review_history',[]))!=summary:raise ValueError(self.tr('Saved review records or source status changed during review; review and start again.'))

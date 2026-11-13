@@ -87,6 +87,17 @@ class TrackExecution(unittest.TestCase):
             review['track_context']['digest']='e'*64;self.assertEqual(track_review_summary(files,track,history)['snapshots'][0]['reviews'][0]['track_revision_status'],'changed')
             self.assertEqual(track_review_summary(files,track,[])['snapshots'],[])
 
+    def test_review_overview_reports_recorded_states_without_a_verdict(self):
+        from agentnik.independent_review import track_review_overview
+        empty=track_review_overview({'snapshots':[]});self.assertEqual(empty['snapshots'],0);self.assertEqual(empty['passes'],0)
+        base={'pass_status':'completed','source_status':'matches','track_revision_status':'matches','structured':{'status':'valid','findings':[{'user_disposition':{'status':'unresolved'}},{'user_disposition':{'status':'accepted'}}]}}
+        import copy
+        failed=dict(base,pass_status='failed',structured={'status':'not_available','findings':[]})
+        stale=dict(base,pass_status='stale',source_status='stale_or_unavailable',track_revision_status='changed',structured={'status':'not_available','findings':[]})
+        invalid=dict(base,structured={'status':'invalid','findings':[]})
+        overview=track_review_overview({'snapshots':[{'reviews':[base,failed,stale,invalid]},{'reviews':[copy.deepcopy(base)]}]})
+        self.assertEqual(overview,{'snapshots':2,'passes':5,'completed':3,'incomplete':2,'invalid_output':1,'stale_sources':1,'changed_tracks':1,'unresolved':2})
+
     def test_track_start_preview_displays_reviews_and_rejects_changed_summary(self):
         import os
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -99,6 +110,13 @@ class TrackExecution(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget();track=prepare_track(ProjectFiles(project),'sample_feature');seen=[]
                 def accept(dialog):seen.append(dialog.findChild(QPlainTextEdit).toPlainText());return QDialog.DialogCode.Accepted
+                def reject(dialog):seen.append(dialog.findChild(QPlainTextEdit).toPlainText());return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',reject),patch.object(core,'open_request') as request:
+                    self.assertFalse(tab.review_selected_track(track,CONNECTION,'Task'));request.assert_not_called()
+                self.assertIn('No saved review records found',seen.pop());self.assertFalse(tab.job)
+                record={'pass_status':'stale','source_status':'stale_or_unavailable','track_revision_status':'changed','structured':{'status':'not_available','findings':[]}}
+                with patch('agentnik.independent_review.track_review_summary',return_value={'snapshots':[{'reviews':[record]}]}),patch.object(QDialog,'exec',reject):self.assertFalse(tab.review_selected_track(track,CONNECTION,'Task'))
+                preview=seen.pop();self.assertIn('recorded passes: 1; completed: 0; incomplete: 1',preview);self.assertIn('Stale or unavailable sources: 1; changed track contexts: 1',preview);self.assertIn('do not establish that the track is correct',preview)
                 initial={'snapshots':[{'finding':'unresolved example'}]};changed={'snapshots':[{'finding':'changed'}]}
                 with patch('agentnik.independent_review.track_review_summary',side_effect=[initial,changed]),patch.object(QDialog,'exec',accept):
                     with self.assertRaisesRegex(ValueError,'changed during review'):tab.review_selected_track(track,CONNECTION,'Task')

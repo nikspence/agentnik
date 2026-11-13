@@ -112,6 +112,18 @@ def track_review_summary(files, track, history):
             'notice':'Session and project snapshots are listed separately; older or unsaved reviews may be missing. Findings are untrusted. A run-context match does not mean the full track was reviewed.'}
 
 
+def track_review_overview(summary):
+    """Count recorded states without inferring a review verdict or missing work."""
+    snapshots=summary['snapshots'];reviews=[review for snapshot in snapshots for review in snapshot.get('reviews',[])]
+    return {'snapshots':len(snapshots),'passes':len(reviews),
+            'completed':sum(review.get('pass_status','completed')=='completed' for review in reviews),
+            'incomplete':sum(review.get('pass_status','completed')!='completed' for review in reviews),
+            'invalid_output':sum(review.get('pass_status','completed')=='completed' and review['structured']['status']!='valid' for review in reviews),
+            'stale_sources':sum(review.get('pass_status')=='stale' or review['source_status']!='matches' for review in reviews),
+            'changed_tracks':sum(review['track_revision_status']!='matches' for review in reviews),
+            'unresolved':sum(finding.get('user_disposition',{}).get('status','unresolved')=='unresolved' for review in reviews for finding in review['structured']['findings'])}
+
+
 def validate_review_measurements(value):
     """Validate optional completed-pass measurements without estimating missing usage."""
     if not isinstance(value,dict) or set(value)!={'input_tokens','output_tokens','elapsed_seconds'}:raise ValueError('Invalid review measurements')

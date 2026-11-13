@@ -283,6 +283,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 ## Direct independent-review adapter checks
 
+Offline and offscreen tests cover the track-start review overview for no saved records and mixed completed, incomplete, stale, changed-context, invalid-output and unresolved states. The existing revision-change guard and no-request-on-cancel tests continue to pass; counts describe saved records, not a review verdict.
+
 Offscreen tests submit mismatched terminal events against pending review records and saved manifests, checking document, evidence, model, hashes, endpoint, track context and approval time. Mismatches cannot replace the pending or saved record; with progress saving enabled the run stops. This is a local event-consistency check.
 
 Mocked and offscreen tests cover single structured-review visibility, individual cancellation with late output discarded, valid/invalid/truncated finding records, and explicit session saving and reopening without a request. The Heavy progress-saving opt-in now also persists a single structured-review manifest before submission and updates the result; tests cover failed manifest acknowledgment, changed evidence after acknowledgment and forced-stop recovery. No live inference was used.
