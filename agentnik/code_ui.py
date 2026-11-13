@@ -2,12 +2,13 @@
 from pathlib import Path
 import json
 import re
+import sqlite3
 import threading
 import uuid
 from urllib.parse import urlsplit
 from PySide6.QtCore import Qt,Signal,QObject,QUrl,QPoint,QTimer
 from PySide6.QtGui import QDesktopServices,QTextCursor
-from PySide6.QtWidgets import QScrollArea,QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox
+from PySide6.QtWidgets import QScrollArea,QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox,QTabWidget
 from .repositories import RepositoryRegistry
 from .coding import plain
 from .code_agent import CodingRun
@@ -167,6 +168,7 @@ class CodeTab(QWidget):
         header=QHBoxLayout();layout.addLayout(header)
         title=QLabel(session['project_name']);title.setTextFormat(Qt.TextFormat.PlainText);header.addWidget(title)
         path=QLabel(self.tr('Working directory snapshot: {path}').format(path=session['path_snapshot']));path.setTextFormat(Qt.TextFormat.PlainText);path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse);path.setToolTip(session['path_snapshot']);header.addWidget(path,1)
+        self.track_selection_label=QLabel();self.track_selection_label.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.track_selection_label);self.refresh_selected_track()
         current=window.repositories.get(session['project_id'])
         note=''
         if not Path(session['path_snapshot']).is_dir():note+=' '+self.tr('The saved folder is missing or unavailable.')
@@ -233,6 +235,7 @@ class CodeTab(QWidget):
         disclosure=QLabel(self.tr('When enabled, each shell proposal sends its command, working directory, shell, and environment variable names to the selected Decision endpoint. Environment values are not sent. Advice never approves a command.'))
         disclosure.setWordWrap(True);model_layout.addWidget(disclosure)
         self.skills_button=QPushButton();self.skills_button.clicked.connect(self.choose_skills);options.addWidget(self.skills_button);self.refresh_skills_button()
+        self.tracks_button=QPushButton(self.tr('Spec & Plan…'));self.tracks_button.clicked.connect(self.show_tracks);options.addWidget(self.tracks_button)
         self.memory_button=QPushButton(self.tr('Project memory…'));self.memory_button.clicked.connect(self.edit_project_memory);options.addWidget(self.memory_button)
         self.notes_button=QPushButton(self.tr('Working notes…'));self.notes_button.clicked.connect(self.edit_working_notes);options.addWidget(self.notes_button)
         self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);options.addWidget(self.skills_history_button)
@@ -490,6 +493,310 @@ class CodeTab(QWidget):
         self.skills_button.setText(self.tr('Skills ({count})').format(count=len(names)) if names else self.tr('Skills…'))
         self.skills_button.setToolTip(', '.join(names) if names else self.tr('Choose skills'))
 
+    def show_tracks(self):
+        from .code_agent import ProjectFiles
+        from .tracks import list_tracks,read_track,read_project_context
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Spec & Plan'));dialog.resize(760,560)
+        layout=QVBoxLayout(dialog);label=QLabel(self.tr('Open a track to inspect it or edit it through individually reviewed changes. Opening a track does not start a run or grant permission to execute anything.'));label.setWordWrap(True);layout.addWidget(label)
+        listing=QListWidget();layout.addWidget(listing);view=QPlainTextEdit();view.setReadOnly(True);layout.addWidget(view,1)
+        draft_button=QPushButton(self.tr('New or edit draft…'));draft_button.setEnabled(not bool(self.job));draft_button.clicked.connect(self.edit_track_draft);layout.addWidget(draft_button)
+        edit_button=QPushButton(self.tr('Edit selected track…'));edit_button.setEnabled(False);layout.addWidget(edit_button)
+        select_button=QPushButton(self.tr('Select for coding runs'));select_button.setEnabled(False);layout.addWidget(select_button)
+        clear_button=QPushButton(self.tr('Clear selected track'));clear_button.setEnabled(not self.job and bool(self.session.get('selected_track')));layout.addWidget(clear_button)
+        progress_button=QPushButton(self.tr('Review last track progress…'));progress_button.setEnabled(bool(self.session.get('track_progress')));layout.addWidget(progress_button)
+        progress_button.clicked.connect(self.show_track_progress)
+        def clear_selection():
+            self.session.pop('selected_track',None);self.store.save(self.session);self.refresh_selected_track();self.updated.emit();dialog.accept()
+        clear_button.clicked.connect(clear_selection)
+        resume_button=QPushButton(self.tr('Resume track edit draft…'));resume_button.setEnabled(not bool(self.job) and bool(self.session.get('track_edit_draft')));layout.addWidget(resume_button)
+        def edit_selected():
+            item=listing.currentItem();track=item.data(Qt.ItemDataRole.UserRole) if item else None
+            if track and track['available'] and not self.job:self.edit_existing_track(track['id'])
+        def resume_edit():
+            saved=self.session.get('track_edit_draft')
+            if saved and not self.job:self.edit_existing_track(saved['id'])
+        edit_button.clicked.connect(edit_selected);resume_button.clicked.connect(resume_edit)
+        try:
+            files=ProjectFiles(self.session['path_snapshot']);data=list_tracks(files)
+            for track in data['tracks']:
+                title=track.get('title',track['id']);item=QListWidgetItem(title+(' · '+self.tr('unavailable') if not track['available'] else ''));item.setData(Qt.ItemDataRole.UserRole,track);listing.addItem(item)
+            if data['incomplete']:label.setText(label.text()+' '+self.tr('Track list is incomplete because the scan limit was reached.'))
+            if not data['tracks']:view.setPlainText(self.tr('No Agentnik tracks found. Existing projects and sessions do not need migration.'))
+            def select(item,_):
+                select_button.setEnabled(False)
+                if not item:edit_button.setEnabled(False);return
+                track=item.data(Qt.ItemDataRole.UserRole);edit_button.setEnabled(track['available'] and not bool(self.job))
+                if not track['available']:view.setPlainText(track['reason']);return
+                try:
+                    value=read_track(files,track['id']);lines=[self.tr('Track: {title}').format(title=value['track']['title']),'',self.tr('Tasks (reported status; evidence is not independently verified):')]
+                    select_button.setEnabled(not bool(self.job))
+                    for task in value['track']['tasks']:
+                        lines.append(task['id']+' · '+task['phase']+' · '+task['status']+' · '+task['step'])
+                        lines.extend('  '+e['status']+' · '+e['detail'] for e in task['evidence'])
+                    lines.extend(['',self.tr('Specification:'),value['spec'],'',self.tr('Plan:'),value['plan']]);view.setPlainText('\n'.join(lines))
+                except (ValueError,OSError) as exc:view.setPlainText(self.tr('Track unavailable: {reason}').format(reason=str(exc)))
+            listing.currentItemChanged.connect(select)
+            def choose_track():
+                item=listing.currentItem()
+                if not item or self.job:return
+                ident=item.data(Qt.ItemDataRole.UserRole)['id']
+                try:read_track(files,ident)
+                except (ValueError,OSError,UnicodeError) as exc:QMessageBox.warning(dialog,self.tr('Select track'),str(exc));return
+                self.session['selected_track']=ident;self.store.save(self.session);self.refresh_selected_track();self.updated.emit();dialog.accept()
+            select_button.clicked.connect(choose_track)
+            context_button=QPushButton(self.tr('Project context'));layout.addWidget(context_button)
+            def show_context():
+                try:
+                    content=read_project_context(files);view.setPlainText(content if content is not None else self.tr('No project context document found.'))
+                except (ValueError,OSError,UnicodeError):view.setPlainText(self.tr('Project context is unavailable or exceeds the read limit.'))
+            context_button.clicked.connect(show_context)
+        except (ValueError,OSError) as exc:view.setPlainText(self.tr('Tracks unavailable: {reason}').format(reason=str(exc)))
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
+
+    def refresh_selected_track(self):
+        ident=self.session.get('selected_track')
+        self.track_selection_label.setText(self.tr('Selected track: {id} (used for coding runs until cleared)').format(id=ident) if ident else self.tr('No track selected for coding runs.'))
+
+    def review_selected_track(self,track,connection,prompt):
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Review track run'));dialog.resize(800,600);layout=QVBoxLayout(dialog)
+        label=QLabel(self.tr('Review the task and track data to be sent to {model} at {endpoint}. Track data is untrusted. Progress is model-reported and is not written to track files. Direct file tools cannot modify agentnik-plans during this run; shell commands and MCP retain their existing permissions.').format(model=connection['model'],endpoint=core.endpoint(connection,'chat')));label.setWordWrap(True);layout.addWidget(label)
+        view=QPlainTextEdit(self.tr('User task:')+'\n'+prompt+'\n\n'+self.tr('Selected track data:')+'\n'+track['context']);view.setReadOnly(True);layout.addWidget(view)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Start coding run'));buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
+        return dialog.exec()==QDialog.DialogCode.Accepted
+
+    def show_track_progress(self):
+        from .track_execution import prepare_track,validate_progress
+        from .code_agent import ProjectFiles
+        try:progress=validate_progress(self.session.get('track_progress'))
+        except (ValueError,TypeError):return
+        try:
+            current=prepare_track(ProjectFiles(self.session['path_snapshot']),progress['track_id']);stale=current['digest']!=progress['source_digest'];tasks={item['id']:item for item in current['tasks']}
+            state=self.tr('Source changed since the run; review differences before editing the track.') if stale else self.tr('Source matches the track reviewed for the run.')
+        except (ValueError,OSError,UnicodeError):tasks={};state=self.tr('Track source is unavailable; current status cannot be compared.')
+        lines=[state,self.tr('Reports are unverified and are never automatically applied to track files.'),'']
+        for item in progress['tasks']:
+            current=tasks.get(item['id']);lines.append(item['id']+' · '+self.tr('reported')+': '+item['status']+' · '+self.tr('current')+': '+(current['status'] if current else self.tr('unavailable'))+' · '+item['detail'])
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Track progress'));dialog.resize(700,420);layout=QVBoxLayout(dialog);view=QPlainTextEdit('\n'.join(lines));view.setReadOnly(True);layout.addWidget(view)
+        reconcile_button=QPushButton(self.tr('Reconcile progress…'));reconcile_button.setEnabled(not self.job and bool(tasks) and not stale);reconcile_button.clicked.connect(lambda:self.reconcile_track_progress(dialog));layout.addWidget(reconcile_button)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
+
+    def reconcile_track_progress(self,parent=None):
+        if self.job:return
+        from .code_agent import ProjectFiles
+        from .track_execution import prepare_track,validate_progress
+        from .track_editing import apply_edit
+        from .track_reconciliation import reconcile
+        try:
+            progress=validate_progress(self.session.get('track_progress'));files=ProjectFiles(self.session['path_snapshot']);snapshot=prepare_track(files,progress['track_id'])
+            if snapshot['digest']!=progress['source_digest']:raise ValueError(self.tr('Track or project context changed since the run; run again before reconciling.'))
+            if self.session.get('track_edit_draft'):raise ValueError(self.tr('Finish or discard the existing track edit draft first.'))
+            track=json.loads(snapshot['context'])['track']
+        except (ValueError,OSError,UnicodeError,TypeError) as exc:QMessageBox.warning(parent or self,self.tr('Reconcile progress'),str(exc));return
+        dialog=QDialog(parent or self);dialog.setWindowTitle(self.tr('Reconcile track progress'));dialog.resize(800,650);layout=QVBoxLayout(dialog)
+        label=QLabel(self.tr('Model reports are unverified. Choose each status yourself. To replace a task’s evidence, choose a result and enter its description. A newly completed task requires passed evidence and no failed, unknown, or unrun checks. Nothing changes until you approve the file diff.'));label.setWordWrap(True);layout.addWidget(label)
+        scroll=QScrollArea();scroll.setWidgetResizable(True);body=QWidget();rows=QVBoxLayout(body);scroll.setWidget(body);layout.addWidget(scroll,1);controls=[]
+        reports={item['id']:item for item in progress['tasks']}
+        for task in track['tasks']:
+            report=reports.get(task['id'])
+            if report is None:QMessageBox.warning(dialog,self.tr('Reconcile progress'),self.tr('Task IDs no longer match the report.'));return
+            name=QLabel(task['id']+' · '+task['phase']+' · '+task['step']);name.setTextFormat(Qt.TextFormat.PlainText);name.setWordWrap(True);rows.addWidget(name)
+            desc=QLabel(self.tr('Current: {current} | reported: {reported} | {detail}').format(current=task['status'],reported=report['status'],detail=report['detail']));desc.setTextFormat(Qt.TextFormat.PlainText);desc.setWordWrap(True);rows.addWidget(desc)
+            evidence=QLabel(self.tr('Existing evidence: ')+('; '.join(item['status']+' · '+item['detail'] for item in task['evidence']) if task['evidence'] else self.tr('none')));evidence.setTextFormat(Qt.TextFormat.PlainText);evidence.setWordWrap(True);rows.addWidget(evidence)
+            row=QHBoxLayout();rows.addLayout(row);status=QComboBox();status.addItems(['pending','in_progress','completed','blocked']);status.setCurrentText(task['status']);status.setAccessibleName(self.tr('Status for {id}').format(id=task['id']));row.addWidget(status)
+            result=QComboBox();result.addItem(self.tr('Keep existing evidence'),None)
+            for value in ('passed','failed','unknown','not_run'):result.addItem(self.tr('Replace evidence: {status}').format(status=value),value)
+            result.setAccessibleName(self.tr('Evidence for {id}').format(id=task['id']));row.addWidget(result);detail=QLineEdit();detail.setPlaceholderText(self.tr('Evidence description'));row.addWidget(detail,1);controls.append((task['id'],status,result,detail))
+        rows.addStretch();actions=QHBoxLayout();layout.addLayout(actions);review_button=QPushButton(self.tr('Review status changes…'));actions.addWidget(review_button);close=QPushButton(self.tr('Close'));actions.addWidget(close);close.clicked.connect(dialog.reject)
+        def review():
+            try:
+                choices=[{'id':ident,'status':status.currentText(),'evidence':([{'status':result.currentData(),'detail':detail.text()}] if result.currentData() is not None else None)} for ident,status,result,detail in controls]
+                draft=reconcile(files,progress,choices)
+                from .track_drafting import contains_secrets
+                secrets=[connection.get('api_key','') for connection in self.window.connections.values() if isinstance(connection,dict)]
+                secrets.extend(backend.get('key','') for backend in self.store.web_backend_specs() if isinstance(backend,dict))
+                if contains_secrets(draft,secrets):raise ValueError(self.tr('The proposed change contains a configured credential; remove it before saving.'))
+                def approve(proposal):
+                    if prepare_track(files,progress['track_id'])!=snapshot:raise ValueError(self.tr('Track or project context changed; review again.'))
+                    preview=QDialog(dialog);preview.setWindowTitle(self.tr('Review project change'));preview.resize(760,520);box=QVBoxLayout(preview)
+                    heading=QLabel(self.tr('Review the complete status and evidence change before applying it:\nProject: {project}\nPath: {path}').format(project=proposal['cwd'],path=proposal['path']));heading.setWordWrap(True);box.addWidget(heading)
+                    diff=QPlainTextEdit(proposal['diff']);diff.setReadOnly(True);box.addWidget(diff);buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Approve and apply'));buttons.accepted.connect(preview.accept);buttons.rejected.connect(preview.reject);box.addWidget(buttons)
+                    accepted=preview.exec()==QDialog.DialogCode.Accepted
+                    if accepted and prepare_track(files,progress['track_id'])!=snapshot:raise ValueError(self.tr('Track or project context changed during review.'))
+                    return accepted
+                result=apply_edit(files,draft,approve)
+                if result['status']=='completed':
+                    QMessageBox.information(dialog,self.tr('Reconcile progress'),self.tr('Review completed. Changed files: {count}.').format(count=len(result['applied'])));dialog.accept()
+            except (ValueError,OSError,UnicodeError,TypeError,sqlite3.Error) as exc:QMessageBox.warning(dialog,self.tr('Reconcile progress'),str(exc))
+        review_button.clicked.connect(review);dialog.exec()
+
+    def edit_existing_track(self,ident):
+        if self.job:return
+        from .code_agent import ProjectFiles
+        from .track_editing import load_edit,validate_edit,apply_edit,NAMES
+        from .track_drafting import contains_secrets
+        existing=self.session.get('track_edit_draft')
+        if existing and existing['id']!=ident:
+            QMessageBox.warning(self,self.tr('Edit track'),self.tr('Finish or discard the existing track edit draft before editing another track.'));return
+        try:
+            files=ProjectFiles(self.session['path_snapshot']);current=validate_edit(existing) if existing else load_edit(files,ident)
+        except (ValueError,OSError,UnicodeError) as exc:QMessageBox.warning(self,self.tr('Edit track'),str(exc));return
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Edit track · {id}').format(id=ident));dialog.resize(780,600)
+        layout=QVBoxLayout(dialog);hint=QLabel(self.tr('Edits are saved as a session draft. Each changed file is reviewed separately; if any track file changed externally, publication stops. Earlier approved changes remain.'));hint.setWordWrap(True);layout.addWidget(hint)
+        tabs=QTabWidget();layout.addWidget(tabs,1);editors={};original=dict(current['files']);displayed={}
+        for name,label in (('track.json',self.tr('Track metadata (JSON)')),('spec.md',self.tr('Specification')),('plan.md',self.tr('Plan'))):
+            editor=QPlainTextEdit(original[name]);editors[name]=editor;displayed[name]=editor.toPlainText();tabs.addTab(editor,label)
+        state=QLabel();state.setWordWrap(True);layout.addWidget(state);row=QHBoxLayout();layout.addLayout(row)
+        save=QPushButton(self.tr('Save edit draft'));publish=QPushButton(self.tr('Review changes…'));discard=QPushButton(self.tr('Discard edit draft'));close=QPushButton(self.tr('Close'))
+        for button in (save,publish,discard,close):row.addWidget(button)
+        def collect():
+            content={name:(original[name] if editors[name].toPlainText()==displayed[name] else editors[name].toPlainText()) for name in NAMES}
+            value=validate_edit({'id':ident,'files':content,'base':current['base']})
+            secrets=[c.get('api_key','') for c in self.window.connections.values() if isinstance(c,dict)]
+            secrets.extend(b.get('key','') for b in self.store.web_backend_specs() if isinstance(b,dict))
+            if contains_secrets(value,secrets):raise ValueError(self.tr('The draft contains a configured credential; remove it before saving.'))
+            return value
+        def persist(value):
+            nonlocal current
+            self.session['track_edit_draft']=value;self.store.save(self.session);current=value;self.updated.emit()
+        def save_draft():
+            try:persist(collect());state.setText(self.tr('Track edit draft saved in this coding session.'))
+            except (ValueError,TypeError,OSError,sqlite3.Error) as exc:QMessageBox.warning(dialog,self.tr('Edit track'),str(exc))
+        def review(proposal):
+            preview=QDialog(dialog);preview.setWindowTitle(self.tr('Review project change'));preview.resize(760,520);box=QVBoxLayout(preview)
+            label=QLabel(self.tr('Review the complete change before applying it:\nProject: {project}\nPath: {path}').format(project=proposal['cwd'],path=proposal['path']));label.setWordWrap(True);box.addWidget(label)
+            view=QPlainTextEdit(proposal['diff']);view.setReadOnly(True);box.addWidget(view)
+            controls=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);controls.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Approve and apply'));controls.accepted.connect(preview.accept);controls.rejected.connect(preview.reject);box.addWidget(controls)
+            return preview.exec()==QDialog.DialogCode.Accepted
+        def publish_changes():
+            if self.job:return
+            try:
+                value=collect();persist(value);result=apply_edit(files,value,review,persist)
+                if result['status']=='completed':
+                    self.session.pop('track_edit_draft',None);self.store.save(self.session);self.updated.emit();QMessageBox.information(dialog,self.tr('Edit track'),self.tr('Review completed. Applied changes: {count}.').format(count=len(result['applied'])));dialog.accept()
+                else:state.setText(self.tr('Stopped at {path}. Earlier approved changes remain; this draft can be resumed if source files are unchanged.').format(path=result['last_path']))
+            except (ValueError,TypeError,OSError,sqlite3.Error) as exc:QMessageBox.warning(dialog,self.tr('Edit track'),self.tr('Review stopped. Earlier approved changes remain. {reason}').format(reason=str(exc)))
+        def discard_draft():
+            if QMessageBox.question(dialog,self.tr('Discard draft'),self.tr('Discard this saved track edit draft? Applied project changes remain.'))!=QMessageBox.StandardButton.Yes:return
+            self.session.pop('track_edit_draft',None);self.store.save(self.session);self.updated.emit();dialog.accept()
+        save.clicked.connect(save_draft);publish.clicked.connect(publish_changes);discard.clicked.connect(discard_draft);close.clicked.connect(dialog.reject);dialog.exec()
+
+    def edit_track_draft(self):
+        if self.job:return
+        from .track_authoring import new_draft,validate_draft,publish
+        from .tracks import parse_json
+        from .code_agent import ProjectFiles
+        current=self.session.get('track_draft') or new_draft()
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Spec & Plan draft'));dialog.resize(780,600)
+        layout=QVBoxLayout(dialog);hint=QLabel(self.tr('Edit the track metadata, specification and plan. Saving a draft changes only this session. Publishing creates new project files after individual review; it never overwrites an existing track.'));hint.setWordWrap(True);layout.addWidget(hint)
+        tabs=QTabWidget();layout.addWidget(tabs,1)
+        metadata=QPlainTextEdit(json.dumps(current['metadata'],ensure_ascii=False,indent=2));spec=QPlainTextEdit(current['spec']);plan=QPlainTextEdit(current['plan'])
+        for title,editor in ((self.tr('Track metadata (JSON)'),metadata),(self.tr('Specification'),spec),(self.tr('Plan'),plan)):tabs.addTab(editor,title)
+        state=QLabel();state.setWordWrap(True);layout.addWidget(state)
+        def refresh_state(value):state.setText(self.tr('Previously created directories: {directories}; files: {files}.').format(directories=len(value['created_dirs']),files=len(value['written'])))
+        refresh_state(current)
+        row=QHBoxLayout();layout.addLayout(row)
+        ask_button=QPushButton(self.tr('Ask Heavy…'));save_button=QPushButton(self.tr('Save draft'));publish_button=QPushButton(self.tr('Review and publish…'));close_button=QPushButton(self.tr('Close'))
+        for control in (ask_button,save_button,publish_button,close_button):row.addWidget(control)
+        def known_secrets():
+            secrets=[c.get('api_key','') for c in self.window.connections.values() if isinstance(c,dict)]
+            secrets.extend(b.get('key','') for b in self.store.web_backend_specs() if isinstance(b,dict))
+            return secrets
+        def collect():
+            value={'metadata':parse_json(metadata.toPlainText()),'spec':spec.toPlainText(),'plan':plan.toPlainText(),'created_dirs':current['created_dirs'],'written':current['written']}
+            value=validate_draft(value)
+            secrets=known_secrets()
+            def contains_secret(item):
+                if isinstance(item,str):return any(isinstance(secret,str) and secret and secret in item for secret in secrets)
+                if isinstance(item,list):return any(contains_secret(part) for part in item)
+                if isinstance(item,dict):return any(contains_secret(key) or contains_secret(part) for key,part in item.items())
+                return False
+            if contains_secret(value):raise ValueError(self.tr('The draft contains a configured credential; remove it before saving.'))
+            return value
+        def persist(value):
+            nonlocal current
+            self.session['track_draft']=value;self.store.save(self.session);current=value;refresh_state(value);self.updated.emit()
+        def save_draft():
+            try:persist(collect());state.setText(self.tr('Draft saved in this coding session.'))
+            except (ValueError,TypeError,OSError) as exc:QMessageBox.warning(dialog,self.tr('Spec & Plan draft'),str(exc))
+        def review(proposal):
+            preview=QDialog(dialog);preview.setWindowTitle(self.tr('Review project change'));preview.resize(760,520);box=QVBoxLayout(preview)
+            path=proposal['path'];operation=proposal.get('operation','create_file')
+            label=QLabel(self.tr('Review the complete change before applying it:\nProject: {project}\nOperation: {operation}\nPath: {path}').format(project=proposal['cwd'],operation=operation,path=path));label.setWordWrap(True);box.addWidget(label)
+            content=QPlainTextEdit(proposal.get('diff','') if operation!='create_directory' else self.tr('Create this directory.'));content.setReadOnly(True);box.addWidget(content)
+            controls=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);controls.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Approve and apply'));controls.accepted.connect(preview.accept);controls.rejected.connect(preview.reject);box.addWidget(controls)
+            return preview.exec()==QDialog.DialogCode.Accepted
+        def publish_draft():
+            if self.job:return
+            try:
+                value=collect();persist(value);result=publish(ProjectFiles(self.session['path_snapshot']),value,review,persist)
+                if result['status']=='completed':
+                    self.session.pop('track_draft',None);self.store.save(self.session);self.updated.emit();QMessageBox.information(dialog,self.tr('Spec & Plan draft'),self.tr('Track files created. Reopen Spec & Plan to inspect them.'));dialog.accept()
+                else:state.setText(self.tr('Stopped at {path}. Approved changes remain; save or retry this draft to continue.').format(path=result['last_path']))
+            except (ValueError,TypeError,OSError) as exc:QMessageBox.warning(dialog,self.tr('Spec & Plan draft'),self.tr('Publication stopped. Any approved earlier changes remain. {reason}').format(reason=str(exc)))
+        def ask_heavy():
+            if self.job:return
+            from .track_drafting import prepare,request,validate_history
+            from .ui import Job
+            try:
+                initial=collect();connection=self.role_connection('heavy')
+                if not connection:raise ValueError(self.tr('Choose a Heavy model first.'))
+                if initial['created_dirs'] or initial['written']:raise ValueError(self.tr('A partially published draft cannot be regenerated.'))
+                history=validate_history(self.session.get('track_draft_conversation',[]));secrets=known_secrets()
+                endpoint=core.endpoint(connection,'chat')
+            except (ValueError,TypeError,OSError) as exc:QMessageBox.warning(dialog,self.tr('Draft with Heavy'),str(exc));return
+            ai=QDialog(dialog);ai.setWindowTitle(self.tr('Draft with Heavy'));ai.resize(720,560);box=QVBoxLayout(ai)
+            info=QLabel(self.tr('Heavy model: {model}\nEndpoint: {endpoint}\nYour requirements, displayed conversation, and current draft are sent. No project files or tools are automatically supplied. Model output is untrusted and must be reviewed.').format(model=connection['model'],endpoint=endpoint));info.setWordWrap(True);box.addWidget(info)
+            transcript=QPlainTextEdit();transcript.setReadOnly(True);box.addWidget(transcript,1)
+            def show_history():transcript.setPlainText('\n\n'.join(('You: ' if item['role']=='user' else 'Heavy: ')+item['text'] for item in history))
+            show_history();question=QPlainTextEdit();question.setPlaceholderText(self.tr('Enter requirements, a revision request, or answer the question'));question.setMaximumHeight(100);box.addWidget(question)
+            status=QLabel();status.setWordWrap(True);box.addWidget(status)
+            actions=QHBoxLayout();box.addLayout(actions);send=QPushButton(self.tr('Send'));cancel=QPushButton(self.tr('Cancel request'));apply=QPushButton(self.tr('Apply proposed draft'));clear=QPushButton(self.tr('Clear conversation'));close=QPushButton(self.tr('Close'))
+            for control in (send,cancel,apply,clear,close):actions.addWidget(control)
+            cancel.setEnabled(False);apply.setEnabled(False);pending={'draft':None,'job':None,'token':None}
+            def busy(value):
+                send.setEnabled(not value);question.setReadOnly(value);clear.setEnabled(not value);cancel.setEnabled(value);apply.setEnabled(not value and pending['draft'] is not None)
+            def stop():
+                if pending['job'] is not None:
+                    pending['job'].cancel.set();pending['job']=None;pending['token']=None;self.job=None;self._drafting_active=False;busy(False);status.setText(self.tr('Draft request cancelled.'));self.updated.emit()
+            def clear_history():
+                history.clear();self.session.pop('track_draft_conversation',None);self.store.save(self.session);pending['draft']=None;apply.setEnabled(False);show_history();self.updated.emit()
+            def send_request():
+                if pending['job'] is not None or self.job:return
+                user_text=question.toPlainText().strip()
+                try:
+                    body=prepare(connection,initial,history,user_text,secrets);seconds=min(coding_limits(self.session.get('coding_limits'))['model_seconds'],coding_limits(self.session.get('coding_limits'))['turn_seconds'])
+                except (ValueError,TypeError,OSError) as exc:status.setText(str(exc));return
+                token=uuid.uuid4().hex;pending['token']=token;pending['draft']=None;busy(True);status.setText(self.tr('Waiting for Heavy…'))
+                def done(value):
+                    nonlocal initial
+                    if self._closed or pending['token']!=token:return
+                    pending['token']=None;pending['job']=None;self.job=None;self._drafting_active=False
+                    response=value['question'] if value['kind']=='question' else self.tr('A draft was proposed for review; unapplied proposals are not retained.')
+                    updated=(history+[{'role':'user','text':user_text},{'role':'assistant','text':response}])[-12:]
+                    prior=self.session.get('track_draft_conversation')
+                    self.session['track_draft_conversation']=updated
+                    try:self.store.save(self.session)
+                    except Exception:
+                        if prior is None:self.session.pop('track_draft_conversation',None)
+                        else:self.session['track_draft_conversation']=prior
+                        busy(False);status.setText(self.tr('Could not save the drafting conversation. No draft was changed.'));self.updated.emit();return
+                    history[:]=updated;show_history();question.clear()
+                    if value['kind']=='draft':
+                        pending['draft']=value['draft'];initial=value['draft'];preview=json.dumps({k:value['draft'][k] for k in ('metadata','spec','plan')},ensure_ascii=False,indent=2);transcript.appendPlainText('\n'+self.tr('Proposed draft:')+'\n'+preview);status.setText(self.tr('Review the entire proposal before applying it.'))
+                    else:status.setText(self.tr('Answer the question and send again.'))
+                    busy(False);self.updated.emit()
+                def failed(_message):
+                    if self._closed or pending['token']!=token:return
+                    pending['token']=None;pending['job']=None;self.job=None;self._drafting_active=False;busy(False);status.setText(self.tr('Draft request failed or returned an invalid response. No draft was changed.'));self.updated.emit()
+                job=Job(lambda emit,cancel_event:request(connection,body,cancel_event,seconds,secrets),done,failed);pending['job']=job;self.job=job;self._drafting_active=True;self.updated.emit()
+            def apply_proposal():
+                proposed=pending['draft']
+                if not proposed:return
+                metadata.setPlainText(json.dumps(proposed['metadata'],ensure_ascii=False,indent=2));spec.setPlainText(proposed['spec']);plan.setPlainText(proposed['plan']);ai.accept()
+            self._drafting_cancel_callback=stop
+            send.clicked.connect(send_request);cancel.clicked.connect(stop);clear.clicked.connect(clear_history);apply.clicked.connect(apply_proposal);close.clicked.connect(ai.reject);ai.finished.connect(lambda *_:stop());ai.exec();self._drafting_cancel_callback=None
+        ask_button.clicked.connect(ask_heavy);save_button.clicked.connect(save_draft);publish_button.clicked.connect(publish_draft);close_button.clicked.connect(dialog.reject);dialog.exec()
+
     def edit_project_memory(self):
         from .project_memory import ProjectMemory,validate_entry,digest
         if not self.window.repositories.get(self.session['project_id']):
@@ -662,7 +969,9 @@ class CodeTab(QWidget):
             advice=self.role_connection('decision') if self.advice_enabled.isChecked() else None
             if self.advice_enabled.isChecked() and not advice:raise ValueError(self.tr('Choose a Decision model before enabling safety advice.'))
             destination=(self.roles['decision'][0].currentText()+' / '+advice['model']+' / '+core.endpoint(advice,'decision')) if advice else ''
-            if not heavy or not self.composer.toPlainText().strip():raise ValueError(self.tr('Choose a heavy model and enter a coding task'))
+            prompt=self.composer.toPlainText();ident=self.session.get('selected_track')
+            if not heavy or (not prompt.strip() and not ident):raise ValueError(self.tr('Choose a heavy model and enter a coding task or select a track'))
+            if not prompt.strip():prompt=self.tr('Work on the selected project track. Inspect the project and report progress against its task IDs.')
             context=self.session.get('coding_context') if self.use_context.isChecked() else None
             if context:
                 from .context_compaction import coding_effective_context
@@ -693,9 +1002,17 @@ class CodeTab(QWidget):
             unsupported_roles={role for role,connection in role_models.items() if connection and unsupported(self.store.config,self.subagent_capability_connection(role,connection))}
             from .project_memory import ProjectMemory
             project_memory=ProjectMemory(self.store.root/'history.sqlite3',self.session['project_id']) if self.window.repositories.get(self.session['project_id']) else None
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory)
+            selected=None
+            if ident:
+                from .track_execution import prepare_track
+                secrets=[(connection or {}).get('api_key','') for connection in (heavy,light,alternate,alternate2)]+[backend.get('key','') for backend in backends]
+                for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
+                files=ProjectFiles(self.session['path_snapshot']);limit=coding_limits(self.session.get('coding_limits'))['context_bytes'];selected=prepare_track(files,ident,secrets,limit)
+                if not self.review_selected_track(selected,heavy,prompt):return
+                if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected)
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
-        self.remember_prompt(self.composer.toPlainText())
+        if self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.')
         if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[provider])
@@ -815,6 +1132,14 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
+        if kind=='track_progress':
+            from .track_execution import validate_progress,projected_plan
+            try:
+                selected=getattr(self.job,'selected_track',None)
+                if not selected:return
+                progress=validate_progress(event.get('progress'));projected_plan(selected,progress)
+            except (ValueError,TypeError):return
+            self.session['track_progress']=progress;self.store.save(self.session);self.updated.emit();return
         if kind=='working_notes':
             from .code_artifacts import validate_notes
             try:notes=validate_notes(event.get('notes'))
@@ -966,6 +1291,9 @@ class CodeTab(QWidget):
 
     def cancel(self):
         if not self.job:return
+        if getattr(self,'_drafting_active',False):
+            if self._drafting_cancel_callback:self._drafting_cancel_callback()
+            return
         if getattr(self,'_compaction_active',False):
             self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
         self.job.stop()

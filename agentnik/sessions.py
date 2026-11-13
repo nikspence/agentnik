@@ -75,6 +75,25 @@ def validate_session(value, ident=None):
         require(isinstance(activity,list) and len(activity)<=(32 if data['version']==4 else MAX_CODE_ACTIVITY_EVENTS))
         require(all(isinstance(e,dict) and isinstance(e.get('kind'),str) and isinstance(e.get('text'),str) and len(e['text'])<=2048 for e in activity))
         require(sum(len(e['text']) for e in activity)<=MAX_CODE_ACTIVITY_CHARS)
+        if 'selected_track' in data:
+            from .tracks import IDENTIFIER
+            require(isinstance(data['selected_track'],str) and IDENTIFIER.fullmatch(data['selected_track']) is not None)
+        if 'track_progress' in data:
+            from .track_execution import validate_progress
+            try:validate_progress(data['track_progress'])
+            except (ValueError,TypeError,UnicodeError,RecursionError):require(False)
+        if 'track_edit_draft' in data:
+            from .track_editing import validate_edit
+            try:validate_edit(data['track_edit_draft'])
+            except (ValueError,TypeError,UnicodeError,RecursionError):require(False)
+        if 'track_draft_conversation' in data:
+            from .track_drafting import validate_history
+            try:validate_history(data['track_draft_conversation'])
+            except (ValueError,TypeError):require(False)
+        if 'track_draft' in data:
+            from .track_authoring import validate_draft
+            try:validate_draft(data['track_draft'])
+            except (ValueError,TypeError,UnicodeError):require(False)
         if 'coding_subagents' in data:
             from .subagent_status import validate_records
             try:validate_records(data['coding_subagents'])

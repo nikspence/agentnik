@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "sample_feature",
+  "title": "Sample feature",
+  "explanation": "Inspect, implement, then verify.",
+  "tasks": [
+    {"id": "inspect", "phase": "Discovery", "step": "Inspect the existing contract", "status": "completed", "evidence": [{"status": "unknown", "detail": "Model reported inspection; no independent check recorded."}]},
+    {"id": "implement", "phase": "Implementation", "step": "Implement the feature", "status": "in_progress", "evidence": []},
+    {"id": "verify", "phase": "Validation", "step": "Run focused checks", "status": "pending", "evidence": [{"status": "not_run", "detail": "Checks have not run."}]}
+  ]
+}
