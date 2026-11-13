@@ -1,5 +1,6 @@
 """User-configured independent review with mocked endpoints and offscreen Qt."""
 import copy
+import io
 import json
 import os
 from pathlib import Path
@@ -11,13 +12,69 @@ from unittest.mock import patch
 
 from agentnik import core
 from agentnik.direct_review import DirectReviewRun
-from test_compat_tools import chat
-from test_routing import Wire
+from test_compat_tools import chat, msg
+from test_routing import Wire, message, response
 
 MODEL={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer','stream':False}
 
 
 class DirectReview(unittest.TestCase):
+    def test_streamed_protocol_results_reach_the_findings_view(self):
+        output='{"version":1,"findings":[]}'
+        cases=[('chat',dict(MODEL,stream=True),[{'choices':[{'delta':{'content':output},'finish_reason':'stop'}]}]),
+               ('messages',dict(MODEL,protocol='messages',stream=True),[
+                   {'type':'message_start','message':{'role':'assistant','content':[]}},
+                   {'type':'content_block_start','index':0,'content_block':{'type':'text','text':''}},
+                   {'type':'content_block_delta','index':0,'delta':{'type':'text_delta','text':output}},
+                   {'type':'content_block_stop','index':0},
+                   {'type':'message_delta','delta':{'stop_reason':'end_turn'}},
+                   {'type':'message_stop'}]),
+               ('responses',dict(MODEL,protocol='responses',stream=True),[{'type':'response.completed','response':response([message(output)])}]),
+               ('ollama',dict(MODEL,url='http://localhost:11434',stream=True),[{'message':{'role':'assistant','content':output},'done':True}])]
+        for name,connection,reply in cases:
+            with self.subTest(protocol=name),tempfile.TemporaryDirectory() as root:
+                Path(root,'spec.md').write_text('SPEC',encoding='utf-8')
+                run=DirectReviewRun(root,'spec.md',[{'role':'design','model':'light','paths':[]}],{'light':connection});events=[]
+                def send(selected,url,body,timeout):
+                    if name!='ollama':return Wire(reply)
+                    wire=io.BytesIO(('\n'.join(json.dumps(item) for item in reply)+'\n').encode());wire.headers={'Content-Type':'application/x-ndjson'};return wire
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+                with patch.object(core,'open_request',side_effect=send) as transport:run.run(emit)
+                self.assertEqual(transport.call_count,1)
+                result=next(e['review'] for e in events if e['kind']=='independent_review_result' and e['review']['pass_status']!='pending')
+                self.assertEqual(result['pass_status'],'completed',events);self.assertEqual(result['structured']['status'],'valid',events)
+
+    def test_protocol_transport_parses_complete_results_and_discards_incomplete_results(self):
+        finding={'version':1,'findings':[{'severity':'low','title':'Review item','rationale':'Inspect this','location':'','assumptions':'','verification':''}]}
+        output=json.dumps(finding)
+        cases=[('chat',MODEL,lambda complete:chat(output,finish='stop' if complete else None)),
+               ('messages',dict(MODEL,protocol='messages'),lambda complete:msg([{'type':'text','text':output}],stop='end_turn' if complete else None)),
+               ('responses',dict(MODEL,protocol='responses'),lambda complete:response([message(output)],status='completed' if complete else 'in_progress')),
+               ('ollama',dict(MODEL,url='http://localhost:11434'),lambda complete:{'message':{'role':'assistant','content':output},'done':complete})]
+        for name,connection,reply in cases:
+            for complete in (True,False):
+                with self.subTest(protocol=name,complete=complete),tempfile.TemporaryDirectory() as root:
+                    Path(root,'spec.md').write_text('SPEC',encoding='utf-8')
+                    run=DirectReviewRun(root,'spec.md',[{'role':'design','model':'light','paths':[]}],{'light':connection});events=[];requests=[]
+                    def send(selected,url,body,timeout):
+                        requests.append((url,copy.deepcopy(body)))
+                        return Wire(reply(complete),False)
+                    def emit(event):
+                        events.append(event)
+                        if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+                    with patch.object(core,'open_request',side_effect=send):run.run(emit)
+                    self.assertEqual(len(requests),1,events)
+                    proposal=next(e['proposal'] for e in events if e['kind']=='operation_proposal')
+                    url,body=requests[0];self.assertEqual(url,proposal['destination'])
+                    self.assertEqual(body['input' if name=='responses' else 'messages'][0]['content'],proposal['diff'])
+                    self.assertNotIn('tools',body)
+                    result=next(e['review'] for e in events if e['kind']=='independent_review_result' and e['review']['pass_status']!='pending')
+                    self.assertEqual(result['pass_status'],'completed' if complete else 'failed',events)
+                    self.assertEqual(len(result['structured']['findings']),int(complete),events)
+                    if complete:self.assertEqual(result['structured']['findings'][0]['title'],'Review item')
+
     def test_protocol_adapters_receive_only_the_approved_fresh_input(self):
         from agentnik import compat_tools, ollama_tools, responses_tools
         cases=[('chat',MODEL,compat_tools),('messages',dict(MODEL,protocol='messages'),compat_tools),

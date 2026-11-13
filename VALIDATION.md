@@ -285,6 +285,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 Offline adapter mocks exercise direct reviews through Chat Completions, Messages, Responses and native Ollama routing. They check the exact approved single-message input, selected evidence, exclusion of credentials and unselected project files, tool-free requests, Responses `store: false`, and failure without retry for unexpected tool calls. Existing mocked transport and offscreen tests cover approval, cancellation and persistence. These adapter checks do not exercise provider wire compatibility, live model behavior or provider-side isolation.
 
+Simulated transport also runs the real direct-review adapters for all four routes with completed and incomplete non-streaming replies and successful streaming replies. Completed structured findings are parsed; incomplete replies fail without findings or automatic retry. These fixtures do not establish compatibility with live providers.
+
 ## Document Reader qualification
 
 Offline generated fixtures cover bounded UTF-8 text, DOCX paragraphs, XLSX cached values, oversized archive rejection, PDF text extraction and PNG page rendering. Request serialization retains both extracted PDF text and images for Chat Completions, Responses, Messages and native Ollama. Qt tests cover draft storage, saved-prompt payloads, attachment removal and reader preview. Full suite: 292 passing tests; compileall and git diff --check passed. Offscreen reader and Chat layout screenshots were reviewed. No live multimodal model request, native manual trial, OCR, or release packaging qualification was performed.
