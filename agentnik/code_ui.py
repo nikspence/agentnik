@@ -230,6 +230,7 @@ class CodeTab(QWidget):
         disclosure=QLabel(self.tr('When enabled, each shell proposal sends its command, working directory, shell, and environment variable names to the selected Decision endpoint. Environment values are not sent. Advice never approves a command.'))
         disclosure.setWordWrap(True);model_layout.addWidget(disclosure)
         self.skills_button=QPushButton();self.skills_button.clicked.connect(self.choose_skills);options.addWidget(self.skills_button);self.refresh_skills_button()
+        self.memory_button=QPushButton(self.tr('Project memory…'));self.memory_button.clicked.connect(self.edit_project_memory);options.addWidget(self.memory_button)
         self.notes_button=QPushButton(self.tr('Working notes…'));self.notes_button.clicked.connect(self.edit_working_notes);options.addWidget(self.notes_button)
         self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);options.addWidget(self.skills_history_button)
         self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setToolTip(self.tr('Allow Light delegation, parallel analysis, and independent reviews. Heavy may choose either configured alternate for parallel tasks or reviews; alternates are not fallbacks. Each project file sent to a subagent requires approval; optional read, glob, and grep tools only inspect approved snapshots. Run limits are shared.'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
@@ -423,6 +424,42 @@ class CodeTab(QWidget):
         self.skills_button.setText(self.tr('Skills ({count})').format(count=len(names)) if names else self.tr('Skills…'))
         self.skills_button.setToolTip(', '.join(names) if names else self.tr('Choose skills'))
 
+    def edit_project_memory(self):
+        from .project_memory import ProjectMemory,validate_entry,digest
+        if not self.window.repositories.get(self.session['project_id']):
+            QMessageBox.warning(self,self.tr('Project memory'),self.tr('This project is no longer registered.'));return
+        memory=ProjectMemory(self.store.root/'history.sqlite3',self.session['project_id'])
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Project memory'));dialog.resize(720,520)
+        layout=QVBoxLayout(dialog);hint=QLabel(self.tr('Entries are shared by coding sessions for this project. Memory may be stale and does not override project instructions. Select an entry to edit or delete it.'));hint.setWordWrap(True);layout.addWidget(hint)
+        listing=QListWidget();layout.addWidget(listing);metadata=QLabel();layout.addWidget(metadata);editor=QPlainTextEdit();layout.addWidget(editor)
+        actions=QHBoxLayout();layout.addLayout(actions)
+        add=QPushButton(self.tr('New'));save=QPushButton(self.tr('Save'));delete=QPushButton(self.tr('Delete'))
+        for button in (add,save,delete):actions.addWidget(button)
+        close=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);close.rejected.connect(dialog.reject);layout.addWidget(close)
+        state={'entry':None}
+        def refresh():
+            listing.clear()
+            for entry in memory.list():
+                item=QListWidgetItem(entry['title']+(' · '+self.tr('May be stale') if entry['stale'] else ''));item.setData(Qt.ItemDataRole.UserRole,entry);listing.addItem(item)
+        def select(item):
+            if item is None:return
+            entry=item.data(Qt.ItemDataRole.UserRole);state['entry']=entry
+            metadata.setText(self.tr('Created: {created} · Updated: {updated}').format(created=entry['created'],updated=entry['updated']))
+            editor.setPlainText(json.dumps({k:entry[k] for k in ('title','text','source','stale')},ensure_ascii=False,indent=2))
+        def new():
+            listing.clearSelection();state['entry']=None;metadata.clear();editor.setPlainText(json.dumps({'title':'','text':'','source':'','stale':False},indent=2))
+        def store_entry():
+            try:
+                value=validate_entry(json.loads(editor.toPlainText()));old=state['entry'];prior={k:old[k] for k in ('title','text','source','stale')} if old else None
+                memory.save(value,old['id'] if old else None,digest(prior) if old else None);refresh();new()
+            except (ValueError,TypeError,OSError) as exc:QMessageBox.warning(dialog,self.tr('Project memory'),str(exc))
+        def remove():
+            old=state['entry']
+            if old and QMessageBox.question(dialog,self.tr('Delete memory'),self.tr('Delete this project memory entry?'))==QMessageBox.StandardButton.Yes:
+                try:memory.delete(old['id'],digest({k:old[k] for k in ('title','text','source','stale')}));refresh();new()
+                except ValueError as exc:QMessageBox.warning(dialog,self.tr('Project memory'),str(exc))
+        listing.currentItemChanged.connect(lambda item,_:select(item));add.clicked.connect(new);save.clicked.connect(store_entry);delete.clicked.connect(remove);refresh();new();dialog.exec()
+
     def edit_working_notes(self):
         from .code_artifacts import validate_notes
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Working notes'));dialog.resize(640,440)
@@ -582,7 +619,9 @@ class CodeTab(QWidget):
             from .subagent_capabilities import unsupported
             role_models={'light':light,'alternate':alternate,'alternate2':alternate2}
             unsupported_roles={role for role,connection in role_models.items() if connection and unsupported(self.store.config,self.subagent_capability_connection(role,connection))}
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}))
+            from .project_memory import ProjectMemory
+            project_memory=ProjectMemory(self.store.root/'history.sqlite3',self.session['project_id']) if self.window.repositories.get(self.session['project_id']) else None
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory)
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.remember_prompt(self.composer.toPlainText())
         self.advice_connection=advice;self.advice_destination=destination
@@ -597,7 +636,7 @@ class CodeTab(QWidget):
             self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.send.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
+        self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -808,6 +847,8 @@ class CodeTab(QWidget):
                 text=self.tr('{operation}\nProject: {cwd}\nFiles: {path}\nWorking files will remain unchanged. Review the index diff below.').format(operation=label,cwd=proposal['cwd'],path=proposal['path'])
             elif operation=='git_create_branch':
                 text=self.tr('CREATE BRANCH\nProject: {cwd}\nBranch: {name}\nStarting commit: {head}\nThe current branch will remain selected.').format(**proposal)
+            elif operation=='project_memory':
+                text=self.tr('PROJECT MEMORY PROPOSAL\nProject: {project}\nReview the complete proposed entry and previous value below.').format(project=proposal['cwd'])+'\n\n'+json.dumps({'previous':proposal['previous'],'proposed':proposal['entry']},ensure_ascii=False,indent=2)
             elif operation=='run_shell':
                 text=self.tr('SHELL COMMAND\nWorking directory: {cwd}\nShell: {shell}\nTime limit: up to {seconds} seconds; output limit: {size} bytes.\nThe command runs with your account permissions, including network and access outside the project. It is not sandboxed.\nInherited environment variables: {environment}\n\nCommand:\n{command}').format(cwd=proposal['cwd'],shell=proposal['shell'],seconds=proposal['max_seconds'],size=proposal['max_output_bytes'],environment=', '.join(proposal['environment_keys']),command=proposal['command'])
             else:
@@ -847,7 +888,7 @@ class CodeTab(QWidget):
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
         self.send.setEnabled(True)
-        self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
+        self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 
