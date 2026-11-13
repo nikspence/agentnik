@@ -1,4 +1,17 @@
-# Agentnik v0.8.4
+# Agentnik v0.8.5
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.8.4
+
+- **Spec & Plan:** create, inspect and edit project tracks, select a track for a reviewed coding run, and reconcile model-reported progress using user-selected statuses, evidence and file-diff approval. Track reports and evidence are not independently verified.
+- **Context and memory:** inspect and manually compact chat and coding context, or enable automatic compaction between runs. Project-scoped memory, working notes and artifact references help preserve useful information across work.
+- **Coding tools:** structured test results, context-usage reporting and bounded code and document outlines add tools for navigating projects and managing context.
+- **Usability and limits:** coding prompt history, selection autoscroll, a collapsed previous-command display and increased default coding and chat-research limits. Simulation was removed.
+
+Offline tests use mocked providers and offscreen Qt; live model behavior is not qualified. Build-host startup evidence is recorded in BUILD-MANIFEST.json. Clean-machine installation, full native workflows, macOS/Linux, signing and a complete bundled-library license review remain open.
+
+## Earlier release: v0.8.4
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
