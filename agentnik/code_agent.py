@@ -992,7 +992,7 @@ class CodingRun:
                             for index,item in enumerate(requested,1):
                                 if not isinstance(item,dict) or set(item)!={'role','model','paths'} or not isinstance(item['role'],str) or item['role'] not in REVIEW_RUBRICS or not isinstance(item['model'],str) or not models.get(item['model']) or not isinstance(item['paths'],list) or len(item['paths'])>3 or (item['role']=='comprehension' and item['paths']):raise ProjectToolError('Invalid review pass, model, or evidence selection.')
                                 model=models[item['model']];snapshot=prepare_snapshot(files,args['path'],STRUCTURED_INSTRUCTIONS+REVIEW_RUBRICS[item['role']],secrets,json.dumps(item['paths']) if item['paths'] else None,lambda:runtime.charge('calls',1,runtime.limits.calls))
-                                proposal={'operation':'independent_review','role':item['role'],'cwd':str(files.root),'path':args['path'],'model':model['model'],'destination':core.endpoint(model).split('?',1)[0],'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes'],'batch_pass':index}
+                                proposal={'operation':'independent_review','role':item['role'],'cwd':str(files.root),'path':args['path'],'model':model['model'],'destination':core.endpoint(model).split('?',1)[0],'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'target_payload_sha256':snapshot['target_payload_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes'],'batch_pass':index}
                                 passes.append({'approved':False,'connection':model,'proposal':proposal,'snapshot':snapshot})
                             for item in passes:
                                 allowed=review(item['proposal'],lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal');runtime.check()
@@ -1001,7 +1001,7 @@ class CodingRun:
                             batch_id=uuid.uuid4().hex;cancellations=[threading.Event() for _ in passes];ids=[batch_id+'-'+str(i+1) for i in range(len(passes))]
                             track_context={'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None
                             def pending_review(ident,item):
-                                p=item['proposal'];return {'id':ident,'role':p['role'],'rubric_version':RUBRIC_VERSION,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':p['model'],'path':p['path'],'source_sha256':p['source_sha256'],'payload_sha256':p['payload_sha256'],'evidence':p['evidence'],'track_context':track_context,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
+                                p=item['proposal'];return {'id':ident,'role':p['role'],'rubric_version':RUBRIC_VERSION,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':p['model'],'path':p['path'],'source_sha256':p['source_sha256'],'target_payload_sha256':p['target_payload_sha256'],'payload_sha256':p['payload_sha256'],'evidence':p['evidence'],'track_context':track_context,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
                             if self.save_review_progress:
                                 with self.lock:self.manifest_saved=False;self.manifest_ack.clear()
                                 event('independent_review_manifest',snapshot_id=batch_id,reviews=[pending_review(ident,item) for ident,item in zip(ids,passes)])
@@ -1031,7 +1031,7 @@ class CodingRun:
                                         for key,value in outcome['usage'].items():
                                             if value is not None:usage['Light'][key]+=value;usage['Light'][key.replace('tokens','missing')]-=1
                                 else:outcome['usage']={'input_tokens':None,'output_tokens':None};outcome['structured']={'status':'not_available','findings':[]}
-                                review={'id':ident,'role':outcome['role'],'rubric_version':RUBRIC_VERSION,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':outcome['model'],'path':args['path'],'source_sha256':outcome['source_sha256'],'payload_sha256':outcome['payload_sha256'],'evidence':outcome['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':outcome['status'],'structured':outcome['structured']}
+                                review={'id':ident,'role':outcome['role'],'rubric_version':RUBRIC_VERSION,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':outcome['model'],'path':args['path'],'source_sha256':outcome['source_sha256'],'target_payload_sha256':item['proposal']['target_payload_sha256'],'payload_sha256':outcome['payload_sha256'],'evidence':outcome['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':outcome['status'],'structured':outcome['structured']}
                                 if outcome['status']=='completed':review['measurements']={**outcome['usage'],'elapsed_seconds':outcome['elapsed_seconds']}
                                 if outcome.get('reason'):review['reason']=outcome['reason']
                                 event('independent_review_result',review=review)
@@ -1064,7 +1064,7 @@ class CodingRun:
                             snapshot=prepare_snapshot(files,args['path'],rubric,secrets,args['paths'] if call.name in ('review_document_evidence','review_document_structured') else None,lambda:runtime.charge('calls',1,runtime.limits.calls))
                             prompt=snapshot['prompt'];source_hash=snapshot['source_sha256']
                             proposal={'operation':'independent_review','role':role,'cwd':str(files.root),'path':args['path'],'model':model['model'],'destination':core.endpoint(model).split('?',1)[0],
-                                      'diff':prompt,'source_sha256':source_hash,'evidence':snapshot['evidence'],
+                                      'diff':prompt,'source_sha256':source_hash,'target_payload_sha256':snapshot['target_payload_sha256'],'evidence':snapshot['evidence'],
                                       'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
                             allowed=review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal');runtime.check()
                             if not allowed:raise ProjectToolError('Independent review rejected; no request was sent.')

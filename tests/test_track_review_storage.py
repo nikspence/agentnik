@@ -28,6 +28,7 @@ class TrackReviewStorage(unittest.TestCase):
 
     def test_approval_and_append_preserve_existing_history(self):
         self.snapshot['reviews'][0]['rubric_version']=1
+        self.snapshot['reviews'][0]['target_payload_sha256']='f'*64
         self.snapshot['reviews'][0]['endpoint']={'protocol':'chat','origin':'https://example.invalid'}
         self.snapshot['reviews'][0]['measurements']={'input_tokens':10,'output_tokens':None,'elapsed_seconds':1.25}
         self.assertEqual(read_sidecar(self.files,'sample_feature')['snapshots'],[])

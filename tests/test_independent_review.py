@@ -31,6 +31,10 @@ class IndependentReviewSnapshots(unittest.TestCase):
         self.assertEqual(validate_review_history(history),history)
         review['rubric_version']=1;self.assertEqual(validate_review_history(history),history)
         review['endpoint']={'protocol':'chat','origin':'https://example.invalid'};self.assertEqual(validate_review_history(history),history)
+        review['target_payload_sha256']='e'*64;self.assertEqual(validate_review_history(history),history)
+        review['target_payload_sha256']='bad'
+        with self.assertRaises(ValueError):validate_review_history(history)
+        review['target_payload_sha256']='e'*64
         for invalid in (True,0,2,'1'):
             review['rubric_version']=invalid
             with self.subTest(rubric_version=invalid),self.assertRaises(ValueError):validate_review_history(history)
@@ -55,7 +59,7 @@ class IndependentReviewSnapshots(unittest.TestCase):
             Path(root,'spec.md').write_text('spec',encoding='utf-8');files=ProjectFiles(root);snapshot=prepare_snapshot(files,'spec.md','rubric ',[]);passes=[]
             for name in ('one','two'):
                 connection={'url':'https://'+name+'.example.invalid/v1','protocol':'chat','model':name,'stream':False}
-                proposal={'operation':'independent_review','role':'design','cwd':root,'path':'spec.md','model':name,'destination':core.endpoint(connection),'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
+                proposal={'operation':'independent_review','role':'design','cwd':root,'path':'spec.md','model':name,'destination':core.endpoint(connection),'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'target_payload_sha256':snapshot['target_payload_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
                 passes.append({'approved':True,'connection':connection,'proposal':proposal,'snapshot':snapshot})
             barrier=threading.Barrier(2);calls=[];lock=threading.Lock()
             def send(connection,body,child):
@@ -72,7 +76,7 @@ class IndependentReviewSnapshots(unittest.TestCase):
             Path(root,'spec.md').write_text('spec',encoding='utf-8');files=ProjectFiles(root);snapshot=prepare_snapshot(files,'spec.md','rubric ',[]);passes=[]
             for name in ('fast','slow'):
                 connection={'url':'https://'+name+'.example.invalid/v1','protocol':'chat','model':name,'stream':False}
-                proposal={'operation':'independent_review','role':'design','cwd':root,'path':'spec.md','model':name,'destination':core.endpoint(connection),'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
+                proposal={'operation':'independent_review','role':'design','cwd':root,'path':'spec.md','model':name,'destination':core.endpoint(connection),'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'target_payload_sha256':snapshot['target_payload_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
                 passes.append({'approved':True,'connection':connection,'proposal':proposal,'snapshot':snapshot})
             started=threading.Barrier(2);release=threading.Event();done=threading.Event();updates=[];result=[]
             def send(connection,body,child):
@@ -93,7 +97,7 @@ class IndependentReviewSnapshots(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             source=Path(root,'spec.md');source.write_text('spec',encoding='utf-8');files=ProjectFiles(root);snapshot=prepare_snapshot(files,'spec.md','rubric ',[])
             connection={'url':'https://one.example.invalid/v1','protocol':'chat','model':'one','stream':False}
-            proposal={'operation':'independent_review','role':'design','cwd':root,'path':'spec.md','model':'one','destination':core.endpoint(connection),'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
+            proposal={'operation':'independent_review','role':'design','cwd':root,'path':'spec.md','model':'one','destination':core.endpoint(connection),'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'target_payload_sha256':snapshot['target_payload_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
             item={'approved':True,'connection':connection,'proposal':proposal,'snapshot':snapshot}
             def change(connection,body,child):source.write_text('changed',encoding='utf-8');return 'stale finding'
             result=execute_review_batch(files,[item],Runtime(),change,[threading.Event()],model_timeout=5)
@@ -109,13 +113,13 @@ class IndependentReviewSnapshots(unittest.TestCase):
             path=Path(root,'spec.md');path.write_text('specification',encoding='utf-8');files=ProjectFiles(root)
             snapshot=prepare_snapshot(files,'spec.md','rubric ',[])
             connection={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer','api_key':'secret','stream':False}
-            proposal={'operation':'independent_review','role':'design','cwd':root,'path':'spec.md','model':'reviewer','destination':core.endpoint(connection),'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
+            proposal={'operation':'independent_review','role':'design','cwd':root,'path':'spec.md','model':'reviewer','destination':core.endpoint(connection),'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'target_payload_sha256':snapshot['target_payload_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
             item={'approved':True,'connection':connection,'proposal':proposal,'snapshot':snapshot}
             runtime=Runtime(limits=Limits(requests=3,context_bytes=2048))
             prepared=preflight_review_batch(files,[item,copy.deepcopy(item)],runtime)
             self.assertEqual((runtime.requests,runtime.context_bytes),(2,2*snapshot['payload_bytes']))
             self.assertEqual(len(prepared),2);self.assertNotIn('secret',json.dumps(prepared))
-            for changed in (dict(item,approved=False),dict(item,proposal=dict(proposal,model='other')),dict(item,snapshot=dict(snapshot,sources=[]))):
+            for changed in (dict(item,approved=False),dict(item,proposal=dict(proposal,model='other')),dict(item,proposal=dict(proposal,target_payload_sha256='0'*64)),dict(item,snapshot=dict(snapshot,sources=[]))):
                 current=Runtime(limits=Limits(requests=3,context_bytes=2048))
                 with self.assertRaises(ValueError):preflight_review_batch(files,[item,changed],current)
                 self.assertEqual((current.requests,current.context_bytes),(0,0))
@@ -189,6 +193,7 @@ class IndependentReviewSnapshots(unittest.TestCase):
             snapshot=prepare_snapshot(files,'spec.md','Fixed rubric\n',['secret-token'],json.dumps(['source.py']),lambda:charges.append(1))
             self.assertEqual(charges,[1]);self.assertNotIn('secret-token',snapshot['prompt'])
             self.assertEqual(snapshot['source_sha256'],hashlib.sha256(b'target secret-token').hexdigest())
+            self.assertEqual(snapshot['target_payload_sha256'],hashlib.sha256(b'target [redacted]').hexdigest());self.assertNotEqual(snapshot['target_payload_sha256'],snapshot['source_sha256'])
             self.assertEqual(snapshot['payload_sha256'],hashlib.sha256(snapshot['prompt'].encode()).hexdigest())
             self.assertEqual(snapshot['payload_bytes'],len(snapshot['prompt'].encode()))
             self.assertNotEqual(snapshot['evidence'][0]['sha256'],snapshot['evidence'][0]['payload_sha256'])

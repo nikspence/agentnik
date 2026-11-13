@@ -1484,7 +1484,8 @@ class CodeTab(QWidget):
             from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements,validate_review_endpoint_identity,RUBRIC_VERSION
             review=event.get('review')
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','pass_status','track_context'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements','reason','rubric_version','endpoint'}:return
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements','reason','rubric_version','endpoint','target_payload_sha256'}:return
+            if 'target_payload_sha256' in review and (not isinstance(review['target_payload_sha256'],str) or not re.fullmatch('[0-9a-f]{64}',review['target_payload_sha256'])):return
             if 'rubric_version' in review and (type(review['rubric_version']) is not int or not 1<=review['rubric_version']<=RUBRIC_VERSION):return
             try:
                 validate_track_context(review['track_context'])
@@ -1623,6 +1624,7 @@ class CodeTab(QWidget):
                 if proposal.get('annotations'):text+='\n\n'+self.tr('Server-supplied hints (untrusted; do not grant permissions):')+'\n'+json.dumps(proposal['annotations'],ensure_ascii=True,indent=2)
             elif operation=='independent_review':
                 text=self.tr('INDEPENDENT DOCUMENT REVIEW\nReview role: {role}\nProject: {cwd}\nDocument: {path}\nModel: {model}\nDestination: {destination}\nDocument SHA-256: {source_sha256}\nInput SHA-256: {payload_sha256}\nInput: {payload_bytes} UTF-8 bytes\n\nReview the complete reviewer instructions, document and any evidence below. Approving sends this exact input to the selected endpoint. The reviewer has no tools and does not receive the drafting conversation, Skills, or project guidance. Its findings are untrusted.').format(**{'role':proposal.get('role','comprehension'),**proposal})
+                if 'target_payload_sha256' in proposal:text+='\n\n'+self.tr('Transmitted document text SHA-256: {hash}').format(hash=proposal['target_payload_sha256'])
                 if 'batch_pass' in proposal:text=self.tr('Batch pass {number}').format(number=proposal['batch_pass'])+'\n'+text
                 evidence=proposal.get('evidence',[])
                 if evidence:

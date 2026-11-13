@@ -1,5 +1,6 @@
 """User-configured independent review with mocked endpoints and offscreen Qt."""
 import copy
+import hashlib
 import io
 import json
 import os
@@ -129,6 +130,7 @@ class DirectReview(unittest.TestCase):
                     run.run(emit)
                 network.assert_not_called();self.assertEqual(len(requests),1,events)
                 selected,body=requests[0];proposal=next(e['proposal'] for e in events if e['kind']=='operation_proposal')
+                self.assertEqual(proposal['target_payload_sha256'],hashlib.sha256(b'SPEC [redacted]').hexdigest())
                 messages=body['input' if name=='responses' else 'messages']
                 self.assertEqual(len(messages),1);self.assertEqual(messages[0]['role'],'user')
                 self.assertEqual(messages[0]['content'],proposal['diff']);self.assertEqual(selected['model'],'reviewer')
@@ -137,6 +139,7 @@ class DirectReview(unittest.TestCase):
                     self.assertNotIn(private,json.dumps(body));self.assertNotIn(private,json.dumps(events))
                 if name=='responses':self.assertIs(body['store'],False)
                 self.assertTrue(any(e['kind']=='independent_review_result' and e['review']['pass_status']=='completed' for e in events),events)
+                self.assertEqual(next(e['review'] for e in events if e['kind']=='independent_review_result' and e['review']['pass_status']=='completed')['target_payload_sha256'],proposal['target_payload_sha256'])
 
     def test_direct_review_rejects_unavailable_tool_calls_without_retry(self):
         from agentnik import compat_tools
@@ -187,6 +190,7 @@ class DirectReview(unittest.TestCase):
                 self.assertIsNone(tab.job);saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual([item['pass_status'] for item in saved['coding_review_history'][0]['reviews']],['completed','completed'])
                 for item in saved['coding_review_history'][0]['reviews']:
                     self.assertEqual(item['rubric_version'],1)
+                    self.assertEqual(item['target_payload_sha256'],item['source_sha256'])
                     self.assertEqual(item['endpoint'],{'protocol':'chat','origin':'https://example.invalid'})
                     self.assertEqual(item['measurements']['input_tokens'],10);self.assertEqual(item['measurements']['output_tokens'],3);self.assertGreaterEqual(item['measurements']['elapsed_seconds'],0)
                 with patch.object(core,'open_request') as request:window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
@@ -431,6 +435,7 @@ class DirectReview(unittest.TestCase):
                 warning.assert_not_called();self.assertIsNone(tab.job);self.assertTrue(tab.review_results,warning.call_args);self.assertEqual(next(iter(tab.review_results.values()))['role'],'drift')
                 saved=next(row for row in store.list_sessions() if row['id']==session['id']);history=saved['coding_review_history'];self.assertEqual(len(history),1);self.assertEqual(history[0]['reviews'][0]['role'],'drift');self.assertEqual(history[0]['reviews'][0]['pass_status'],'completed')
                 self.assertEqual(history[0]['reviews'][0]['rubric_version'],1)
+                self.assertEqual(history[0]['reviews'][0]['target_payload_sha256'],history[0]['reviews'][0]['source_sha256'])
                 self.assertEqual(history[0]['reviews'][0]['endpoint'],{'protocol':'chat','origin':'https://example.invalid'})
                 self.assertEqual(history[0]['reviews'][0]['measurements']['input_tokens'],10);self.assertEqual(history[0]['reviews'][0]['measurements']['output_tokens'],3);self.assertGreaterEqual(history[0]['reviews'][0]['measurements']['elapsed_seconds'],0)
                 with patch.object(core,'open_request') as request:

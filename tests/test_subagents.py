@@ -650,10 +650,12 @@ class Subagents(unittest.TestCase):
                 self.assertFalse(tab.approval_panel.isHidden());self.assertFalse(tab.diff.isHidden())
                 self.assertIn('sample.txt',tab.approval.toPlainText());self.assertIn('https://example.org',tab.approval.toPlainText());self.assertIn('light',tab.approval.toPlainText());self.assertEqual(tab.diff.toPlainText(),'Exact approved text')
                 proposal.update(operation='independent_review',role='design',diff='Fixed instructions\nDocument contents')
+                proposal['target_payload_sha256']='e'*64
                 proposal['evidence']=[{'path':'evidence.txt','sha256':'c'*64,'payload_sha256':'d'*64}]
                 tab.receive({'kind':'operation_proposal','run_id':'active','fingerprint':'g','proposal':proposal})
                 self.assertIn('INDEPENDENT DOCUMENT REVIEW',tab.approval.toPlainText());self.assertIn('design',tab.approval.toPlainText());self.assertIn('a'*64,tab.approval.toPlainText());self.assertIn('b'*64,tab.approval.toPlainText())
                 self.assertIn('evidence.txt',tab.approval.toPlainText());self.assertIn('c'*64,tab.approval.toPlainText());self.assertIn('d'*64,tab.approval.toPlainText())
+                self.assertIn('Transmitted document text SHA-256',tab.approval.toPlainText());self.assertIn('e'*64,tab.approval.toPlainText())
                 self.assertEqual(tab.diff.toPlainText(),'Fixed instructions\nDocument contents');self.assertFalse(tab.diff.isHidden())
             finally:
                 if window.tabs.currentWidget():window.tabs.currentWidget().job=None
