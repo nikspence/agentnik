@@ -231,6 +231,8 @@ class Subagents(unittest.TestCase):
             records=[event['review'] for event in events if event['kind']=='independent_review_result']
             self.assertEqual({item['pass_status'] for item in records},{'pending','completed','failed'})
             failed=next(item for item in records if item['pass_status']=='failed');self.assertEqual(failed['structured'],{'status':'not_available','findings':[]});self.assertNotIn('failed endpoint',json.dumps(failed))
+            self.assertIn('batch review light: 1 request(s), input 10, output 3 tokens',events[-1]['usage'])
+            self.assertIn('batch review alternate: 1 request(s), input unknown, output unknown tokens',events[-1]['usage'])
 
     def test_parallel_independent_reviews_rejection_sends_no_children(self):
         with tempfile.TemporaryDirectory() as root:
@@ -246,6 +248,7 @@ class Subagents(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['batch_pass']==1)
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
             self.assertEqual(events[-1]['status'],'completed',events);self.assertTrue(all(body['model']=='heavy' for body in bodies))
+            self.assertNotIn('batch review',events[-1]['usage'])
             result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool');self.assertIn('rejected',result['error'])
             records=[event['review'] for event in events if event['kind']=='independent_review_result']
             self.assertEqual([record['pass_status'] for record in records],['skipped','skipped']);self.assertIn('approved pass was not submitted',records[0]['reason']);self.assertIn('was rejected',records[1]['reason'])
@@ -290,6 +293,8 @@ class Subagents(unittest.TestCase):
                 if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
             self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertIn('batch review light: 1 request(s), input 10, output 3 tokens',events[-1]['usage'])
+            self.assertIn('batch review alternate: 1 request(s), input 10, output 3 tokens',events[-1]['usage'])
             proposals=[event['proposal'] for event in events if event['kind']=='operation_proposal'];self.assertEqual(len(proposals),2)
             children=[body for body in bodies if body['model']!='heavy'];self.assertEqual(len(children),2)
             for proposal in proposals:

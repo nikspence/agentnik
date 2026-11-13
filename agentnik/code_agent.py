@@ -600,6 +600,7 @@ class CodingRun:
         usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('Heavy','Light')}
         parallel_usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('light','alternate','alternate2')}
         review_usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('light','alternate','alternate2')}
+        batch_review_usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('light','alternate','alternate2')}
         def request(role,adapter,connection,body,state):
             totals=usage[role];totals['requests']+=1
             model_runtime=Runtime(self.cancel,replace(runtime.limits,request_seconds=self.limits['model_seconds']),self.run_id)
@@ -625,7 +626,7 @@ class CodingRun:
                         missing=values[name+'_missing'];count=values[name+'_tokens']
                         fields.append(name+' '+(str(count) if missing<values['requests'] else 'unknown')+(' (known usage only)' if 0<missing<values['requests'] else ''))
                     parts.append(role+': '+str(values['requests'])+' request(s), '+', '.join(fields)+' tokens')
-            for label,breakdown in (('parallel',parallel_usage),('single review',review_usage)):
+            for label,breakdown in (('parallel',parallel_usage),('single review',review_usage),('batch review',batch_review_usage)):
                 for role,values in breakdown.items():
                     if values['requests']:
                         fields=[]
@@ -1037,10 +1038,13 @@ class CodingRun:
                             def send_review(connection,body,child):
                                 adapter=responses_tools if connection.get('protocol')=='responses' else ollama_tools if core.native_ollama(connection) else compat_tools
                                 state={}
-                                with self.lock:usage['Light']['requests']+=1;usage['Light']['input_missing']+=1;usage['Light']['output_missing']+=1
                                 _,calls=adapter.request(connection,body,child,lambda _:None,state)
                                 if calls:raise ValueError('Reviewer requested unavailable tools')
                                 return {'text':state.get('text',''),'usage':state.get('metrics',{})}
+                            def review_submitted(index):
+                                with self.lock:
+                                    for totals in (usage['Light'],batch_review_usage[requested[index]['model']]):
+                                        totals['requests']+=1;totals['input_missing']+=1;totals['output_missing']+=1
                             reported_review_ids=set()
                             def review_completed(index,outcome):
                                 ident=ids[index];item=passes[index]
@@ -1050,7 +1054,9 @@ class CodingRun:
                                     outcome['structured']=parse_structured_findings(outcome['analysis'],truncated=outcome['truncated'])
                                     with self.lock:
                                         for key,value in outcome['usage'].items():
-                                            if value is not None:usage['Light'][key]+=value;usage['Light'][key.replace('tokens','missing')]-=1
+                                            if value is not None:
+                                                for totals in (usage['Light'],batch_review_usage[requested[index]['model']]):
+                                                    totals[key]+=value;totals[key.replace('tokens','missing')]-=1
                                 else:outcome['usage']={'input_tokens':None,'output_tokens':None};outcome['structured']={'status':'not_available','findings':[]}
                                 review={'id':ident,'role':outcome['role'],'rubric_version':RUBRIC_VERSION,'batch_approved_at':batch_approved_at,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':outcome['model'],'path':args['path'],'source_sha256':outcome['source_sha256'],'target_payload_sha256':item['proposal']['target_payload_sha256'],'payload_sha256':outcome['payload_sha256'],'evidence':outcome['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':outcome['status'],'structured':outcome['structured']}
                                 if outcome['status']=='completed':review['measurements']={**outcome['usage'],'elapsed_seconds':outcome['elapsed_seconds']}
@@ -1063,7 +1069,7 @@ class CodingRun:
                                 event('subagent',subagent={'id':ident,'status':outcome['status'] if outcome['status'] in ('completed','cancelled','failed') else 'failed','text':text[:1600]});event('output',text=text[:1600])
                             try:
                                 # The complete serialized tool result is charged once before Heavy continuation.
-                                batch=execute_review_batch(files,passes,runtime,send_review,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=review_completed,on_start=review_started,charge_output=False)
+                                batch=execute_review_batch(files,passes,runtime,send_review,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=review_completed,on_start=review_started,on_submit=review_submitted,charge_output=False)
                             except Exception:
                                 for ident in ids:
                                     if ident not in reported_review_ids:event('subagent',subagent={'id':ident,'status':'failed','text':'Independent review batch stopped before completion.'})

@@ -406,7 +406,7 @@ class _CombinedCancellation:
     def wait(self, timeout=None): return self.child.wait(timeout)
 
 
-def execute_review_batch(files, passes, runtime, send, cancellations, *, model_timeout, secrets=(), on_complete=None, on_start=None, charge_output=True):
+def execute_review_batch(files, passes, runtime, send, cancellations, *, model_timeout, secrets=(), on_complete=None, on_start=None, on_submit=None, charge_output=True):
     """Run preapproved passes with bounded concurrency; no approvals or UI here.
 
     `send(connection, body, child_runtime)` performs exactly one request and
@@ -449,7 +449,10 @@ def execute_review_batch(files, passes, runtime, send, cancellations, *, model_t
             if not sources_unchanged(files, item['sources']):
                 output.put((index, 'stale', {'reason':'A reviewed source changed or could not be read before the request.'})); return
             body = build_review_request(connections[index], item['proposal'])
-            response = child.wait(lambda: send(connections[index], body, child))
+            def submit():
+                if on_submit is not None:on_submit(index)
+                return send(connections[index], body, child)
+            response = child.wait(submit)
             child.check()
             if not sources_unchanged(files, item['sources']):
                 output.put((index, 'stale', {'reason':'A reviewed source changed or could not be read during the request; findings were discarded.'})); return
