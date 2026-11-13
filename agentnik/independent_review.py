@@ -106,7 +106,8 @@ def validate_review_history(history):
         review_ids=set()
         for review in reviews:
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','dispositions'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context','measurements','reason'}:raise ValueError('Invalid saved review')
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context','measurements','reason','rubric_version'}:raise ValueError('Invalid saved review')
+            if 'rubric_version' in review and (type(review['rubric_version']) is not int or not 1<=review['rubric_version']<=RUBRIC_VERSION):raise ValueError('Unsupported review rubric version')
             validate_track_context(review.get('track_context'))
             status=review.get('pass_status','completed')
             if status not in ('completed','failed','cancelled','stale','skipped','interrupted'):raise ValueError('Invalid saved review status')

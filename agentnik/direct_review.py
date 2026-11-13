@@ -5,7 +5,7 @@ import uuid
 
 from . import core, compat_tools, ollama_tools, responses_tools
 from .code_agent import CodingRun, ProjectFiles, REVIEW_RUBRICS
-from .independent_review import STRUCTURED_INSTRUCTIONS, DRIFT_REVIEW_INSTRUCTIONS, REPOSITORY_FIT_INSTRUCTIONS, execute_review_batch, parse_structured_findings, prepare_snapshot
+from .independent_review import STRUCTURED_INSTRUCTIONS, DRIFT_REVIEW_INSTRUCTIONS, REPOSITORY_FIT_INSTRUCTIONS, RUBRIC_VERSION, execute_review_batch, parse_structured_findings, prepare_snapshot
 from .research import scrub
 from .tools import Limits, Runtime
 
@@ -57,7 +57,7 @@ class DirectReviewRun(CodingRun):
             track_context={'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None
             def review_record(index,status,structured):
                 proposal=passes[index]['proposal']
-                return {'id':ids[index],'role':proposal['role'],'model':proposal['model'],'path':self.target,'source_sha256':proposal['source_sha256'],'payload_sha256':proposal['payload_sha256'],'evidence':proposal['evidence'],'track_context':track_context,'pass_status':status,'structured':structured}
+                return {'id':ids[index],'role':proposal['role'],'rubric_version':RUBRIC_VERSION,'model':proposal['model'],'path':self.target,'source_sha256':proposal['source_sha256'],'payload_sha256':proposal['payload_sha256'],'evidence':proposal['evidence'],'track_context':track_context,'pass_status':status,'structured':structured}
             if self.save_progress:
                 event('independent_review_manifest',snapshot_id=self.run_id,reviews=[review_record(i,'pending',{'status':'not_available','findings':[]}) for i in range(len(passes))])
                 while not self.manifest_ack.wait(.05):runtime.check()

@@ -1481,10 +1481,11 @@ class CodeTab(QWidget):
             if not saved:self.activity.appendPlainText(self.tr('Review progress could not be saved; no reviewer requests were sent.'))
             job.acknowledge_manifest(saved);return
         if kind=='independent_review_result':
-            from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements
+            from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements,RUBRIC_VERSION
             review=event.get('review')
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','pass_status','track_context'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements','reason'}:return
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements','reason','rubric_version'}:return
+            if 'rubric_version' in review and (type(review['rubric_version']) is not int or not 1<=review['rubric_version']<=RUBRIC_VERSION):return
             try:
                 validate_track_context(review['track_context'])
                 if 'measurements' in review:

@@ -27,6 +27,7 @@ class TrackReviewStorage(unittest.TestCase):
         self.snapshot={'version':1,'id':'a'*32,'track_id':None,'reviews':[{'id':'b'*32+'-1','role':'design','model':'light','path':'spec.md','source_sha256':'c'*64,'payload_sha256':'d'*64,'evidence':[],'track_context':{'id':'sample_feature','digest':self.track['digest']},'pass_status':'completed','structured':{'status':'valid','findings':[]},'dispositions':{}}]}
 
     def test_approval_and_append_preserve_existing_history(self):
+        self.snapshot['reviews'][0]['rubric_version']=1
         self.snapshot['reviews'][0]['measurements']={'input_tokens':10,'output_tokens':None,'elapsed_seconds':1.25}
         self.assertEqual(read_sidecar(self.files,'sample_feature')['snapshots'],[])
         prepared=prepare_append(self.files,'sample_feature',self.snapshot);self.assertFalse((self.root/self.path).exists());self.assertIn('reviews.json',prepared['proposal']['diff'])
