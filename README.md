@@ -26,7 +26,7 @@ Agentnik requires Python 3.11 or newer. See [installation and launch](GETTING_ST
 
 ## Windows release
 
-The **v0.8.5** Windows x64 build is an unsigned onedir ZIP. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. Verify the accompanying SHA-256 checksum. Build-host startup results are recorded in the archive; clean-machine, full native workflow, and macOS/Linux validation remain outstanding. See [release notes](RELEASE_NOTES.md) and the archive's `BUILD-MANIFEST.json` for details.
+The **v0.8.6** Windows x64 build is an unsigned onedir ZIP. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. Verify the accompanying SHA-256 checksum. Build-host startup results are recorded in the archive; clean-machine, full native workflow, and macOS/Linux validation remain outstanding. See [release notes](RELEASE_NOTES.md) and the archive's `BUILD-MANIFEST.json` for details.
 
 ## Screenshots
 
