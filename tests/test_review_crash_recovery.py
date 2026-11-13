@@ -31,11 +31,14 @@ with patch.object(core,'discover',return_value={}),patch.object(core,'environmen
     window=Window(store);ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
     model={'url':'https://mock.invalid/v1','protocol':'chat','model':'reviewer','stream':False}
     window.connections['Review']=dict(model);box,alias=tab.roles['light'];box.addItem('Review','Review');box.setCurrentIndex(box.findData('Review'));alias.setText('reviewer');tab.light_enabled.setChecked(True)
-    mode=os.environ['REVIEW_TEST_MODE'];heavy_count=[0]
-    if mode in ('heavy','single'):
+    mode=os.environ['REVIEW_TEST_MODE'];heavy_count=[0];review_count=[0]
+    if mode in ('heavy','single','partial'):
         window.connections['Heavy']=dict(model,model='heavy');box,alias=tab.roles['heavy'];box.addItem('Heavy','Heavy');box.setCurrentIndex(box.findData('Heavy'));alias.setText('heavy');tab.save_review_progress.setChecked(True);tab.composer.setPlainText('Review this document')
     def send(connection,url,body,timeout):
         if connection['model']=='reviewer':
+            review_count[0]+=1
+            if mode=='partial' and review_count[0]==1:
+                return Wire(chat('{"version":1,"findings":[]}'),False)
             (root/'request-started').write_text('started',encoding='utf-8')
             time.sleep(60)
             return Wire(chat('{"version":1,"findings":[]}'),False)
@@ -53,6 +56,11 @@ with patch.object(core,'discover',return_value={}),patch.object(core,'environmen
         while time.monotonic()<deadline:
             app.processEvents()
             if tab.pending_fingerprint:tab.decide(True)
+            if mode=='partial' and (root/'request-started').exists():
+                saved=store.list_sessions()[0]
+                history=saved.get('coding_review_history',[])
+                if history and any(item['pass_status']=='completed' for item in history[0]['reviews']):
+                    (root/'partial-saved').write_text('saved',encoding='utf-8')
             time.sleep(.01)
 '''
 
@@ -64,14 +72,14 @@ class ReviewCrashRecovery(unittest.TestCase):
         from agentnik.storage import Store
         from agentnik.ui import Window
         app=QApplication.instance() or QApplication([]);repo=Path(__file__).resolve().parent.parent
-        for mode in ('direct','heavy','single'):
+        for mode in ('direct','heavy','single','partial'):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as folder:
                 root=Path(folder);script=root/'child.py';script.write_text(CHILD,encoding='utf-8');log=root/'child.log'
                 env=dict(os.environ,REVIEW_TEST_ROOT=str(repo),REVIEW_TEST_DATA=str(root),REVIEW_TEST_MODE=mode,QT_QPA_PLATFORM='offscreen')
                 with log.open('wb') as output:
                     process=subprocess.Popen([sys.executable,str(script)],cwd=str(repo),env=env,stdout=output,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
                     try:
-                        deadline=time.monotonic()+20;marker=root/'request-started'
+                        deadline=time.monotonic()+20;marker=root/('partial-saved' if mode=='partial' else 'request-started')
                         while not marker.exists() and process.poll() is None and time.monotonic()<deadline:time.sleep(.05)
                         if not marker.exists():
                             output.flush();self.fail('Child did not reach the mocked reviewer: '+log.read_text(encoding='utf-8',errors='replace')[-2000:])
@@ -81,8 +89,11 @@ class ReviewCrashRecovery(unittest.TestCase):
                 store=Store(root/'data')
                 try:
                     sessions=store.list_sessions();self.assertEqual(len(sessions),1);saved=sessions[0]
-                    reviews=saved['coding_review_history'][0]['reviews'];self.assertEqual(len(reviews),2 if mode=='heavy' else 1)
-                    self.assertTrue(all(item['pass_status']=='interrupted' for item in reviews))
+                    reviews=saved['coding_review_history'][0]['reviews'];self.assertEqual(len(reviews),2 if mode in ('heavy','partial') else 1)
+                    if mode=='partial':
+                        self.assertEqual([item['pass_status'] for item in reviews],['completed','interrupted'])
+                        self.assertEqual(reviews[0]['structured']['findings'],[])
+                    else:self.assertTrue(all(item['pass_status']=='interrupted' for item in reviews))
                     self.assertTrue(all(item['batch_approved_at']==reviews[0]['batch_approved_at'] for item in reviews));self.assertRegex(reviews[0]['batch_approved_at'],r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
                     if mode=='heavy':self.assertTrue(all(item['status'] in ('queued','running') for item in saved.get('coding_subagents',[])))
                     with patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'open_request') as request:
