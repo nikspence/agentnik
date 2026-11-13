@@ -13,6 +13,83 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_single_structured_review_findings_can_be_saved(self):
+        import os,time
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog,QPushButton
+        from agentnik.ui import Window
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');(project/'evidence.txt').write_text('EVIDENCE',encoding='utf-8')
+            store=Store(Path(root)/'data');window=Window(store);heavy_count=0
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                window.connections['Heavy']=dict(C,stream=False);window.connections['Review']=dict(C,model='light',stream=False)
+                for role,name,alias in [('heavy','Heavy','heavy'),('light','Review','light')]:
+                    box,model=tab.roles[role];box.addItem(name,name);box.setCurrentIndex(box.findData(name));model.setText(alias)
+                tab.light_enabled.setChecked(True);tab.composer.setPlainText('Review the document')
+                finding={'severity':'high','title':'Gap','rationale':'No criterion','location':'spec.md','assumptions':'','verification':'Check'}
+                def send(connection,url,body,timeout):
+                    nonlocal heavy_count
+                    if connection['model']=='light':return Wire(chat(json.dumps({'version':1,'findings':[finding]})),False)
+                    heavy_count+=1
+                    if heavy_count==1:return Wire(chat(calls=[call('review_document_structured',{'path':'spec.md','paths':'["evidence.txt"]','model':'light','role':'design'})],finish='tool_calls'),False)
+                    return Wire(chat('Done'),False)
+                with patch.object(core,'open_request',side_effect=send):
+                    tab.start_coding();deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:
+                        app.processEvents()
+                        if tab.pending_fingerprint:tab.decide(True)
+                        time.sleep(.01)
+                    app.processEvents()
+                self.assertIsNone(tab.job);self.assertTrue(tab.review_results_button.isEnabled());record=next(iter(tab.review_results.values()))
+                self.assertEqual(record['structured']['findings'][0]['title'],'Gap');self.assertEqual(record['pass_status'],'completed')
+                def save(dialog):dialog.findChild(QPushButton,'saveReviewSnapshot').click();return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',save):tab.show_review_results()
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);review=saved['coding_review_history'][0]['reviews'][0]
+                self.assertEqual(review['structured']['findings'][0]['title'],'Gap');self.assertEqual(review['measurements']['input_tokens'],10)
+                with patch.object(core,'open_request') as request:window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
+            finally:window.close();app.processEvents();store.db.close()
+
+    def test_single_structured_review_is_visible_and_individually_cancellable(self):
+        import os,time
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');(project/'evidence.txt').write_text('EVIDENCE',encoding='utf-8')
+            store=Store(Path(root)/'data');window=Window(store);started=threading.Event();release=threading.Event();heavy_count=0
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                window.connections['Heavy']=dict(C,stream=False);window.connections['Review']=dict(C,model='light',stream=False)
+                for role,name,alias in [('heavy','Heavy','heavy'),('light','Review','light')]:
+                    box,model=tab.roles[role];box.addItem(name,name);box.setCurrentIndex(box.findData(name));model.setText(alias)
+                tab.light_enabled.setChecked(True);tab.composer.setPlainText('Review the document')
+                def send(connection,url,body,timeout):
+                    nonlocal heavy_count
+                    if connection['model']=='light':started.set();release.wait(5);return Wire(chat('LATE REVIEW OUTPUT'),False)
+                    heavy_count+=1
+                    if heavy_count==1:return Wire(chat(calls=[call('review_document_structured',{'path':'spec.md','paths':'["evidence.txt"]','model':'light','role':'design'})],finish='tool_calls'),False)
+                    return Wire(chat('Done'),False)
+                with patch.object(core,'open_request',side_effect=send):
+                    tab.start_coding();deadline=time.monotonic()+5
+                    while time.monotonic()<deadline:
+                        app.processEvents()
+                        if tab.pending_fingerprint:tab.decide(True)
+                        if started.is_set() and session.get('coding_subagents'):break
+                        time.sleep(.01)
+                    self.assertTrue(started.is_set());self.assertEqual(len(session['coding_subagents']),1)
+                    child=session['coding_subagents'][0];self.assertRegex(child['id'],r'^[0-9a-f]{32}-1$');self.assertEqual(child['status'],'running');self.assertTrue(tab.stop_subagent_button.isEnabled())
+                    tab.cancel_selected_subagent();deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.01)
+                    app.processEvents();self.assertIsNone(tab.job)
+                self.assertEqual(session['coding_subagents'][0]['status'],'cancelled');self.assertNotIn('LATE REVIEW OUTPUT',json.dumps(session))
+                self.assertEqual(next(iter(tab.review_results.values()))['pass_status'],'cancelled')
+            finally:release.set();window.close();app.processEvents();store.db.close()
+
     def test_heavy_review_preflight_stale_reports_terminal_records(self):
         with tempfile.TemporaryDirectory() as root:
             spec=Path(root,'spec.md');spec.write_text('SPEC',encoding='utf-8');events=[];models=[];count=0
@@ -162,6 +239,7 @@ class Subagents(unittest.TestCase):
                 result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool')
                 self.assertEqual(result['structured']['status'],expected)
                 self.assertEqual(len(result['structured']['findings']),1 if expected=='valid' else 0)
+                records=[event['review'] for event in events if event['kind']=='independent_review_result'];self.assertEqual([record['pass_status'] for record in records],['pending','completed']);self.assertEqual(records[1]['structured']['status'],expected)
                 self.assertTrue(any('Structured independent review output: '+expected in event.get('text','') for event in events))
 
     def test_independent_review_evidence_is_approved_hashed_and_fresh(self):

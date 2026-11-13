@@ -1071,7 +1071,7 @@ class CodingRun:
                             if not model:raise ProjectToolError('Requested reviewer model is unavailable; choose a configured model role.')
                             identity=subagent_task_identity('independent document review',[args['path']])
                             if identity in self.cancelled_subagent_tasks:raise ProjectToolError('This document review was cancelled; do not retry it during this run.')
-                            from .independent_review import prepare_snapshot,sources_unchanged,validate_result,build_review_request,parse_structured_findings,STRUCTURED_INSTRUCTIONS,RESULT_VERSION,RUBRIC_VERSION
+                            from .independent_review import prepare_snapshot,sources_unchanged,validate_result,build_review_request,parse_structured_findings,STRUCTURED_INSTRUCTIONS,RESULT_VERSION,RUBRIC_VERSION,review_endpoint_identity,review_batch_approved_at
                             structured=call.name=='review_document_structured'
                             rubric=STRUCTURED_INSTRUCTIONS+REVIEW_RUBRICS[role] if structured else REVIEW_RUBRICS[role]
                             snapshot=prepare_snapshot(files,args['path'],rubric,secrets,args['paths'] if call.name in ('review_document_evidence','review_document_structured') else None,lambda:runtime.charge('calls',1,runtime.limits.calls))
@@ -1084,7 +1084,10 @@ class CodingRun:
                             if not sources_unchanged(files,snapshot['sources']):raise ProjectToolError('The reviewed document or evidence changed or became unavailable; no request was sent.')
                             runtime.charge('requests',1,runtime.limits.requests)
                             runtime.charge('context_bytes',len(prompt.encode('utf-8')),runtime.limits.context_bytes)
-                            child_id=uuid.uuid4().hex;child_cancel=threading.Event()
+                            child_id=uuid.uuid4().hex+'-1';child_cancel=threading.Event()
+                            if structured:
+                                review_record={'id':child_id,'role':role,'rubric_version':RUBRIC_VERSION,'batch_approved_at':review_batch_approved_at(),'endpoint':review_endpoint_identity(model,secrets),'model':model['model'],'path':args['path'],'source_sha256':source_hash,'target_payload_sha256':proposal['target_payload_sha256'],'payload_sha256':proposal['payload_sha256'],'evidence':proposal['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
+                                event('independent_review_result',review=review_record)
                             with self.lock:self.child_cancellations[child_id]=child_cancel
                             event('subagent',subagent={'id':child_id,'status':'running','text':'Independent '+role+' review · '+model['model']+' · '+args['path']+' · SHA-256 '+source_hash})
                             event('output',text='Independent '+role+' review started · '+model['model']+' · '+args['path']+' · SHA-256 '+source_hash)
@@ -1120,6 +1123,11 @@ class CodingRun:
                             if structured and result['status']=='completed':
                                 result['structured']=parse_structured_findings(result['analysis'],truncated=result['truncated'])
                                 event('output',text='Structured independent review output: '+result['structured']['status']+'; findings are untrusted and an empty list is not proof of correctness.')
+                            if structured:
+                                review_record=dict(review_record,pass_status=result['status'],structured=result.get('structured',{'status':'not_available','findings':[]}))
+                                if result['status']=='completed':review_record['measurements']={**reported,'elapsed_seconds':result['elapsed_seconds']}
+                                else:review_record['reason']=result['error']
+                                event('independent_review_result',review=review_record)
                             details=' · '+str(result['elapsed_seconds'])+'s · input '+str(reported['input_tokens'] if reported['input_tokens'] is not None else 'unknown')+' tokens, output '+str(reported['output_tokens'] if reported['output_tokens'] is not None else 'unknown')+' tokens'
                             evidence_summary=''.join(' · evidence '+item['path'][:120]+' SHA-256 '+item['sha256'] for item in proposal['evidence'])
                             summary='Independent '+role+' review · '+model['model'][:200]+' · '+args['path'][:200]+' · SHA-256 '+source_hash+evidence_summary+' · '+result['status']+details+(' · findings truncated' if result.get('truncated') else '')+' · '+(result.get('analysis') or result.get('error',''))[:900]
