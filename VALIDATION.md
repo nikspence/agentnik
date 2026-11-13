@@ -283,6 +283,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 ## Direct independent-review adapter checks
 
+Offline and offscreen checks cover post-approval preflight failures for direct and Heavy-requested batches: changed sources yield stale records, unaffected passes are skipped, shared-budget failures skip the batch, no reviewer request is sent, and opted-in progress is updated from interrupted to the terminal state.
+
 Offline and offscreen tests cover rejected direct and Heavy-requested batches: no reviewer requests are sent, each pass is recorded as skipped with its approval state explained, optional progress saving persists the records, and reopening does not submit a request. Rejected records do not claim a completed batch approval.
 
 Offline and offscreen tests cover UTC batch-approval timestamps in direct and Heavy-requested saved progress, interrupted process recovery, project-history round-tripping, legacy snapshots and malformed timestamps. The timestamp uses the local system clock and does not establish when a provider received or completed a request.

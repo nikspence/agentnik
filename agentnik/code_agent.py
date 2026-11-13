@@ -1029,6 +1029,7 @@ class CodingRun:
                                 _,calls=adapter.request(connection,body,child,lambda _:None,state)
                                 if calls:raise ValueError('Reviewer requested unavailable tools')
                                 return {'text':state.get('text',''),'usage':state.get('metrics',{})}
+                            reported_review_ids=set()
                             def review_completed(index,outcome):
                                 ident=ids[index];item=passes[index]
                                 if outcome['status']=='cancelled':self.cancelled_subagent_tasks.add(identity)
@@ -1043,6 +1044,7 @@ class CodingRun:
                                 if outcome['status']=='completed':review['measurements']={**outcome['usage'],'elapsed_seconds':outcome['elapsed_seconds']}
                                 if outcome.get('reason'):review['reason']=outcome['reason']
                                 event('independent_review_result',review=review)
+                                reported_review_ids.add(ident)
                                 reported=outcome['usage'];detail=' · input '+str(reported['input_tokens'] if reported['input_tokens'] is not None else 'unknown')+' tokens, output '+str(reported['output_tokens'] if reported['output_tokens'] is not None else 'unknown')+' tokens'
                                 if 'elapsed_seconds' in outcome:detail+=' · '+str(outcome['elapsed_seconds'])+'s'
                                 text='Independent '+outcome['role']+' review · '+outcome['model']+' · '+outcome['status']+(' · '+outcome['structured']['status'] if 'structured' in outcome else '')+detail+' · '+(outcome.get('analysis') or outcome.get('reason',''))[:900]
@@ -1051,7 +1053,8 @@ class CodingRun:
                                 # The complete serialized tool result is charged once before Heavy continuation.
                                 batch=execute_review_batch(files,passes,runtime,send_review,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=review_completed,charge_output=False)
                             except Exception:
-                                for ident in ids:event('subagent',subagent={'id':ident,'status':'failed','text':'Independent review batch stopped before completion.'})
+                                for ident in ids:
+                                    if ident not in reported_review_ids:event('subagent',subagent={'id':ident,'status':'failed','text':'Independent review batch stopped before completion.'})
                                 raise
                             finally:
                                 with self.lock:

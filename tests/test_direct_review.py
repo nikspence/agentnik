@@ -20,6 +20,58 @@ MODEL={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer','
 
 
 class DirectReview(unittest.TestCase):
+    def test_preflight_source_change_records_stale_and_skipped_passes(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'spec.md').write_text('SPEC',encoding='utf-8');evidence=Path(root,'evidence.txt');evidence.write_text('BEFORE',encoding='utf-8')
+            passes=[{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'light','paths':['evidence.txt']}]
+            run=DirectReviewRun(root,'spec.md',passes,{'light':MODEL});events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':
+                    if event['proposal']['batch_pass']==2:evidence.write_text('AFTER',encoding='utf-8')
+                    run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request') as request:run.run(emit)
+            request.assert_not_called();records=[event['review'] for event in events if event['kind']=='independent_review_result' and event['review']['pass_status']!='pending']
+            self.assertEqual([record['pass_status'] for record in records],['skipped','stale']);self.assertTrue(all('no batch requests were sent' in record['reason'] for record in records))
+            self.assertEqual(events[-1]['status'],'failed')
+
+    def test_preflight_limit_records_skipped_passes_without_sending(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'spec.md').write_text('x'*3900,encoding='utf-8');limits=coding_limits();limits['context_bytes']=4096
+            passes=[{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'light','paths':[]}]
+            run=DirectReviewRun(root,'spec.md',passes,{'light':MODEL},limits=limits);events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request') as request:run.run(emit)
+            request.assert_not_called();records=[event['review'] for event in events if event['kind']=='independent_review_result' and event['review']['pass_status']!='pending']
+            self.assertEqual([record['pass_status'] for record in records],['skipped','skipped']);self.assertTrue(all('limits' in record['reason'] for record in records))
+
+    def test_preflight_stale_progress_is_saved_as_terminal(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog
+        from agentnik.ui import Window
+        from agentnik.code_ui import DirectReviewDialog
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();spec=project/'spec.md';spec.write_text('SPEC',encoding='utf-8');store=Store(Path(root)/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                window.connections['Review']=dict(MODEL);box,model=tab.roles['light'];box.addItem('Review','Review');box.setCurrentIndex(box.findData('Review'));model.setText('reviewer');tab.light_enabled.setChecked(True)
+                def configure(dialog):dialog.target.setText('spec.md');dialog.save_progress.setChecked(True);return QDialog.DialogCode.Accepted
+                with patch.object(DirectReviewDialog,'exec',configure),patch.object(core,'open_request') as request:
+                    tab.start_direct_review();deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:
+                        app.processEvents()
+                        if tab.pending_fingerprint:spec.write_text('CHANGED',encoding='utf-8');tab.decide(True)
+                        time.sleep(.01)
+                    app.processEvents();request.assert_not_called()
+                self.assertIsNone(tab.job);saved=next(row for row in store.list_sessions() if row['id']==session['id']);record=saved['coding_review_history'][0]['reviews'][0]
+                self.assertEqual(record['pass_status'],'stale');self.assertIn('no batch requests were sent',record['reason'])
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_rejected_batch_records_skipped_passes_without_sending(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root,'spec.md').write_text('SPEC',encoding='utf-8')

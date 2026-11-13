@@ -401,7 +401,23 @@ def execute_review_batch(files, passes, runtime, send, cancellations, *, model_t
         raise ValueError('Each review pass needs a cancellation event')
     if type(model_timeout) not in (int, float) or not 0 < model_timeout <= 3600:
         raise ValueError('Invalid reviewer timeout')
-    prepared = preflight_review_batch(files, passes, runtime)
+    try:
+        prepared = preflight_review_batch(files, passes, runtime)
+    except (ValueError,LimitError) as exc:
+        # Preflight reserves the entire batch before any request can start.
+        # Report terminal pass states only while the parent can still accept
+        # events; cancellation/deadline recovery retains interrupted records.
+        runtime.check()
+        if on_complete is not None:
+            for index,item in enumerate(passes):
+                snapshot=item.get('snapshot',{}) if isinstance(item,dict) else {}
+                sources=snapshot.get('sources') if isinstance(snapshot,dict) else None
+                stale=isinstance(sources,list) and bool(sources) and not sources_unchanged(files,sources)
+                reason=('A reviewed source changed or became unavailable before submission; no batch requests were sent.' if stale else
+                        'The batch exceeded its available limits before submission; no batch requests were sent.' if isinstance(exc,LimitError) else
+                        'Batch preflight failed before submission; no batch requests were sent.')
+                on_complete(index,{'status':'stale' if stale else 'skipped','reason':reason})
+        raise
     connections = [dict(item['connection']) for item in passes]
     output = queue.Queue(); pending = list(range(len(prepared))); active = {}; blocked = set(); results = [None]*len(prepared)
     def work(index):

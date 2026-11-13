@@ -13,6 +13,24 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_heavy_review_preflight_stale_reports_terminal_records(self):
+        with tempfile.TemporaryDirectory() as root:
+            spec=Path(root,'spec.md');spec.write_text('SPEC',encoding='utf-8');events=[];models=[];count=0
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False))
+            def send(connection,url,body,timeout):
+                nonlocal count
+                models.append(connection['model']);count+=1
+                if count==1:return Wire(chat(calls=[call('review_document_parallel',{'path':'spec.md','passes':json.dumps([{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'light','paths':[]}])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':
+                    if event['proposal']['batch_pass']==2:spec.write_text('CHANGED',encoding='utf-8')
+                    run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertTrue(all(model=='heavy' for model in models));terminal=[event['review'] for event in events if event['kind']=='independent_review_result' and event['review']['pass_status']!='pending']
+            self.assertEqual([record['pass_status'] for record in terminal],['stale','stale']);self.assertTrue(all('no batch requests were sent' in record['reason'] for record in terminal))
+
     def test_heavy_review_manifest_ack_controls_reviewer_requests(self):
         for saved in (True,False):
             with self.subTest(saved=saved),tempfile.TemporaryDirectory() as root:
