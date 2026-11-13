@@ -129,6 +129,7 @@ TOOLS=[CodeTool('list_skill_resources','List bounded relative resource paths for
        CodeTool('read_artifact','Read a bounded character range of a tool output artifact from this run. offset is zero-based; length is 1–8000.',('id','offset','length')),
        CodeTool('search_artifact','Find literal text in a current-run artifact; returns up to 20 offsets and excerpts.',('id','query')),
        CodeTool('get_test_report','Get the most recent approved test command report from this run. failure is an empty string for summary or a zero-based failure index.',('failure',)),
+       CodeTool('get_context_usage','Inspect the previous Heavy request size and reported input tokens, configured context limit, and shared run budgets. Sizes are estimates, not token counts; this tool does not compact context.',()),
        CodeTool('get_plan','Read the current run task checklist and its explanation. Plan status is model-reported, not execution permission.',()),
        CodeTool('update_plan','Create or replace the task checklist. explanation is a short reason; steps is a JSON array encoded as a string of {step,status} objects. Use 1–20 steps, at most one in_progress; other statuses pending, completed, blocked. Update after meaningful progress, and never claim unconfirmed work completed.',('explanation','steps')),
        CodeTool('project_overview','Inspect bounded project structure, languages, dependency names and test configuration without executing metadata.',()),
@@ -760,6 +761,10 @@ class CodingRun:
                 seen_guidance=guidance_payload
                 assistant,calls=request('Heavy',adapter,c,body,state)
                 check_skill_versions()
+                context_request_size=None
+                if any(call.name=='get_context_usage' for call in calls):
+                    from .context_usage import request_measurement
+                    context_request_size=request_measurement(body)
                 runtime.charge('context_bytes',len(json.dumps(assistant).encode()),runtime.limits.context_bytes)
                 if protocol=='responses':body['input'].extend(assistant)
                 else:body['messages'].append(assistant)
@@ -1288,6 +1293,9 @@ class CodingRun:
                                 if not index.isdecimal() or int(index)>=len(failures):raise ProjectToolError('Invalid failure index')
                                 result={'failure':failures[int(index)],'index':int(index)}
                             else:result={'report':report,'failure_count':len(failures)}
+                        elif call.name=='get_context_usage':
+                            from .context_usage import context_usage
+                            result=context_usage(runtime,runtime.limits,c,round_number,context_request_size,state.get('metrics',{}).get('input_tokens'))
                         elif call.name=='get_plan':result={'plan':self.plan}
                         elif call.name=='update_plan':
                             try:plan=parse_update(args['explanation'],args['steps'])
