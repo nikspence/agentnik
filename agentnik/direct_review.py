@@ -5,7 +5,7 @@ import uuid
 
 from . import core, compat_tools, ollama_tools, responses_tools
 from .code_agent import CodingRun, ProjectFiles, REVIEW_RUBRICS
-from .independent_review import STRUCTURED_INSTRUCTIONS, DRIFT_REVIEW_INSTRUCTIONS, REPOSITORY_FIT_INSTRUCTIONS, RUBRIC_VERSION, execute_review_batch, parse_structured_findings, prepare_snapshot, review_endpoint_identity
+from .independent_review import STRUCTURED_INSTRUCTIONS, DRIFT_REVIEW_INSTRUCTIONS, REPOSITORY_FIT_INSTRUCTIONS, RUBRIC_VERSION, execute_review_batch, parse_structured_findings, prepare_snapshot, review_endpoint_identity, review_batch_approved_at
 from .research import scrub
 from .tools import Limits, Runtime
 
@@ -53,11 +53,12 @@ class DirectReviewRun(CodingRun):
                     raise ValueError('Review rejected; no reviewer requests were sent')
                 item['approved']=True
             if self.selected_track and prepare_track(files,self.selected_track['id'],secrets,runtime.limits.context_bytes)!=self.selected_track:raise ValueError('Selected track changed during approval; review it and start again')
+            batch_approved_at=review_batch_approved_at()
             batch=uuid.uuid4().hex;ids=[batch+'-'+str(i+1) for i in range(len(passes))];cancellations=[threading.Event() for _ in passes]
             track_context={'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None
             def review_record(index,status,structured):
                 proposal=passes[index]['proposal']
-                return {'id':ids[index],'role':proposal['role'],'rubric_version':RUBRIC_VERSION,'endpoint':review_endpoint_identity(passes[index]['connection'],secrets),'model':proposal['model'],'path':self.target,'source_sha256':proposal['source_sha256'],'target_payload_sha256':proposal['target_payload_sha256'],'payload_sha256':proposal['payload_sha256'],'evidence':proposal['evidence'],'track_context':track_context,'pass_status':status,'structured':structured}
+                return {'id':ids[index],'role':proposal['role'],'rubric_version':RUBRIC_VERSION,'batch_approved_at':batch_approved_at,'endpoint':review_endpoint_identity(passes[index]['connection'],secrets),'model':proposal['model'],'path':self.target,'source_sha256':proposal['source_sha256'],'target_payload_sha256':proposal['target_payload_sha256'],'payload_sha256':proposal['payload_sha256'],'evidence':proposal['evidence'],'track_context':track_context,'pass_status':status,'structured':structured}
             if self.save_progress:
                 event('independent_review_manifest',snapshot_id=self.run_id,reviews=[review_record(i,'pending',{'status':'not_available','findings':[]}) for i in range(len(passes))])
                 while not self.manifest_ack.wait(.05):runtime.check()

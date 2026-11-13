@@ -283,6 +283,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 ## Direct independent-review adapter checks
 
+Offline and offscreen tests cover UTC batch-approval timestamps in direct and Heavy-requested saved progress, interrupted process recovery, project-history round-tripping, legacy snapshots and malformed timestamps. The timestamp uses the local system clock and does not establish when a provider received or completed a request.
+
 Offline and offscreen tests check the transmitted-document hash against redacted text, display it in approval, bind it to batch preflight, and retain it in direct and Heavy-requested progress and project history. Legacy records without the hash remain readable.
 
 Offline and offscreen checks cover origin-only endpoint attribution for direct and Heavy-requested review progress, known-secret omission, IPv6, unsupported host forms, invalid imported origins, legacy records and project-history round-tripping. The origin does not identify a particular account or URL path.

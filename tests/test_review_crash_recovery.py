@@ -82,6 +82,7 @@ class ReviewCrashRecovery(unittest.TestCase):
                     sessions=store.list_sessions();self.assertEqual(len(sessions),1);saved=sessions[0]
                     reviews=saved['coding_review_history'][0]['reviews'];self.assertEqual(len(reviews),1 if mode=='direct' else 2)
                     self.assertTrue(all(item['pass_status']=='interrupted' for item in reviews))
+                    self.assertTrue(all(item['batch_approved_at']==reviews[0]['batch_approved_at'] for item in reviews));self.assertRegex(reviews[0]['batch_approved_at'],r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
                     with patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'open_request') as request:
                         window=Window(store)
                         try:

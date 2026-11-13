@@ -32,6 +32,11 @@ class IndependentReviewSnapshots(unittest.TestCase):
         review['rubric_version']=1;self.assertEqual(validate_review_history(history),history)
         review['endpoint']={'protocol':'chat','origin':'https://example.invalid'};self.assertEqual(validate_review_history(history),history)
         review['target_payload_sha256']='e'*64;self.assertEqual(validate_review_history(history),history)
+        review['batch_approved_at']='2026-11-13T19:20:21Z';self.assertEqual(validate_review_history(history),history)
+        for invalid in (None,123,'2026-02-30T12:00:00Z','2026-11-13T19:20:21+00:00','2026-11-13'):
+            review['batch_approved_at']=invalid
+            with self.subTest(approved_at=invalid),self.assertRaises(ValueError):validate_review_history(history)
+        review['batch_approved_at']='2026-11-13T19:20:21Z'
         review['target_payload_sha256']='bad'
         with self.assertRaises(ValueError):validate_review_history(history)
         review['target_payload_sha256']='e'*64

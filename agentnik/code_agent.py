@@ -982,7 +982,7 @@ class CodingRun:
                             except AnalysisError as exc: result={'error':str(exc)}
                             event('output',text=call.name+': '+json.dumps(scrub(result,secrets))[:1500])
                         elif call.name=='review_document_parallel':
-                            from .independent_review import prepare_snapshot,execute_review_batch,STRUCTURED_INSTRUCTIONS,parse_structured_findings,RUBRIC_VERSION,review_endpoint_identity
+                            from .independent_review import prepare_snapshot,execute_review_batch,STRUCTURED_INSTRUCTIONS,parse_structured_findings,RUBRIC_VERSION,review_endpoint_identity,review_batch_approved_at
                             try: requested=json.loads(args['passes'])
                             except (ValueError,RecursionError):raise ProjectToolError('Passes must be a JSON array of 2–3 review definitions.') from None
                             if not isinstance(requested,list) or not 2<=len(requested)<=3:raise ProjectToolError('Supply 2–3 independent review passes.')
@@ -998,10 +998,11 @@ class CodingRun:
                                 allowed=review(item['proposal'],lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal');runtime.check()
                                 if not allowed:raise ProjectToolError('Independent review rejected; no batch requests were sent.')
                                 item['approved']=True
+                            batch_approved_at=review_batch_approved_at()
                             batch_id=uuid.uuid4().hex;cancellations=[threading.Event() for _ in passes];ids=[batch_id+'-'+str(i+1) for i in range(len(passes))]
                             track_context={'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None
                             def pending_review(ident,item):
-                                p=item['proposal'];return {'id':ident,'role':p['role'],'rubric_version':RUBRIC_VERSION,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':p['model'],'path':p['path'],'source_sha256':p['source_sha256'],'target_payload_sha256':p['target_payload_sha256'],'payload_sha256':p['payload_sha256'],'evidence':p['evidence'],'track_context':track_context,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
+                                p=item['proposal'];return {'id':ident,'role':p['role'],'rubric_version':RUBRIC_VERSION,'batch_approved_at':batch_approved_at,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':p['model'],'path':p['path'],'source_sha256':p['source_sha256'],'target_payload_sha256':p['target_payload_sha256'],'payload_sha256':p['payload_sha256'],'evidence':p['evidence'],'track_context':track_context,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
                             if self.save_review_progress:
                                 with self.lock:self.manifest_saved=False;self.manifest_ack.clear()
                                 event('independent_review_manifest',snapshot_id=batch_id,reviews=[pending_review(ident,item) for ident,item in zip(ids,passes)])
@@ -1031,7 +1032,7 @@ class CodingRun:
                                         for key,value in outcome['usage'].items():
                                             if value is not None:usage['Light'][key]+=value;usage['Light'][key.replace('tokens','missing')]-=1
                                 else:outcome['usage']={'input_tokens':None,'output_tokens':None};outcome['structured']={'status':'not_available','findings':[]}
-                                review={'id':ident,'role':outcome['role'],'rubric_version':RUBRIC_VERSION,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':outcome['model'],'path':args['path'],'source_sha256':outcome['source_sha256'],'target_payload_sha256':item['proposal']['target_payload_sha256'],'payload_sha256':outcome['payload_sha256'],'evidence':outcome['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':outcome['status'],'structured':outcome['structured']}
+                                review={'id':ident,'role':outcome['role'],'rubric_version':RUBRIC_VERSION,'batch_approved_at':batch_approved_at,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':outcome['model'],'path':args['path'],'source_sha256':outcome['source_sha256'],'target_payload_sha256':item['proposal']['target_payload_sha256'],'payload_sha256':outcome['payload_sha256'],'evidence':outcome['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':outcome['status'],'structured':outcome['structured']}
                                 if outcome['status']=='completed':review['measurements']={**outcome['usage'],'elapsed_seconds':outcome['elapsed_seconds']}
                                 if outcome.get('reason'):review['reason']=outcome['reason']
                                 event('independent_review_result',review=review)

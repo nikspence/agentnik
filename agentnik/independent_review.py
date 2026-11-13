@@ -8,6 +8,7 @@ import copy
 import queue
 import threading
 import time
+from datetime import datetime, timezone
 from dataclasses import replace
 from urllib.parse import urlsplit
 
@@ -23,6 +24,20 @@ REVIEW_ROLES = frozenset(('comprehension', 'requirements', 'design', 'readiness'
 FINDINGS_VERSION = 1
 MAX_FINDINGS_RESPONSE_BYTES = 16000
 MAX_FINDINGS = 10
+
+
+def review_batch_approved_at():
+    """UTC wall-clock time after all batch approvals; not a request timestamp."""
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def validate_review_batch_approved_at(value):
+    if not isinstance(value,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',value):raise ValueError('Invalid review approval time')
+    try:datetime.strptime(value,'%Y-%m-%dT%H:%M:%SZ')
+    except ValueError:raise ValueError('Invalid review approval time') from None
+    return value
+
+
 STRUCTURED_INSTRUCTIONS = ('Return only a JSON object with exactly "version":1 and "findings": an array of at most 10 objects. '
     'Each object must contain exactly the string fields "severity" (high, medium, low, or unknown), "title", '
     '"rationale", "location", "assumptions", and "verification". Title and rationale must be nonempty; '
@@ -135,7 +150,8 @@ def validate_review_history(history):
         review_ids=set()
         for review in reviews:
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','dispositions'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context','measurements','reason','rubric_version','endpoint','target_payload_sha256'}:raise ValueError('Invalid saved review')
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context','measurements','reason','rubric_version','endpoint','target_payload_sha256','batch_approved_at'}:raise ValueError('Invalid saved review')
+            if 'batch_approved_at' in review:validate_review_batch_approved_at(review['batch_approved_at'])
             if 'target_payload_sha256' in review and (not isinstance(review['target_payload_sha256'],str) or not re.fullmatch('[0-9a-f]{64}',review['target_payload_sha256'])):raise ValueError('Invalid transmitted document hash')
             if 'rubric_version' in review and (type(review['rubric_version']) is not int or not 1<=review['rubric_version']<=RUBRIC_VERSION):raise ValueError('Unsupported review rubric version')
             if 'endpoint' in review:validate_review_endpoint_identity(review['endpoint'])

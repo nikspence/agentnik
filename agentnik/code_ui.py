@@ -1481,14 +1481,15 @@ class CodeTab(QWidget):
             if not saved:self.activity.appendPlainText(self.tr('Review progress could not be saved; no reviewer requests were sent.'))
             job.acknowledge_manifest(saved);return
         if kind=='independent_review_result':
-            from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements,validate_review_endpoint_identity,RUBRIC_VERSION
+            from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements,validate_review_endpoint_identity,validate_review_batch_approved_at,RUBRIC_VERSION
             review=event.get('review')
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','pass_status','track_context'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements','reason','rubric_version','endpoint','target_payload_sha256'}:return
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements','reason','rubric_version','endpoint','target_payload_sha256','batch_approved_at'}:return
             if 'target_payload_sha256' in review and (not isinstance(review['target_payload_sha256'],str) or not re.fullmatch('[0-9a-f]{64}',review['target_payload_sha256'])):return
             if 'rubric_version' in review and (type(review['rubric_version']) is not int or not 1<=review['rubric_version']<=RUBRIC_VERSION):return
             try:
                 validate_track_context(review['track_context'])
+                if 'batch_approved_at' in review:validate_review_batch_approved_at(review['batch_approved_at'])
                 if 'endpoint' in review:validate_review_endpoint_identity(review['endpoint'])
                 if 'measurements' in review:
                     if review['pass_status']!='completed':return
