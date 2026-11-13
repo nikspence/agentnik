@@ -25,6 +25,9 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);window.show();app.processEvents()
                 tab=window.tabs.currentWidget()
+                self.assertFalse(tab.context_toggle.isChecked());self.assertTrue(tab.context_view.isHidden())
+                tab.context_toggle.setChecked(True);self.assertFalse(tab.context_view.isHidden())
+                tab.context_toggle.setChecked(False);self.assertTrue(tab.context_view.isHidden())
                 for number in range(120):tab.record('output','Activity line '+str(number))
                 app.processEvents();scroll=tab.activity.verticalScrollBar();self.assertGreater(scroll.maximum(),0)
                 self.assertEqual(scroll.value(),scroll.maximum())

@@ -28,6 +28,7 @@ from .storage import Store
 from .repositories import RepositoryRegistry
 from .code_ui import RepositoryPicker, CodeTab
 from . import localization
+from .selection_scroll import SelectionScroll
 
 class Signals(QObject):
     progress = Signal(object)
@@ -118,6 +119,12 @@ class MessageText(QTextBrowser):
         margins = self.contentsMargins()
         height = math.ceil(self.document().size().height())+margins.top()+margins.bottom()+2*self.frameWidth()+2
         if self.height() != height: self.setFixedHeight(height)
+    def showEvent(self,event):
+        super().showEvent(event)
+        if not hasattr(self, '_selection_scroll'):
+            parent = self.parentWidget()
+            while parent is not None and not isinstance(parent, QScrollArea): parent = parent.parentWidget()
+            if parent is not None: self._selection_scroll = SelectionScroll(self, parent)
     def resizeEvent(self,event):
         super().resizeEvent(event)
         if hasattr(self,'_fit_timer'): self.schedule_fit()

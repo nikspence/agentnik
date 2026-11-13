@@ -17,6 +17,7 @@ from .task_plan import validate_plan
 from .subagent_status import validate_record
 from .sessions import append_code_activity
 from .code_limits import FIELDS,coding_limits
+from .selection_scroll import SelectionScroll
 from .web import public_url
 from . import core,routing
 from .research_ui import SearchBackends
@@ -168,14 +169,16 @@ class CodeTab(QWidget):
         self.subagent_choice=QComboBox();self.subagent_choice.setAccessibleName(self.tr('Running subagent'));self.subagent_choice.setMinimumContentsLength(30);self.subagent_choice.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon);self.subagent_choice.setMaximumWidth(360);subagent_actions.addWidget(self.subagent_choice)
         self.stop_subagent_button=QPushButton(self.tr('Cancel subagent'));self.stop_subagent_button.clicked.connect(self.cancel_selected_subagent);subagent_actions.addWidget(self.stop_subagent_button);subagent_actions.addStretch();layout.addWidget(self.subagents_controls)
         self.subagents_toggle.toggled.connect(self.subagents_view.setVisible);self.subagents_toggle.toggled.connect(self.subagents_controls.setVisible);self.subagents_view.hide();self.subagents_controls.hide();self.refresh_subagents()
-        self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])));self.activity.setPlaceholderText(self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1)
+        self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])));self.activity.setPlaceholderText(self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1);self._activity_selection_scroll=SelectionScroll(self.activity)
         self.activity.moveCursor(QTextCursor.MoveOperation.End)
         self._activity_revision=0;self._activity_initial_follow=True;self.activity.verticalScrollBar().actionTriggered.connect(self.activity_scrolled)
         QTimer.singleShot(0,self.finish_activity_open)
         self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);layout.addWidget(self.composer)
         context=session.get('coding_context')
+        self.context_toggle=QPushButton(self.tr('Previous task and answer'));self.context_toggle.setCheckable(True);layout.addWidget(self.context_toggle)
         self.context_view=QPlainTextEdit(self.context_text(context))
-        self.context_view.setReadOnly(True);self.context_view.setMaximumHeight(110);layout.addWidget(self.context_view)
+        self.context_view.setReadOnly(True);self.context_view.setMaximumHeight(110);layout.addWidget(self.context_view);self.context_view.hide()
+        self.context_toggle.toggled.connect(self.context_view.setVisible)
         self.use_context=QCheckBox(self.tr('Send previous task and answer with next run (up to 2,048 characters each)'));self.use_context.setEnabled(bool(context))
         options=QHBoxLayout();layout.addLayout(options)
         self.roles={}
