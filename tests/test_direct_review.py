@@ -155,6 +155,8 @@ class DirectReview(unittest.TestCase):
                     while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.01)
                     app.processEvents()
                 self.assertIsNone(tab.job);saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual([item['pass_status'] for item in saved['coding_review_history'][0]['reviews']],['completed','completed'])
+                for item in saved['coding_review_history'][0]['reviews']:
+                    self.assertEqual(item['measurements']['input_tokens'],10);self.assertEqual(item['measurements']['output_tokens'],3);self.assertGreaterEqual(item['measurements']['elapsed_seconds'],0)
                 with patch.object(core,'open_request') as request:window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
             finally:release.set();window.close();app.processEvents();store.db.close()
 
@@ -396,6 +398,7 @@ class DirectReview(unittest.TestCase):
                     app.processEvents()
                 warning.assert_not_called();self.assertIsNone(tab.job);self.assertTrue(tab.review_results,warning.call_args);self.assertEqual(next(iter(tab.review_results.values()))['role'],'drift')
                 saved=next(row for row in store.list_sessions() if row['id']==session['id']);history=saved['coding_review_history'];self.assertEqual(len(history),1);self.assertEqual(history[0]['reviews'][0]['role'],'drift');self.assertEqual(history[0]['reviews'][0]['pass_status'],'completed')
+                self.assertEqual(history[0]['reviews'][0]['measurements']['input_tokens'],10);self.assertEqual(history[0]['reviews'][0]['measurements']['output_tokens'],3);self.assertGreaterEqual(history[0]['reviews'][0]['measurements']['elapsed_seconds'],0)
                 with patch.object(core,'open_request') as request:
                     window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
                 self.assertTrue(window.tabs.currentWidget().saved_reviews_button.isEnabled())

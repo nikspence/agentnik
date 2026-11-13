@@ -283,6 +283,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 ## Direct independent-review adapter checks
 
+Offline mocked and offscreen tests also check completed-pass timing and provider usage retention in direct and Heavy-requested session snapshots, older-record compatibility, and rejection of malformed measurements. These are provider-reported counters, not cost estimates.
+
 Offline adapter mocks exercise direct reviews through Chat Completions, Messages, Responses and native Ollama routing. They check the exact approved single-message input, selected evidence, exclusion of credentials and unselected project files, tool-free requests, Responses `store: false`, and failure without retry for unexpected tool calls. Existing mocked transport and offscreen tests cover approval, cancellation and persistence. These adapter checks do not exercise provider wire compatibility, live model behavior or provider-side isolation.
 
 Simulated transport also runs the real direct-review adapters for all four routes with completed and incomplete non-streaming replies and successful streaming replies. Completed structured findings are parsed; incomplete replies fail without findings or automatic retry. These fixtures do not establish compatibility with live providers.

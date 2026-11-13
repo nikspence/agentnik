@@ -1481,10 +1481,15 @@ class CodeTab(QWidget):
             if not saved:self.activity.appendPlainText(self.tr('Review progress could not be saved; no reviewer requests were sent.'))
             job.acknowledge_manifest(saved);return
         if kind=='independent_review_result':
-            from .independent_review import parse_structured_findings,validate_track_context
+            from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements
             review=event.get('review')
-            if not isinstance(review,dict) or set(review)!={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','pass_status','track_context'}:return
-            try:validate_track_context(review['track_context'])
+            required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','pass_status','track_context'}
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements'}:return
+            try:
+                validate_track_context(review['track_context'])
+                if 'measurements' in review:
+                    if review['pass_status']!='completed':return
+                    validate_review_measurements(review['measurements'])
             except (ValueError,TypeError):return
             if review['pass_status'] not in ('pending','completed','failed','cancelled','stale','skipped'):return
             if not isinstance(review['id'],str) or not re.fullmatch(r'[0-9a-f]{32}-[1-3]',review['id']) or review['role'] not in ('comprehension','requirements','design','repository_fit','readiness','drift'):return

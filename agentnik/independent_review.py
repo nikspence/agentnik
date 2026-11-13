@@ -80,6 +80,15 @@ def track_review_summary(files, track, history):
             'notice':'Session and project snapshots are listed separately; older or unsaved reviews may be missing. Findings are untrusted. A run-context match does not mean the full track was reviewed.'}
 
 
+def validate_review_measurements(value):
+    """Validate optional completed-pass measurements without estimating missing usage."""
+    if not isinstance(value,dict) or set(value)!={'input_tokens','output_tokens','elapsed_seconds'}:raise ValueError('Invalid review measurements')
+    for key,number in value.items():
+        if number is None and key!='elapsed_seconds':continue
+        if type(number) not in (int,float) or not 0<=number<=2**63-1 or (type(number) is float and not math.isfinite(number)):raise ValueError('Invalid review measurements')
+    return dict(value)
+
+
 def validate_review_history(history):
     """Validate explicitly saved, bounded session snapshots without reading files."""
     if not isinstance(history, list) or len(history) > 10 or len(json.dumps(history, ensure_ascii=True).encode('utf-8')) > 256000:
@@ -97,10 +106,13 @@ def validate_review_history(history):
         review_ids=set()
         for review in reviews:
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','dispositions'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context'}:raise ValueError('Invalid saved review')
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context','measurements'}:raise ValueError('Invalid saved review')
             validate_track_context(review.get('track_context'))
             status=review.get('pass_status','completed')
             if status not in ('completed','failed','cancelled','stale','skipped','interrupted'):raise ValueError('Invalid saved review status')
+            if 'measurements' in review:
+                if status!='completed':raise ValueError('Measurements require a completed review')
+                validate_review_measurements(review['measurements'])
             if not isinstance(review['id'],str) or not re.fullmatch(r'[0-9a-f]{32}-[1-3]',review['id']) or review['id'] in review_ids or not isinstance(review['role'],str) or review['role'] not in REVIEW_ROLES:raise ValueError('Invalid saved review identity')
             review_ids.add(review['id'])
             if any(not isinstance(review[k],str) or not 0<len(review[k])<=4096 for k in ('model','path')) or any(not isinstance(review[k],str) or not re.fullmatch('[0-9a-f]{64}',review[k]) for k in ('source_sha256','payload_sha256')):raise ValueError('Invalid saved review metadata')

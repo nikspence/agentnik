@@ -65,8 +65,10 @@ class DirectReviewRun(CodingRun):
                 if not self.manifest_saved:raise ValueError('Could not save review progress; no reviewer requests were sent')
             with self.lock:
                 for ident,cancel in zip(ids,cancellations):self.child_cancellations[ident]=cancel
-            def review_event(index,status,structured):
-                event('independent_review_result',review=review_record(index,status,structured))
+            def review_event(index,status,structured,measurements=None):
+                record=review_record(index,status,structured)
+                if measurements is not None:record['measurements']=measurements
+                event('independent_review_result',review=record)
             for index,item in enumerate(passes):
                 review_event(index,'pending',{'status':'not_available','findings':[]})
                 event('subagent',subagent={'id':ids[index],'status':'running','text':'Independent '+item['proposal']['role']+' review queued · '+item['proposal']['model']})
@@ -77,8 +79,10 @@ class DirectReviewRun(CodingRun):
                 return {'text':state.get('text',''),'usage':state.get('metrics',{})}
             def completed(index,outcome):
                 structured=parse_structured_findings(outcome['analysis'],truncated=outcome['truncated']) if outcome['status']=='completed' else {'status':'not_available','findings':[]}
-                review_event(index,outcome['status'],structured)
+                measurements={**outcome['usage'],'elapsed_seconds':outcome['elapsed_seconds']} if outcome['status']=='completed' else None
+                review_event(index,outcome['status'],structured,measurements)
                 proposal=passes[index]['proposal'];usage=outcome.get('usage',{});detail=' · input '+str(usage.get('input_tokens') if usage.get('input_tokens') is not None else 'unknown')+' tokens, output '+str(usage.get('output_tokens') if usage.get('output_tokens') is not None else 'unknown')+' tokens'
+                if measurements is not None:detail+=' · '+str(measurements['elapsed_seconds'])+'s'
                 text='Independent '+proposal['role']+' review · '+proposal['model']+' · '+outcome['status']+' · '+structured['status']+detail+' · '+(outcome.get('analysis') or outcome.get('reason',''))[:900]
                 event('subagent',subagent={'id':ids[index],'status':outcome['status'] if outcome['status'] in ('completed','failed','cancelled') else 'failed','text':text[:1600]});event('output',text=text[:1600])
             try:results=execute_review_batch(files,passes,runtime,send,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=completed)
