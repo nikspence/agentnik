@@ -83,9 +83,11 @@ class ReviewCrashRecovery(unittest.TestCase):
                     reviews=saved['coding_review_history'][0]['reviews'];self.assertEqual(len(reviews),1 if mode=='direct' else 2)
                     self.assertTrue(all(item['pass_status']=='interrupted' for item in reviews))
                     self.assertTrue(all(item['batch_approved_at']==reviews[0]['batch_approved_at'] for item in reviews));self.assertRegex(reviews[0]['batch_approved_at'],r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+                    if mode=='heavy':self.assertTrue(all(item['status'] in ('queued','running') for item in saved.get('coding_subagents',[])))
                     with patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'open_request') as request:
                         window=Window(store)
                         try:
                             window.open_session(saved);app.processEvents();request.assert_not_called();self.assertTrue(window.tabs.currentWidget().saved_reviews_button.isEnabled())
+                            if mode=='heavy':self.assertTrue(all(item['status']=='interrupted' for item in window.tabs.currentWidget().session['coding_subagents']))
                         finally:window.close();app.processEvents()
                 finally:store.db.close()

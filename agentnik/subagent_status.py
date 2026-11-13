@@ -1,7 +1,7 @@
 """Validated, bounded display records for a Code run's subagents."""
 import re
 
-STATUSES={'running','completed','failed','cancelled','interrupted','stopped'}
+STATUSES={'queued','running','completed','failed','cancelled','interrupted','stopped'}
 
 
 def validate_record(value):

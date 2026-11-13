@@ -78,7 +78,9 @@ class DirectReviewRun(CodingRun):
                 event('independent_review_result',review=record)
             for index,item in enumerate(passes):
                 review_event(index,'pending',{'status':'not_available','findings':[]})
-                event('subagent',subagent={'id':ids[index],'status':'running','text':'Independent '+item['proposal']['role']+' review queued · '+item['proposal']['model']})
+                event('subagent',subagent={'id':ids[index],'status':'queued','text':'Independent '+item['proposal']['role']+' review · '+item['proposal']['model']})
+            def started(index):
+                proposal=passes[index]['proposal'];event('subagent',subagent={'id':ids[index],'status':'running','text':'Independent '+proposal['role']+' review · '+proposal['model']})
             def send(connection,body,child):
                 adapter=responses_tools if connection.get('protocol')=='responses' else ollama_tools if core.native_ollama(connection) else compat_tools
                 state={};_,calls=adapter.request(connection,body,child,lambda _:None,state)
@@ -92,7 +94,7 @@ class DirectReviewRun(CodingRun):
                 if measurements is not None:detail+=' · '+str(measurements['elapsed_seconds'])+'s'
                 text='Independent '+proposal['role']+' review · '+proposal['model']+' · '+outcome['status']+' · '+structured['status']+detail+' · '+(outcome.get('analysis') or outcome.get('reason',''))[:900]
                 event('subagent',subagent={'id':ids[index],'status':outcome['status'] if outcome['status'] in ('completed','failed','cancelled') else 'failed','text':text[:1600]});event('output',text=text[:1600])
-            try:results=execute_review_batch(files,passes,runtime,send,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=completed)
+            try:results=execute_review_batch(files,passes,runtime,send,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=completed,on_start=started)
             finally:
                 with self.lock:
                     for ident in ids:self.child_cancellations.pop(ident,None)

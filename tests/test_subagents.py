@@ -966,9 +966,10 @@ class Subagents(unittest.TestCase):
                 update(second,'completed','late result');self.assertNotIn('late result',tab.subagents_view.toPlainText())
                 saved=store.list_sessions()[0];self.assertEqual([x['status'] for x in saved['coding_subagents']],['completed','cancelled'])
                 window.close_tab(window.tabs.indexOf(tab))
-                saved['code_state']='running';saved['coding_subagents'][1]['status']='running';store.save(saved)
+                saved['code_state']='running';saved['coding_subagents'][1]['status']='running';saved['coding_subagents'].append({'id':'a'*32+'-3','status':'queued','text':'waiting task'});store.save(saved)
                 window.open_session(store.list_sessions()[0]);reopened=window.tabs.currentWidget()
                 self.assertEqual(reopened.session['coding_subagents'][1]['status'],'interrupted');self.assertTrue(reopened.subagents_view.isHidden());self.assertIsNone(reopened.job)
+                self.assertEqual(reopened.session['coding_subagents'][2]['status'],'interrupted')
             finally:window.close();app.processEvents();store.db.close()
 
     def test_reject_malformed_or_unexpected_subagent_states(self):

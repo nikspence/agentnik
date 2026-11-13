@@ -200,7 +200,7 @@ class CodeTab(QWidget):
         if session.get("code_state") in ("running","awaiting_approval"):
             session["code_state"]="interrupted"
             for item in session.get("coding_subagents",[]):
-                if item["status"]=="running":item["status"]="interrupted"
+                if item["status"] in ("queued","running"):item["status"]="interrupted"
             append_code_activity(session,'interrupted','Interrupted coding run; nothing resumes automatically.')
             self.store.save(session)
         layout=QVBoxLayout(self)
@@ -340,13 +340,14 @@ class CodeTab(QWidget):
             self.subagents_toggle.setChecked(False);self.subagents_view.hide();self.subagents_controls.hide();self.subagents_view.clear();self.subagent_choice.clear();self.stop_subagent_button.setEnabled(False);return
         selected=self.subagent_choice.currentData();self.subagent_choice.blockSignals(True);self.subagent_choice.clear()
         for item in items:
-            if item['status']=='running':self.subagent_choice.addItem(item['text'].replace('\n',' ')[:80],item['id'])
+            if item['status'] in ('queued','running'):self.subagent_choice.addItem(item['text'].replace('\n',' ')[:80],item['id'])
         index=self.subagent_choice.findData(selected)
         if index>=0:self.subagent_choice.setCurrentIndex(index)
         self.subagent_choice.blockSignals(False);self.stop_subagent_button.setEnabled(bool(self.job) and self.subagent_choice.count()>0)
         running=sum(item['status']=='running' for item in items)
-        self.subagents_toggle.setText(self.tr('Subagents · {count} total · {running} running').format(count=len(items),running=running))
-        labels={'running':self.tr('Running'),'completed':self.tr('Completed'),'failed':self.tr('Failed'),'cancelled':self.tr('Cancelled'),'interrupted':self.tr('Interrupted'),'stopped':self.tr('Stopped')}
+        queued=sum(item['status']=='queued' for item in items)
+        self.subagents_toggle.setText(self.tr('Subagents · {count} total · {running} running · {queued} queued').format(count=len(items),running=running,queued=queued))
+        labels={'queued':self.tr('Queued'),'running':self.tr('Running'),'completed':self.tr('Completed'),'failed':self.tr('Failed'),'cancelled':self.tr('Cancelled'),'interrupted':self.tr('Interrupted'),'stopped':self.tr('Stopped')}
         self.subagents_view.setMaximumHeight(min(135,max(45,self.subagents_view.fontMetrics().lineSpacing()*min(8,2*len(items)+1)+10)))
         self.subagents_view.setPlainText('\n\n'.join(labels[item['status']]+' · '+item['text'] for item in items))
 
@@ -354,12 +355,12 @@ class CodeTab(QWidget):
         ident=self.subagent_choice.currentData()
         if not isinstance(self.job,CodingRun) or not ident or not self.job.cancel_subagent(ident):return
         item=next((item for item in self.session.get('coding_subagents',[]) if item['id']==ident),None)
-        if item and item['status']=='running':item['status']='cancelled'
+        if item and item['status'] in ('queued','running'):item['status']='cancelled'
         self.refresh_subagents();self.record('cancelled',self.tr('Subagent cancellation requested: {id}').format(id=ident))
 
     def stop_subagents(self,status):
         for item in self.session.get('coding_subagents',[]):
-            if item['status']=='running':item['status']=status
+            if item['status'] in ('queued','running'):item['status']=status
         for review in self.review_results.values():
             if review['pass_status']=='pending':review['pass_status']='interrupted'
         self.refresh_subagents()
@@ -1564,9 +1565,9 @@ class CodeTab(QWidget):
             records=self.session.setdefault('coding_subagents',[])
             prior=next((item for item in records if item['id']==value['id']),None)
             if prior is None:
-                if value['status']!='running':return
+                if value['status'] not in ('queued','running'):return
                 records.append(value);self.session['coding_subagents']=records[-32:]
-            elif (prior['status']=='running' and value['status'] in ('completed','failed','cancelled')) or (prior['status']=='cancelled' and value['status']=='cancelled'):
+            elif (prior['status']=='queued' and value['status'] in ('running','failed','cancelled')) or (prior['status']=='running' and value['status'] in ('completed','failed','cancelled')) or (prior['status']=='cancelled' and value['status']=='cancelled'):
                 prior.update(value)
             else:return
             self.refresh_subagents();self.store.save(self.session);self.updated.emit();return

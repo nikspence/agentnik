@@ -20,6 +20,37 @@ MODEL={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer','
 
 
 class DirectReview(unittest.TestCase):
+    def test_same_endpoint_shows_queued_pass_and_allows_cancellation(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog
+        from agentnik.ui import Window
+        from agentnik.code_ui import DirectReviewDialog
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');store=Store(Path(root)/'data');window=Window(store);started=threading.Event();release=threading.Event()
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                window.connections['Review']=dict(MODEL);box,model=tab.roles['light'];box.addItem('Review','Review');box.setCurrentIndex(box.findData('Review'));model.setText('reviewer');tab.light_enabled.setChecked(True)
+                def configure(dialog):
+                    dialog.target.setText('spec.md');dialog.passes[0][0].setCurrentIndex(dialog.passes[0][0].findData('design'));dialog.passes[1][0].setCurrentIndex(dialog.passes[1][0].findData('readiness'));return QDialog.DialogCode.Accepted
+                def send(connection,url,body,timeout):started.set();release.wait(5);return Wire(chat('{"version":1,"findings":[]}'),False)
+                with patch.object(DirectReviewDialog,'exec',configure),patch.object(core,'open_request',side_effect=send) as request:
+                    tab.start_direct_review();deadline=time.monotonic()+5
+                    while time.monotonic()<deadline:
+                        app.processEvents()
+                        if tab.pending_fingerprint:tab.decide(True)
+                        if started.is_set() and len(session['coding_subagents'])==2 and any(x['status']=='queued' for x in session['coding_subagents']):break
+                        time.sleep(.01)
+                    self.assertEqual([x['status'] for x in session['coding_subagents']],['running','queued']);self.assertIn('1 running',tab.subagents_toggle.text());self.assertIn('1 queued',tab.subagents_toggle.text())
+                    queued=session['coding_subagents'][1]['id'];tab.subagent_choice.setCurrentIndex(tab.subagent_choice.findData(queued));tab.cancel_selected_subagent();release.set()
+                    deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.01)
+                    app.processEvents();self.assertEqual(request.call_count,1)
+                self.assertIsNone(tab.job);self.assertEqual([x['status'] for x in session['coding_subagents']],['completed','cancelled'])
+                self.assertEqual([x['pass_status'] for x in tab.review_results.values()],['completed','cancelled'])
+            finally:release.set();window.close();app.processEvents();store.db.close()
+
     def test_preflight_source_change_records_stale_and_skipped_passes(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root,'spec.md').write_text('SPEC',encoding='utf-8');evidence=Path(root,'evidence.txt');evidence.write_text('BEFORE',encoding='utf-8')

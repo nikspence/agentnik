@@ -1021,7 +1021,9 @@ class CodingRun:
                             for ident,item in zip(ids,passes):
                                 p=item['proposal']
                                 event('independent_review_result',review=pending_review(ident,item))
-                                event('subagent',subagent={'id':ident,'status':'running','text':'Independent '+p['role']+' review queued · '+p['model']})
+                                event('subagent',subagent={'id':ident,'status':'queued','text':'Independent '+p['role']+' review · '+p['model']})
+                            def review_started(index):
+                                p=passes[index]['proposal'];event('subagent',subagent={'id':ids[index],'status':'running','text':'Independent '+p['role']+' review · '+p['model']})
                             def send_review(connection,body,child):
                                 adapter=responses_tools if connection.get('protocol')=='responses' else ollama_tools if core.native_ollama(connection) else compat_tools
                                 state={}
@@ -1051,7 +1053,7 @@ class CodingRun:
                                 event('subagent',subagent={'id':ident,'status':outcome['status'] if outcome['status'] in ('completed','cancelled','failed') else 'failed','text':text[:1600]});event('output',text=text[:1600])
                             try:
                                 # The complete serialized tool result is charged once before Heavy continuation.
-                                batch=execute_review_batch(files,passes,runtime,send_review,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=review_completed,charge_output=False)
+                                batch=execute_review_batch(files,passes,runtime,send_review,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=review_completed,on_start=review_started,charge_output=False)
                             except Exception:
                                 for ident in ids:
                                     if ident not in reported_review_ids:event('subagent',subagent={'id':ident,'status':'failed','text':'Independent review batch stopped before completion.'})

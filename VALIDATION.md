@@ -283,6 +283,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 ## Direct independent-review adapter checks
 
+An offscreen test holds one mocked same-endpoint reviewer while checking the second pass is queued and individually cancellable without submission. A saved-session test checks queued and running subagents reopen as interrupted; a forced-stop check covers interrupted manifests, where event delivery can lag worker dispatch. No live inference was used.
+
 Offline and offscreen checks cover post-approval preflight failures for direct and Heavy-requested batches: changed sources yield stale records, unaffected passes are skipped, shared-budget failures skip the batch, no reviewer request is sent, and opted-in progress is updated from interrupted to the terminal state.
 
 Offline and offscreen tests cover rejected direct and Heavy-requested batches: no reviewer requests are sent, each pass is recorded as skipped with its approval state explained, optional progress saving persists the records, and reopening does not submit a request. Rejected records do not claim a completed batch approval.

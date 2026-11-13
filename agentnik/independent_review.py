@@ -387,7 +387,7 @@ class _CombinedCancellation:
     def wait(self, timeout=None): return self.child.wait(timeout)
 
 
-def execute_review_batch(files, passes, runtime, send, cancellations, *, model_timeout, secrets=(), on_complete=None, charge_output=True):
+def execute_review_batch(files, passes, runtime, send, cancellations, *, model_timeout, secrets=(), on_complete=None, on_start=None, charge_output=True):
     """Run preapproved passes with bounded concurrency; no approvals or UI here.
 
     `send(connection, body, child_runtime)` performs exactly one request and
@@ -464,6 +464,7 @@ def execute_review_batch(files, passes, runtime, send, cancellations, *, model_t
                     pending.remove(index);finish(index,{'status':'skipped','reason':'Earlier request to this endpoint did not complete.'});continue
                 if endpoint in active.values(): continue
                 pending.remove(index);active[index]=endpoint
+                if on_start is not None:on_start(index)
                 threading.Thread(target=work,args=(index,),daemon=True,name='AgentnikReviewPass').start()
             if not active: continue
             try: index,status,data=output.get(timeout=.05)
