@@ -598,6 +598,8 @@ class CodingRun:
             values=getattr(bridge,'environment_values',{})
             if isinstance(values,dict):secrets.extend(value for value in values.values() if isinstance(value,str) and value)
         usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('Heavy','Light')}
+        parallel_usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('light','alternate','alternate2')}
+        review_usage={role:{'requests':0,'input_tokens':0,'output_tokens':0,'input_missing':0,'output_missing':0} for role in ('light','alternate','alternate2')}
         def request(role,adapter,connection,body,state):
             totals=usage[role];totals['requests']+=1
             model_runtime=Runtime(self.cancel,replace(runtime.limits,request_seconds=self.limits['model_seconds']),self.run_id)
@@ -623,6 +625,14 @@ class CodingRun:
                         missing=values[name+'_missing'];count=values[name+'_tokens']
                         fields.append(name+' '+(str(count) if missing<values['requests'] else 'unknown')+(' (known usage only)' if 0<missing<values['requests'] else ''))
                     parts.append(role+': '+str(values['requests'])+' request(s), '+', '.join(fields)+' tokens')
+            for label,breakdown in (('parallel',parallel_usage),('single review',review_usage)):
+                for role,values in breakdown.items():
+                    if values['requests']:
+                        fields=[]
+                        for name in ('input','output'):
+                            missing=values[name+'_missing'];count=values[name+'_tokens']
+                            fields.append(name+' '+(str(count) if missing<values['requests'] else 'unknown')+(' (known usage only)' if 0<missing<values['requests'] else ''))
+                        parts.append(label+' '+role+': '+str(values['requests'])+' request(s), '+', '.join(fields)+' tokens')
             return 'Usage: '+'; '.join(parts) if parts else 'Usage: no model requests'
         def event(kind,**data):
             if kind!='finished':runtime.check()
@@ -1099,11 +1109,12 @@ class CodingRun:
                             event('output',text='Independent '+role+' review started · '+model['model']+' · '+args['path']+' · SHA-256 '+source_hash)
                             child_runtime=Runtime(ChildCancellation(self.cancel,child_cancel),replace(runtime.limits,request_seconds=self.limits['model_seconds']),self.run_id);child_runtime.started=runtime.started
                             adapter_review=responses_tools if model.get('protocol')=='responses' else ollama_tools if core.native_ollama(model) else compat_tools
-                            state={};started=time.monotonic();usage['Light']['requests']+=1;stale_stage=None
+                            state={};started=time.monotonic();submitted=False;stale_stage=None
                             try:
                                 review_body=build_review_request(model,proposal)
                                 if not sources_unchanged(files,snapshot['sources']):
                                     stale_stage='before submission';raise ValueError('Document or evidence changed before review; no request was sent')
+                                child_runtime.check();submitted=True;usage['Light']['requests']+=1;review_usage[args['model']]['requests']+=1
                                 _,review_calls=child_runtime.wait(lambda:adapter_review.request(model,review_body,child_runtime,lambda _:None,state))
                                 if review_calls:raise ValueError('Reviewer requested unavailable tools')
                                 if not sources_unchanged(files,snapshot['sources']):
@@ -1125,8 +1136,11 @@ class CodingRun:
                             reported={}
                             for key in ('input_tokens','output_tokens'):
                                 value=state.get('metrics',{}).get(key) if result['status']=='completed' else None
-                                if type(value) in (int,float) and math.isfinite(value) and 0<=value<=2**63-1:usage['Light'][key]+=value;reported[key]=value
-                                else:usage['Light'][key.replace('tokens','missing')]+=1;reported[key]=None
+                                if submitted and type(value) in (int,float) and math.isfinite(value) and 0<=value<=2**63-1:
+                                    usage['Light'][key]+=value;review_usage[args['model']][key]+=value;reported[key]=value
+                                else:
+                                    if submitted:usage['Light'][key.replace('tokens','missing')]+=1;review_usage[args['model']][key.replace('tokens','missing')]+=1
+                                    reported[key]=None
                             result['usage']=reported;result['elapsed_seconds']=round(time.monotonic()-started,2)
                             result['version']=RESULT_VERSION;result['rubric_version']=RUBRIC_VERSION;result=validate_result(result)
                             if structured and result['status']=='completed':
@@ -1263,7 +1277,7 @@ class CodingRun:
                                         if outputs:body['messages'].append({'role':'user','content':outputs})
                                     raise ValueError('Subagent inspection round limit reached')
                                 except Exception as exc:
-                                    return {'index':index,'task':task,'paths':[item['path'] for item in snapshot],'model_role':model_role,'model':light['model'],'status':'failed','error':str(exc)[:500]},dict(metrics,requests=requests,tools_rejected=rejected),time.monotonic()-started
+                                    return {'index':index,'task':task,'paths':[item['path'] for item in snapshot],'model_role':model_role,'model':light['model'],'status':'failed','error':str(exc)[:500]},dict(input_tokens=None,output_tokens=None,requests=requests,tools_rejected=rejected),time.monotonic()-started
                                 finally:child_runtime.closed=True
                             executor=ThreadPoolExecutor(max_workers=len(normalized),thread_name_prefix='agentnik-light')
                             try:
@@ -1285,15 +1299,16 @@ class CodingRun:
                                         if metrics.get('tools_rejected'):event('subagent_tools_unsupported',role=item['model_role'])
                                         with self.lock:child_cancel=self.child_cancellations.pop(child_id,None)
                                         if child_cancel is not None and child_cancel.is_set():
-                                            item.pop('analysis',None);item.update(status='cancelled',error='Cancelled by user; the provider may continue processing.');metrics={}
+                                            item.pop('analysis',None);item.update(status='cancelled',error='Cancelled by user; the provider may continue processing.');metrics={'requests':metrics.get('requests',0)}
                                             self.cancelled_subagent_tasks.add(subagent_task_identity(item['task'],item['paths']))
-                                        totals=usage['Light'];totals['requests']+=metrics.get('requests',1)
+                                        totals=usage['Light'];role_totals=parallel_usage[item['model_role']];request_count=metrics.get('requests',1)
+                                        totals['requests']+=request_count;role_totals['requests']+=request_count
                                         reported={}
                                         for key in ('input_tokens','output_tokens'):
                                             value=metrics.get(key)
                                             if type(value) in (int,float) and math.isfinite(value) and 0<=value<=2**63-1:
-                                                totals[key]+=value;reported[key]=value
-                                            else:totals[key.replace('tokens','missing')]+=1;reported[key]=None
+                                                totals[key]+=value;role_totals[key]+=value;reported[key]=value
+                                            else:totals[key.replace('tokens','missing')]+=request_count;role_totals[key.replace('tokens','missing')]+=request_count;reported[key]=None
                                         item['usage']=reported;item['elapsed_seconds']=round(elapsed,2);results.append(item)
                                         if item.get('inspection_fallback'):event('output',text='Subagent '+str(item['index'])+(' used approved snapshot context because tool calling was previously rejected.' if item['inspection_fallback']=='remembered' else ' used approved snapshot context after the model rejected tool calling.'))
                                         details=' · input '+str(reported['input_tokens'] if reported['input_tokens'] is not None else 'unknown')+' tokens, output '+str(reported['output_tokens'] if reported['output_tokens'] is not None else 'unknown')+' tokens · '+str(item['elapsed_seconds'])+'s'

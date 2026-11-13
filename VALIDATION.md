@@ -1,5 +1,9 @@
 # Baseline validation
 
+## Offline suite qualification (2026-11-13)
+
+On Windows, `.venv\Scripts\python.exe -m unittest discover -s tests -q` ran 670 tests successfully with one skip. A focused rerun identified the skip as directory-move symlink coverage because creating symbolic links was unavailable on this host. The suite includes mocked endpoints and offscreen Qt checks; it does not qualify live model behavior, native interactive workflows, clean-machine deployment, or other operating systems.
+
 ## Independent review output budget (2026-11-13)
 
 Offline direct-review and scheduler tests check UTF-8 byte accounting against the shared context limit, including discarded over-budget output and the Heavy continuation path's separate serialized-result charge. Focused direct-review, independent-review, subagent and forced-process-stop recovery tests passed. No live model or endpoint was used.

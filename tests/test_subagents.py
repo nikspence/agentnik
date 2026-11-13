@@ -13,6 +13,23 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_single_review_usage_identifies_alternate_role(self):
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root)/'spec.md').write_text('SPEC',encoding='utf-8');events=[];count=0
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=dict(C,model='other',stream=False))
+            def send(connection,url,body,timeout):
+                nonlocal count
+                if connection['model']=='other':return Wire(chat('Review'),False)
+                count+=1
+                if count==1:return Wire(chat(calls=[call('review_document',{'path':'spec.md','model':'alternate'})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertIn('single review alternate: 1 request(s), input 10, output 3 tokens',events[-1]['usage'])
+
     def test_single_structured_manifest_gates_submission_and_rechecks_sources(self):
         for mode in ('saved','save_failed','changed_after_save','changed_during_request'):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as root:
@@ -39,6 +56,10 @@ class Subagents(unittest.TestCase):
                 terminal=[e['review'] for e in events if e['kind']=='independent_review_result' and e['review']['pass_status']!='pending']
                 if mode=='save_failed':self.assertEqual(terminal,[])
                 else:self.assertEqual(terminal[0]['pass_status'],'completed' if mode=='saved' else 'stale')
+                if mode=='saved':self.assertIn('single review light: 1 request(s), input 10, output 3 tokens',events[-1]['usage'])
+                if mode in ('save_failed','changed_after_save'):
+                    self.assertNotIn('Light:',events[-1]['usage']);self.assertNotIn('single review',events[-1]['usage'])
+                if mode=='changed_during_request':self.assertIn('single review light: 1 request(s), input unknown, output unknown tokens',events[-1]['usage'])
 
     def test_single_structured_progress_is_saved_before_request_and_updated(self):
         import os,time
@@ -1025,6 +1046,33 @@ class Subagents(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
             self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(light_count,2)
             self.assertIn('def feature()',json.dumps(child_bodies[1]));self.assertTrue(any(m['role']=='tool' for m in child_bodies[1]['messages']))
+            self.assertIn('parallel light: 2 request(s), input 20, output 6 tokens',events[-1]['usage'])
+            self.assertIn('parallel alternate: 1 request(s), input 10, output 3 tokens',events[-1]['usage'])
+
+    def test_multi_round_unknown_usage_does_not_look_like_known_zero(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'a.py').write_text('content',encoding='utf-8');events=[];heavy_count=0;light_count=0
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=dict(C,model='other',stream=False))
+            def send(connection,url,body,timeout):
+                nonlocal heavy_count,light_count
+                if connection['model']=='other':
+                    response=chat('Other');response.pop('usage',None);return Wire(response,False)
+                if connection['model']=='light':
+                    light_count+=1
+                    if light_count==1:
+                        response=chat(calls=[call('read_file',{'path':'a.py'})],finish='tool_calls');response.pop('usage',None);return Wire(response,False)
+                    return Wire(chat('Done'),False)
+                heavy_count+=1
+                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps([{'task':'Inspect','paths':['a.py'],'inspect':True},{'task':'Other','model':'alternate'}])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertIn('Light: 3 request(s), input unknown, output unknown tokens',events[-1]['usage'])
+            self.assertIn('parallel light: 2 request(s), input unknown, output unknown tokens',events[-1]['usage'])
+            self.assertIn('parallel alternate: 1 request(s), input unknown, output unknown tokens',events[-1]['usage'])
 
     def test_parallel_inspection_tools_are_scoped_and_continue_across_protocols(self):
         from agentnik import compat_tools,responses_tools
