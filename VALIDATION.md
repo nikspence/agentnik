@@ -283,6 +283,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 ## Direct independent-review adapter checks
 
+Offline and offscreen checks cover origin-only endpoint attribution for direct and Heavy-requested review progress, known-secret omission, IPv6, unsupported host forms, invalid imported origins, legacy records and project-history round-tripping. The origin does not identify a particular account or URL path.
+
 Offline and offscreen tests cover rubric-version attribution for direct and Heavy-requested saved review progress, project-history round-tripping, legacy snapshots, and invalid or unsupported versions. Tests pin the version 1 structured, drift and repository-fit instruction text alongside the other review rubrics.
 
 Offline scheduler and offscreen session checks exercise non-completed review reasons, including failed and skipped same-endpoint passes, cancellation, stale input, safe omission of raw endpoint errors, and reopen without a request. Project-sidecar tests cover reason round-tripping; malformed and oversized reasons are rejected.

@@ -15,11 +15,22 @@ from agentnik.tools import Runtime, Limits, LimitError
 
 
 class IndependentReviewSnapshots(unittest.TestCase):
+    def test_endpoint_identity_discards_paths_and_rejects_unsafe_records(self):
+        from agentnik.independent_review import review_endpoint_identity,validate_review_endpoint_identity
+        connection={'url':'https://Example.invalid:8443/private-key/v1','protocol':'responses','model':'model'}
+        identity=review_endpoint_identity(connection,['private-key']);self.assertEqual(identity,{'protocol':'responses','origin':'https://example.invalid:8443'})
+        self.assertEqual(review_endpoint_identity(dict(connection,url='https://private-key.example.invalid/path'),['PRIVATE-KEY'])['origin'],None)
+        self.assertEqual(review_endpoint_identity(dict(connection,url='http://[::1]:11434/v1'))['origin'],'http://[::1]:11434')
+        self.assertIsNone(review_endpoint_identity(dict(connection,url='http://local_host:9000/v1'))['origin'])
+        for origin in ('https://user:password@example.invalid','https://example.invalid/private-key','https://example.invalid?key=secret','https://example.invalid:99999','javascript://example.invalid'):
+            with self.subTest(origin=origin),self.assertRaises(ValueError):validate_review_endpoint_identity({'protocol':'chat','origin':origin})
+
     def test_drift_review_records_are_valid_saved_history(self):
         review={'id':'a'*32+'-1','role':'drift','model':'light','path':'spec.md','source_sha256':'b'*64,'payload_sha256':'c'*64,'evidence':[{'path':'code.py','sha256':'d'*64,'payload_sha256':'e'*64}],'pass_status':'completed','structured':{'status':'valid','findings':[]},'dispositions':{}}
         history=[{'version':1,'id':'f'*32,'track_id':None,'reviews':[review]}]
         self.assertEqual(validate_review_history(history),history)
         review['rubric_version']=1;self.assertEqual(validate_review_history(history),history)
+        review['endpoint']={'protocol':'chat','origin':'https://example.invalid'};self.assertEqual(validate_review_history(history),history)
         for invalid in (True,0,2,'1'):
             review['rubric_version']=invalid
             with self.subTest(rubric_version=invalid),self.assertRaises(ValueError):validate_review_history(history)

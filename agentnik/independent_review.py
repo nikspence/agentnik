@@ -89,6 +89,35 @@ def validate_review_measurements(value):
     return dict(value)
 
 
+def review_endpoint_identity(connection, secrets=()):
+    """Keep only the endpoint origin and protocol; do not retain paths or credentials."""
+    protocol=connection.get('protocol','chat')
+    if protocol not in ('chat','messages','responses'):raise ValueError('Invalid review protocol')
+    parsed=urlsplit(core.endpoint(connection));host=parsed.hostname
+    try:
+        host=host.encode('idna').decode('ascii').lower()
+        authority=('['+host+']' if ':' in host else host)+((':'+str(parsed.port)) if parsed.port is not None else '')
+        origin=parsed.scheme.lower()+'://'+authority
+    except (UnicodeError,ValueError,AttributeError):origin=None
+    if origin and (len(origin)>300 or any(isinstance(secret,str) and secret and secret.lower() in origin.lower() for secret in secrets)):origin=None
+    result={'protocol':protocol,'origin':origin}
+    try:validate_review_endpoint_identity(result)
+    except ValueError:result['origin']=None
+    return result
+
+
+def validate_review_endpoint_identity(value):
+    if not isinstance(value,dict) or set(value)!={'protocol','origin'} or value['protocol'] not in ('chat','messages','responses'):raise ValueError('Invalid review endpoint identity')
+    origin=value['origin']
+    if origin is not None:
+        if not isinstance(origin,str) or len(origin)>300 or not re.fullmatch(r'https?://(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?',origin):raise ValueError('Invalid review endpoint identity')
+        try:
+            parsed=urlsplit(origin)
+            if not parsed.hostname or (parsed.port is not None and not 1<=parsed.port<=65535):raise ValueError('Invalid review endpoint identity')
+        except ValueError:raise ValueError('Invalid review endpoint identity') from None
+    return dict(value)
+
+
 def validate_review_history(history):
     """Validate explicitly saved, bounded session snapshots without reading files."""
     if not isinstance(history, list) or len(history) > 10 or len(json.dumps(history, ensure_ascii=True).encode('utf-8')) > 256000:
@@ -106,8 +135,9 @@ def validate_review_history(history):
         review_ids=set()
         for review in reviews:
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','dispositions'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context','measurements','reason','rubric_version'}:raise ValueError('Invalid saved review')
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context','measurements','reason','rubric_version','endpoint'}:raise ValueError('Invalid saved review')
             if 'rubric_version' in review and (type(review['rubric_version']) is not int or not 1<=review['rubric_version']<=RUBRIC_VERSION):raise ValueError('Unsupported review rubric version')
+            if 'endpoint' in review:validate_review_endpoint_identity(review['endpoint'])
             validate_track_context(review.get('track_context'))
             status=review.get('pass_status','completed')
             if status not in ('completed','failed','cancelled','stale','skipped','interrupted'):raise ValueError('Invalid saved review status')
