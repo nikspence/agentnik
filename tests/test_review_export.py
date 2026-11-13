@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import shutil
 from unittest.mock import patch
 
 from agentnik import core
@@ -15,6 +16,39 @@ def snapshot():
 
 
 class ReviewExport(unittest.TestCase):
+    def test_project_snapshot_export_and_changed_sidecar(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog,QFileDialog,QMessageBox,QPlainTextEdit,QPushButton
+        from agentnik.ui import Window
+        from agentnik.storage import Store
+        from agentnik.code_agent import ProjectFiles
+        from agentnik.track_execution import prepare_track
+        from agentnik.track_review_storage import prepare_append,apply_append,sidecar_path
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';shutil.copytree(Path(__file__).parent/'fixtures'/'tracks',project);files=ProjectFiles(project)
+            record=snapshot();record['reviews'][0]['track_context']={'id':'sample_feature','digest':prepare_track(files,'sample_feature')['digest']}
+            apply_append(files,prepare_append(files,'sample_feature',record),lambda proposal:True)
+            sidecar=project/sidecar_path('sample_feature');original=sidecar.read_text(encoding='utf-8');target=Path(root)/'export.json'
+            store=Store(Path(root)/'data');window=Window(store);mode=['cancel']
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                def interact(dialog):
+                    if dialog.windowTitle()=='Export review snapshot':
+                        self.assertEqual(json.loads(dialog.findChild(QPlainTextEdit,'reviewExportPreview').toPlainText())['snapshot'],record)
+                        if mode[0]=='cancel':return QDialog.DialogCode.Rejected
+                        if mode[0]=='changed':sidecar.write_text('{"version":2}',encoding='utf-8')
+                        if mode[0]=='credentials':window.connections['Sensitive']={'api_key':'model'}
+                        return QDialog.DialogCode.Accepted
+                    dialog.findChild(QPushButton,'exportProjectReview').click();return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',interact),patch.object(QFileDialog,'getSaveFileName',return_value=(str(target),'JSON')),patch.object(QMessageBox,'information'),patch.object(QMessageBox,'warning') as warning,patch.object(core,'open_request') as request:
+                    tab.show_project_track_reviews('sample_feature');self.assertFalse(target.exists())
+                    mode[0]='changed';tab.show_project_track_reviews('sample_feature');self.assertFalse(target.exists());warning.assert_called()
+                    sidecar.write_text(original,encoding='utf-8');mode[0]='credentials';tab.show_project_track_reviews('sample_feature');self.assertFalse(target.exists());del window.connections['Sensitive']
+                    mode[0]='save';tab.show_project_track_reviews('sample_feature');self.assertEqual(json.loads(target.read_text(encoding='utf-8'))['snapshot'],record)
+                    tab.show_project_track_reviews('sample_feature');self.assertEqual(json.loads(target.read_text(encoding='utf-8'))['snapshot'],record);self.assertEqual(sidecar.read_text(encoding='utf-8'),original);request.assert_not_called()
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_validated_export_blocks_secrets_and_existing_files(self):
         record=snapshot();content=prepare_review_export(record,['private-key'])
         self.assertEqual(json.loads(content),{'format':'agentnik-review-snapshot','version':1,'snapshot':record})
