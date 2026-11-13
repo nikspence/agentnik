@@ -2,10 +2,10 @@
 
 # key: (default, minimum, maximum)
 FIELDS = {
-    'rounds': (8, 1, 64),
-    'requests': (9, 1, 128),
-    'calls': (16, 1, 128),
-    'turn_seconds': (900, 10, 3600),
+    'rounds': (48, 1, 64),
+    'requests': (50, 1, 128),
+    'calls': (96, 1, 128),
+    'turn_seconds': (3600, 10, 3600),
     'model_seconds': (300, 10, 3600),
     'context_bytes': (1000000, 4096, 8000000),
 }

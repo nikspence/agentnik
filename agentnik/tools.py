@@ -31,19 +31,19 @@ class AccessError(ResearchError):
 
 @dataclass(frozen=True)
 class Limits:
-    rounds: int = 8
-    calls: int = 16
+    rounds: int = 48
+    calls: int = 96
     results: int = 5
     response_bytes: int = 1_000_000
     retrieved_bytes: int = 3_000_000
     record_bytes: int = 256_000
-    context_bytes: int = 64_000
+    context_bytes: int = 256_000
     argument_bytes: int = 4096
     model_bytes: int = 512_000
     request_seconds: float = 600
-    turn_seconds: float = 1800
+    turn_seconds: float = 3600
     redirects: int = 3
-    requests: int = 12
+    requests: int = 50
     attempts: int = 8
     backoff_seconds: float = 5
 
