@@ -420,8 +420,9 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
                 tab=window.tabs.currentWidget();window.stats();self.assertIn('Ready',window.statusBar().currentMessage())
-                tab.start_simulation();deadline=time.monotonic()+3
-                while not tab.approve.isEnabled() and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+                from agentnik.code_agent import CodingRun
+                run=CodingRun({'model':'test'},str(project),'task');tab.job=run;tab.run_id=run.run_id
+                tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':{'cwd':str(project),'path':'file.py','diff':'+change'}})
                 self.assertTrue(tab.approve.isEnabled());window.stats();self.assertIn('Running',window.statusBar().currentMessage())
                 with patch('agentnik.ui.confirm',return_value=False) as confirm:
                     event=QCloseEvent();window.closeEvent(event);self.assertFalse(event.isAccepted());confirm.assert_called_once()

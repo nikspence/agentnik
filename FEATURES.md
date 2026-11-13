@@ -78,7 +78,6 @@
 - Read-before-write enforced; conflicting changes stop the write; cancellation retains drafts and applied changes.
 - Regular files, including binary and large files, can be renamed or moved within the project without overwriting, including across filesystems; regular-file deletion and directory creation, rename, and move also proceed without per-operation approval. Directory moves require the same filesystem, a safe no-overwrite rename, and a tree of at most 10,000 permitted entries. Shell commands require approval. Reopening never restarts a run.
 - Structured Dulwich Git tools: status, working/staged diffs, recent history, local branches, reviewed staging/unstaging, explicit-file or staged-snapshot commits, and branch creation without switching. Remote Git tools remain planned.
-- Optional **Try simulated workflow (no execution)** mode.
 
 ## Validation and build tooling
 - Offline unit test suite and `compileall` checks covering wire formats, streaming, cancellation, decisions, credentials, attachments, tabs, prompts, fonts, themes, and branding.

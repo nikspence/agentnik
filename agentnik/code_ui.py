@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt,Signal,QObject,QUrl,QPoint,QTimer
 from PySide6.QtGui import QDesktopServices,QTextCursor
 from PySide6.QtWidgets import QScrollArea,QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox
 from .repositories import RepositoryRegistry
-from .coding import SimulationRun,plain
+from .coding import plain
 from .code_agent import CodingRun
 from .research import scrub
 from . import decision_advice
@@ -22,6 +22,22 @@ from .web import public_url
 from . import core,routing
 from .research_ui import SearchBackends
 from .search_providers import SEARCH_KINDS
+
+
+class CodingComposer(QPlainTextEdit):
+    history_requested = Signal(int)
+
+    def keyPressEvent(self, event):
+        if event.modifiers() == Qt.KeyboardModifier.NoModifier and event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            cursor = self.textCursor()
+            if not cursor.hasSelection():
+                probe = QTextCursor(cursor)
+                direction = -1 if event.key() == Qt.Key.Key_Up else 1
+                move = QTextCursor.MoveOperation.Up if direction < 0 else QTextCursor.MoveOperation.Down
+                if not probe.movePosition(move):
+                    self.history_requested.emit(direction)
+                    return
+        super().keyPressEvent(event)
 
 
 class RepositoryPicker(QDialog):
@@ -173,7 +189,14 @@ class CodeTab(QWidget):
         self.activity.moveCursor(QTextCursor.MoveOperation.End)
         self._activity_revision=0;self._activity_initial_follow=True;self.activity.verticalScrollBar().actionTriggered.connect(self.activity_scrolled)
         QTimer.singleShot(0,self.finish_activity_open)
-        self.composer=QPlainTextEdit(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);layout.addWidget(self.composer)
+        composer_row=QHBoxLayout();layout.addLayout(composer_row)
+        history_buttons=QVBoxLayout();composer_row.addLayout(history_buttons)
+        self.history_up=QPushButton('↑');self.history_up.setAccessibleName(self.tr('Previous coding prompt'));self.history_up.setToolTip(self.tr('Previous coding prompt'));history_buttons.addWidget(self.history_up)
+        self.history_down=QPushButton('↓');self.history_down.setAccessibleName(self.tr('Next coding prompt'));self.history_down.setToolTip(self.tr('Next coding prompt'));history_buttons.addWidget(self.history_down)
+        self.composer=CodingComposer(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);composer_row.addWidget(self.composer,1)
+        self._history_index=len(session.get('coding_prompt_history',[]));self._history_edits={}
+        self.history_up.clicked.connect(lambda:self.navigate_prompt_history(-1));self.history_down.clicked.connect(lambda:self.navigate_prompt_history(1));self.composer.history_requested.connect(self.navigate_prompt_history)
+        self.update_prompt_history_buttons()
         context=session.get('coding_context')
         self.context_toggle=QPushButton(self.tr('Previous task and answer'));self.context_toggle.setCheckable(True);layout.addWidget(self.context_toggle)
         self.context_view=QPlainTextEdit(self.context_text(context))
@@ -222,7 +245,6 @@ class CodeTab(QWidget):
         self.sources_button=QPushButton();self.sources_button.clicked.connect(self.show_sources)
         run_row=QHBoxLayout();layout.addLayout(run_row)
         self.send=QPushButton(self.tr('Run'));self.send.clicked.connect(self.start_coding);run_row.addWidget(self.send)
-        self.simulate=QPushButton(self.tr('Simulate'));self.simulate.clicked.connect(self.start_simulation);run_row.addWidget(self.simulate)
         self.cancel_button=QPushButton(self.tr('Cancel'));self.cancel_button.setEnabled(False);self.cancel_button.clicked.connect(self.cancel);run_row.addWidget(self.cancel_button)
         run_row.addWidget(self.model_toggle)
         self.search_settings=QPushButton(self.tr('Search settings…'));self.search_settings.setToolTip(self.tr('Manage search profiles shared with Chat'));self.search_settings.clicked.connect(self.configure_search);run_row.addWidget(self.search_settings)
@@ -549,6 +571,7 @@ class CodeTab(QWidget):
             unsupported_roles={role for role,connection in role_models.items() if connection and unsupported(self.store.config,self.subagent_capability_connection(role,connection))}
             run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles)
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
+        self.remember_prompt(self.composer.toPlainText())
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.')
         if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[provider])
@@ -560,7 +583,7 @@ class CodeTab(QWidget):
             self.session['coding_subagents']=[];self.refresh_subagents()
             self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
-        self.simulate.setEnabled(False);self.send.setEnabled(False);self.cancel_button.setEnabled(True)
+        self.send.setEnabled(False);self.cancel_button.setEnabled(True)
         self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
@@ -571,6 +594,30 @@ class CodeTab(QWidget):
             except RuntimeError:pass
         self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
 
+    def update_prompt_history_buttons(self):
+        count=len(self.session.get('coding_prompt_history',[]))
+        self.history_up.setEnabled(self._history_index>0)
+        self.history_down.setEnabled(self._history_index<count)
+
+    def navigate_prompt_history(self, direction):
+        history=self.session.get('coding_prompt_history',[]);target=self._history_index+direction
+        if not 0<=target<=len(history):return
+        self._history_edits[self._history_index]=self.composer.toPlainText()
+        self._history_index=target
+        self.composer.setPlainText(self._history_edits.get(target,history[target] if target<len(history) else ''))
+        self.composer.moveCursor(QTextCursor.MoveOperation.End)
+        self.update_prompt_history_buttons()
+
+    def remember_prompt(self, prompt):
+        history=self.session.setdefault('coding_prompt_history',[])
+        if not history or history[-1]!=prompt:history.append(prompt)
+        # Keep complete recent prompts without allowing unbounded session growth.
+        while len(history)>100 or sum(map(len,history))>2_000_000:
+            history.pop(0)
+        self._history_index=len(history);self._history_edits={}
+        self.update_prompt_history_buttons()
+        self.store.save(self.session)
+
     def save_draft(self):
         self.session['draft']=self.composer.toPlainText();self.store.save(self.session);self.updated.emit()
 
@@ -578,8 +625,6 @@ class CodeTab(QWidget):
         kind=event.get('kind','');text=plain(event.get('text',kind))
         fixed={('started','Agentnik coding started. Repository content goes to the selected models; edits await approval.'):self.tr('Agentnik coding started. Repository content goes to the selected models; edits await approval.'),
                ('started','Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.'):self.tr('Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.'),
-               ('started','Simulation started; no commands or inference will run.'):self.tr('Simulation started; no commands or inference will run.'),
-               ('approval','Awaiting explicit approval for simulated step.'):self.tr('Awaiting explicit approval for simulated step.'),
                ('cancelled','Run cancelled. No further tool work will be scheduled; already approved edits are retained.'):self.tr('Run cancelled. No further tool work will be scheduled; already approved edits are retained.'),
                ('interrupted','Interrupted coding run; nothing resumes automatically.'):self.tr('Interrupted coding run; nothing resumes automatically.')}
         if (kind,text) in fixed:return fixed[(kind,text)]
@@ -643,10 +688,6 @@ class CodeTab(QWidget):
             QTimer.singleShot(0,restore_anchor)
         self.store.save(self.session);self.updated.emit()
 
-    def start_simulation(self):
-        if self.job or self._closed:return
-        self.launch(SimulationRun(self.session['path_snapshot']),'Simulation started; no commands or inference will run.')
-
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
@@ -662,7 +703,7 @@ class CodeTab(QWidget):
             if saved is not None and not saved.get('_capability_scope') and current.get('_capability_scope'):saved['_capability_scope']=current['_capability_scope']
             from .subagent_capabilities import remember
             remember(self.store.config,self.subagent_capability_connection(role,current));self.store.flush();return
-        if kind in ('edit_proposal','operation_proposal','proposal'):self.approve_mcp_run.hide()
+        if kind in ('edit_proposal','operation_proposal'):self.approve_mcp_run.hide()
         if kind=='subagent':
             try:
                 value=validate_record(event.get('subagent'));value['text']=plain(value['text'])[:1600]
@@ -760,13 +801,6 @@ class CodeTab(QWidget):
             if proposal.get('purpose')=='tests':text=self.tr('TEST RUN · Report format: {format}').format(format=proposal['test_format'])+'\n'+text
             self.approval.setPlainText(text);self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval: '+operation+' '+proposal.get('path',''))
             if operation=='run_shell' and self.advice_connection:self.check_advice(proposal,self.pending_fingerprint)
-        elif kind=='proposal':
-            self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
-            self.advice_fingerprint=None;self.advice_label.hide()
-            proposal=event['proposal'];self.diff.setVisible(True)
-            self.approval.setPlainText(self.tr('SIMULATION ONLY\nDirectory: {directory}\nArguments: {arguments}\nRecommendation: {recommendation}').format(directory=proposal['cwd'],arguments=json.dumps(proposal['argv']),recommendation=event['recommendation']))
-            self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting explicit approval for simulated step.')
-        elif kind=='diff':self.diff.setPlainText(plain(event['text']));self.record(kind,event['text'])
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='finished':
             if event['status']=='completed' and isinstance(self.job,CodingRun):
@@ -794,7 +828,7 @@ class CodeTab(QWidget):
         self.approval_panel.hide()
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
-        self.simulate.setEnabled(True);self.send.setEnabled(True)
+        self.send.setEnabled(True)
         self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)

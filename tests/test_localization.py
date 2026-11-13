@@ -108,7 +108,6 @@ class Localization(unittest.TestCase):
     def test_korean_coding_approval_preserves_paths_and_diff(self):
         from agentnik.ui import Window
         from agentnik.code_agent import CodingRun
-        from agentnik.coding import SimulationRun
         translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
         try:
             with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
@@ -134,10 +133,6 @@ class Localization(unittest.TestCase):
                     self.assertIn('파일 수정 승인 대기 중: src/file.py',tab.activity.toPlainText())
                     self.assertEqual(store.list_sessions()[0]['code_activity'][-1]['text'],'Awaiting approval for file edit: src/file.py')
                     self.assertEqual(tab.diff.toPlainText(),'+exact text');tab.cancel()
-                    simulated=SimulationRun(str(folder));tab.job=simulated;tab.run_id=simulated.run_id
-                    tab.receive({'run_id':simulated.run_id,'kind':'proposal','fingerprint':'sim','proposal':{'cwd':str(folder),'argv':['git','status']},'recommendation':'Not checked'})
-                    self.assertIn('시뮬레이션 전용',tab.approval.toPlainText());self.assertIn(str(folder),tab.approval.toPlainText())
-                    self.assertIn('"git", "status"',tab.approval.toPlainText());self.assertIn('Not checked',tab.approval.toPlainText());tab.cancel()
                 finally:window.close();self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 
