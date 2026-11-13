@@ -7,6 +7,22 @@ from agentnik.code_agent import ProjectFiles
 from agentnik.git_service import GitService
 
 class GitServiceTests(unittest.TestCase):
+    def test_remote_inspection_hides_urls_and_never_connects(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo=porcelain.init(folder)
+            try:
+                config=repo.get_config()
+                config.set((b'remote',b'origin'),b'url',b'https://user:secret@example.invalid/private-token?key=secret')
+                config.set((b'remote',b'origin'),b'pushurl',b'git@example.invalid:private-token')
+                config.set((b'remote',b'local'),b'url',b'C:/private-token/repo')
+                config.write_to_path()
+                with patch('subprocess.Popen',side_effect=AssertionError('No subprocesses')):
+                    result=GitService(ProjectFiles(Path(folder))).inspect('git_remotes')
+                self.assertEqual({r['name']:r['fetch_transports'] for r in result['remotes']},{'origin':['https'],'local':['local-or-other']})
+                self.assertEqual(result['remotes'][0]['push_transports'],['ssh'])
+                self.assertNotIn('secret',str(result));self.assertNotIn('private-token',str(result));self.assertNotIn('example.invalid',str(result))
+            finally:repo.close()
+
     def test_review_commit_and_conflicts(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);repo=porcelain.init(folder)

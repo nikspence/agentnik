@@ -88,6 +88,32 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_git_remotes_tool_returns_redacted_local_configuration(self):
+        from dulwich import porcelain
+        with tempfile.TemporaryDirectory() as directory:
+            repo=porcelain.init(directory)
+            try:
+                config=repo.get_config();config.set((b'remote',b'origin'),b'url',b'https://user:secret@example.invalid/private');config.write_to_path()
+                bodies=[];replies=[Wire(chat(calls=[call('git_remotes',{})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                run=CodingRun(dict(C,stream=False),directory,'Inspect remotes');events=[]
+                with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+                output=next(item['content'] for item in bodies[1]['messages'] if item['role']=='tool');self.assertIn('origin',output);self.assertIn('https',output);self.assertNotIn('secret',output);self.assertNotIn('example.invalid',output)
+                self.assertEqual(events[-1]['status'],'completed')
+            finally:repo.close()
+
+    def test_initial_request_includes_coding_attachments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image=Path(directory)/'example.png';image.write_bytes(b'image')
+            bodies=[];events=[]
+            def send(c,url,body,timeout):
+                bodies.append(body);return Wire(chat('Done'),False)
+            run=CodingRun(dict(C,stream=False),directory,'Review',images=[str(image)],documents=[{'name':'notes.txt','text':'Document evidence'}])
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            message=next(item for item in bodies[0]['messages'] if item['role']=='user')
+            self.assertIn('Document evidence',json.dumps(message));self.assertIn('image_url',json.dumps(message))
+            self.assertEqual(events[-1]['status'],'completed')
+
     def setUp(self):
         from agentnik import search_cache
         search_cache._entries.clear()

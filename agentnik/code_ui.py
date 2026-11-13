@@ -1,6 +1,7 @@
 """Repository picker and Agentnik-owned coding pane."""
 from pathlib import Path
 import json
+import copy
 import re
 import sqlite3
 import threading
@@ -197,6 +198,12 @@ class CodeTab(QWidget):
         self.history_up=QPushButton('↑');self.history_up.setAccessibleName(self.tr('Previous coding prompt'));self.history_up.setToolTip(self.tr('Previous coding prompt'));history_buttons.addWidget(self.history_up)
         self.history_down=QPushButton('↓');self.history_down.setAccessibleName(self.tr('Next coding prompt'));self.history_down.setToolTip(self.tr('Next coding prompt'));history_buttons.addWidget(self.history_down)
         self.composer=CodingComposer(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);composer_row.addWidget(self.composer,1)
+        from .ui import AttachmentBox
+        self.attachments=AttachmentBox(self.store);self.attachments.set_paths(session.get('draft_images',[]));layout.addWidget(self.attachments)
+        self.documents=copy.deepcopy(session.get('draft_documents',[]))
+        self.documents_button=QPushButton(self.tr('Documents…'));self.documents_button.clicked.connect(self.read_documents);self.attachments.controls.insertWidget(1,self.documents_button)
+        self.document_row=QHBoxLayout();layout.addLayout(self.document_row);self.refresh_documents()
+        self.attachments.changed.connect(self.save_draft)
         self._history_index=len(session.get('coding_prompt_history',[]));self._history_edits={}
         self.history_up.clicked.connect(lambda:self.navigate_prompt_history(-1));self.history_down.clicked.connect(lambda:self.navigate_prompt_history(1));self.composer.history_requested.connect(self.navigate_prompt_history)
         self.update_prompt_history_buttons()
@@ -970,8 +977,8 @@ class CodeTab(QWidget):
             if self.advice_enabled.isChecked() and not advice:raise ValueError(self.tr('Choose a Decision model before enabling safety advice.'))
             destination=(self.roles['decision'][0].currentText()+' / '+advice['model']+' / '+core.endpoint(advice,'decision')) if advice else ''
             prompt=self.composer.toPlainText();ident=self.session.get('selected_track')
-            if not heavy or (not prompt.strip() and not ident):raise ValueError(self.tr('Choose a heavy model and enter a coding task or select a track'))
-            if not prompt.strip():prompt=self.tr('Work on the selected project track. Inspect the project and report progress against its task IDs.')
+            if not heavy or (not prompt.strip() and not ident and not self.attachments.paths and not self.documents):raise ValueError(self.tr('Choose a heavy model and enter a coding task, attach a file, or select a track'))
+            if not prompt.strip():prompt=self.tr('Work on the selected project track. Inspect the project and report progress against its task IDs.') if ident else self.tr('Consider the attached files for this coding task.')
             context=self.session.get('coding_context') if self.use_context.isChecked() else None
             if context:
                 from .context_compaction import coding_effective_context
@@ -1010,7 +1017,7 @@ class CodeTab(QWidget):
                 files=ProjectFiles(self.session['path_snapshot']);limit=coding_limits(self.session.get('coding_limits'))['context_bytes'];selected=prepare_track(files,ident,secrets,limit)
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected)
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=self.attachments.paths,documents=self.documents)
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.advice_connection=advice;self.advice_destination=destination
@@ -1060,7 +1067,29 @@ class CodeTab(QWidget):
         self.store.save(self.session)
 
     def save_draft(self):
-        self.session['draft']=self.composer.toPlainText();self.store.save(self.session);self.updated.emit()
+        self.session['draft']=self.composer.toPlainText();self.session['draft_images']=list(self.attachments.paths);self.session['draft_documents']=copy.deepcopy(self.documents);self.store.save(self.session);self.updated.emit()
+
+    def read_documents(self):
+        from .document_ui import DocumentReader
+        if len(self.documents)>=4:
+            QMessageBox.warning(self,self.tr('Documents'),self.tr('Attach up to four documents per prompt.'));return
+        dlg=DocumentReader(self)
+        if dlg.exec()==QDialog.DialogCode.Accepted:
+            paths=[self.store.attach(data=page) for page in dlg.pages]
+            if paths:dlg.document['images']=paths
+            self.documents.append(dlg.document);self.attachments.paths.extend(paths);self.attachments.refresh();self.refresh_documents();self.save_draft()
+
+    def refresh_documents(self):
+        while self.document_row.count():
+            item=self.document_row.takeAt(0)
+            if item.widget():item.widget().deleteLater()
+        for index,doc in enumerate(self.documents):
+            label=QLabel(doc['name']);label.setTextFormat(Qt.TextFormat.PlainText);self.document_row.addWidget(label)
+            remove=QPushButton('×');remove.setAccessibleName(self.tr('Remove document'));remove.clicked.connect(lambda checked=False,i=index:self.remove_document(i));self.document_row.addWidget(remove)
+        self.document_row.addStretch()
+
+    def remove_document(self,index):
+        doc=self.documents.pop(index);self.attachments.set_paths([p for p in self.attachments.paths if p not in doc.get('images',[])]);self.refresh_documents();self.save_draft()
 
     def activity_text(self,event):
         kind=event.get('kind','');text=plain(event.get('text',kind))

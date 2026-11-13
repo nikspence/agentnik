@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 import io
+import re
 from dulwich.file import GitFile
 from dulwich.index import write_index_dict
 from pathlib import Path
@@ -32,6 +33,31 @@ class GitService:
 
     def inspect(self, action, path=''):
         with self.repo() as repo:
+            if action == 'git_remotes':
+                # Read only this repository's config; do not follow includes or
+                # expose URLs, which can contain credentials in any component.
+                config=repo.get_config();remotes=[];omitted=0
+                for section in config.sections():
+                    if len(section)!=2 or section[0].lower()!=b'remote':continue
+                    name=section[1].decode('utf-8','replace')
+                    if not re.fullmatch(r'[A-Za-z0-9._-]{1,100}',name) or len(remotes)>=32:
+                        omitted+=1;continue
+                    def transports(key):
+                        try: values=list(config.get_multivar(section,key))
+                        except KeyError: return []
+                        kinds=[]
+                        for value in values[:16]:
+                            value=value.strip()
+                            match=re.match(rb'^([A-Za-z][A-Za-z0-9+.-]*)://',value)
+                            if match:
+                                scheme=match.group(1).lower()
+                                kind=scheme.decode() if scheme in (b'http',b'https',b'ssh',b'git',b'file') else 'other'
+                            elif re.match(rb'^[^/\\\s:]+@?[^/\\\s:]*:',value) and not re.match(rb'^[A-Za-z]:[/\\]',value):kind='ssh'
+                            else:kind='local-or-other'
+                            kinds.append(kind)
+                        return kinds
+                    remotes.append({'name':name,'fetch_transports':transports(b'url'),'push_transports':transports(b'pushurl')})
+                return {'remotes':remotes,'omitted':omitted,'scope':'Local repository config only; URLs and rewrite rules are not shown. Empty push transports use Git defaults; no network request was made.'}
             head = repo.head()
             if action == 'git_diff_staged':
                 key=self.key(path);index=repo.open_index()

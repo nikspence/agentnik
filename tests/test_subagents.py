@@ -331,6 +331,23 @@ class Subagents(unittest.TestCase):
             updates=[event['subagent'] for event in events if event['kind']=='subagent']
             self.assertEqual(len(updates),4);self.assertEqual({x['status'] for x in updates},{'running','completed'});self.assertEqual(len({x['id'] for x in updates}),2)
 
+    def test_three_parallel_tasks_each_run_once(self):
+        with tempfile.TemporaryDirectory() as root:
+            bodies=[];events=[];heavy_count=0;lock=threading.Lock()
+            def send(connection,url,body,timeout):
+                nonlocal heavy_count
+                if connection['model']=='light':
+                    with lock:bodies.append(copy.deepcopy(body))
+                    return Wire(chat('Finding'),False)
+                heavy_count+=1
+                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['First task','Second task','Third task'])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertEqual(len(bodies),3)
+            for task in ('First task','Second task','Third task'):
+                self.assertEqual(sum(task in json.dumps(body) for body in bodies),1)
+
     def test_modified_selected_skill_invalidates_pending_approval(self):
         with tempfile.TemporaryDirectory() as root:
             folder=Path(root)/'.agents/skills/review';folder.mkdir(parents=True)

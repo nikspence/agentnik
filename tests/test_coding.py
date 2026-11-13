@@ -23,9 +23,11 @@ class PromptHistory(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);window.show();app.processEvents()
                 tab=window.tabs.currentWidget()
+                image=store.attach(data=b'image');tab.attachments.set_paths([image]);tab.documents=[{'name':'notes.txt','text':'Example document'}];tab.refresh_documents();tab.save_draft()
                 tab.remember_prompt('first\nsecond line');tab.composer.setPlainText('second prompt');tab.light_enabled.setChecked(False)
                 with patch.object(tab,'role_connection',return_value={'model':'heavy','url':'http://localhost','protocol':'chat'}),patch('agentnik.code_ui.CodingRun') as run,patch.object(tab,'launch') as launch:
                     tab.start_coding();launch.assert_called_once();self.assertEqual(run.call_args.args[2],'second prompt')
+                    self.assertEqual(run.call_args.kwargs['images'],[image]);self.assertEqual(run.call_args.kwargs['documents'][0]['name'],'notes.txt')
                 tab.composer.setPlainText('unsent draft');QTest.keyClick(tab.composer,Qt.Key.Key_Up)
                 self.assertEqual(tab.composer.toPlainText(),'second prompt')
                 tab.history_up.click();self.assertEqual(tab.composer.toPlainText(),'first\nsecond line')
@@ -39,6 +41,7 @@ class PromptHistory(unittest.TestCase):
                 self.assertEqual(saved['coding_prompt_history'],['first\nsecond line','second prompt'])
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();tab=window.tabs.currentWidget()
                 self.assertEqual(tab.composer.toPlainText(),'unsent draft');tab.history_up.click();self.assertEqual(tab.composer.toPlainText(),'second prompt')
+                self.assertEqual(tab.attachments.paths,[image]);self.assertEqual(tab.documents[0]['text'],'Example document')
                 self.assertFalse(hasattr(tab,'simulate'))
             finally:window.close();app.processEvents();store.db.close()
 
