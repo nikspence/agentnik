@@ -515,6 +515,9 @@ class SessionTab(QWidget):
         self.send_button = button(self.tr('Run decision') if session['mode'] == 'decision' else self.tr('Send'),self.submit,bottom); self.send_button.setObjectName('primary')
         self.cancel_button = button(self.tr('Cancel'),self.cancel,bottom); self.cancel_button.setEnabled(False); bottom.addStretch()
         if session['mode'] == 'chat':
+            self.context_button=button(self.tr('Context…'),self.edit_chat_context,bottom)
+            self.auto_compact=QCheckBox(self.tr('Auto compact'));self.auto_compact.setChecked(session.get('chat_auto_compact',True));self.auto_compact.setToolTip(self.tr('Before sending, summarize older chat when the estimated context approaches the configured model window. Uses an additional model request.'));bottom.addWidget(self.auto_compact)
+            self.auto_compact.toggled.connect(self.save_chat_compaction_setting)
             self.documents_button = QPushButton(self.tr('Documents…')); self.documents_button.clicked.connect(self.read_documents); self.attachments.controls.insertWidget(1,self.documents_button)
             self.local_tools = QCheckBox(self.tr('Calculator / Data tools')); self.local_tools.setChecked(session.get('research_options',{}).get('local_tools',False))
             self.local_tools.setToolTip(self.tr('Allow model-requested local arithmetic and CSV/JSON summaries. No code execution. With Web access, uses Agentnik-managed tools. Tool-capable model required.'))
@@ -527,6 +530,61 @@ class SessionTab(QWidget):
         self.connection.currentIndexChanged.connect(self.change_connection)
         self.model.currentTextChanged.connect(self.save_draft); self.reasoning.textChanged.connect(self.save_draft); self.stream.toggled.connect(self.save_draft)
         self.loading = False; self.render(); self.update_current_star(); QTimer.singleShot(0,self.load_models)
+    def save_chat_compaction_setting(self,enabled):
+        if not self.loading:self.session['chat_auto_compact']=bool(enabled);self.store.save(self.session);self.updated.emit()
+
+    def edit_chat_context(self):
+        from .context_compaction import validate_snapshot,MAX_SUMMARY_CHARS
+        if self.job:return
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Chat context'));dialog.resize(700,480)
+        layout=QVBoxLayout(dialog);snapshot=self.session.get('chat_compaction')
+        label=QLabel(self.tr('The saved conversation remains intact. The summary replaces earlier messages in future requests and may omit details. The selected model receives the prior conversation when you compact.'));label.setWordWrap(True);layout.addWidget(label)
+        editor=QPlainTextEdit(snapshot['summary'] if snapshot else '');editor.setPlaceholderText(self.tr('No compacted summary'));layout.addWidget(editor)
+        actions=QHBoxLayout();layout.addLayout(actions)
+        compact=QPushButton(self.tr('Compact now'));save=QPushButton(self.tr('Save summary'));reset=QPushButton(self.tr('Use full history'))
+        for control in (compact,save,reset):actions.addWidget(control)
+        save.setEnabled(bool(snapshot));reset.setEnabled(bool(snapshot))
+        def save_summary():
+            try:
+                value=dict(snapshot,summary=editor.toPlainText());validate_snapshot(value,self.session['messages'])
+            except ValueError as exc:QMessageBox.warning(dialog,self.tr('Chat context'),str(exc));return
+            self.session['chat_compaction']=value;self.store.save(self.session);self.updated.emit();dialog.accept()
+        def restore():
+            self.session.pop('chat_compaction',None);self.store.save(self.session);self.updated.emit();dialog.accept()
+        def start():
+            dialog.accept();self.compact_chat_context()
+        save.clicked.connect(save_summary);reset.clicked.connect(restore);compact.clicked.connect(start);dialog.exec()
+
+    def compact_chat_context(self,auto_send=False):
+        from .context_compaction import summary_input,make_snapshot
+        if self.job:return
+        try:
+            connection=self.active_connection()
+            if not connection.get('model'):raise ValueError(self.tr('Choose or enter a model first.'))
+            messages=copy.deepcopy(self.session['messages']);previous=copy.deepcopy(self.session.get('chat_compaction'))
+            candidates=[i+1 for i,m in enumerate(messages) if m.get('role')=='assistant' and core.history_eligible(m)]
+            through=candidates[-1] if candidates else 0
+            inputs=summary_input(messages,through,previous)
+            body=core.chat_body(connection,inputs)
+        except (ValueError,OSError) as exc:QMessageBox.warning(self,self.tr('Chat context'),str(exc));return
+        self.busy(True);self._compacting=True;self.info.setText(self.tr('Compacting context…'))
+        token=uuid.uuid4().hex;self.request_token=token
+        def done(result):
+            if self._closed or self.request_token!=token:return
+            self.job=None;self._compacting=False;self.request_token=None;self.busy(False)
+            try:
+                summary=research.scrub(result.get('text',''),[connection.get('api_key','')]).strip()
+                snapshot=make_snapshot(messages,through,summary)
+                from .context_compaction import validate_snapshot
+                validate_snapshot(snapshot,self.session['messages'])
+                self.session['chat_compaction']=snapshot;self.store.save(self.session);self.updated.emit();self.info.setText(self.tr('Context compacted. Review it with Context…'))
+                if auto_send:self._skip_auto_compact_once=True;self.submit()
+            except (ValueError,OSError) as exc:self.info.setText(self.tr('Context compaction failed: {reason}').format(reason=str(exc)))
+        def failed(message):
+            if self._closed or self.request_token!=token:return
+            self.job=None;self._compacting=False;self.request_token=None;self.busy(False);self.info.setText(self.tr('Context compaction failed: {reason}').format(reason=message))
+        self.job=Job(lambda emit,cancel:core.run_request(connection,'chat',body,lambda _:None,cancel),done,failed)
+
     def read_documents(self, path=None):
         from .document_ui import DocumentReader
         if self.job: return
@@ -723,7 +781,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-            self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.research_limits_button.setEnabled(not value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
+            self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.research_limits_button.setEnabled(not value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
     def submit(self):
         if self.job: return
         try:
@@ -735,8 +793,14 @@ class SessionTab(QWidget):
             if mode == 'chat':
                 text = self.composer.toPlainText().strip()
                 if not text and not self.attachments.paths and not self.documents: return
+                from .context_compaction import should_compact
+                skip_auto=getattr(self,'_skip_auto_compact_once',False);self._skip_auto_compact_once=False
+                if not skip_auto and self.auto_compact.isChecked() and should_compact(self.session['messages'],self.session.get('chat_compaction'),c.get('context_limit'),len(text.encode('utf-8'))+len(json.dumps(self.documents,ensure_ascii=False).encode('utf-8'))):
+                    self.compact_chat_context(auto_send=True);return
                 user = dict(role='user',text=text,images=list(self.attachments.paths),documents=copy.deepcopy(self.documents),status='ok')
-                body = core.chat_body(c,self.session['messages']+[user])
+                from .context_compaction import effective_messages
+                chat_messages=effective_messages(self.session['messages'],self.session.get('chat_compaction'))+[user]
+                body = core.chat_body(c,chat_messages)
                 self.pending = user
             else:
                 form = copy.deepcopy(self.form_value()); body = core.decision_body(c,form); self.pending = form
@@ -766,7 +830,7 @@ class SessionTab(QWidget):
                 self.session['research_pending'] = {'user':self.pending,'result':dict(self.partial,metrics={})}
                 self.store.save(self.session)
             research_enabled = self.research_running
-            request_messages = copy.deepcopy(self.session['messages']+[self.pending]) if research_enabled else []
+            request_messages = copy.deepcopy(chat_messages) if research_enabled else []
             self.research_connection = c
             self.last_research_save = 0
             chat_mcp=self.chat_mcp if mcp_ref else None
@@ -829,6 +893,8 @@ class SessionTab(QWidget):
         self.render()
     def cancel(self):
         if self.job:
+            if getattr(self,'_compacting',False):
+                self.job.cancel.set();self.job=None;self._compacting=False;self.request_token=None;self.busy(False);self.info.setText(self.tr('Context compaction cancelled.'));return
             if self.chat_mcp:self.chat_mcp.close();self.chat_mcp=None
             self.job.cancel.set(); self.request_token = None; self.failed('Request cancelled')
     def save_composer_height(self,*_):

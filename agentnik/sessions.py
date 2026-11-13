@@ -143,6 +143,11 @@ def validate_session(value, ident=None):
         if 'coding_prompt_history' in data:
             history=data['coding_prompt_history'];require(isinstance(history,list) and len(history)<=100)
             require(all(isinstance(prompt,str) and bool(prompt.strip()) for prompt in history) and sum(map(len,history))<=2_000_000)
+        if 'coding_auto_compact' in data:require(type(data['coding_auto_compact']) is bool)
+        if 'coding_compaction' in data:
+            snapshot=data['coding_compaction'];require(isinstance(snapshot,dict) and set(snapshot)=={'digest','summary'})
+            require(isinstance(snapshot['digest'],str) and len(snapshot['digest'])==64 and all(c in '0123456789abcdef' for c in snapshot['digest']))
+            require(isinstance(snapshot['summary'],str) and 0<len(snapshot['summary'].strip())<=2048)
         if 'coding_context' in data:
             context=data['coding_context'];require(isinstance(context,dict) and set(context)=={'task','answer'})
             require(all(isinstance(v,str) and len(v)<=2048 for v in context.values()))
@@ -179,6 +184,12 @@ def validate_session(value, ident=None):
             for key in ('sources','events','exchanges','response_items','attempts','tool_records','annotations','provider_usage'):
                 if key in state: require(isinstance(state[key],list) and all(isinstance(v,dict) for v in state[key]))
     for item in data['messages']: message(item)
+    if 'chat_auto_compact' in data:require(data['mode']=='chat' and type(data['chat_auto_compact']) is bool)
+    if 'chat_compaction' in data:
+        snapshot=data['chat_compaction'];require(data['mode']=='chat' and isinstance(snapshot,dict) and set(snapshot)=={'through','digest','summary'})
+        require(type(snapshot['through']) is int and 0<snapshot['through']<=len(data['messages']))
+        require(isinstance(snapshot['digest'],str) and len(snapshot['digest'])==64 and all(c in '0123456789abcdef' for c in snapshot['digest']))
+        require(isinstance(snapshot['summary'],str) and 0<len(snapshot['summary'].strip())<=16000)
     for run in data['runs']:
         require(isinstance(run,dict) and isinstance(run.get('form'),dict) and isinstance(run.get('result'),dict))
         form(run['form'])

@@ -42,3 +42,9 @@ Images can be attached, dropped, or pasted into the state field. Image-only quer
 - Select the **Korean preview** and restart to try translated controls. English remains the fallback; other planned languages and full Korean coverage are still in progress.
 
 Background requests keep the interface responsive and tabs independent. Cancellation stops accepting results and scheduling more work; remote processing or billing may continue until the server stops. A shared worker limit bounds background work.
+
+## Chat context compaction
+
+**Context…** can compact completed chat history with the selected model. It creates a summary used for later requests while leaving the original transcript and attachments in the saved session. Inspect and edit the summary in the same dialog, or choose **Use full history** to remove it. Compaction is lossy: review the result for missing details. The model receives the messages and attachments being summarized; recorded research source identifiers and links are supplied, but raw tool exchanges are not replayed in the summary request. The selected model must support any included images.
+
+**Auto compact** is enabled by default. Before a send, Agentnik may make a separate summary request when a rough byte estimate approaches a configured model context limit, or stored tool exchanges approach Agentnik's limit. Configure the connection's context limit for window-based triggering. This estimate is not a token count and cannot guarantee a request fits, especially with images. Automatic compaction uses the selected endpoint and may incur charges; turn it off beside **Context…**. It does not run during a chat or research request. If compaction fails or is cancelled, Agentnik does not send the pending prompt automatically, and the original history stays intact.

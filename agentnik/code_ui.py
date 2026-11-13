@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import re
 import threading
+import uuid
 from urllib.parse import urlsplit
 from PySide6.QtCore import Qt,Signal,QObject,QUrl,QPoint,QTimer
 from PySide6.QtGui import QDesktopServices,QTextCursor
@@ -204,6 +205,8 @@ class CodeTab(QWidget):
         self.context_toggle.toggled.connect(self.context_view.setVisible)
         self.use_context=QCheckBox(self.tr('Send previous task and answer with next run (up to 2,048 characters each)'));self.use_context.setEnabled(bool(context))
         options=QHBoxLayout();layout.addLayout(options)
+        self.coding_context_button=QPushButton(self.tr('Coding context…'));self.coding_context_button.clicked.connect(self.edit_coding_context);options.addWidget(self.coding_context_button)
+        self.coding_auto_compact=QCheckBox(self.tr('Auto compact context'));self.coding_auto_compact.setToolTip(self.tr('Before a follow-up run, summarize a long previous task and answer using the selected Heavy model. This uses an additional model request.'));self.coding_auto_compact.setChecked(session.get('coding_auto_compact',True));self.coding_auto_compact.toggled.connect(self.save_coding_auto_compact);options.addWidget(self.coding_auto_compact)
         self.roles={}
         bindings=dict(session.get('coding_models',{}));bindings['decision']=session.get('coding_decision_model',{});bindings['alternate']=session.get('coding_subagent_model',{});bindings['alternate2']=session.get('coding_subagent_model_2',{})
         self.model_toggle=QPushButton(self.tr('Models'));self.model_toggle.setCheckable(True);layout.addWidget(self.model_toggle)
@@ -328,6 +331,69 @@ class CodeTab(QWidget):
     def context_text(self,context):
         if not context:return self.tr('No completed coding task available.')
         return self.tr('Previous task:\n{task}\n\nPrevious answer:\n{answer}').format(task=context['task'],answer=context['answer'])
+
+    def save_coding_auto_compact(self,enabled):
+        self.session['coding_auto_compact']=bool(enabled);self.store.save(self.session);self.updated.emit()
+
+    def edit_coding_context(self):
+        if self.job:return
+        from .context_compaction import coding_snapshot,coding_effective_context
+        context=self.session.get('coding_context');snapshot=self.session.get('coding_compaction')
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Coding context'));dialog.resize(700,520)
+        layout=QVBoxLayout(dialog);hint=QLabel(self.tr('The previous task and answer are retained separately. A summary replaces them only when you enable previous context for a future run. Compaction uses the selected Heavy model and may omit details.'));hint.setWordWrap(True);layout.addWidget(hint)
+        layout.addWidget(QLabel(self.tr('Previous task and answer (JSON):')))
+        original=QPlainTextEdit(json.dumps(context or {'task':'','answer':''},ensure_ascii=False,indent=2));layout.addWidget(original)
+        layout.addWidget(QLabel(self.tr('Compacted summary:')))
+        summary=QPlainTextEdit(snapshot['summary'] if snapshot else '');layout.addWidget(summary)
+        row=QHBoxLayout();layout.addLayout(row)
+        save=QPushButton(self.tr('Save context'));reset=QPushButton(self.tr('Use original context'));compact=QPushButton(self.tr('Compact now'))
+        for control in (save,reset,compact):row.addWidget(control)
+        save.setEnabled(bool(context));compact.setEnabled(bool(context))
+        def save_context():
+            try:
+                value=json.loads(original.toPlainText())
+                from .context_compaction import coding_digest
+                coding_digest(value);text=summary.toPlainText().strip();new_snapshot=coding_snapshot(value,text) if text else None
+            except (ValueError,TypeError) as exc:QMessageBox.warning(dialog,self.tr('Coding context'),str(exc));return
+            self.session['coding_context']=value
+            if new_snapshot:self.session['coding_compaction']=new_snapshot
+            else:self.session.pop('coding_compaction',None)
+            self.context_view.setPlainText(self.context_text(value));self.use_context.setEnabled(True);self.store.save(self.session);self.updated.emit();dialog.accept()
+        def restore():summary.clear()
+        def compact_now():
+            if original.toPlainText()!=json.dumps(context or {'task':'','answer':''},ensure_ascii=False,indent=2):
+                QMessageBox.information(dialog,self.tr('Coding context'),self.tr('Save your edits before compacting.'));return
+            dialog.accept();self.compact_coding_context()
+        save.clicked.connect(save_context);reset.clicked.connect(restore);compact.clicked.connect(compact_now);dialog.exec()
+
+    def compact_coding_context(self,auto_start=False,connection=None):
+        from .context_compaction import coding_summary_input,coding_snapshot,coding_digest
+        from .ui import Job
+        if self.job or self._closed:return
+        try:
+            context=dict(self.session.get('coding_context') or {})
+            connection=connection or self.role_connection('heavy')
+            if not connection or not connection.get('model'):raise ValueError(self.tr('Choose a Heavy model first.'))
+            inputs=coding_summary_input(context);body=core.chat_body(connection,inputs)
+        except (ValueError,OSError) as exc:QMessageBox.warning(self,self.tr('Coding context'),str(exc));return
+        token=uuid.uuid4().hex;self._compaction_token=token;self._compaction_active=True
+        self.send.setEnabled(False);self.cancel_button.setEnabled(True);self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.composer.setReadOnly(True)
+        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False);self.use_context.setEnabled(False)
+        for choice,model in self.roles.values():choice.setEnabled(False);model.setEnabled(False)
+        self.record('output','Compacting previous coding context before a run; the selected Heavy model receives the previous task and answer.')
+        def done(result):
+            if self._closed or self._compaction_token!=token:return
+            self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish()
+            try:
+                text=scrub(result.get('text',''),[connection.get('api_key','')]).strip();snapshot=coding_snapshot(context,text)
+                if coding_digest(self.session.get('coding_context'))!=snapshot['digest']:raise ValueError('Coding context changed during compaction')
+                self.session['coding_compaction']=snapshot;self.store.save(self.session);self.record('output','Previous coding context compacted; review it in Coding context.');self.updated.emit()
+                if auto_start:self.start_coding()
+            except (ValueError,OSError) as exc:self.record('output','Coding context compaction failed: '+str(exc))
+        def failed(message):
+            if self._closed or self._compaction_token!=token:return
+            self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction failed: '+message)
+        self.job=Job(lambda emit,cancel:core.run_request(connection,'chat',body,lambda _:None,cancel),done,failed);self.updated.emit()
 
     def role_changed(self,role):
         connection,model=self.roles[role];c=self.window.connections.get(connection.currentData(),{})
@@ -598,6 +664,12 @@ class CodeTab(QWidget):
             destination=(self.roles['decision'][0].currentText()+' / '+advice['model']+' / '+core.endpoint(advice,'decision')) if advice else ''
             if not heavy or not self.composer.toPlainText().strip():raise ValueError(self.tr('Choose a heavy model and enter a coding task'))
             context=self.session.get('coding_context') if self.use_context.isChecked() else None
+            if context:
+                from .context_compaction import coding_effective_context
+                snapshot=self.session.get('coding_compaction')
+                if snapshot:context=coding_effective_context(context,snapshot)
+                elif self.coding_auto_compact.isChecked() and len(context['task'])+len(context['answer'])>=3000:
+                    self.compact_coding_context(auto_start=True,connection=heavy);return
             enabled=self.web_enabled.isChecked();backends=[];provider='none'
             if enabled:
                 strict=routing.connection_defaults(self.store.config,self.roles['heavy'][0].currentData(),heavy)['access_policy']=='strict_public'
@@ -636,7 +708,7 @@ class CodeTab(QWidget):
             self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.send.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
+        self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -865,7 +937,7 @@ class CodeTab(QWidget):
             if event['status']=='completed' and isinstance(self.job,CodingRun):
                 secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]
                 context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
-                self.session['coding_context']=context
+                self.session['coding_context']=context;self.session.pop('coding_compaction',None)
                 self.context_view.setPlainText(self.context_text(context))
                 self.use_context.setChecked(False)
             self.stop_subagents('stopped');self.session['code_state']=event['status'];self.finish();self.record(kind,event['text'])
@@ -888,12 +960,14 @@ class CodeTab(QWidget):
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
         self.send.setEnabled(True)
-        self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
+        self.coding_context_button.setEnabled(True);self.coding_auto_compact.setEnabled(True);self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 
     def cancel(self):
         if not self.job:return
+        if getattr(self,'_compaction_active',False):
+            self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
         self.job.stop()
         for bridge in getattr(self.job,'mcp_bridges',[]):bridge.close()
         self.stop_subagents('cancelled');self.session['code_state']='cancelled';self.finish()
