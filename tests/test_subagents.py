@@ -68,6 +68,28 @@ class Subagents(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
             self.assertEqual(events[-1]['status'],'completed',events);self.assertTrue(all(body['model']=='heavy' for body in bodies))
             result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool');self.assertIn('rejected',result['error'])
+            records=[event['review'] for event in events if event['kind']=='independent_review_result']
+            self.assertEqual([record['pass_status'] for record in records],['skipped','skipped']);self.assertIn('approved pass was not submitted',records[0]['reason']);self.assertIn('was rejected',records[1]['reason'])
+            self.assertTrue(all('batch_approved_at' not in record for record in records))
+
+    def test_rejected_heavy_batch_manifest_saves_skipped_records(self):
+        for saved in (True,False):
+            with self.subTest(saved=saved),tempfile.TemporaryDirectory() as root:
+                Path(root,'spec.md').write_text('Specification',encoding='utf-8');events=[];models=[];count=0
+                run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),save_review_progress=True)
+                def send(connection,url,body,timeout):
+                    nonlocal count
+                    models.append(connection['model']);count+=1
+                    if count==1:return Wire(chat(calls=[call('review_document_parallel',{'path':'spec.md','passes':json.dumps([{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'light','paths':[]}])})],finish='tool_calls'),False)
+                    return Wire(chat('Done'),False)
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],False)
+                    if event['kind']=='independent_review_manifest':run.acknowledge_manifest(saved)
+                with patch.object(core,'open_request',side_effect=send):run.run(emit)
+                self.assertTrue(all(model=='heavy' for model in models));manifest=next(event for event in events if event['kind']=='independent_review_manifest')
+                self.assertEqual([review['pass_status'] for review in manifest['reviews']],['skipped','skipped'])
+                self.assertEqual([event['review'] for event in events if event['kind']=='independent_review_result'],manifest['reviews'])
 
     def test_parallel_independent_reviews_approve_each_fresh_payload(self):
         with tempfile.TemporaryDirectory() as root:

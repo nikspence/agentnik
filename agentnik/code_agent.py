@@ -982,7 +982,7 @@ class CodingRun:
                             except AnalysisError as exc: result={'error':str(exc)}
                             event('output',text=call.name+': '+json.dumps(scrub(result,secrets))[:1500])
                         elif call.name=='review_document_parallel':
-                            from .independent_review import prepare_snapshot,execute_review_batch,STRUCTURED_INSTRUCTIONS,parse_structured_findings,RUBRIC_VERSION,review_endpoint_identity,review_batch_approved_at
+                            from .independent_review import prepare_snapshot,execute_review_batch,STRUCTURED_INSTRUCTIONS,parse_structured_findings,RUBRIC_VERSION,review_endpoint_identity,review_batch_approved_at,rejected_batch_records
                             try: requested=json.loads(args['passes'])
                             except (ValueError,RecursionError):raise ProjectToolError('Passes must be a JSON array of 2–3 review definitions.') from None
                             if not isinstance(requested,list) or not 2<=len(requested)<=3:raise ProjectToolError('Supply 2–3 independent review passes.')
@@ -994,13 +994,20 @@ class CodingRun:
                                 model=models[item['model']];snapshot=prepare_snapshot(files,args['path'],STRUCTURED_INSTRUCTIONS+REVIEW_RUBRICS[item['role']],secrets,json.dumps(item['paths']) if item['paths'] else None,lambda:runtime.charge('calls',1,runtime.limits.calls))
                                 proposal={'operation':'independent_review','role':item['role'],'cwd':str(files.root),'path':args['path'],'model':model['model'],'destination':core.endpoint(model).split('?',1)[0],'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'target_payload_sha256':snapshot['target_payload_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes'],'batch_pass':index}
                                 passes.append({'approved':False,'connection':model,'proposal':proposal,'snapshot':snapshot})
-                            for item in passes:
+                            batch_id=uuid.uuid4().hex;track_context={'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None
+                            for index,item in enumerate(passes):
                                 allowed=review(item['proposal'],lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal');runtime.check()
-                                if not allowed:raise ProjectToolError('Independent review rejected; no batch requests were sent.')
+                                if not allowed:
+                                    records=rejected_batch_records(passes,batch_id,index,track_context,secrets)
+                                    if self.save_review_progress:
+                                        with self.lock:self.manifest_saved=False;self.manifest_ack.clear()
+                                        event('independent_review_manifest',snapshot_id=batch_id,reviews=records)
+                                        while not self.manifest_ack.wait(.05):runtime.check()
+                                    for record in records:event('independent_review_result',review=record)
+                                    raise ProjectToolError('Independent review rejected; no batch requests were sent.')
                                 item['approved']=True
                             batch_approved_at=review_batch_approved_at()
-                            batch_id=uuid.uuid4().hex;cancellations=[threading.Event() for _ in passes];ids=[batch_id+'-'+str(i+1) for i in range(len(passes))]
-                            track_context={'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None
+                            cancellations=[threading.Event() for _ in passes];ids=[batch_id+'-'+str(i+1) for i in range(len(passes))]
                             def pending_review(ident,item):
                                 p=item['proposal'];return {'id':ident,'role':p['role'],'rubric_version':RUBRIC_VERSION,'batch_approved_at':batch_approved_at,'endpoint':review_endpoint_identity(item['connection'],secrets),'model':p['model'],'path':p['path'],'source_sha256':p['source_sha256'],'target_payload_sha256':p['target_payload_sha256'],'payload_sha256':p['payload_sha256'],'evidence':p['evidence'],'track_context':track_context,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
                             if self.save_review_progress:

@@ -20,6 +20,49 @@ MODEL={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer','
 
 
 class DirectReview(unittest.TestCase):
+    def test_rejected_batch_records_skipped_passes_without_sending(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'spec.md').write_text('SPEC',encoding='utf-8')
+            passes=[{'role':role,'model':'light','paths':[]} for role in ('comprehension','design','readiness')]
+            run=DirectReviewRun(root,'spec.md',passes,{'light':MODEL});events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['batch_pass']==1)
+            with patch.object(core,'open_request') as request:run.run(emit)
+            request.assert_not_called();records=[event['review'] for event in events if event['kind']=='independent_review_result']
+            self.assertEqual([record['pass_status'] for record in records],['skipped']*3)
+            self.assertIn('approved pass was not submitted',records[0]['reason']);self.assertIn('was rejected',records[1]['reason']);self.assertIn('before this pass was reviewed',records[2]['reason'])
+            self.assertTrue(all('batch_approved_at' not in record for record in records));self.assertEqual(events[-1]['status'],'failed')
+
+    def test_rejected_batch_progress_is_saved_and_reopened(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog
+        from agentnik.ui import Window
+        from agentnik.code_ui import DirectReviewDialog
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');store=Store(Path(root)/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                window.connections['Review']=dict(MODEL);box,model=tab.roles['light'];box.addItem('Review','Review');box.setCurrentIndex(box.findData('Review'));model.setText('reviewer');tab.light_enabled.setChecked(True)
+                def configure(dialog):
+                    dialog.target.setText('spec.md');dialog.passes[0][0].setCurrentIndex(dialog.passes[0][0].findData('design'));dialog.passes[1][0].setCurrentIndex(dialog.passes[1][0].findData('readiness'));dialog.save_progress.setChecked(True);return QDialog.DialogCode.Accepted
+                approvals=0
+                with patch.object(DirectReviewDialog,'exec',configure),patch.object(core,'open_request') as request:
+                    tab.start_direct_review();deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:
+                        app.processEvents()
+                        if tab.pending_fingerprint:approvals+=1;tab.decide(approvals==1)
+                        time.sleep(.01)
+                    app.processEvents();request.assert_not_called()
+                self.assertIsNone(tab.job);self.assertEqual(approvals,2)
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);reviews=saved['coding_review_history'][0]['reviews']
+                self.assertEqual([review['pass_status'] for review in reviews],['skipped','skipped']);self.assertEqual(len(tab.review_results),2)
+                with patch.object(core,'open_request') as request:window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
+                self.assertEqual(window.tabs.currentWidget().session['coding_review_history'][0]['reviews'],reviews)
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_failed_and_skipped_reasons_are_saved_and_reopened(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication,QDialog

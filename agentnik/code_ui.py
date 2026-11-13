@@ -1469,9 +1469,13 @@ class CodeTab(QWidget):
                 if not isinstance(snapshot_id,str) or not re.fullmatch('[0-9a-f]{32}',snapshot_id):raise ValueError('Invalid review snapshot id')
                 if not isinstance(reviews,list) or not 1<=len(reviews)<=3:raise ValueError('Invalid review progress manifest')
                 records=[]
+                manifest_statuses={review.get('pass_status') for review in reviews if isinstance(review,dict)}
+                if len(manifest_statuses)!=1 or not manifest_statuses<= {'pending','skipped'}:raise ValueError('Invalid review progress manifest')
                 for review in reviews:
-                    if not isinstance(review,dict) or review.get('pass_status')!='pending':raise ValueError('Invalid review progress manifest')
-                    item=copy.deepcopy(review);item['pass_status']='interrupted';item['dispositions']={};records.append(item)
+                    if not isinstance(review,dict):raise ValueError('Invalid review progress manifest')
+                    item=copy.deepcopy(review)
+                    if item['pass_status']=='pending':item['pass_status']='interrupted'
+                    item['dispositions']={};records.append(item)
                 snapshot={'version':1,'id':snapshot_id,'track_id':None,'reviews':records}
                 history=validate_review_history([*self.session.get('coding_review_history',[]),snapshot])
                 updated=copy.deepcopy(self.session);updated['coding_review_history']=history;self.store.save(updated);self.session['coding_review_history']=history
@@ -1520,7 +1524,9 @@ class CodeTab(QWidget):
                 try:
                     history=validate_review_history(self.session.get('coding_review_history',[]));snapshot=next(item for item in history if item['id']==self.review_progress_ids[review['id']])
                     index=next(index for index,item in enumerate(snapshot['reviews']) if item['id']==review['id'])
-                    item=copy.deepcopy(review);item['dispositions']=snapshot['reviews'][index]['dispositions'];snapshot['reviews'][index]=item
+                    item=copy.deepcopy(review);item['dispositions']=snapshot['reviews'][index]['dispositions']
+                    if item==snapshot['reviews'][index]:return
+                    snapshot['reviews'][index]=item
                     history=validate_review_history(history);updated=copy.deepcopy(self.session);updated['coding_review_history']=history;self.store.save(updated);self.session['coding_review_history']=history;self.updated.emit()
                 except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError,RecursionError,StopIteration):
                     self.cancel();self.record('output',self.tr('Review progress could not be saved. The run was stopped; the last saved snapshot may show interrupted passes.'))

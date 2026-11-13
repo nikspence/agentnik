@@ -31,6 +31,23 @@ def review_batch_approved_at():
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def rejected_batch_records(passes, batch_id, rejected_index, track_context, secrets):
+    """Describe a rejected batch without implying approval or submission."""
+    records=[]
+    for index,item in enumerate(passes):
+        proposal=item['proposal']
+        reason=('This pass was rejected; no batch requests were sent.' if index==rejected_index else
+                'The batch stopped after another pass was rejected; this approved pass was not submitted.' if index<rejected_index else
+                'The batch stopped before this pass was reviewed; no batch requests were sent.')
+        records.append({'id':batch_id+'-'+str(index+1),'role':proposal['role'],'rubric_version':RUBRIC_VERSION,
+                        'endpoint':review_endpoint_identity(item['connection'],secrets),'model':proposal['model'],
+                        'path':proposal['path'],'source_sha256':proposal['source_sha256'],
+                        'target_payload_sha256':proposal['target_payload_sha256'],'payload_sha256':proposal['payload_sha256'],
+                        'evidence':proposal['evidence'],'track_context':track_context,'pass_status':'skipped',
+                        'reason':reason,'structured':{'status':'not_available','findings':[]}})
+    return records
+
+
 def validate_review_batch_approved_at(value):
     if not isinstance(value,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',value):raise ValueError('Invalid review approval time')
     try:datetime.strptime(value,'%Y-%m-%dT%H:%M:%SZ')
