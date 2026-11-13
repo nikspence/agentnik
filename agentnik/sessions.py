@@ -98,6 +98,10 @@ def validate_session(value, ident=None):
             from .subagent_status import validate_records
             try:validate_records(data['coding_subagents'])
             except (ValueError,TypeError):require(False)
+        if 'coding_review_history' in data:
+            from .independent_review import validate_review_history
+            try:validate_review_history(data['coding_review_history'])
+            except (ValueError,TypeError,UnicodeError,RecursionError):require(False)
         if 'coding_mcp_selection' in data:
             selection=data['coding_mcp_selection'];require(isinstance(selection,dict) and set(selection)=={'primary','extra'})
             primary=selection['primary'];extra=selection['extra'];require(primary is None or isinstance(primary,dict));require(isinstance(extra,list) and len(extra)<=5)

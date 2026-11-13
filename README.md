@@ -70,6 +70,7 @@ These welcome screens were rendered offline with temporary data. Research screen
 - [Connections and local data](CONNECTIONS.md): endpoints, credentials, discovery, and storage.
 - [Features](FEATURES.md), [validation](VALIDATION.md), and [development and builds](DEVELOPMENT_VALIDATION.md): feature inventory, evidence, offline checks, and release tooling.
 - [Project plan](AGENTNIK_PLAN.md) and [coding backend plan](CODING_BACKEND_PLAN.md): historical decisions and remaining work. The plans include historical milestones; use the guides and validation records for current behavior and evidence.
+- [Independent review implementation plan](INDEPENDENT_REVIEW_PLAN.md): proposed parallel reviews, track-bound findings, and validation steps.
 
 Ordinary tests use temporary storage and do not issue live inference. Build and validate on each target OS. Pillow is needed to rebuild branding assets, not to run Agentnik. See [DISCLAIMER.md](DISCLAIMER.md) for responsibility and use information.
 

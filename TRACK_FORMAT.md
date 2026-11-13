@@ -16,6 +16,8 @@ agentnik-plans/
 
 Track IDs and task IDs are stable lowercase identifiers matching `[a-z][a-z0-9_-]{0,63}`. The directory and `track.json` ID must match. Use project-relative paths; the existing project protections reject traversal, protected paths, links, and hard-linked files. Each file is UTF-8, at most 128,000 bytes. Listing examines up to 200 directory entries and returns at most 100 track directories. Limit hits are reported. A project with no track directory is an ordinary empty project; old sessions require no migration.
 
+An optional `reviews.json` sidecar can hold up to ten explicitly published, track-associated review snapshots. Publishing or removing an individual project snapshot requires approval of the full file diff and checks for concurrent changes; neither operation alters session snapshots, `track.json`, the specification, or the plan. Removing the last snapshot leaves an empty valid sidecar. The sidecar can contain model findings and user rationale, so review it for sensitive information before approval. Configured connection and search credentials are checked, but arbitrary secrets may not be detected. Project history can be inspected from **Spec & Plan** in other sessions and appears, labeled as project history, in the track-run preview. It is untrusted; continuing a run does not approve later operations.
+
 `context.md` is an optional project context document. It can describe goals, conventions and validation expectations and should link to the existing README and applicable `AGENTS.md` files rather than override them. It is read-only, untrusted, subject to the same 128,000-byte and path limits, and is not automatically loaded into model requests.
 
 ## Metadata contract

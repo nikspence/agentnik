@@ -13,6 +13,96 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_parallel_independent_review_failure_emits_terminal_record(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'spec.md').write_text('Specification',encoding='utf-8');events=[];count=0
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,url='https://one.invalid/v1',model='light',stream=False),alternate=dict(C,url='https://two.invalid/v1',model='alternate',stream=False))
+            def send(connection,url,body,timeout):
+                nonlocal count
+                if connection['model']=='alternate':raise OSError('failed endpoint')
+                if connection['model']=='light':return Wire(chat('{"version":1,"findings":[]}'),False)
+                count+=1
+                if count==1:return Wire(chat(calls=[call('review_document_parallel',{'path':'spec.md','passes':json.dumps([{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'alternate','paths':[]}])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            records=[event['review'] for event in events if event['kind']=='independent_review_result']
+            self.assertEqual({item['pass_status'] for item in records},{'pending','completed','failed'})
+            failed=next(item for item in records if item['pass_status']=='failed');self.assertEqual(failed['structured'],{'status':'not_available','findings':[]});self.assertNotIn('failed endpoint',json.dumps(failed))
+
+    def test_parallel_independent_reviews_rejection_sends_no_children(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'spec.md').write_text('Specification',encoding='utf-8');events=[];bodies=[];count=0
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False))
+            def send(connection,url,body,timeout):
+                nonlocal count
+                bodies.append(copy.deepcopy(body));count+=1
+                if count==1:return Wire(chat(calls=[call('review_document_parallel',{'path':'spec.md','passes':json.dumps([{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'light','paths':[]}])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['batch_pass']==1)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertTrue(all(body['model']=='heavy' for body in bodies))
+            result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool');self.assertIn('rejected',result['error'])
+
+    def test_parallel_independent_reviews_approve_each_fresh_payload(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root,'spec.md').write_text('Specification',encoding='utf-8');Path(root,'source.txt').write_text('Evidence',encoding='utf-8')
+            heavy=dict(C,stream=False);light=dict(C,url='https://one.example.invalid/v1',model='light',stream=False);alternate=dict(C,url='https://two.example.invalid/v1',model='alternate',stream=False)
+            run=CodingRun(heavy,root,'PRIVATE DRAFT',light=light,alternate=alternate);events=[];bodies=[];lock=threading.Lock();barrier=threading.Barrier(2);count=0
+            def send(connection,url,body,timeout):
+                nonlocal count
+                with lock:bodies.append(copy.deepcopy(body))
+                if connection['model']!='heavy':
+                    barrier.wait(timeout=3);return Wire(chat('{"version":1,"findings":[]}'),False)
+                count+=1
+                if count==1:
+                    passes=[{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'alternate','paths':['source.txt']}]
+                    return Wire(chat(calls=[call('review_document_parallel',{'path':'spec.md','passes':json.dumps(passes)})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            proposals=[event['proposal'] for event in events if event['kind']=='operation_proposal'];self.assertEqual(len(proposals),2)
+            children=[body for body in bodies if body['model']!='heavy'];self.assertEqual(len(children),2)
+            for proposal in proposals:
+                child=next(body for body in children if body['model']==proposal['model']);self.assertEqual(child['messages'][0]['content'],proposal['diff']);self.assertNotIn('PRIVATE DRAFT',json.dumps(child));self.assertNotIn('tools',child)
+            result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool')
+            self.assertEqual([item['status'] for item in result['reviews']],['completed','completed']);self.assertTrue(all(item['structured']['status']=='valid' for item in result['reviews']))
+            self.assertTrue(all(item['usage']=={'input_tokens':10,'output_tokens':3} for item in result['reviews']))
+            records=[event['review'] for event in events if event['kind']=='independent_review_result']
+            self.assertEqual(sum(item['pass_status']=='pending' for item in records),2);self.assertEqual(sum(item['pass_status']=='completed' for item in records),2)
+
+    def test_structured_review_approved_payload_and_invalid_output(self):
+        finding={'severity':'high','title':'Gap','rationale':'No acceptance criterion','location':'spec.md:1','assumptions':'','verification':'Ask owner'}
+        for response,expected in [(json.dumps({'version':1,'findings':[finding]}),'valid'),('not json','invalid'),('x'*8001,'truncated')]:
+            with self.subTest(expected=expected),tempfile.TemporaryDirectory() as root:
+                Path(root,'spec.md').write_text('Specification',encoding='utf-8');Path(root,'source.txt').write_text('Evidence',encoding='utf-8')
+                bodies=[];events=[];count=0;run=CodingRun(dict(C,stream=False),root,'Draft context',light=dict(C,model='light',stream=False))
+                def send(connection,url,body,timeout):
+                    nonlocal count
+                    bodies.append(copy.deepcopy(body))
+                    if connection['model']=='light':return Wire(chat(response),False)
+                    count+=1
+                    if count==1:return Wire(chat(calls=[call('review_document_structured',{'path':'spec.md','paths':'["source.txt"]','model':'light','role':'design'})],finish='tool_calls'),False)
+                    return Wire(chat('Done'),False)
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+                with patch.object(core,'open_request',side_effect=send):run.run(emit)
+                self.assertEqual(events[-1]['status'],'completed',events)
+                proposal=next(e['proposal'] for e in events if e['kind']=='operation_proposal')
+                child=next(body for body in bodies if body['model']=='light');self.assertEqual(child['messages'][0]['content'],proposal['diff']);self.assertIn('Return only a JSON object',proposal['diff']);self.assertNotIn('Draft context',json.dumps(child))
+                result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool')
+                self.assertEqual(result['structured']['status'],expected)
+                self.assertEqual(len(result['structured']['findings']),1 if expected=='valid' else 0)
+                self.assertTrue(any('Structured independent review output: '+expected in event.get('text','') for event in events))
+
     def test_independent_review_evidence_is_approved_hashed_and_fresh(self):
         import hashlib
         with tempfile.TemporaryDirectory() as root:

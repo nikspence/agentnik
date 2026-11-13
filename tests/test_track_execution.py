@@ -16,6 +16,119 @@ FIXTURE=Path(__file__).parent/'fixtures'/'tracks'
 CONNECTION={'url':'https://gateway.example/v1','protocol':'chat','model':'heavy','stream':False}
 
 class TrackExecution(unittest.TestCase):
+    def test_ui_saves_project_review_only_after_diff_approval(self):
+        import os,copy
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog,QPushButton,QPlainTextEdit,QMessageBox
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';shutil.copytree(FIXTURE,project);store=Store(Path(root)/'data');window=Window(store)
+            try:
+                track=prepare_track(ProjectFiles(project),'sample_feature');ident=window.repositories.put(project);session=window.repositories.session(ident)
+                review={'id':'a'*32+'-1','role':'design','model':'light','path':'agentnik-plans/tracks/sample_feature/spec.md','source_sha256':'b'*64,'payload_sha256':'c'*64,'evidence':[],'track_context':{'id':track['id'],'digest':track['digest']},'pass_status':'completed','structured':{'status':'valid','findings':[]},'dispositions':{}}
+                session['coding_review_history']=[{'version':1,'id':'d'*32,'track_id':None,'reviews':[review]}];store.save(session);window.open_session(session);tab=window.tabs.currentWidget();sidecar=project/'agentnik-plans/tracks/sample_feature/reviews.json';seen=[];accept=[False]
+                def interact(dialog):
+                    if dialog.windowTitle()=='Review project change':
+                        seen.append(dialog.findChild(QPlainTextEdit,'projectReviewDiff').toPlainText());return QDialog.DialogCode.Accepted if accept[0] else QDialog.DialogCode.Rejected
+                    if dialog.windowTitle()=='Project review history':
+                        seen.append(dialog.findChild(QPlainTextEdit,'projectReviewHistory').toPlainText());return QDialog.DialogCode.Rejected
+                    dialog.findChild(QPushButton,'publishReviewSnapshot').click();return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',interact),patch.object(QMessageBox,'information'),patch.object(QMessageBox,'warning') as warning:
+                    tab.show_saved_reviews();self.assertFalse(sidecar.exists());self.assertTrue(seen,warning.call_args);self.assertIn('reviews.json',seen[-1])
+                    accept[0]=True;tab.show_saved_reviews();self.assertTrue(sidecar.is_file())
+                stored=json.loads(sidecar.read_text(encoding='utf-8'));self.assertEqual(stored['snapshots'][0]['id'],'d'*32)
+                def view_history(dialog):
+                    if dialog.windowTitle()=='Project review history':seen.append(dialog.findChild(QPlainTextEdit,'projectReviewHistory').toPlainText());return QDialog.DialogCode.Rejected
+                    dialog.findChild(QPushButton,'viewProjectReviews').click();return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',view_history):tab.show_saved_reviews()
+                self.assertIn('sample_feature',seen[-1]);self.assertIn('Stale or unavailable',seen[-1])
+                other=window.repositories.session(ident);store.save(other);window.open_session(other);other_tab=window.tabs.currentWidget();self.assertFalse(other.get('coding_review_history'))
+                def view_project_only(dialog):seen.append(dialog.findChild(QPlainTextEdit,'projectReviewHistory').toPlainText());return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',view_project_only),patch.object(core,'open_request') as send:other_tab.show_project_track_reviews('sample_feature');send.assert_not_called()
+                self.assertIn('sample_feature',seen[-1]);self.assertIn('d'*32,seen[-1])
+                def view_start_preview(dialog):seen.append(dialog.findChild(QPlainTextEdit).toPlainText());return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',view_start_preview),patch.object(core,'open_request') as send:
+                    self.assertFalse(other_tab.review_selected_track(track,CONNECTION,'Task'));send.assert_not_called()
+                self.assertIn('"origin": "project"',seen[-1]);self.assertIn('d'*32,seen[-1])
+                accept[0]=False
+                def remove_project(dialog):
+                    if dialog.windowTitle()=='Review project change':
+                        seen.append(dialog.findChild(QPlainTextEdit,'projectReviewRemoveDiff').toPlainText());return QDialog.DialogCode.Accepted if accept[0] else QDialog.DialogCode.Rejected
+                    dialog.findChild(QPushButton,'removeProjectReview').click();return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',remove_project),patch.object(QMessageBox,'information'),patch.object(QMessageBox,'warning') as warning:
+                    other_tab.show_project_track_reviews('sample_feature');self.assertEqual(len(json.loads(sidecar.read_text(encoding='utf-8'))['snapshots']),1);self.assertIn('reviews.json',seen[-1])
+                    accept[0]=True;other_tab.show_project_track_reviews('sample_feature');self.assertEqual(json.loads(sidecar.read_text(encoding='utf-8'))['snapshots'],[],warning.call_args)
+                self.assertEqual(len(session['coding_review_history']),1)
+            finally:window.close();app.processEvents();store.db.close()
+
+    def test_track_review_preview_reports_unresolved_and_source_changes(self):
+        import hashlib
+        from agentnik.independent_review import track_review_summary
+        with tempfile.TemporaryDirectory() as root:
+            project=Path(root)/'project';shutil.copytree(FIXTURE,project);files=ProjectFiles(project);track=prepare_track(files,'sample_feature')
+            evidence=project/'evidence.txt';evidence.write_text('original',encoding='utf-8');target=project/'agentnik-plans/tracks/sample_feature/spec.md';target_text=files.read('agentnik-plans/tracks/sample_feature/spec.md',remember=False,max_bytes=8000)
+            finding={'id':'finding-1','severity':'high','title':'Missing test','rationale':'No criterion','location':'spec.md','assumptions':'','verification':'Ask'}
+            review={'id':'a'*32+'-1','role':'design','model':'light','path':'agentnik-plans/tracks/sample_feature/spec.md','source_sha256':hashlib.sha256(target_text.encode()).hexdigest(),'payload_sha256':'b'*64,'evidence':[{'path':'evidence.txt','sha256':hashlib.sha256(b'original').hexdigest(),'payload_sha256':'c'*64}],'track_context':{'id':track['id'],'digest':track['digest']},'pass_status':'completed','structured':{'status':'valid','findings':[finding]},'dispositions':{}}
+            history=[{'version':1,'id':'d'*32,'track_id':None,'reviews':[review]}]
+            summary=track_review_summary(files,track,history);item=summary['snapshots'][0]['reviews'][0]
+            self.assertEqual((item['track_revision_status'],item['source_status']),('matches','matches'));self.assertEqual(item['structured']['findings'][0]['user_disposition']['status'],'unresolved')
+            run=CodingRun(CONNECTION,project,'Work',selected_track=track,review_guard={'history':history,'summary':summary})
+            evidence.write_text('changed',encoding='utf-8');self.assertEqual(track_review_summary(files,track,history)['snapshots'][0]['reviews'][0]['source_status'],'stale_or_unavailable')
+            events=[]
+            with patch.object(core,'open_request') as send:run.run(events.append)
+            send.assert_not_called();self.assertIn('review sources or project history changed after approval',events[-1]['text'].lower())
+            evidence.write_text('original',encoding='utf-8');events=[];bodies=[]
+            def send_ok(c,url,body,timeout):bodies.append(body);return Wire(chat('Done'),False)
+            with patch.object(core,'open_request',side_effect=send_ok):CodingRun(CONNECTION,project,'Work',selected_track=track,review_guard={'history':history,'summary':summary}).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertNotIn('Missing test',json.dumps(bodies))
+            evidence.write_text('changed',encoding='utf-8')
+            review['track_context']['digest']='e'*64;self.assertEqual(track_review_summary(files,track,history)['snapshots'][0]['reviews'][0]['track_revision_status'],'changed')
+            self.assertEqual(track_review_summary(files,track,[])['snapshots'],[])
+
+    def test_track_start_preview_displays_reviews_and_rejects_changed_summary(self):
+        import os
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog,QPlainTextEdit
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';shutil.copytree(FIXTURE,project);store=Store(Path(root)/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget();track=prepare_track(ProjectFiles(project),'sample_feature');seen=[]
+                def accept(dialog):seen.append(dialog.findChild(QPlainTextEdit).toPlainText());return QDialog.DialogCode.Accepted
+                initial={'snapshots':[{'finding':'unresolved example'}]};changed={'snapshots':[{'finding':'changed'}]}
+                with patch('agentnik.independent_review.track_review_summary',side_effect=[initial,changed]),patch.object(QDialog,'exec',accept):
+                    with self.assertRaisesRegex(ValueError,'changed during review'):tab.review_selected_track(track,CONNECTION,'Task')
+                self.assertIn('unresolved example',seen[0]);self.assertIn('Saved review snapshots',seen[0])
+            finally:window.close();app.processEvents();store.db.close()
+
+    def test_independent_review_records_track_context_and_detects_change(self):
+        from agentnik.independent_review import track_context_matches,validate_track_context
+        with tempfile.TemporaryDirectory() as root:
+            project=Path(root)/'project';shutil.copytree(FIXTURE,project);files=ProjectFiles(project);track=prepare_track(files,'sample_feature')
+            context={'id':track['id'],'digest':track['digest']};self.assertTrue(track_context_matches(files,context));self.assertIsNone(track_context_matches(files,None))
+            for value in ({'id':'../bad','digest':'a'*64},{'id':'sample_feature','digest':'bad'}):
+                with self.assertRaises(ValueError):validate_track_context(value)
+            events=[];count=0;run=CodingRun(CONNECTION,project,'Review',light=dict(CONNECTION,model='light'),selected_track=track)
+            def send(connection,url,body,timeout):
+                nonlocal count
+                if connection['model']=='light':return Wire(chat('{"version":1,"findings":[]}'),False)
+                count+=1
+                if count==1:
+                    passes=[{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'light','paths':[]}]
+                    return Wire(chat(calls=[call('review_document_parallel',{'path':'agentnik-plans/tracks/sample_feature/spec.md','passes':json.dumps(passes)})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            records=[event['review'] for event in events if event['kind']=='independent_review_result'];self.assertEqual(len(records),4);self.assertTrue(all(item['track_context']==context for item in records))
+            plan=project/'agentnik-plans/tracks/sample_feature/plan.md';plan.write_text(plan.read_text(encoding='utf-8')+'\nchanged',encoding='utf-8')
+            self.assertFalse(track_context_matches(files,context))
+
     def test_snapshot_budget_credentials_and_progress_validation(self):
         track=prepare_track(ProjectFiles(FIXTURE),'sample_feature')
         with self.assertRaises(ValueError):prepare_track(ProjectFiles(FIXTURE),'sample_feature',context_limit=100)

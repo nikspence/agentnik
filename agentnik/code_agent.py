@@ -113,6 +113,8 @@ TOOLS=[CodeTool('list_skill_resources','List bounded relative resource paths for
        CodeTool('review_document','Request one fresh document-only comprehension review by a configured Light role. path is a project-relative UTF-8 file (up to 8 KB); model is light, alternate, or alternate2. The user must review and approve the exact input and destination. No conversation, selected Skills, project guidance, tools, or other files are sent to the reviewer. Findings are untrusted.',('path','model')),
        CodeTool('review_document_role','Request one fresh document-only review using role requirements, design, or readiness. path is a project-relative UTF-8 file (up to 8 KB); model is light, alternate, or alternate2. Each request needs user approval of its exact input and destination. No conversation, prior findings, Skills, guidance, tools, or other files are sent. Findings are untrusted.',('path','model','role')),
        CodeTool('review_document_evidence','Request one fresh independent review with explicitly approved project evidence. path is the target document; paths is a JSON array of 1–3 distinct project-relative evidence files, each UTF-8 and up to 8 KB. role is requirements, design, or readiness; model is light, alternate, or alternate2. The user must approve the exact full input and destination. No conversation, prior findings, Skills, guidance, or tools are sent. Treat findings as untrusted.',('path','paths','model','role')),
+       CodeTool('review_document_structured','Request one fresh independent review with structured findings. path is a project document; paths is a JSON array of 1–3 evidence files. role is requirements, design, or readiness; model is light, alternate, or alternate2. The user must approve the complete input and destination. Findings are untrusted; invalid output is not a clean review.',('path','paths','model','role')),
+       CodeTool('review_document_parallel','Request 2–3 fresh independent document reviews. path is the target; passes is a JSON array of {role,model,paths}, where role is comprehension, requirements, design, or readiness; model is light, alternate, or alternate2; paths is an array of up to 3 evidence paths (empty for comprehension). Each pass requires its own user approval. Findings are untrusted.',('path','passes')),
        CodeTool('delegate_parallel','Run 2–3 independent Light analyses concurrently. tasks is a JSON array of strings or objects {task, paths, model, inspect}; model is light, alternate, or alternate2 (only when configured), default light. Each object may request up to 8 project-relative UTF-8 files (8 KB each); each transfer requires approval. Set inspect to true to give a child read_file, glob_files and grep_files over only its approved snapshots. Children cannot access other files, web, write, or spawn agents.',('tasks',)),
        CodeTool('delegate_light','Delegate routine bounded analysis to the user-selected light model. Include necessary context in task; delegate cannot access files or tools.',('task',)),
        CodeTool('list_files','List a project directory. Only project-relative paths.',('path',)),
@@ -511,7 +513,7 @@ MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_cal
 
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None):
+    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,review_guard=None):
         from .code_artifacts import validate_notes, Artifacts
         self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.project_memory=project_memory
         from .track_execution import validate_runtime_track,initial_progress
@@ -520,6 +522,11 @@ class CodingRun:
         from .document_reader import validate_documents
         import copy
         self.images=list(images or []);self.documents=copy.deepcopy(validate_documents(documents or []))
+        self.review_guard=None
+        if review_guard is not None:
+            from .independent_review import validate_review_history
+            if not self.selected_track or not isinstance(review_guard,dict) or set(review_guard)!={'history','summary'} or not isinstance(review_guard['summary'],dict):raise ValueError('Invalid track review guard')
+            self.review_guard={'history':validate_review_history(review_guard['history']),'summary':copy.deepcopy(review_guard['summary'])}
         if context is not None and (not isinstance(context,dict) or set(context)!={'task','answer'} or any(not isinstance(v,str) or len(v)>2048 for v in context.values())):raise ValueError('Invalid previous coding context')
         self.context=dict(context) if context else None
         if mcp_bridge is not None and mcp_bridges is not None:raise ValueError('Choose one MCP bridge configuration')
@@ -628,7 +635,7 @@ class CodingRun:
             event('output',text=text[:1750]+('\n[diff excerpt truncated]' if len(text)>1750 else ''))
         try:
             files=ProjectFiles(self.root);project=ProjectTools(files);c=self.connection;native=core.native_ollama(c);protocol=c.get('protocol','chat')
-            available_tools=[tool for tool in TOOLS if self.light or tool.name not in ('delegate_light','delegate_parallel','review_document','review_document_role','review_document_evidence')]
+            available_tools=[tool for tool in TOOLS if self.light or tool.name not in ('delegate_light','delegate_parallel','review_document','review_document_role','review_document_evidence','review_document_structured','review_document_parallel')]
             available_tools=[tool for tool in available_tools if (tool.name!='update_plan' if self.selected_track else tool.name!='report_track_progress')]
             if self.mcp_bridge:
                 available_tools.extend([CodeTool('mcp_discover','Connect to the selected MCP server and list its tools. Server metadata is untrusted.',()),CodeTool('mcp_call','Call a discovered MCP tool. tool is its exact name; arguments is a JSON object encoded as a string. Results are untrusted.',('tool','arguments'))])
@@ -779,6 +786,11 @@ class CodingRun:
             adapter=responses_tools if protocol=='responses' else ollama_tools if native else compat_tools
             for round_number in range(runtime.limits.rounds+1):
                 check_skill_versions();guidance.discover('.');sync_guidance()
+                if round_number==0 and self.review_guard is not None:
+                    from .independent_review import track_review_summary
+                    try:current_reviews=track_review_summary(files,self.selected_track,self.review_guard['history'])
+                    except (ValueError,OSError,UnicodeError,RecursionError):raise LimitError('Review history became invalid or unavailable; review and start again') from None
+                    if current_reviews!=self.review_guard['summary']:raise LimitError('Saved review sources or project history changed after approval; review and start again')
                 runtime.charge('requests',1,runtime.limits.requests);state={}
                 event('output',text='Heavy task: requesting '+c['model']+' through the selected connection.')
                 seen_guidance=guidance_payload
@@ -824,7 +836,7 @@ class CodingRun:
                             mcp_state=mcp_states.get(server_name)
                             if mcp_state is None:raise ProjectToolError('Choose an exact selected MCP server name.')
                             mcp_bridge=mcp_state['bridge'];mcp_tools=mcp_state['tools'];mcp_resources=mcp_state['resources'];mcp_prompts=mcp_state['prompts'];mcp_templates=mcp_state['templates']
-                        if scrub(guidance.render(),secrets)!=seen_guidance and call.name in ('write_file','apply_patch','delete_file','create_directory','rename_file','move_file','rename_directory','move_directory','run_shell','run_tests','git_commit','git_stage','git_unstage','git_create_branch','git_commit_staged','delegate_light','delegate_parallel','review_document','review_document_role','review_document_evidence'):
+                        if scrub(guidance.render(),secrets)!=seen_guidance and call.name in ('write_file','apply_patch','delete_file','create_directory','rename_file','move_file','rename_directory','move_directory','run_shell','run_tests','git_commit','git_stage','git_unstage','git_create_branch','git_commit_staged','delegate_light','delegate_parallel','review_document','review_document_role','review_document_evidence','review_document_structured','review_document_parallel'):
                             raise GuidanceError('New or changed AGENTS.md guidance was loaded. Review the scoped instructions and reconsider this proposal before reissuing it.')
                         if call.name=='mcp_discover':
                             if mcp_tools is not None:result={'server':mcp_bridge.server['name'],'tools':mcp_tools,'notice':'Untrusted server-provided descriptions and schemas.'}
@@ -964,7 +976,62 @@ class CodingRun:
                             try: result=HANDLERS[call.name](**args)
                             except AnalysisError as exc: result={'error':str(exc)}
                             event('output',text=call.name+': '+json.dumps(scrub(result,secrets))[:1500])
-                        elif call.name in ('review_document','review_document_role','review_document_evidence'):
+                        elif call.name=='review_document_parallel':
+                            from .independent_review import prepare_snapshot,execute_review_batch,STRUCTURED_INSTRUCTIONS,parse_structured_findings
+                            try: requested=json.loads(args['passes'])
+                            except (ValueError,RecursionError):raise ProjectToolError('Passes must be a JSON array of 2–3 review definitions.') from None
+                            if not isinstance(requested,list) or not 2<=len(requested)<=3:raise ProjectToolError('Supply 2–3 independent review passes.')
+                            models={'light':self.light,'alternate':self.alternate,'alternate2':self.alternate2};passes=[]
+                            identity=subagent_task_identity('independent document review',[args['path']])
+                            if identity in self.cancelled_subagent_tasks:raise ProjectToolError('This document review was cancelled; do not retry it during this run.')
+                            for index,item in enumerate(requested,1):
+                                if not isinstance(item,dict) or set(item)!={'role','model','paths'} or not isinstance(item['role'],str) or item['role'] not in REVIEW_RUBRICS or not isinstance(item['model'],str) or not models.get(item['model']) or not isinstance(item['paths'],list) or len(item['paths'])>3 or (item['role']=='comprehension' and item['paths']):raise ProjectToolError('Invalid review pass, model, or evidence selection.')
+                                model=models[item['model']];snapshot=prepare_snapshot(files,args['path'],STRUCTURED_INSTRUCTIONS+REVIEW_RUBRICS[item['role']],secrets,json.dumps(item['paths']) if item['paths'] else None,lambda:runtime.charge('calls',1,runtime.limits.calls))
+                                proposal={'operation':'independent_review','role':item['role'],'cwd':str(files.root),'path':args['path'],'model':model['model'],'destination':core.endpoint(model).split('?',1)[0],'diff':snapshot['prompt'],'source_sha256':snapshot['source_sha256'],'evidence':snapshot['evidence'],'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes'],'batch_pass':index}
+                                passes.append({'approved':False,'connection':model,'proposal':proposal,'snapshot':snapshot})
+                            for item in passes:
+                                allowed=review(item['proposal'],lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal');runtime.check()
+                                if not allowed:raise ProjectToolError('Independent review rejected; no batch requests were sent.')
+                                item['approved']=True
+                            batch_id=uuid.uuid4().hex;cancellations=[threading.Event() for _ in passes];ids=[batch_id+'-'+str(i+1) for i in range(len(passes))]
+                            with self.lock:
+                                for ident,cancel in zip(ids,cancellations):self.child_cancellations[ident]=cancel
+                            for ident,item in zip(ids,passes):
+                                p=item['proposal']
+                                event('independent_review_result',review={'id':ident,'role':p['role'],'model':p['model'],'path':p['path'],'source_sha256':p['source_sha256'],'payload_sha256':p['payload_sha256'],'evidence':p['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':'pending','structured':{'status':'not_available','findings':[]}})
+                                event('subagent',subagent={'id':ident,'status':'running','text':'Independent '+p['role']+' review queued · '+p['model']})
+                            def send_review(connection,body,child):
+                                adapter=responses_tools if connection.get('protocol')=='responses' else ollama_tools if core.native_ollama(connection) else compat_tools
+                                state={}
+                                with self.lock:usage['Light']['requests']+=1;usage['Light']['input_missing']+=1;usage['Light']['output_missing']+=1
+                                _,calls=adapter.request(connection,body,child,lambda _:None,state)
+                                if calls:raise ValueError('Reviewer requested unavailable tools')
+                                return {'text':state.get('text',''),'usage':state.get('metrics',{})}
+                            def review_completed(index,outcome):
+                                ident=ids[index];item=passes[index]
+                                if outcome['status']=='cancelled':self.cancelled_subagent_tasks.add(identity)
+                                outcome.update(role=item['proposal']['role'],model=item['proposal']['model'],source_sha256=item['proposal']['source_sha256'],payload_sha256=item['proposal']['payload_sha256'],evidence=item['proposal']['evidence'])
+                                if outcome['status']=='completed':
+                                    outcome['structured']=parse_structured_findings(outcome['analysis'],truncated=outcome['truncated'])
+                                    with self.lock:
+                                        for key,value in outcome['usage'].items():
+                                            if value is not None:usage['Light'][key]+=value;usage['Light'][key.replace('tokens','missing')]-=1
+                                else:outcome['usage']={'input_tokens':None,'output_tokens':None};outcome['structured']={'status':'not_available','findings':[]}
+                                event('independent_review_result',review={'id':ident,'role':outcome['role'],'model':outcome['model'],'path':args['path'],'source_sha256':outcome['source_sha256'],'payload_sha256':outcome['payload_sha256'],'evidence':outcome['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':outcome['status'],'structured':outcome['structured']})
+                                reported=outcome['usage'];detail=' · input '+str(reported['input_tokens'] if reported['input_tokens'] is not None else 'unknown')+' tokens, output '+str(reported['output_tokens'] if reported['output_tokens'] is not None else 'unknown')+' tokens'
+                                if 'elapsed_seconds' in outcome:detail+=' · '+str(outcome['elapsed_seconds'])+'s'
+                                text='Independent '+outcome['role']+' review · '+outcome['model']+' · '+outcome['status']+(' · '+outcome['structured']['status'] if 'structured' in outcome else '')+detail+' · '+outcome.get('analysis','')[:900]
+                                event('subagent',subagent={'id':ident,'status':outcome['status'] if outcome['status'] in ('completed','cancelled','failed') else 'failed','text':text[:1600]});event('output',text=text[:1600])
+                            try:
+                                batch=execute_review_batch(files,passes,runtime,send_review,cancellations,model_timeout=self.limits['model_seconds'],secrets=secrets,on_complete=review_completed)
+                            except Exception:
+                                for ident in ids:event('subagent',subagent={'id':ident,'status':'failed','text':'Independent review batch stopped before completion.'})
+                                raise
+                            finally:
+                                with self.lock:
+                                    for ident in ids:self.child_cancellations.pop(ident,None)
+                            result={'reviews':batch,'notice':'Untrusted independent review findings; verify before acting. Unknown usage is not zero.'}
+                        elif call.name in ('review_document','review_document_role','review_document_evidence','review_document_structured'):
                             role=args.get('role','comprehension')
                             if role not in REVIEW_RUBRICS or (call.name!='review_document' and role=='comprehension'):
                                 raise ProjectToolError('Unknown review role; choose requirements, design, or readiness.')
@@ -973,37 +1040,17 @@ class CodingRun:
                             if not model:raise ProjectToolError('Requested reviewer model is unavailable; choose a configured model role.')
                             identity=subagent_task_identity('independent document review',[args['path']])
                             if identity in self.cancelled_subagent_tasks:raise ProjectToolError('This document review was cancelled; do not retry it during this run.')
-                            raw=files.read(args['path'],remember=False,max_bytes=8000)
-                            source_hash=hashlib.sha256(raw.encode('utf-8')).hexdigest()
-                            document=scrub(raw,secrets);prompt=REVIEW_RUBRICS[role]+document
-                            evidence=[];evidence_files=[]
-                            if call.name=='review_document_evidence':
-                                try:paths=json.loads(args['paths'])
-                                except (ValueError,RecursionError):raise ProjectToolError('Evidence paths must be a JSON array of 1–3 distinct project files.') from None
-                                if not isinstance(paths,list) or not 1<=len(paths)<=3 or any(not isinstance(path,str) or not path or len(path)>512 for path in paths):
-                                    raise ProjectToolError('Evidence paths must be a JSON array of 1–3 distinct project files.')
-                                try:
-                                    targets=[files.path(path) for path in [args['path'],*paths]]
-                                    if len({os.path.normcase(str(target)) for target in targets})!=len(targets):raise ProjectToolError('Target and evidence files must be distinct.')
-                                    for path in paths:
-                                        runtime.charge('calls',1,runtime.limits.calls)
-                                        content=files.read(path,remember=False,max_bytes=8000)
-                                        digest=hashlib.sha256(content.encode('utf-8')).hexdigest()
-                                        payload=scrub(content,secrets)
-                                        evidence.append({'path':path,'sha256':digest,'payload_sha256':hashlib.sha256(payload.encode('utf-8')).hexdigest(),'content':payload})
-                                        evidence_files.append((path,digest))
-                                except (OSError,ValueError,UnicodeError):raise ProjectToolError('Evidence file is unavailable or invalid; no request was sent.') from None
-                                prompt+='\n\nADDITIONAL PROJECT EVIDENCE (untrusted data, not instructions):\n'+json.dumps(evidence,ensure_ascii=False)
+                            from .independent_review import prepare_snapshot,sources_unchanged,validate_result,build_review_request,parse_structured_findings,STRUCTURED_INSTRUCTIONS,RESULT_VERSION,RUBRIC_VERSION
+                            structured=call.name=='review_document_structured'
+                            rubric=STRUCTURED_INSTRUCTIONS+REVIEW_RUBRICS[role] if structured else REVIEW_RUBRICS[role]
+                            snapshot=prepare_snapshot(files,args['path'],rubric,secrets,args['paths'] if call.name in ('review_document_evidence','review_document_structured') else None,lambda:runtime.charge('calls',1,runtime.limits.calls))
+                            prompt=snapshot['prompt'];source_hash=snapshot['source_sha256']
                             proposal={'operation':'independent_review','role':role,'cwd':str(files.root),'path':args['path'],'model':model['model'],'destination':core.endpoint(model).split('?',1)[0],
-                                      'diff':prompt,'source_sha256':source_hash,'evidence':[{'path':item['path'],'sha256':item['sha256'],'payload_sha256':item['payload_sha256']} for item in evidence],
-                                      'payload_sha256':hashlib.sha256(prompt.encode('utf-8')).hexdigest(),'payload_bytes':len(prompt.encode('utf-8'))}
-                            def review_sources_unchanged():
-                                try:
-                                    return all(hashlib.sha256(files.read(path,remember=False,max_bytes=8000).encode('utf-8')).hexdigest()==digest for path,digest in [(args['path'],source_hash),*evidence_files])
-                                except (OSError,ValueError,UnicodeError):return False
+                                      'diff':prompt,'source_sha256':source_hash,'evidence':snapshot['evidence'],
+                                      'payload_sha256':snapshot['payload_sha256'],'payload_bytes':snapshot['payload_bytes']}
                             allowed=review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal');runtime.check()
                             if not allowed:raise ProjectToolError('Independent review rejected; no request was sent.')
-                            if not review_sources_unchanged():raise ProjectToolError('The reviewed document or evidence changed or became unavailable; no request was sent.')
+                            if not sources_unchanged(files,snapshot['sources']):raise ProjectToolError('The reviewed document or evidence changed or became unavailable; no request was sent.')
                             runtime.charge('requests',1,runtime.limits.requests)
                             runtime.charge('context_bytes',len(prompt.encode('utf-8')),runtime.limits.context_bytes)
                             child_id=uuid.uuid4().hex;child_cancel=threading.Event()
@@ -1014,10 +1061,10 @@ class CodingRun:
                             adapter_review=responses_tools if model.get('protocol')=='responses' else ollama_tools if core.native_ollama(model) else compat_tools
                             state={};started=time.monotonic();usage['Light']['requests']+=1
                             try:
-                                review_body=core.chat_body(model,[{'role':'user','text':prompt}])
+                                review_body=build_review_request(model,proposal)
                                 _,review_calls=child_runtime.wait(lambda:adapter_review.request(model,review_body,child_runtime,lambda _:None,state))
                                 if review_calls:raise ValueError('Reviewer requested unavailable tools')
-                                if not review_sources_unchanged():raise ValueError('Document or evidence changed during review; findings are stale')
+                                if not sources_unchanged(files,snapshot['sources']):raise ValueError('Document or evidence changed during review; findings are stale')
                                 with self.lock:
                                     child_runtime.check();self.child_cancellations.pop(child_id,None)
                                 answer=state.get('text','')
@@ -1038,6 +1085,10 @@ class CodingRun:
                                 if type(value) in (int,float) and math.isfinite(value) and 0<=value<=2**63-1:usage['Light'][key]+=value;reported[key]=value
                                 else:usage['Light'][key.replace('tokens','missing')]+=1;reported[key]=None
                             result['usage']=reported;result['elapsed_seconds']=round(time.monotonic()-started,2)
+                            result['version']=RESULT_VERSION;result['rubric_version']=RUBRIC_VERSION;result=validate_result(result)
+                            if structured and result['status']=='completed':
+                                result['structured']=parse_structured_findings(result['analysis'],truncated=result['truncated'])
+                                event('output',text='Structured independent review output: '+result['structured']['status']+'; findings are untrusted and an empty list is not proof of correctness.')
                             details=' · '+str(result['elapsed_seconds'])+'s · input '+str(reported['input_tokens'] if reported['input_tokens'] is not None else 'unknown')+' tokens, output '+str(reported['output_tokens'] if reported['output_tokens'] is not None else 'unknown')+' tokens'
                             evidence_summary=''.join(' · evidence '+item['path'][:120]+' SHA-256 '+item['sha256'] for item in proposal['evidence'])
                             summary='Independent '+role+' review · '+model['model'][:200]+' · '+args['path'][:200]+' · SHA-256 '+source_hash+evidence_summary+' · '+result['status']+details+(' · findings truncated' if result.get('truncated') else '')+' · '+(result.get('analysis') or result.get('error',''))[:900]
