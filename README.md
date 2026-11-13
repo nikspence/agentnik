@@ -7,46 +7,22 @@
 
 ## What you can do
 
-- **Code with your models:** register a repository or folder and run Agentnik's own coding loop. Choose Heavy and Light models independently, delegate bounded analysis, use project tools, maintain a task plan, use project-scoped memory, create and edit project tracks, and select a track for a reviewed run with separate reported progress. File changes are applied during the run; shell commands and structured Git mutations require approval. [Coding features](CODE_FEATURES.md) · [Coding guide](CODING_GUIDE.md)
-- **Connect MCP servers and Skills:** configure local stdio or remote HTTPS MCP servers, inspect and call tools, and use supported tools, text resources and prompts in Code. An opt-in Chat preview supports one selected server's tools. MCP tools run without approval, including tools that can write or perform external actions. Select repository or user Skills for a coding run. [Chat](CHAT_AND_DECISIONS.md) · [MCP and coding](CODE_FEATURES.md)
-- **Chat with documents and images:** use independent tabs with streaming, Markdown, thinking, history, saved prompts, and token statistics. Attach images and supported documents, and opt into local calculator and data tools. [Chat and decisions](CHAT_AND_DECISIONS.md)
-- **Research the web:** enable managed search and public-page retrieval for compatible tool-capable models, or use hosted search on eligible OpenAI Responses connections. A configured Parallel profile also provides place, image and entity search on the managed route. Sources, activity, and fallback are visible. Research is a preview; compatibility is specific to the endpoint, protocol, model and route. [Research guide](RESEARCH_GUIDE.md) · [Search providers](SEARCH_PROVIDERS.md)
-- **Make structured decisions:** use the separate Ollama System One API for yes/no, multiple-choice, and ordered-score questions, with shared context and optional images. A compatible decision model and endpoint are required. [Chat and decisions](CHAT_AND_DECISIONS.md)
+- **Code with your models:** work in local repositories or folders using Agentnik's own coding loop. Choose Heavy and Light models independently, delegate bounded analysis, inspect and edit files, run approved shell commands and tests, and use structured Git tools. [Coding features](CODE_FEATURES.md) · [Coding guide](CODING_GUIDE.md)
+- **Plan with specifications and tracks:** the built-in **Spec & Plan** workflow follows a Conductor-style approach: draft requirements, a specification and a task plan, review project changes, then start a selected track. Persistent project context, editable drafts, task IDs and progress reconciliation keep larger changes organized. [Spec & Plan guide](CODING_GUIDE.md#spec--plan-track-preview) · [Track format](TRACK_FORMAT.md)
+- **Review documents independently:** built-in reviews follow Elephant Goldfish Model-style discipline, using fresh requests with fixed comprehension, requirements, design, repository-fit, readiness or drift rubrics and explicitly selected evidence. Inspect attributed findings, resolve dispositions, save review history and see revision status before implementation. [Independent review guide](CODING_GUIDE.md#independent-document-review) · [Review features](CODE_FEATURES.md)
+- **Extend workflows with Skills and MCP:** select repository or user Skills and connect local or remote MCP servers. Code can use supported tools, text resources, templates and prompts; Chat offers an opt-in MCP tool preview. MCP tools can write or perform external actions without approval. [Skills and MCP](CODE_FEATURES.md) · [Chat tools](CHAT_AND_DECISIONS.md)
+- **Chat with images and documents:** keep conversations in independent tabs with Markdown, streaming, visible thinking, saved prompts, history and token statistics. Attach images and supported documents in Chat or Code, and use local calculator and data-analysis tools. [Chat and decisions](CHAT_AND_DECISIONS.md) · [Coding guide](CODING_GUIDE.md)
+- **Research the web:** combine managed search and public-page retrieval, or use hosted search on eligible OpenAI Responses connections. Sources, citations, activity and fallback are visible; configured search providers can also supply place, image and entity results. [Research guide](RESEARCH_GUIDE.md) · [Search providers](SEARCH_PROVIDERS.md)
+- **Make structured decisions:** use the separate Ollama System One API for yes/no, multiple-choice and ordered-score questions, with shared context and multiple images. Decision sessions preserve their own questions and criteria independently of ordinary chat. [Chat and decisions](CHAT_AND_DECISIONS.md)
+- **Choose connections and keep local history:** use native Ollama or compatible Responses, Chat Completions and Messages endpoints, including LiteLLM gateways and supported cloud connections. Manage credentials, persistent sessions and attachments, prompt history, context compaction, themes and language settings. [Connections and local data](CONNECTIONS.md) · [Feature inventory](FEATURES.md)
 
-Agentnik supports native Ollama chat and compatible Responses, Chat Completions, and Messages endpoints. Model listings do not establish support for tools, images, research, or System One. See [connections and local data](CONNECTIONS.md) for discovery, credentials, storage, Bedrock Mantle routing, and the optional global TLS setting.
+Spec & Plan and independent reviews are native Agentnik features inspired by Conductor and Elephant Goldfish Model (EGM). They use Agentnik's own track format and configured models; upstream plugin or track compatibility is not claimed. Review findings and reported progress require user judgment, and source hashes identify the revision reviewed. Provider-side isolation and live review quality remain unverified.
 
-## Install and launch
+Research and coding workflows include preview features. Model listings do not establish support for tools, images, research or System One. See [validation](VALIDATION.md) for observed behavior and remaining platform and compatibility checks.
 
-Use Python 3.11 or newer with matching Qt wheels for your OS and architecture. A virtual environment is recommended for dependency isolation, but is optional.
+## Get started
 
-Windows PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe agentnik.py
-```
-
-After installation, `./start.ps1` opens the desktop app without leaving a console window. Run the Python command above when troubleshooting so startup errors remain visible.
-
-To use your existing Python installation directly instead:
-
-```powershell
-python -m pip install -r requirements.txt
-python agentnik.py
-```
-
-macOS / Linux:
-
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python agentnik.py
-```
-
-Alternatively, `python -m pip install .` installs the `agentnik` desktop entry point. Linux still requires the system libraries used by Qt's platform plugin; the exact packages depend on the distribution.
-
-Optional key files can be supplied with `--litellm-key-file PATH` and `--ollama-key-file PATH`; use `--litellm-url URL` for a custom LiteLLM endpoint. Keys are read into the process environment and are saved only when you explicitly save a connection. Do not commit key files.
+Agentnik requires Python 3.11 or newer. See [installation and launch](GETTING_STARTED.md) for Windows, macOS and Linux instructions, or use the Windows archive described below. Endpoint, credential and storage configuration is covered in [connections and local data](CONNECTIONS.md).
 
 ## Windows release
 
@@ -64,13 +40,13 @@ These welcome screens were rendered offline with temporary data. Research screen
 
 ## Documentation and development
 
-- [Coding features](CODE_FEATURES.md) and [coding guide](CODING_GUIDE.md): model roles, project tools, approvals, Skills, MCP, and workflows.
+- [Coding features](CODE_FEATURES.md) and [coding guide](CODING_GUIDE.md): model roles, project tools, Spec & Plan, independent reviews, Skills, and MCP.
 - [Chat and decisions](CHAT_AND_DECISIONS.md): attachments, System One, prompts, history, and controls.
 - [Research guide](RESEARCH_GUIDE.md) and [search providers](SEARCH_PROVIDERS.md): routes, configuration, sources, and limits.
 - [Connections and local data](CONNECTIONS.md): endpoints, credentials, discovery, and storage.
 - [Features](FEATURES.md), [validation](VALIDATION.md), and [development and builds](DEVELOPMENT_VALIDATION.md): feature inventory, evidence, offline checks, and release tooling.
 - [Project plan](AGENTNIK_PLAN.md) and [coding backend plan](CODING_BACKEND_PLAN.md): historical decisions and remaining work. The plans include historical milestones; use the guides and validation records for current behavior and evidence.
-- [Independent review implementation plan](INDEPENDENT_REVIEW_PLAN.md): proposed parallel reviews, track-bound findings, and validation steps.
+- [Independent review implementation plan](INDEPENDENT_REVIEW_PLAN.md): implemented review previews, persistence contracts, and remaining validation steps.
 
 Ordinary tests use temporary storage and do not issue live inference. Build and validate on each target OS. Pillow is needed to rebuild branding assets, not to run Agentnik. See [DISCLAIMER.md](DISCLAIMER.md) for responsibility and use information.
 
