@@ -230,6 +230,7 @@ class CodeTab(QWidget):
         disclosure=QLabel(self.tr('When enabled, each shell proposal sends its command, working directory, shell, and environment variable names to the selected Decision endpoint. Environment values are not sent. Advice never approves a command.'))
         disclosure.setWordWrap(True);model_layout.addWidget(disclosure)
         self.skills_button=QPushButton();self.skills_button.clicked.connect(self.choose_skills);options.addWidget(self.skills_button);self.refresh_skills_button()
+        self.notes_button=QPushButton(self.tr('Working notes…'));self.notes_button.clicked.connect(self.edit_working_notes);options.addWidget(self.notes_button)
         self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);options.addWidget(self.skills_history_button)
         self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setToolTip(self.tr('Allow Light delegation, parallel analysis, and independent reviews. Heavy may choose either configured alternate for parallel tasks or reviews; alternates are not fallbacks. Each project file sent to a subagent requires approval; optional read, glob, and grep tools only inspect approved snapshots. Run limits are shared.'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
         self.light_enabled.toggled.connect(self.save_light_enabled)
@@ -422,6 +423,18 @@ class CodeTab(QWidget):
         self.skills_button.setText(self.tr('Skills ({count})').format(count=len(names)) if names else self.tr('Skills…'))
         self.skills_button.setToolTip(', '.join(names) if names else self.tr('Choose skills'))
 
+    def edit_working_notes(self):
+        from .code_artifacts import validate_notes
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Working notes'));dialog.resize(640,440)
+        layout=QVBoxLayout(dialog);hint=QLabel(self.tr('Edit the JSON object of note names and text. Notes persist with this coding session and can be sent to the selected model.'));hint.setWordWrap(True);layout.addWidget(hint)
+        editor=QPlainTextEdit(json.dumps(self.session.get('coding_working_notes',{}),ensure_ascii=False,indent=2));layout.addWidget(editor)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel);layout.addWidget(buttons)
+        def save():
+            try:notes=validate_notes(json.loads(editor.toPlainText()))
+            except (ValueError,TypeError) as exc:QMessageBox.warning(dialog,self.tr('Working notes'),str(exc));return
+            self.session['coding_working_notes']=notes;self.store.save(self.session);self.updated.emit();dialog.accept()
+        buttons.accepted.connect(save);buttons.rejected.connect(dialog.reject);dialog.exec()
+
     def show_skills_history(self):
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Skill history'));dialog.resize(700,450)
         layout=QVBoxLayout(dialog);view=QPlainTextEdit();view.setReadOnly(True)
@@ -569,7 +582,7 @@ class CodeTab(QWidget):
             from .subagent_capabilities import unsupported
             role_models={'light':light,'alternate':alternate,'alternate2':alternate2}
             unsupported_roles={role for role,connection in role_models.items() if connection and unsupported(self.store.config,self.subagent_capability_connection(role,connection))}
-            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles)
+            run=CodingRun(heavy,self.session['path_snapshot'],self.composer.toPlainText(),light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}))
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         self.remember_prompt(self.composer.toPlainText())
         self.advice_connection=advice;self.advice_destination=destination
@@ -584,7 +597,7 @@ class CodeTab(QWidget):
             self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.send.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
+        self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -691,6 +704,11 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
+        if kind=='working_notes':
+            from .code_artifacts import validate_notes
+            try:notes=validate_notes(event.get('notes'))
+            except (ValueError,TypeError):return
+            self.session['coding_working_notes']=notes;self.store.save(self.session);self.updated.emit();return
         if kind=='subagent_tools_unsupported':
             role=event.get('role')
             if role not in ('light','alternate','alternate2') or not isinstance(self.job,CodingRun):return
@@ -829,7 +847,7 @@ class CodeTab(QWidget):
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
         self.send.setEnabled(True)
-        self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
+        self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 

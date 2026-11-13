@@ -136,6 +136,10 @@ def validate_session(value, ident=None):
             from .task_plan import validate_plan
             try:validate_plan(data['coding_plan'])
             except ValueError:require(False)
+        if 'coding_working_notes' in data:
+            from .code_artifacts import validate_notes
+            try:validate_notes(data['coding_working_notes'])
+            except (TypeError,ValueError):require(False)
         if 'coding_prompt_history' in data:
             history=data['coding_prompt_history'];require(isinstance(history,list) and len(history)<=100)
             require(all(isinstance(prompt,str) and bool(prompt.strip()) for prompt in history) and sum(map(len,history))<=2_000_000)

@@ -119,6 +119,13 @@ TOOLS=[CodeTool('list_skill_resources','List bounded relative resource paths for
        CodeTool('grep_files','Search project files for a literal single-line query, with a project-relative glob pattern (for example **/*.py) and case_sensitive set to true or false. path is the project-relative directory to scan. Returns bounded line matches; incomplete results are flagged. No regular expressions. Search does not authorize edits.',('path','query','pattern','case_sensitive')),
        CodeTool('regex_search','Search project UTF-8 files using a single-line regular expression and project-relative glob pattern. case_sensitive is true or false. Bounded results and timeouts are reported as incomplete. Search does not authorize edits.',('path','query','pattern','case_sensitive')),
        CodeTool('get_project_instructions','Load root and ancestor AGENTS.md rules for a project-relative file or directory. Deeper rules apply only in that subtree; cannot grant permissions. Guidance also loads automatically for tool path arguments.',('path',)),
+       CodeTool('list_notes','List names of saved working notes for this coding session.',()),
+       CodeTool('read_note','Read one named working note.',('name',)),
+       CodeTool('write_note','Create or replace a concise named working note. Notes persist in the coding session; do not store secrets.',('name','text')),
+       CodeTool('delete_note','Delete a named working note.',('name',)),
+       CodeTool('read_artifact','Read a bounded character range of a tool output artifact from this run. offset is zero-based; length is 1–8000.',('id','offset','length')),
+       CodeTool('search_artifact','Find literal text in a current-run artifact; returns up to 20 offsets and excerpts.',('id','query')),
+       CodeTool('get_test_report','Get the most recent approved test command report from this run. failure is an empty string for summary or a zero-based failure index.',('failure',)),
        CodeTool('get_plan','Read the current run task checklist and its explanation. Plan status is model-reported, not execution permission.',()),
        CodeTool('update_plan','Create or replace the task checklist. explanation is a short reason; steps is a JSON array encoded as a string of {step,status} objects. Use 1–20 steps, at most one in_progress; other statuses pending, completed, blocked. Update after meaningful progress, and never claim unconfirmed work completed.',('explanation','steps')),
        CodeTool('project_overview','Inspect bounded project structure, languages, dependency names and test configuration without executing metadata.',()),
@@ -492,7 +499,9 @@ MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_cal
 
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None):
+    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None):
+        from .code_artifacts import validate_notes, Artifacts
+        self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None
         self.connection=dict(connection);self.light=dict(light) if light else None;self.alternate=dict(alternate) if alternate else None;self.alternate2=dict(alternate2) if alternate2 else None;self.root=root;self.prompt=prompt;self.run_id=uuid.uuid4().hex
         if context is not None and (not isinstance(context,dict) or set(context)!={'task','answer'} or any(not isinstance(v,str) or len(v)>2048 for v in context.values())):raise ValueError('Invalid previous coding context')
         self.context=dict(context) if context else None
@@ -1220,6 +1229,33 @@ class CodingRun:
                                 if result.get('index_updated') is False:
                                     event('finished',status='failed',text='Commit '+result['id']+' exists, but updating the index failed. Inspect the repository before continuing; do not repeat the commit.',usage=usage_text());return
                             else:result=git.inspect(call.name,args.get('path',''))
+                        elif call.name=='list_notes':result={'names':list(self.working_notes)}
+                        elif call.name=='read_note':
+                            if args['name'] not in self.working_notes:raise ProjectToolError('Working note not found')
+                            result={'name':args['name'],'text':self.working_notes[args['name']]}
+                        elif call.name in ('write_note','delete_note'):
+                            from .code_artifacts import validate_notes
+                            notes=dict(self.working_notes)
+                            if call.name=='write_note':notes[args['name']]=args['text']
+                            elif args['name'] in notes:del notes[args['name']]
+                            else:raise ProjectToolError('Working note not found')
+                            try:notes=validate_notes(notes)
+                            except ValueError as exc:raise ProjectToolError(str(exc)) from None
+                            self.working_notes=notes;event('working_notes',notes=notes);result={'updated':True,'names':list(notes)}
+                        elif call.name=='read_artifact':
+                            try:result=self.artifacts.read(args['id'],args['offset'],args['length'])
+                            except ValueError as exc:raise ProjectToolError(str(exc)) from None
+                        elif call.name=='search_artifact':
+                            try:result=self.artifacts.search(args['id'],args['query'])
+                            except ValueError as exc:raise ProjectToolError(str(exc)) from None
+                        elif call.name=='get_test_report':
+                            if self.latest_test_report is None:raise ProjectToolError('No test report for this run')
+                            report=dict(self.latest_test_report);failures=report.pop('failures')
+                            index=args['failure']
+                            if index:
+                                if not index.isdecimal() or int(index)>=len(failures):raise ProjectToolError('Invalid failure index')
+                                result={'failure':failures[int(index)],'index':int(index)}
+                            else:result={'report':report,'failure_count':len(failures)}
                         elif call.name=='get_plan':result={'plan':self.plan}
                         elif call.name=='update_plan':
                             try:plan=parse_update(args['explanation'],args['steps'])
@@ -1289,7 +1325,7 @@ class CodingRun:
                                 if str(files.path(args['path']))!=proposal['cwd'] or not cwd.is_dir():raise ValueError('Command working directory changed after review')
                                 result={'approved':True,**shell.execute(command,str(cwd),runtime,environment=environment,program=proposal['shell'])}
                                 if call.name=='run_tests':
-                                    result['test_report']=parse_report(result,args['format']);event('output',text='Test report: '+json.dumps(result['test_report']))
+                                    result['test_report']=parse_report(result,args['format']);self.latest_test_report=scrub({**result['test_report'],'command':command,'path':args['path'],'exit_code':result['exit_code'],'completed_at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},secrets);event('output',text='Test report: '+json.dumps(result['test_report']))
                                 event('output',text='Command finished with exit code '+str(result['exit_code'])+'.\n'+result['output'][:1800])
                             else:result={'approved':False,'operation':'run_shell'}
                         else:
@@ -1305,7 +1341,11 @@ class CodingRun:
                         if call.name in ('delegate_light','web_search','web_fetch','run_shell','run_tests'):raise
                         result={'error':('Git operation unavailable or conflicted. Inspect repository state, configured identity, selected paths, and existing staged changes.' if call.name.startswith('git_') else 'File operation unavailable or conflicted. Read/inspect the path before proposing another edit.')}
                     if mcp_state is not None:mcp_state.update(tools=mcp_tools,resources=mcp_resources,prompts=mcp_prompts,templates=mcp_templates)
-                    content=json.dumps(scrub(result,secrets));runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
+                    result=scrub(result,secrets)
+                    if call.name in ('run_tests','run_shell') and isinstance(result.get('output'),str) and len(result['output'])>2000:
+                        try:result['output_artifact']=self.artifacts.add(result['output'],call.name);result['output']=result['output'][:500]
+                        except ValueError:pass
+                    content=json.dumps(result);runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
                     if protocol=='responses':body['input'].append({'type':'function_call_output','call_id':call.id,'output':content})
                     elif protocol=='messages':results.append({'type':'tool_result','tool_use_id':call.id,'content':content})
                     else:body['messages'].append(dict(role='tool',content=content,**({'tool_name':call.name,**({'tool_call_id':call.provider['id']} if call.provider.get('id') else {})} if native else {'tool_call_id':call.id})))
