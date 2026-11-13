@@ -127,8 +127,9 @@ class CodingLimitsDialog(QDialog):
 class DirectReviewDialog(QDialog):
     def __init__(self,parent,models,default_path=''):
         super().__init__(parent);self.setWindowTitle(self.tr('Independent document review'));self.resize(700,650)
-        layout=QVBoxLayout(self);note=QLabel(self.tr('Choose one to three independent passes. Each exact input and destination requires approval before requests start. Comprehension receives only the document; repository fit and drift require project evidence. Reviewers receive no coding conversation, Skills, guidance, or tools.'));note.setWordWrap(True);layout.addWidget(note)
+        layout=QVBoxLayout(self);note=QLabel(self.tr('Choose one to three independent passes. Each exact input and destination requires approval before requests start. Comprehension receives only the document; repository fit and drift require project evidence. Reviewers receive no coding conversation, Skills, guidance, or tools. Separate passes can use the same model or provider; a provider may retain input and charge for requests.'));note.setWordWrap(True);layout.addWidget(note)
         form=QFormLayout();layout.addLayout(form);self.target=QLineEdit(default_path);self.target.setObjectName('directReviewTarget');form.addRow(self.tr('Project-relative document path'),self.target)
+        preset=QPushButton(self.tr('Use comprehension, requirements, and design preset'));preset.setObjectName('directReviewPreset');preset.setToolTip(self.tr('Changes the three pass roles and keeps the model and evidence selections. Each pass still requires approval.'));layout.addWidget(preset)
         self.passes=[];self.evidence_fields=[]
         for index in range(3):
             row=QHBoxLayout();role=QComboBox();role.setObjectName('directReviewRole'+str(index));role.addItem(self.tr('Not selected'),'')
@@ -141,6 +142,9 @@ class DirectReviewDialog(QDialog):
             def update_enabled(_=None,r=role,m=model,e=evidence):
                 m.setEnabled(bool(r.currentData()));e.setEnabled(r.currentData() not in ('','comprehension'))
             role.currentIndexChanged.connect(update_enabled);update_enabled()
+        def apply_preset():
+            for (role,_),value in zip(self.passes,('comprehension','requirements','design')):role.setCurrentIndex(role.findData(value))
+        preset.clicked.connect(apply_preset)
         self.save_progress=QCheckBox(self.tr('Save pass progress to this session during the review'));self.save_progress.setObjectName('directReviewSaveProgress');self.save_progress.setToolTip(self.tr('Approved passes are saved before requests start. Unfinished passes reopen as interrupted. Finding dispositions are saved separately.'));layout.addWidget(self.save_progress)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Prepare approvals'));buttons.accepted.connect(self.validate_and_accept);buttons.rejected.connect(self.reject);layout.addWidget(buttons)
 
@@ -1632,6 +1636,7 @@ class CodeTab(QWidget):
                 if proposal.get('annotations'):text+='\n\n'+self.tr('Server-supplied hints (untrusted; do not grant permissions):')+'\n'+json.dumps(proposal['annotations'],ensure_ascii=True,indent=2)
             elif operation=='independent_review':
                 text=self.tr('INDEPENDENT DOCUMENT REVIEW\nReview role: {role}\nProject: {cwd}\nDocument: {path}\nModel: {model}\nDestination: {destination}\nDocument SHA-256: {source_sha256}\nInput SHA-256: {payload_sha256}\nInput: {payload_bytes} UTF-8 bytes\n\nReview the complete reviewer instructions, document and any evidence below. Approving sends this exact input to the selected endpoint. The reviewer has no tools and does not receive the drafting conversation, Skills, or project guidance. Its findings are untrusted.').format(**{'role':proposal.get('role','comprehension'),**proposal})
+                text+='\n\n'+self.tr('Known configured credentials are redacted; other secrets may remain. A provider may retain the input or charge for the request.')
                 if 'target_payload_sha256' in proposal:text+='\n\n'+self.tr('Transmitted document text SHA-256: {hash}').format(hash=proposal['target_payload_sha256'])
                 if 'batch_pass' in proposal:text=self.tr('Batch pass {number}').format(number=proposal['batch_pass'])+'\n'+text
                 evidence=proposal.get('evidence',[])

@@ -283,6 +283,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 ## Direct independent-review adapter checks
 
+Offscreen Qt checks cover the three-pass preset, preservation of model and evidence selections, the document-only comprehension boundary, and the approval text about redaction and provider retention or charges. Selecting the preset does not issue a request. Visual inspection of an offscreen render was limited by missing fonts in this environment; native layout remains unverified.
+
 An offscreen test holds one mocked same-endpoint reviewer while checking the second pass is queued and individually cancellable without submission. A saved-session test checks queued and running subagents reopen as interrupted; a forced-stop check covers interrupted manifests, where event delivery can lag worker dispatch. No live inference was used.
 
 Offline and offscreen checks cover post-approval preflight failures for direct and Heavy-requested batches: changed sources yield stale records, unaffected passes are skipped, shared-budget failures skip the batch, no reviewer request is sent, and opted-in progress is updated from interrupted to the terminal state.

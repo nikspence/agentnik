@@ -20,6 +20,22 @@ MODEL={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer','
 
 
 class DirectReview(unittest.TestCase):
+    def test_three_pass_preset_keeps_model_and_evidence_choices(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QPushButton
+        from agentnik.code_ui import DirectReviewDialog
+        app=QApplication.instance() or QApplication([]);dialog=DirectReviewDialog(None,{'light':MODEL,'alternate':dict(MODEL,model='other')},'spec.md')
+        try:
+            dialog.passes[1][1].setCurrentIndex(dialog.passes[1][1].findData('alternate'))
+            dialog.evidence_fields[0].setPlainText('first.txt');dialog.evidence_fields[1].setPlainText('second.txt');dialog.evidence_fields[2].setPlainText('third.txt')
+            dialog.show();app.processEvents();preset=dialog.findChild(QPushButton,'directReviewPreset');self.assertTrue(preset.isVisible())
+            with patch.object(core,'open_request') as request:preset.click();request.assert_not_called()
+            target,passes=dialog.values();self.assertEqual(target,'spec.md');self.assertEqual([item['role'] for item in passes],['comprehension','requirements','design'])
+            self.assertEqual([item['model'] for item in passes],['light','alternate','light']);self.assertEqual([item['paths'] for item in passes],[[],['second.txt'],['third.txt']])
+            self.assertEqual(dialog.evidence_fields[0].toPlainText(),'first.txt');self.assertFalse(dialog.evidence_fields[0].isEnabled())
+            self.assertTrue(dialog.findChild(QPushButton,'directReviewPreset').isEnabled())
+        finally:dialog.close();app.processEvents()
+
     def test_same_endpoint_shows_queued_pass_and_allows_cancellation(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication,QDialog

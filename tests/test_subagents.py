@@ -696,6 +696,7 @@ class Subagents(unittest.TestCase):
                 self.assertIn('INDEPENDENT DOCUMENT REVIEW',tab.approval.toPlainText());self.assertIn('design',tab.approval.toPlainText());self.assertIn('a'*64,tab.approval.toPlainText());self.assertIn('b'*64,tab.approval.toPlainText())
                 self.assertIn('evidence.txt',tab.approval.toPlainText());self.assertIn('c'*64,tab.approval.toPlainText());self.assertIn('d'*64,tab.approval.toPlainText())
                 self.assertIn('Transmitted document text SHA-256',tab.approval.toPlainText());self.assertIn('e'*64,tab.approval.toPlainText())
+                self.assertIn('other secrets may remain',tab.approval.toPlainText());self.assertIn('retain the input or charge',tab.approval.toPlainText())
                 self.assertEqual(tab.diff.toPlainText(),'Fixed instructions\nDocument contents');self.assertFalse(tab.diff.isHidden())
             finally:
                 if window.tabs.currentWidget():window.tabs.currentWidget().job=None
