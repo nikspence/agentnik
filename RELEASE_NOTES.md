@@ -1,3 +1,7 @@
+# Agentnik v0.8.6
+
+This release adds independent document review workflows, track-bound findings and history, review progress recovery, and updated documentation. See CODE_FEATURES.md and VALIDATION.md for details and validation limits.
+
 # Agentnik v0.8.5
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
