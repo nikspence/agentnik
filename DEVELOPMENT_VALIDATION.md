@@ -33,7 +33,7 @@ Assembly copies README, VALIDATION and the Apache 2.0 LICENSE alongside the exec
 
 Packaging also checks that each compiled `.qm` translation catalog in the source tree is present in the frozen bundle with identical bytes before creating the archive. Missing or altered catalogs fail the build. This checks inclusion and identity; language rendering still requires a separate UI check.
 
-Packaging also requires the native `regex` module used for time-limited Code searches and the Tree-sitter core, JavaScript, and TypeScript grammar modules used for code outlines. Their versions are pinned in the build environment; release assembly checks that all native modules are present.
+Packaging also requires the native `regex` module used for time-limited Code searches and the Tree-sitter core, JavaScript, TypeScript, Go, and Rust grammar modules used for code outlines. Their versions are pinned in the build environment; release assembly checks that all native modules are present.
 
 `--smoke` uses `tools/frozen_smoke.py` (Windows API calls through Python, without changing PowerShell execution policy) to wait for the real process-owned Qt window and temporary SQLite database, request a graceful close and require exit code 0. This is a startup smoke check on the build host, not clean-machine, full native workflow, credential-store, TLS/provider, or macOS/Linux validation. It does not issue inference; normal startup may perform read-only local endpoint discovery.
 

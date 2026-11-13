@@ -41,7 +41,7 @@ class ReleaseTooling(unittest.TestCase):
         for item in (build_release.ROOT/'agentnik'/'translations').glob('*.qm'): (catalogs/item.name).write_bytes(item.read_bytes())
         qt=bundle/'_internal'/'PySide6'/'plugins'/'platforms';qt.mkdir(parents=True);(qt/'qwindows.dll').write_bytes(b'fixture')
         regex_dir=bundle/'_internal'/'regex';regex_dir.mkdir(parents=True);(regex_dir/'_regex.fixture.pyd').write_bytes(b'fixture')
-        for package in ('tree_sitter','tree_sitter_javascript','tree_sitter_typescript'):
+        for package in ('tree_sitter','tree_sitter_javascript','tree_sitter_typescript','tree_sitter_go','tree_sitter_rust'):
             directory=bundle/'_internal'/package;directory.mkdir(parents=True);(directory/'_binding.fixture.pyd').write_bytes(b'fixture')
         return bundle
 

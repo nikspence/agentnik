@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = []
 hiddenimports += collect_submodules('keyring.backends')
-for package in ('tree_sitter','tree_sitter_javascript','tree_sitter_typescript'):
+for package in ('tree_sitter','tree_sitter_javascript','tree_sitter_typescript','tree_sitter_go','tree_sitter_rust'):
     hiddenimports += collect_submodules(package)
 
 
