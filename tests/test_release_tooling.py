@@ -41,7 +41,7 @@ class ReleaseTooling(unittest.TestCase):
         for item in (build_release.ROOT/'agentnik'/'translations').glob('*.qm'): (catalogs/item.name).write_bytes(item.read_bytes())
         qt=bundle/'_internal'/'PySide6'/'plugins'/'platforms';qt.mkdir(parents=True);(qt/'qwindows.dll').write_bytes(b'fixture')
         regex_dir=bundle/'_internal'/'regex';regex_dir.mkdir(parents=True);(regex_dir/'_regex.fixture.pyd').write_bytes(b'fixture')
-        for package in ('tree_sitter','tree_sitter_javascript','tree_sitter_typescript','tree_sitter_go','tree_sitter_rust'):
+        for package in ('tree_sitter','tree_sitter_javascript','tree_sitter_typescript','tree_sitter_go','tree_sitter_rust','tree_sitter_c_sharp','tree_sitter_java'):
             directory=bundle/'_internal'/package;directory.mkdir(parents=True);(directory/'_binding.fixture.pyd').write_bytes(b'fixture')
         return bundle
 
@@ -88,9 +88,10 @@ class ReleaseTooling(unittest.TestCase):
             regex_bin=bundle/'_internal'/'regex'/'_regex.fixture.pyd';regex_bin.unlink()
             with self.assertRaisesRegex(ValueError,'regex native module'):build_release.package_bundle(bundle,archive,{})
             self.assertFalse(archive.exists());regex_bin.write_bytes(b'fixture')
-            parser_bin=bundle/'_internal'/'tree_sitter_typescript'/'_binding.fixture.pyd';parser_bin.unlink()
-            with self.assertRaisesRegex(ValueError,'parser native module'):build_release.package_bundle(bundle,archive,{})
-            parser_bin.write_bytes(b'fixture')
+            for package in ('tree_sitter_typescript','tree_sitter_c_sharp','tree_sitter_java'):
+                parser_bin=bundle/'_internal'/package/'_binding.fixture.pyd';parser_bin.unlink()
+                with self.assertRaisesRegex(ValueError,'parser native module'):build_release.package_bundle(bundle,archive,{})
+                parser_bin.write_bytes(b'fixture')
             (bundle/'history.sqlite3').write_bytes(b'private')
             with self.assertRaisesRegex(ValueError,'local data'):build_release.package_bundle(bundle,archive,{})
             self.assertFalse(archive.exists())
