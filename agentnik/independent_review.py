@@ -106,10 +106,11 @@ def validate_review_history(history):
         review_ids=set()
         for review in reviews:
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','dispositions'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context','measurements'}:raise ValueError('Invalid saved review')
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'pass_status','track_context','measurements','reason'}:raise ValueError('Invalid saved review')
             validate_track_context(review.get('track_context'))
             status=review.get('pass_status','completed')
             if status not in ('completed','failed','cancelled','stale','skipped','interrupted'):raise ValueError('Invalid saved review status')
+            if 'reason' in review and (status=='completed' or not isinstance(review['reason'],str) or not 0<len(review['reason'])<=500):raise ValueError('Invalid saved review reason')
             if 'measurements' in review:
                 if status!='completed':raise ValueError('Measurements require a completed review')
                 validate_review_measurements(review['measurements'])
@@ -345,12 +346,12 @@ def execute_review_batch(files, passes, runtime, send, cancellations, *, model_t
         try:
             child.check()
             if not sources_unchanged(files, item['sources']):
-                output.put((index, 'stale', None)); return
+                output.put((index, 'stale', {'reason':'A reviewed source changed or could not be read before the request.'})); return
             body = build_review_request(connections[index], item['proposal'])
             response = child.wait(lambda: send(connections[index], body, child))
             child.check()
             if not sources_unchanged(files, item['sources']):
-                output.put((index, 'stale', None)); return
+                output.put((index, 'stale', {'reason':'A reviewed source changed or could not be read during the request; findings were discarded.'})); return
             text = response if isinstance(response, str) else response.get('text') if isinstance(response, dict) else None
             if not isinstance(text, str): raise ValueError('Invalid reviewer response')
             metrics = response.get('usage', {}) if isinstance(response, dict) else {}
@@ -362,7 +363,8 @@ def execute_review_batch(files, passes, runtime, send, cancellations, *, model_t
             safe = scrub(text, secrets)
             output.put((index, 'completed', {'analysis': safe[:8000], 'truncated': len(safe)>8000, 'usage': usage, 'elapsed_seconds': round(time.monotonic()-started,2)}))
         except Exception:
-            output.put((index, 'cancelled' if child_cancel.is_set() else 'failed', None))
+            cancelled=child_cancel.is_set()
+            output.put((index, 'cancelled' if cancelled else 'failed', {'reason':'Review cancelled; any late result was discarded.' if cancelled else 'Reviewer request failed or did not complete; no retry was attempted.'}))
         finally:
             child.closed = True
     try:
@@ -375,7 +377,7 @@ def execute_review_batch(files, passes, runtime, send, cancellations, *, model_t
                 destination = urlsplit(prepared[index]['proposal']['destination'])
                 endpoint = (destination.scheme.lower(), destination.hostname.lower(), destination.port or (443 if destination.scheme.lower() == 'https' else 80))
                 if cancellations[index].is_set():
-                    pending.remove(index);finish(index,{'status':'cancelled'});continue
+                    pending.remove(index);finish(index,{'status':'cancelled','reason':'Review cancelled before submission.'});continue
                 if endpoint in blocked:
                     pending.remove(index);finish(index,{'status':'skipped','reason':'Earlier request to this endpoint did not complete.'});continue
                 if endpoint in active.values(): continue
@@ -385,7 +387,7 @@ def execute_review_batch(files, passes, runtime, send, cancellations, *, model_t
             try: index,status,data=output.get(timeout=.05)
             except queue.Empty: continue
             endpoint=active.pop(index)
-            if cancellations[index].is_set():status='cancelled';data=None
+            if cancellations[index].is_set():status='cancelled';data={'reason':'Review cancelled; any late result was discarded.'}
             if status=='completed' and charge_output:
                 try:runtime.charge('context_bytes',len(data['analysis'].encode('utf-8')),runtime.limits.context_bytes)
                 except (LimitError,UnicodeError):

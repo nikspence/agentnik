@@ -1033,6 +1033,7 @@ class CodingRun:
                                 else:outcome['usage']={'input_tokens':None,'output_tokens':None};outcome['structured']={'status':'not_available','findings':[]}
                                 review={'id':ident,'role':outcome['role'],'model':outcome['model'],'path':args['path'],'source_sha256':outcome['source_sha256'],'payload_sha256':outcome['payload_sha256'],'evidence':outcome['evidence'],'track_context':{'id':self.selected_track['id'],'digest':self.selected_track['digest']} if self.selected_track else None,'pass_status':outcome['status'],'structured':outcome['structured']}
                                 if outcome['status']=='completed':review['measurements']={**outcome['usage'],'elapsed_seconds':outcome['elapsed_seconds']}
+                                if outcome.get('reason'):review['reason']=outcome['reason']
                                 event('independent_review_result',review=review)
                                 reported=outcome['usage'];detail=' · input '+str(reported['input_tokens'] if reported['input_tokens'] is not None else 'unknown')+' tokens, output '+str(reported['output_tokens'] if reported['output_tokens'] is not None else 'unknown')+' tokens'
                                 if 'elapsed_seconds' in outcome:detail+=' · '+str(outcome['elapsed_seconds'])+'s'

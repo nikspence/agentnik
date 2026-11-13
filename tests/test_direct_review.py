@@ -19,6 +19,36 @@ MODEL={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer','
 
 
 class DirectReview(unittest.TestCase):
+    def test_failed_and_skipped_reasons_are_saved_and_reopened(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog
+        from agentnik.ui import Window
+        from agentnik.code_ui import DirectReviewDialog
+        from agentnik.storage import Store
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');store=Store(Path(root)/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                window.connections['Review']=dict(MODEL);box,model=tab.roles['light'];box.addItem('Review','Review');box.setCurrentIndex(box.findData('Review'));model.setText('reviewer');tab.light_enabled.setChecked(True)
+                def configure(dialog):
+                    dialog.target.setText('spec.md');dialog.passes[0][0].setCurrentIndex(dialog.passes[0][0].findData('design'));dialog.passes[1][0].setCurrentIndex(dialog.passes[1][0].findData('readiness'));dialog.save_progress.setChecked(True);return QDialog.DialogCode.Accepted
+                with patch.object(DirectReviewDialog,'exec',configure),patch.object(core,'open_request',side_effect=ValueError('private endpoint detail')) as request:
+                    tab.start_direct_review();deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:
+                        app.processEvents()
+                        if tab.pending_fingerprint:tab.decide(True)
+                        time.sleep(.01)
+                    app.processEvents()
+                self.assertIsNone(tab.job);self.assertEqual(request.call_count,1)
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);reviews=saved['coding_review_history'][0]['reviews']
+                self.assertEqual([item['pass_status'] for item in reviews],['failed','skipped'])
+                self.assertIn('no retry',reviews[0]['reason']);self.assertIn('Earlier request',reviews[1]['reason']);self.assertNotIn('private endpoint detail',json.dumps(saved))
+                with patch.object(core,'open_request') as request:
+                    window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
+                self.assertEqual(window.tabs.currentWidget().session['coding_review_history'][0]['reviews'],reviews)
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_streamed_protocol_results_reach_the_findings_view(self):
         output='{"version":1,"findings":[]}'
         cases=[('chat',dict(MODEL,stream=True),[{'choices':[{'delta':{'content':output},'finish_reason':'stop'}]}]),

@@ -65,9 +65,10 @@ class DirectReviewRun(CodingRun):
                 if not self.manifest_saved:raise ValueError('Could not save review progress; no reviewer requests were sent')
             with self.lock:
                 for ident,cancel in zip(ids,cancellations):self.child_cancellations[ident]=cancel
-            def review_event(index,status,structured,measurements=None):
+            def review_event(index,status,structured,measurements=None,reason=None):
                 record=review_record(index,status,structured)
                 if measurements is not None:record['measurements']=measurements
+                if reason is not None:record['reason']=reason
                 event('independent_review_result',review=record)
             for index,item in enumerate(passes):
                 review_event(index,'pending',{'status':'not_available','findings':[]})
@@ -80,7 +81,7 @@ class DirectReviewRun(CodingRun):
             def completed(index,outcome):
                 structured=parse_structured_findings(outcome['analysis'],truncated=outcome['truncated']) if outcome['status']=='completed' else {'status':'not_available','findings':[]}
                 measurements={**outcome['usage'],'elapsed_seconds':outcome['elapsed_seconds']} if outcome['status']=='completed' else None
-                review_event(index,outcome['status'],structured,measurements)
+                review_event(index,outcome['status'],structured,measurements,outcome.get('reason'))
                 proposal=passes[index]['proposal'];usage=outcome.get('usage',{});detail=' · input '+str(usage.get('input_tokens') if usage.get('input_tokens') is not None else 'unknown')+' tokens, output '+str(usage.get('output_tokens') if usage.get('output_tokens') is not None else 'unknown')+' tokens'
                 if measurements is not None:detail+=' · '+str(measurements['elapsed_seconds'])+'s'
                 text='Independent '+proposal['role']+' review · '+proposal['model']+' · '+outcome['status']+' · '+structured['status']+detail+' · '+(outcome.get('analysis') or outcome.get('reason',''))[:900]

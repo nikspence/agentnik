@@ -74,11 +74,12 @@ class IndependentReviewSnapshots(unittest.TestCase):
             item={'approved':True,'connection':connection,'proposal':proposal,'snapshot':snapshot}
             def change(connection,body,child):source.write_text('changed',encoding='utf-8');return 'stale finding'
             result=execute_review_batch(files,[item],Runtime(),change,[threading.Event()],model_timeout=5)
-            self.assertEqual(result,[{'status':'stale'}])
+            self.assertEqual(result[0]['status'],'stale');self.assertIn('during the request',result[0]['reason'])
             source.write_text('spec',encoding='utf-8');cancel=threading.Event();calls=[]
             def cancelled(connection,body,child):calls.append(1);cancel.set();return 'late finding'
             result=execute_review_batch(files,[item,item],Runtime(),cancelled,[cancel,threading.Event()],model_timeout=5)
             self.assertEqual([r['status'] for r in result],['cancelled','skipped']);self.assertEqual(len(calls),1);self.assertNotIn('late finding',str(result))
+            self.assertIn('cancelled',result[0]['reason']);self.assertIn('Earlier request',result[1]['reason'])
 
     def test_batch_preflight_requires_each_approval_and_reserves_before_start(self):
         with tempfile.TemporaryDirectory() as root:

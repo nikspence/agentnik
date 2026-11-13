@@ -1484,7 +1484,7 @@ class CodeTab(QWidget):
             from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements
             review=event.get('review')
             required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','pass_status','track_context'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements'}:return
+            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements','reason'}:return
             try:
                 validate_track_context(review['track_context'])
                 if 'measurements' in review:
@@ -1492,6 +1492,7 @@ class CodeTab(QWidget):
                     validate_review_measurements(review['measurements'])
             except (ValueError,TypeError):return
             if review['pass_status'] not in ('pending','completed','failed','cancelled','stale','skipped'):return
+            if 'reason' in review and (review['pass_status'] in ('pending','completed') or not isinstance(review['reason'],str) or not 0<len(review['reason'])<=500):return
             if not isinstance(review['id'],str) or not re.fullmatch(r'[0-9a-f]{32}-[1-3]',review['id']) or review['role'] not in ('comprehension','requirements','design','repository_fit','readiness','drift'):return
             if any(not isinstance(review[key],str) or not 0<len(review[key])<=4096 for key in ('model','path')) or any(not isinstance(review[key],str) or not re.fullmatch('[0-9a-f]{64}',review[key]) for key in ('source_sha256','payload_sha256')):return
             evidence=review['evidence']
