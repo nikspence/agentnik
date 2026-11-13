@@ -283,6 +283,8 @@ Both theme screenshots were rendered with temporary data and the project's expli
 
 ## Direct independent-review adapter checks
 
+Offline scheduler and offscreen session checks exercise non-completed review reasons, including failed and skipped same-endpoint passes, cancellation, stale input, safe omission of raw endpoint errors, and reopen without a request. Project-sidecar tests cover reason round-tripping; malformed and oversized reasons are rejected.
+
 Offline mocked and offscreen tests also check completed-pass timing and provider usage retention in direct and Heavy-requested session snapshots, older-record compatibility, and rejection of malformed measurements. These are provider-reported counters, not cost estimates.
 
 Offline adapter mocks exercise direct reviews through Chat Completions, Messages, Responses and native Ollama routing. They check the exact approved single-message input, selected evidence, exclusion of credentials and unselected project files, tool-free requests, Responses `store: false`, and failure without retry for unexpected tool calls. Existing mocked transport and offscreen tests cover approval, cancellation and persistence. These adapter checks do not exercise provider wire compatibility, live model behavior or provider-side isolation.

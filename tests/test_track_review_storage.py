@@ -38,6 +38,11 @@ class TrackReviewStorage(unittest.TestCase):
         self.assertEqual(result['status'],'completed');self.assertEqual([item['id'] for item in read_sidecar(self.files,'sample_feature')['snapshots']],[self.snapshot['id'],second['id']])
         with self.assertRaises(ValueError):prepare_append(self.files,'sample_feature',second)
 
+    def test_failed_reason_round_trips_to_project_history(self):
+        review=self.snapshot['reviews'][0];review['pass_status']='failed';review['structured']={'status':'not_available','findings':[]};review['reason']='Reviewer request failed; no retry was attempted.'
+        apply_append(self.files,prepare_append(self.files,'sample_feature',self.snapshot),lambda proposal:True)
+        self.assertEqual(read_sidecar(self.files,'sample_feature')['snapshots'][0],self.snapshot)
+
     def test_conflicts_and_credential_or_foreign_track_rejected(self):
         prepared=prepare_append(self.files,'sample_feature',self.snapshot)
         def modify_track(proposal):

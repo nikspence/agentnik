@@ -27,6 +27,13 @@ class IndependentReviewSnapshots(unittest.TestCase):
             with self.subTest(value=bad),self.assertRaises(ValueError):validate_review_history(history)
         review['measurements']['input_tokens']=10;review['pass_status']='interrupted';review['structured']={'status':'not_available','findings':[]}
         with self.assertRaises(ValueError):validate_review_history(history)
+        del review['measurements'];review['pass_status']='failed';review['reason']='Reviewer request failed.'
+        self.assertEqual(validate_review_history(history),history)
+        for bad in ('',None,'x'*501):
+            review['reason']=bad
+            with self.subTest(reason=bad),self.assertRaises(ValueError):validate_review_history(history)
+        review['reason']='Unexpected';review['pass_status']='completed';review['structured']={'status':'valid','findings':[]}
+        with self.assertRaises(ValueError):validate_review_history(history)
     def test_batch_scheduler_runs_independent_passes_and_reports_failure(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root,'spec.md').write_text('spec',encoding='utf-8');files=ProjectFiles(root);snapshot=prepare_snapshot(files,'spec.md','rubric ',[]);passes=[]
