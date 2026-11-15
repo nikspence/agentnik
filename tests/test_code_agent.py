@@ -240,6 +240,17 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(bridge.request.call_args_list[1].args[1]['arguments'],{'sql':'SELECT 1'})
             self.assertEqual(events[-1]['status'],'completed');bridge.close_signal.emit.assert_called_once()
 
+    def test_large_mcp_result_reaches_coding_model(self):
+        from unittest.mock import Mock
+        detail={'name':'query','description':'Query','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Database','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'text','text':'x'*500000+'END'}]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'query','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)];bodies=[]
+            def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+            events=[]
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Query',mcp_bridge=bridge).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed');self.assertIn('x'*500000+'END',bodies[-1])
+
     def test_multiple_mcp_servers_route_colliding_names_independently(self):
         from unittest.mock import Mock
         tool={'name':'query','description':'Read','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}

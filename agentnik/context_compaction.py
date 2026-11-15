@@ -78,7 +78,7 @@ def should_compact(messages, snapshot, context_limit, pending_bytes=0):
     current=effective_messages(messages,snapshot)
     approximate=len(json.dumps(current,ensure_ascii=False).encode('utf-8'))+max(0,pending_bytes)
     tool_bytes=sum(len(json.dumps(m.get('research',{}).get(k,[])).encode()) for m in current for k in ('response_items','exchanges'))
-    return tool_bytes>=96000 or (type(context_limit) is int and context_limit>0 and approximate>=context_limit*3*0.7)
+    return tool_bytes>=core.MAX_SAVED_TOOL_CONTEXT*3//4 or (type(context_limit) is int and context_limit>0 and approximate>=context_limit*3*0.7)
 
 
 def coding_digest(context):

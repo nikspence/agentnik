@@ -1,4 +1,14 @@
-# Agentnik v0.8.7
+# Agentnik v0.8.8
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.8.7
+
+- **Larger MCP responses:** local and HTTP tool-discovery responses allow 128 KiB per page, and tool-call responses allow 1 MiB. Separate tool-schema, retained-metadata and run-context limits still apply.
+- **More context for large results:** new Code and Chat research limits default to 2,000,000 context bytes, with larger Chat settings available. Existing saved limits are preserved; use Restore Defaults to adopt the new values. Saved tool history and research metadata have separate bounded limits.
+- **Validation:** 681 offline tests passed, with one skipped. Mocked and offscreen checks include 500 KB MCP tool results in Code and Chat and a Chat follow-up. Build-host startup results are recorded in BUILD-MANIFEST.json. Live model compatibility, clean-machine installation and full native workflows remain unverified.
+
+## Earlier release: v0.8.7
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 

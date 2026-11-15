@@ -35,14 +35,82 @@ class MCPFoundation(unittest.TestCase):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_local import LocalSession
-        from agentnik.mcp_support import MAX_OUTPUT
+        from agentnik.mcp_support import MAX_TOOL_RESULT_OUTPUT
         app=QApplication.instance() or QApplication([])
         for complete in (False,True):
             with self.subTest(complete=complete):
                 session=LocalSession(sys.executable,[]);session.phase='call';ended=[];session.ended.connect(ended.append)
-                payload=b'x'*(MAX_OUTPUT+1)+(b'\n' if complete else b'')
+                payload=b'x'*(MAX_TOOL_RESULT_OUTPUT+1)+(b'\n' if complete else b'')
                 with patch.object(session.process,'readAllStandardOutput',return_value=payload):session.read()
                 self.assertTrue(session.closed);self.assertEqual(len(ended),1);self.assertIn('output limit',ended[0]['error']);self.assertTrue(ended[0]['call_uncertain'])
+
+    def test_large_tool_result_transport_limits(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        from agentnik.mcp_remote import RemoteProbe
+        from agentnik.mcp_support import MAX_OUTPUT,MAX_TOOL_RESULT_OUTPUT
+        app=QApplication.instance() or QApplication([])
+        session=LocalSession(sys.executable,[]);session.phase='call';session.next_id=7;results=[];session.called.connect(results.append)
+        payload=(json.dumps({'jsonrpc':'2.0','id':7,'result':{'content':[{'type':'text','text':'x'*500000}]}})+'\n').encode()
+        self.assertGreater(len(payload),MAX_OUTPUT);self.assertLess(len(payload),MAX_TOOL_RESULT_OUTPUT)
+        with patch.object(session.process,'readAllStandardOutput',return_value=payload):session.read()
+        self.assertEqual(len(results[0]['call_result']['content'][0]['text']),500000);session.close()
+        for phase,amount,rejected in [('call',500000,False),('call',MAX_TOOL_RESULT_OUTPUT+1,True),('initialize',MAX_OUTPUT+1,True)]:
+            with self.subTest(phase=phase,amount=amount):
+                probe=RemoteProbe('http://127.0.0.1/','');probe.phase=phase;probe.reply=unittest.mock.Mock();probe.reply.readAll.return_value=b'x'*amount
+                with patch.object(probe,'stop') as stop:probe.consume();self.assertEqual(stop.called,rejected)
+
+    def test_local_discovery_accepts_large_page_and_enforces_128k(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        from agentnik.mcp_support import MAX_OUTPUT,MAX_DISCOVERY_OUTPUT
+        app=QApplication.instance() or QApplication([])
+        session=LocalSession(sys.executable,[]);session.phase='tools';session.next_id=2;session.pages=1;session.info={};results=[];session.discovered.connect(results.append)
+        tools=[{'name':'tool'+str(i),'description':'x'*8000,'inputSchema':{'type':'object'}} for i in range(10)]
+        payload=(json.dumps({'jsonrpc':'2.0','id':2,'result':{'tools':tools}})+'\n').encode()
+        self.assertGreater(len(payload),MAX_OUTPUT);self.assertLessEqual(len(payload),MAX_DISCOVERY_OUTPUT)
+        with patch.object(session.process,'readAllStandardOutput',return_value=payload):session.read()
+        self.assertEqual(len(results[0]['tools']),10);self.assertFalse(session.closed);session.close()
+        for complete in (False,True):
+            with self.subTest(complete=complete):
+                session=LocalSession(sys.executable,[]);session.phase='tools';ended=[];session.ended.connect(ended.append)
+                with patch.object(session.process,'readAllStandardOutput',return_value=b'x'*(MAX_DISCOVERY_OUTPUT+1)+(b'\n' if complete else b'')):session.read()
+                self.assertTrue(session.closed);self.assertIn('output limit',ended[0]['error'])
+
+    def test_remote_discovery_accepts_large_page_and_enforces_128k(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteProbe
+        from agentnik.mcp_support import MAX_OUTPUT,MAX_DISCOVERY_OUTPUT
+        class Handler(BaseHTTPRequestHandler):
+            large=False
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                if body['method']=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if body['method']=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+                else:result={'tools':[{'name':'tool'+str(i),'description':'x'*8000,'inputSchema':{'type':'object'}} for i in range(17 if self.large else 10)]}
+                payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode()
+                if body['method']=='tools/list':
+                    assert len(payload)>MAX_OUTPUT
+                    assert (len(payload)>MAX_DISCOVERY_OUTPUT)==self.large
+                self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers()
+                try:self.wfile.write(payload)
+                except (BrokenPipeError,ConnectionResetError):pass
+        app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        try:
+            for too_large in (False,True):
+                Handler.large=too_large;loop=QEventLoop();probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','');results=[]
+                probe.finished.connect(lambda result:(results.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
+                self.assertTrue(results)
+                if too_large:self.assertIn('output limit',results[0]['error'])
+                else:self.assertEqual(len(results[0]['tools']),10)
+        finally:server.shutdown();server.server_close();thread.join(2)
 
     def test_tool_result_audiences_are_separated_without_mutation(self):
         from agentnik.mcp_content import model_tool_result
@@ -578,7 +646,7 @@ for line in sys.stdin:
                 body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(body['method'])
                 if body['method']=='notifications/initialized':self.send_response(202);self.end_headers();return
                 if body['method']=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
-                else:result={'tools':[],'padding':'x'*70000}
+                else:result={'tools':[],'padding':'x'*140000}
                 payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode()
                 self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session');self.end_headers();self.wfile.write(payload)
             def do_DELETE(self):calls.append('DELETE');self.send_response(204);self.end_headers()

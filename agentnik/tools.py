@@ -36,8 +36,8 @@ class Limits:
     results: int = 5
     response_bytes: int = 1_000_000
     retrieved_bytes: int = 3_000_000
-    record_bytes: int = 256_000
-    context_bytes: int = 256_000
+    record_bytes: int = 2_000_000
+    context_bytes: int = 2_000_000
     argument_bytes: int = 4096
     model_bytes: int = 512_000
     request_seconds: float = 600
@@ -58,7 +58,7 @@ class Limits:
 
 CHAT_LIMIT_FIELDS = {'rounds':(1,50), 'calls':(1,100), 'requests':(2,100),
                      'request_seconds':(1,3600), 'turn_seconds':(1,14400),
-                     'context_bytes':(2048,1_000_000), 'results':(1,20)}
+                     'context_bytes':(2048,8_000_000), 'results':(1,20)}
 
 
 def chat_limits(values=None):

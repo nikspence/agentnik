@@ -254,6 +254,31 @@ for line in sys.stdin:
                 self.assertFalse(marker.exists());self.assertEqual(window.tabs.currentWidget().mcp_choice.currentData()['name'],'Database')
             finally:window.close();self.app.processEvents();store.db.close()
 
+    def test_large_tool_result_reaches_model_and_survives_followup(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            root=Path(folder);server=root/'server.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+ elif method=='tools/list':result={'tools':[{'name':'query','inputSchema':{'type':'object'}}]}
+ else:result={'content':[{'type':'text','text':'x'*500000+'END'}]}
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            store=Store(root/'data');store.config['mcp_servers']=[{'name':'Database','command':sys.executable,'args':[str(server)],'enabled':True}];store.flush()
+            window=Window(store);window.connections={'test':dict(C)};bodies=[];request=json.dumps({'tool':'query','arguments':{}})
+            replies=[Wire(response([function('mcp_discover',{'server':'Database'},'first')]),False),Wire(response([function('mcp_call',{'request':request},'second')]),False),Wire(response([message('Done')]),False),Wire(response([message('Follow-up')]),False)]
+            def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget();tab.mcp_choice.setCurrentIndex(1);tab.composer.setPlainText('Query')
+                with patch.object(core,'open_request',side_effect=send):
+                    tab.submit();self.settle(lambda:tab.job is None)
+                    self.assertEqual(tab.session['messages'][-1]['status'],'ok');self.assertIn('x'*500000+'END',bodies[-1])
+                    tab.composer.setPlainText('Follow up');tab.submit();self.settle(lambda:tab.job is None)
+                self.assertEqual(tab.session['messages'][-1]['text'],'Follow-up');self.assertIn('x'*500000+'END',bodies[-1])
+            finally:window.close();self.app.processEvents();store.db.close()
+
     def test_stale_selection_and_strict_navigation_do_not_submit(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
             store=Store(folder);server={'name':'Local','command':sys.executable,'args':[],'enabled':True};store.config['mcp_servers']=[server];store.flush()

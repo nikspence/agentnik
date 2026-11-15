@@ -6,7 +6,7 @@ import time
 from collections import deque
 from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
-from .mcp_support import MAX_OUTPUT, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout
+from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
@@ -74,7 +74,7 @@ class LocalSession(QObject):
         self.buffer.extend(bytes(self.process.readAllStandardOutput()))
         while b'\n' in self.buffer and not self.closed:
             line, _, rest = self.buffer.partition(b'\n'); self.buffer = bytearray(rest)
-            if len(line)>MAX_OUTPUT:
+            if len(line)>response_limit(self.phase):
                 self.fail('MCP response exceeded the output limit.'); return
             try:
                 message = json.loads(line)
@@ -155,7 +155,7 @@ class LocalSession(QObject):
                 else: self.finish_discovery(bool(cursor) or len(self.names)>MAX_TOOLS)
             except (ValueError, TypeError, UnicodeError, RecursionError):
                 self.fail('Invalid or unsupported local MCP server response.'); return
-        if not self.closed and len(self.buffer)>MAX_OUTPUT:
+        if not self.closed and len(self.buffer)>response_limit(self.phase):
             self.fail('MCP response exceeded the output limit.')
 
     def list_page(self, cursor):

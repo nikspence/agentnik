@@ -18,7 +18,7 @@ def history_messages(messages):
         exchanges=m.get('research',{}).get('exchanges') if m['role']=='assistant' else None
         if exchanges:
             tool_bytes+=len(json.dumps(exchanges).encode())
-            if tool_bytes>128_000: raise LimitError('Saved tool context exceeds 128 KB; open a new chat')
+            if tool_bytes>core.MAX_SAVED_TOOL_CONTEXT: raise LimitError('Saved tool context exceeds 2 MB; open a new chat')
             history.extend(copy.deepcopy(exchanges))
         else:
             from .document_reader import message_text

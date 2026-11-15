@@ -2,7 +2,7 @@
 import json
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
-from .mcp_support import MAX_OUTPUT,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout
+from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
@@ -111,7 +111,7 @@ class RemoteProbe(QObject):
     def consume(self):
         if not self.reply:return
         self.buffer.extend(bytes(self.reply.readAll()))
-        if len(self.buffer)>MAX_OUTPUT:self.stop('MCP response exceeded the output limit.')
+        if len(self.buffer)>response_limit(self.phase):self.stop('MCP response exceeded the output limit.')
     def received(self):
         reply=self.reply
         if reply is None:return

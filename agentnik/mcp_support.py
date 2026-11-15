@@ -9,6 +9,11 @@ from urllib.parse import urlsplit
 
 PROTOCOL='2025-11-25'
 MAX_OUTPUT=65536
+MAX_DISCOVERY_OUTPUT=131072
+MAX_TOOL_RESULT_OUTPUT=1048576
+
+def response_limit(phase):
+    return MAX_DISCOVERY_OUTPUT if phase=='tools' else MAX_TOOL_RESULT_OUTPUT if phase=='call' else MAX_OUTPUT
 DEFAULT_TIMEOUT_SECONDS=60
 MAX_TIMEOUT_SECONDS=900
 PARALLEL_MCP_TOOLS=frozenset(('web_search','web_fetch','web_decisions','web_research','find_verticals','search_vertical'))

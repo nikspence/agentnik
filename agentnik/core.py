@@ -184,6 +184,9 @@ def image_block(path, protocol, role='user'):
     if protocol == 'responses': return {'type':'input_image', 'image_url':f'data:{mime};base64,{data}'}
     return {'type':'image_url', 'image_url':{'url':f'data:{mime};base64,{data}'}}
 
+MAX_SAVED_TOOL_CONTEXT=2_000_000
+
+
 def history_eligible(message):
     research=message.get('research',{})
     return (message.get('status','ok')=='ok'
@@ -200,13 +203,13 @@ def chat_body(c, messages):
             import copy
             saved=m['research']['response_items']
             response_context_bytes+=len(json.dumps(saved).encode())
-            if response_context_bytes>128_000:
-                raise ValueError('Saved Responses context exceeds 128 KB; open a new chat')
+            if response_context_bytes>MAX_SAVED_TOOL_CONTEXT:
+                raise ValueError('Saved Responses context exceeds 2 MB; open a new chat')
             history.extend(copy.deepcopy(saved)); continue
         if protocol in ('chat','messages') and not native_ollama(c) and m.get('research',{}).get('protocol')==protocol and m['research'].get('exchanges'):
             import copy
             saved=m['research']['exchanges']; response_context_bytes+=len(json.dumps(saved).encode())
-            if response_context_bytes>128_000: raise ValueError('Saved tool context exceeds 128 KB; open a new chat')
+            if response_context_bytes>MAX_SAVED_TOOL_CONTEXT: raise ValueError('Saved tool context exceeds 2 MB; open a new chat')
             history.extend(copy.deepcopy(saved)); continue
         text_type = 'output_text' if m['role'] == 'assistant' else 'input_text'
         from .document_reader import message_text
