@@ -33,6 +33,43 @@ class ResearchDesktop(unittest.TestCase):
         self.assertTrue(predicate())
         self.app.processEvents()
 
+    def test_continue_limited_chat_keeps_visible_context_with_fresh_run(self):
+        captured=[]
+        def fake_run(connection,messages,*args,**kwargs):
+            captured.append(messages)
+            if len(captured)==1:
+                return {'status':'failed','error':'Limit reached','text':'Partial evidence','thinking':'','metrics':{},'research':{'status':'limited','route':'managed','sources':[],'events':[]}}
+            return {'status':'ok','text':'Done','thinking':'','metrics':{},'research':{'status':'completed','route':'managed','sources':[],'events':[]}}
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]),patch.object(research,'run',side_effect=fake_run):
+            store=Store(root);w=Window(store);w.connections={'test':dict(C)}
+            try:
+                w.new_session('chat','test');tab=w.tabs.currentWidget();tab.web_access.setChecked(True)
+                tab.composer.setPlainText('Find evidence');tab.submit();self.settle_until(lambda:tab.job is None)
+                self.assertTrue(tab.continue_button.isEnabled());tab.continue_button.click();self.settle_until(lambda:tab.job is None)
+                eligible=[m for m in captured[1] if core.history_eligible(m)]
+                self.assertEqual(eligible[-3]['text'],'Find evidence');self.assertIn('Partial evidence',eligible[-2]['text'])
+                self.assertNotIn('research',eligible[-2]);self.assertIn('fresh limits',eligible[-1]['text'])
+            finally:w.close();self.app.processEvents();store.db.close()
+
+    def test_repeated_continuation_preserves_task_and_composer_draft(self):
+        captured=[]
+        def fake_run(connection,messages,*args,**kwargs):
+            captured.append(messages)
+            status='completed' if len(captured)>=3 else 'limited'
+            return {'status':'ok' if status=='completed' else 'failed','error':'Limit reached','text':'Partial '+str(len(captured)),'thinking':'','metrics':{},'research':{'status':status,'route':'managed','sources':[{'id':'S1','title':'Evidence'}],'events':[]}}
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]),patch.object(research,'run',side_effect=fake_run):
+            store=Store(root);w=Window(store);w.connections={'test':dict(C)}
+            try:
+                w.new_session('chat','test');tab=w.tabs.currentWidget();tab.web_access.setChecked(True);tab.composer.setPlainText('Original task');tab.submit();self.settle_until(lambda:tab.job is None)
+                tab.composer.setPlainText('Unsent draft');tab.continue_button.click();self.settle_until(lambda:tab.job is None)
+                self.assertEqual(tab.composer.toPlainText(),'Unsent draft');tab.continue_button.click();self.settle_until(lambda:tab.job is None)
+                eligible=[m for m in captured[-1] if core.history_eligible(m)];text=' '.join(m['text'] for m in eligible)
+                self.assertIn('Original task',text);self.assertIn('Partial 1',text);self.assertIn('Partial 2',text);self.assertIn('Evidence',text)
+                self.assertEqual(tab.composer.toPlainText(),'Unsent draft');self.assertFalse(tab.continue_button.isEnabled())
+                tab.submit();self.settle_until(lambda:tab.job is None)
+                text=' '.join(m['text'] for m in captured[-1] if core.history_eligible(m));self.assertIn('Original task',text);self.assertIn('Partial 1',text);self.assertIn('Partial 2',text)
+            finally:w.close();self.app.processEvents();store.db.close()
+
     def test_chat_research_limits_persist_and_reach_run(self):
         from PySide6.QtWidgets import QDialog
         captured=[]

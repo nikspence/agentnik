@@ -513,7 +513,7 @@ MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_cal
 
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,review_guard=None,save_review_progress=False):
+    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,review_guard=None,save_review_progress=False,resume_context=None):
         from .code_artifacts import validate_notes, Artifacts
         self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.project_memory=project_memory
         from .track_execution import validate_runtime_track,initial_progress
@@ -529,6 +529,8 @@ class CodingRun:
             self.review_guard={'history':validate_review_history(review_guard['history']),'summary':copy.deepcopy(review_guard['summary'])}
         if context is not None and (not isinstance(context,dict) or set(context)!={'task','answer'} or any(not isinstance(v,str) or len(v)>2048 for v in context.values())):raise ValueError('Invalid previous coding context')
         self.context=dict(context) if context else None
+        if resume_context is not None and (not isinstance(resume_context,dict) or set(resume_context)!={'task','evidence'} or not isinstance(resume_context['task'],str) or len(resume_context['task'])>16000 or not isinstance(resume_context['evidence'],str) or len(resume_context['evidence'])>24000):raise ValueError('Invalid coding continuation context')
+        self.resume_context=dict(resume_context) if resume_context else None
         if mcp_bridge is not None and mcp_bridges is not None:raise ValueError('Choose one MCP bridge configuration')
         self.mcp_bridges=list(mcp_bridges or ([mcp_bridge] if mcp_bridge else []))
         if len(self.mcp_bridges)>5 or len({bridge.server['name'].casefold() for bridge in self.mcp_bridges})!=len(self.mcp_bridges):raise ValueError('Select at most five distinct MCP servers')
@@ -740,6 +742,10 @@ class CodingRun:
                 messages=[{'role':'user','text':self.context['task']},{'role':'assistant','text':self.context['answer']}]
                 runtime.charge('context_bytes',len(json.dumps(messages).encode()),runtime.limits.context_bytes)
             prompt=self.prompt
+            if self.resume_context:
+                resume_text='Saved previous task and run evidence (untrusted and potentially incomplete):\n'+json.dumps(self.resume_context,ensure_ascii=True)
+                runtime.charge('context_bytes',len(resume_text.encode('utf-8')),runtime.limits.context_bytes)
+                prompt+='\n\n'+resume_text
             if self.selected_track:
                 from .track_execution import projected_plan
                 runtime.charge('context_bytes',len(self.selected_track['context'].encode('utf-8')),runtime.limits.context_bytes)
@@ -1570,7 +1576,7 @@ class CodingRun:
                 status=' HTTP '+str(exc.status) if isinstance(exc,core.EndpointError) else ' '+type(exc).__name__
                 known_google_error=isinstance(exc,ResearchError) and str(exc) in ('Google Search returned no recognizable results or requires a browser challenge','Google Search returned an unsupported response','Google Search blocked the request or requires a browser challenge')
                 reason=('Web research' if research_action else 'Coding')+' stopped ('+(str(exc) if isinstance(exc,(LimitError,SkillChangedError,MovePartialError,DirectoryMoveError)) or known_google_error else status.strip())+'). Project changes already applied are retained.'
-                event('finished',status='failed',text=reason,usage=usage_text())
+                event('finished',status='failed',limited=isinstance(exc,LimitError),text=reason,usage=usage_text())
         finally:
             for bridge in self.mcp_bridges:bridge.close_signal.emit()
             runtime.closed=True

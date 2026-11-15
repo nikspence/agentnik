@@ -305,6 +305,8 @@ class CodeTab(QWidget):
         self.sources_button=QPushButton();self.sources_button.clicked.connect(self.show_sources)
         run_row=QHBoxLayout();layout.addLayout(run_row)
         self.send=QPushButton(self.tr('Run'));self.send.clicked.connect(self.start_coding);run_row.addWidget(self.send)
+        self.continue_button=QPushButton(self.tr('Continue'));self.continue_button.setObjectName('continueCodingRun');self.continue_button.setToolTip(self.tr('Start a fresh run using the saved task and recent activity. Review project state before repeating unfinished operations.'));self.continue_button.clicked.connect(self.continue_coding);run_row.addWidget(self.continue_button)
+        self.continue_button.setEnabled(session.get('code_state')=='limited' and bool(session.get('coding_context')))
         self.direct_review_button=QPushButton(self.tr('Independent review…'));self.direct_review_button.clicked.connect(self.start_direct_review);run_row.addWidget(self.direct_review_button)
         self.cancel_button=QPushButton(self.tr('Cancel'));self.cancel_button.setEnabled(False);self.cancel_button.clicked.connect(self.cancel);run_row.addWidget(self.cancel_button)
         run_row.addWidget(self.model_toggle)
@@ -404,6 +406,10 @@ class CodeTab(QWidget):
         original=QPlainTextEdit(json.dumps(context or {'task':'','answer':''},ensure_ascii=False,indent=2));layout.addWidget(original)
         layout.addWidget(QLabel(self.tr('Compacted summary:')))
         summary=QPlainTextEdit(snapshot['summary'] if snapshot else '');layout.addWidget(summary)
+        resume=self.session.get('coding_resume');resume_editor=None
+        if resume and self.session.get('code_state')=='limited':
+            layout.addWidget(QLabel(self.tr('Continue task and evidence (JSON; original attachments are also sent):')))
+            resume_editor=QPlainTextEdit(json.dumps({key:resume[key] for key in ('task','evidence')},ensure_ascii=False,indent=2));layout.addWidget(resume_editor)
         row=QHBoxLayout();layout.addLayout(row)
         save=QPushButton(self.tr('Save context'));reset=QPushButton(self.tr('Use original context'));compact=QPushButton(self.tr('Compact now'))
         for control in (save,reset,compact):row.addWidget(control)
@@ -413,8 +419,12 @@ class CodeTab(QWidget):
                 value=json.loads(original.toPlainText())
                 from .context_compaction import coding_digest
                 coding_digest(value);text=summary.toPlainText().strip();new_snapshot=coding_snapshot(value,text) if text else None
+                if resume_editor:
+                    resume_value=json.loads(resume_editor.toPlainText())
+                    if not isinstance(resume_value,dict) or set(resume_value)!={'task','evidence'} or not isinstance(resume_value['task'],str) or len(resume_value['task'])>16000 or not isinstance(resume_value['evidence'],str) or len(resume_value['evidence'])>24000:raise ValueError('Invalid continuation task or evidence')
             except (ValueError,TypeError) as exc:QMessageBox.warning(dialog,self.tr('Coding context'),str(exc));return
             self.session['coding_context']=value
+            if resume_editor:self.session['coding_resume']={**resume,**resume_value}
             if new_snapshot:self.session['coding_compaction']=new_snapshot
             else:self.session.pop('coding_compaction',None)
             self.context_view.setPlainText(self.context_text(value));self.use_context.setEnabled(True);self.store.save(self.session);self.updated.emit();dialog.accept()
@@ -1118,7 +1128,7 @@ class CodeTab(QWidget):
         except (OSError,ValueError,TypeError) as exc:QMessageBox.warning(self,self.tr('Independent review'),str(exc));return
         self.launch(run,self.tr('Independent document review started. Each reviewer input and destination requires approval.'))
 
-    def start_coding(self):
+    def start_coding(self,continuation=False):
         if self.job or self._closed:return
         try:
             from .code_agent import ProjectFiles
@@ -1133,10 +1143,12 @@ class CodeTab(QWidget):
             advice=self.role_connection('decision') if self.advice_enabled.isChecked() else None
             if self.advice_enabled.isChecked() and not advice:raise ValueError(self.tr('Choose a Decision model before enabling safety advice.'))
             destination=(self.roles['decision'][0].currentText()+' / '+advice['model']+' / '+core.endpoint(advice,'decision')) if advice else ''
-            prompt=self.composer.toPlainText();ident=self.session.get('selected_track')
+            resume=self.session.get('coding_resume') if continuation else None
+            prompt=(self.tr('Continue the previous task with fresh limits. Inspect the current project state before proceeding; do not repeat an uncertain operation without checking.') if continuation else self.composer.toPlainText());ident=self.session.get('selected_track')
+            if continuation and not resume:return
             if not heavy or (not prompt.strip() and not ident and not self.attachments.paths and not self.documents):raise ValueError(self.tr('Choose a heavy model and enter a coding task, attach a file, or select a track'))
             if not prompt.strip():prompt=self.tr('Work on the selected project track. Inspect the project and report progress against its task IDs.') if ident else self.tr('Consider the attached files for this coding task.')
-            context=self.session.get('coding_context') if self.use_context.isChecked() else None
+            context=self.session.get('coding_context') if self.use_context.isChecked() and not continuation else None
             if context:
                 from .context_compaction import coding_effective_context
                 snapshot=self.session.get('coding_compaction')
@@ -1178,12 +1190,18 @@ class CodeTab(QWidget):
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
                 if track_review_summary(files,selected,self.session.get('coding_review_history',[]))!=summary:raise ValueError(self.tr('Saved review records or source status changed during review; review and start again.'))
                 review_guard={'history':history,'summary':summary}
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=self.attachments.paths,documents=self.documents,review_guard=review_guard,save_review_progress=self.save_review_progress.isChecked())
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,review_guard=review_guard,save_review_progress=self.save_review_progress.isChecked(),resume_context={key:resume[key] for key in ('task','evidence')} if resume else None)
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
-        if self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
+        if not continuation and self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.')
         if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[provider])
+
+    def continue_coding(self):
+        if self.job or self.session.get('code_state')!='limited' or not self.session.get('coding_context'):return
+        if not self.session.get('coding_resume'):
+            context=self.session['coding_context'];self.session['coding_resume']={'task':context['task'],'evidence':context['answer']}
+        self.start_coding(True)
 
     def launch(self,run,notice):
         if isinstance(run,CodingRun):
@@ -1194,6 +1212,7 @@ class CodeTab(QWidget):
                 history.append({'run_id':run.run_id,'skills':[]});self.session['coding_skill_history']=history[-32:]
                 self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
+        self.continue_button.setEnabled(False)
         self.send.setEnabled(False);self.direct_review_button.setEnabled(False);self.cancel_button.setEnabled(True)
         self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.save_review_progress.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
         self.use_context.setEnabled(False)
@@ -1709,13 +1728,25 @@ class CodeTab(QWidget):
             if operation=='run_shell' and self.advice_connection:self.check_advice(proposal,self.pending_fingerprint)
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='finished':
+            if event.get('limited') and isinstance(self.job,CodingRun) and not getattr(self.job,'direct_review',False):
+                secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in self.job.web_backends]
+                for bridge in self.job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
+                activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
+                recent='\n'.join(item.get('text','') for item in activity[start:] if item.get('kind') in ('output','approval','decision','finished'))
+                previous=getattr(self.job,'resume_context',None) or {}
+                task=previous.get('task',self.job.prompt)
+                evidence='\n'.join(filter(None,[previous.get('evidence',''),recent,event['text'],json.dumps({'plan':self.session.get('coding_plan'),'sources':self.session.get('coding_sources',[])},ensure_ascii=True)]))
+                resume={'task':scrub(task,secrets)[:16000],'evidence':scrub(evidence,secrets)[-24000:],'images':list(self.job.images),'documents':scrub(copy.deepcopy(self.job.documents),secrets)};self.session['coding_resume']=resume
+                context={'task':plain(resume['task'])[:2048],'answer':plain(resume['evidence'])[-2048:]}
+                self.session['coding_context']=context;self.session.pop('coding_compaction',None);self.context_view.setPlainText(self.context_text(context))
             if event['status']=='completed' and isinstance(self.job,CodingRun) and not getattr(self.job,'direct_review',False):
+                self.session.pop('coding_resume',None)
                 secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]
                 context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)
                 self.context_view.setPlainText(self.context_text(context))
                 self.use_context.setChecked(False)
-            self.stop_subagents('stopped');self.session['code_state']=event['status'];self.finish();self.record(kind,event['text'])
+            self.stop_subagents('stopped');self.session['code_state']='limited' if event.get('limited') else event['status'];self.finish();self.record(kind,event['text'])
             if event.get('usage'):self.record('usage',event['usage'])
 
     def decide(self,allowed,scope='once'):
@@ -1737,6 +1768,7 @@ class CodeTab(QWidget):
         self.send.setEnabled(True);self.direct_review_button.setEnabled(True)
         self.coding_context_button.setEnabled(True);self.coding_auto_compact.setEnabled(True);self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.save_review_progress.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
+        self.continue_button.setEnabled(self.session.get('code_state')=='limited' and bool(self.session.get('coding_context')))
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
 
     def cancel(self):

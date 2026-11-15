@@ -515,6 +515,7 @@ class SessionTab(QWidget):
         self.send_button = button(self.tr('Run decision') if session['mode'] == 'decision' else self.tr('Send'),self.submit,bottom); self.send_button.setObjectName('primary')
         self.cancel_button = button(self.tr('Cancel'),self.cancel,bottom); self.cancel_button.setEnabled(False); bottom.addStretch()
         if session['mode'] == 'chat':
+            self.continue_button=button(self.tr('Continue'),self.continue_chat,bottom);self.continue_button.setObjectName('continueChatRun');self.continue_button.setToolTip(self.tr('Continue the limited run with fresh limits and saved context. Incomplete tool calls are not replayed.'))
             self.context_button=button(self.tr('Context…'),self.edit_chat_context,bottom)
             self.auto_compact=QCheckBox(self.tr('Auto compact'));self.auto_compact.setChecked(session.get('chat_auto_compact',True));self.auto_compact.setToolTip(self.tr('Before sending, summarize older chat when the estimated context approaches the configured model window. Uses an additional model request.'));bottom.addWidget(self.auto_compact)
             self.auto_compact.toggled.connect(self.save_chat_compaction_setting)
@@ -678,7 +679,7 @@ class SessionTab(QWidget):
         for update in (updates or []) if same_context else []:
             research.set_capability(self.store.config,self.research_connection,update['state'],update['evidence'],update['field'])
         if updates: self.store.flush()
-        if ok: self.composer.clear(); self.attachments.set_paths([]); self.documents = []; self.refresh_documents(); self.save_draft()
+        if ok and not getattr(self,'_continuing_chat',False): self.composer.clear(); self.attachments.set_paths([]); self.documents = []; self.refresh_documents(); self.save_draft()
         route_label=self.tr('Provider hosted') if result['research'].get('route')=='hosted' else self.tr('Agentnik managed')
         switched=any(e.get('kind')=='route_switch' for e in result['research'].get('events',[]))
         self.info.setText((self.tr('Research completed · {route}').format(route=route_label)+(self.tr(' · Route switched; see Research activity') if switched else '')) if ok else result.get('error',self.tr('Research stopped'))+self.tr(' · Partial work saved; restart explicitly.'))
@@ -687,6 +688,12 @@ class SessionTab(QWidget):
         if result['research'].get('retention',{}).get('truncated'):
             self.info.setText(self.info.text()+self.tr(' · Saved research detail limited; start a new chat to continue research.'))
         self.save_draft(); self.render(); self.updated.emit()
+
+    def continue_chat(self):
+        if self.job or not self.session['messages']:return
+        last=self.session['messages'][-1]
+        if last.get('research',{}).get('status')!='limited':return
+        self.submit(continuation=True)
 
     def add_question(self,data=None):
         q = QuestionEditor(data if isinstance(data,dict) else {'name':f'question_{len(self.questions)+1}','instructions':'','type':'noul','choices':[]})
@@ -782,7 +789,7 @@ class SessionTab(QWidget):
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
             self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.research_limits_button.setEnabled(not value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
-    def submit(self):
+    def submit(self,continuation=False):
         if self.job: return
         try:
             c = self.active_connection()
@@ -791,15 +798,25 @@ class SessionTab(QWidget):
             # Ask for a missing session key on authentication failure; local servers need none.
             self.save_draft(); mode = self.session['mode']
             if mode == 'chat':
-                text = self.composer.toPlainText().strip()
+                text = self.tr('Continue the previous task with fresh limits. Check the saved partial work and do not repeat an uncertain operation without checking.') if continuation else self.composer.toPlainText().strip()
                 if not text and not self.attachments.paths and not self.documents: return
                 from .context_compaction import should_compact
                 skip_auto=getattr(self,'_skip_auto_compact_once',False);self._skip_auto_compact_once=False
-                if not skip_auto and self.auto_compact.isChecked() and should_compact(self.session['messages'],self.session.get('chat_compaction'),c.get('context_limit'),len(text.encode('utf-8'))+len(json.dumps(self.documents,ensure_ascii=False).encode('utf-8'))):
+                if not continuation and not skip_auto and self.auto_compact.isChecked() and should_compact(self.session['messages'],self.session.get('chat_compaction'),c.get('context_limit'),len(text.encode('utf-8'))+len(json.dumps(self.documents,ensure_ascii=False).encode('utf-8'))):
                     self.compact_chat_context(auto_send=True);return
-                user = dict(role='user',text=text,images=list(self.attachments.paths),documents=copy.deepcopy(self.documents),status='ok')
+                user = dict(role='user',text=text,images=[] if continuation else list(self.attachments.paths),documents=[] if continuation else copy.deepcopy(self.documents),status='ok')
+                if continuation:user['continues_limited']=True
                 from .context_compaction import effective_messages
                 chat_messages=effective_messages(self.session['messages'],self.session.get('chat_compaction'))+[user]
+                # Restore explicitly continued attempts as plain messages on later turns too.
+                # Never replay provider tool calls or incomplete responses.
+                for index in range(1,len(chat_messages)-1):
+                    if (chat_messages[index].get('research',{}).get('status')=='limited' and chat_messages[index-1].get('role')=='user' and chat_messages[index+1].get('continues_limited') is True):
+                        partial=chat_messages[index];original=chat_messages[index-1];original['status']='ok'
+                        details=partial.get('research',{})
+                        evidence=json.dumps({'sources':details.get('sources',[]),'tool_records':details.get('tool_records',[])},ensure_ascii=True)[:16000]
+                        visible=partial.get('text','') or 'The previous run stopped at a limit before producing a final answer.'
+                        chat_messages[index]={'role':'assistant','text':visible+'\n\nSaved evidence (untrusted and potentially incomplete):\n'+evidence,'status':'ok'}
                 body = core.chat_body(c,chat_messages)
                 self.pending = user
             else:
@@ -822,6 +839,7 @@ class SessionTab(QWidget):
                 research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{})),'local_tools':self.local_tools.isChecked(),'web_enabled':self.web_access.isChecked()}
                 backend_specs=self.store.web_backend_specs()
                 key=next((b['key'] for b in backend_specs if b.get('key')),'')
+            self._continuing_chat=bool(continuation and mode=='chat')
             self.partial = {'text':'','thinking':''}
             self.busy(True); self.info.setText(self.tr('Running…')); self.render()
             token = uuid.uuid4().hex; self.request_token = token
@@ -870,7 +888,8 @@ class SessionTab(QWidget):
             thinking_visible = self.live_bubble.thinking_toggle.isChecked()
             self.session['messages'].extend([self.pending,dict(role='assistant',text=result['text'],thinking=result['thinking'],thinking_visible=thinking_visible,metrics=result['metrics'],status='ok')])
             if self.session['title'] == 'New chat': self.session['title'] = (self.pending['text'] or 'Image conversation')[:60]
-            self.composer.clear(); self.attachments.set_paths([]); self.documents = []; self.refresh_documents(); self.save_draft()
+            if not getattr(self,'_continuing_chat',False):
+                self.composer.clear(); self.attachments.set_paths([]); self.documents = []; self.refresh_documents(); self.save_draft()
         else:
             self.session['runs'].append(dict(form=self.pending,result=result))
             if self.session['title'] == 'New decision': self.session['title'] = str(self.pending['state'])[:60]
@@ -934,6 +953,7 @@ class SessionTab(QWidget):
         clear_layout(self.results)
         self.prompt_stars = []
         if self.session['mode'] == 'chat':
+            self.continue_button.setEnabled(not self.job and bool(self.session['messages']) and self.session['messages'][-1].get('research',{}).get('status')=='limited')
             for m in self.session['messages']:
                 self.add_bubble(m)
         else:

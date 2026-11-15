@@ -564,6 +564,7 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(len(requests),2)
             self.assertEqual(events[-1]['status'],'failed')
             self.assertIn('tool round limit',events[-1]['text'])
+            self.assertTrue(events[-1]['limited'])
 
     def test_model_timeout_allows_slow_first_token_and_bounds_total_run(self):
         from agentnik.code_limits import coding_limits

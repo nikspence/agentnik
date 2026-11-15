@@ -175,7 +175,13 @@ def validate_session(value, ident=None):
         if 'coding_context' in data:
             context=data['coding_context'];require(isinstance(context,dict) and set(context)=={'task','answer'})
             require(all(isinstance(v,str) and len(v)<=2048 for v in context.values()))
-        require(data.get('code_state','idle') in ('idle','running','awaiting_approval','completed','failed','cancelled','rejected','timed_out','interrupted'))
+        if 'coding_resume' in data:
+            resume=data['coding_resume'];require(isinstance(resume,dict) and {'task','evidence'}<=set(resume) and not set(resume)-{'task','evidence','images','documents'})
+            require(isinstance(resume['task'],str) and len(resume['task'])<=16000 and isinstance(resume['evidence'],str) and len(resume['evidence'])<=24000)
+            require(isinstance(resume.get('images',[]),list) and all(isinstance(p,str) for p in resume.get('images',[])))
+            try:validate_documents(resume.get('documents',[]))
+            except ValueError:require(False)
+        require(data.get('code_state','idle') in ('idle','running','awaiting_approval','completed','failed','limited','cancelled','rejected','timed_out','interrupted'))
         return data
     require(data.get('version',1)<=3)
     def form(value):
@@ -198,6 +204,7 @@ def validate_session(value, ident=None):
         require(isinstance(item,dict) and item.get('role') in ('user','assistant','system'))
         require(isinstance(item.get('text',''),str)); item.setdefault('text','')
         require(isinstance(item.get('thinking',''),str))
+        if 'continues_limited' in item:require(item['role']=='user' and type(item['continues_limited']) is bool)
         require(isinstance(item.get('images',[]),list) and all(isinstance(p,str) for p in item.get('images',[])))
         try: validate_documents(item.get('documents', []))
         except ValueError: require(False)

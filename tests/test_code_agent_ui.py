@@ -474,6 +474,60 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertIn('Coding stopped',window.tabs.currentWidget().activity.toPlainText())
             finally:window.close();app.processEvents();store.db.close()
 
+    def test_limited_run_reopens_and_repeated_continuation_keeps_task_and_draft(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.code_agent import CodingRun
+        app=QApplication.instance() or QApplication([]);runs=[]
+        def run(job,emit):
+            runs.append(job)
+            emit({'run_id':job.run_id,'kind':'output','text':'Evidence '+str(len(runs))})
+            emit({'run_id':job.run_id,'kind':'finished','status':'failed' if len(runs)<3 else 'completed','limited':len(runs)<3,'text':'Limit reached' if len(runs)<3 else 'Done'})
+        def settle(tab):
+            deadline=time.monotonic()+4
+            while tab.job is not None and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+            self.assertIsNone(tab.job)
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(CodingRun,'run',run):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Gateway':{'url':'https://gateway.example/v1','protocol':'chat','model':'heavy','stream':False}}
+            window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Gateway'));tab.composer.setPlainText('Original coding task');image_path=store.attach(data=b'fixture image',suffix='.png');tab.attachments.set_paths([image_path]);tab.start_coding();settle(tab)
+                saved=next(s for s in store.list_sessions() if s['id']==session['id']);self.assertEqual(saved['code_state'],'limited');self.assertEqual(saved['coding_resume']['task'],'Original coding task')
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();tab=window.tabs.currentWidget();self.assertTrue(tab.continue_button.isEnabled())
+                tab.composer.setPlainText('Unsent coding draft');tab.attachments.set_paths([]);tab.continue_button.click();settle(tab)
+                self.assertEqual(tab.composer.toPlainText(),'Unsent coding draft');self.assertEqual(runs[-1].resume_context['task'],'Original coding task')
+                self.assertEqual(runs[-1].images,[image_path])
+                tab.continue_button.click();settle(tab)
+                self.assertEqual(runs[-1].resume_context['task'],'Original coding task');self.assertIn('Evidence 1',runs[-1].resume_context['evidence']);self.assertIn('Evidence 2',runs[-1].resume_context['evidence'])
+                self.assertEqual(tab.composer.toPlainText(),'Unsent coding draft');self.assertFalse(tab.continue_button.isEnabled())
+            finally:window.close();app.processEvents();store.db.close()
+
+    def test_continue_starts_new_budget_after_actual_round_limit(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.code_limits import coding_limits
+        app=QApplication.instance() or QApplication([]);bodies=[]
+        replies=[Wire(chat(calls=[call('list_files',{'path':'.'})],finish='tool_calls'),False),Wire(chat(calls=[call('list_files',{'path':'.'})],finish='tool_calls'),False),Wire(chat('Continued successfully'),False)]
+        def send(connection,url,body,timeout):
+            bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        def settle(tab):
+            deadline=time.monotonic()+4
+            while tab.job is not None and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+            self.assertIsNone(tab.job)
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'open_request',side_effect=send):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Gateway':{'url':'https://gateway.example/v1','protocol':'chat','model':'heavy','stream':False}}
+            window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);limits=coding_limits();limits['rounds']=1;session['coding_limits']=limits;store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Gateway'));tab.composer.setPlainText('Inspect this project');tab.start_coding();settle(tab)
+                self.assertEqual(len(bodies),2);self.assertTrue(tab.continue_button.isEnabled());tab.continue_button.click();settle(tab)
+                self.assertEqual(len(bodies),3);self.assertIn('Inspect this project',json.dumps(bodies[-1]));self.assertEqual(tab.session['code_state'],'completed')
+                self.assertNotIn('tool_calls',json.dumps(bodies[-1]['messages']))
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_selected_connection_edits_only_after_approval_and_restores_roles(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
