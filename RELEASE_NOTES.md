@@ -1,8 +1,17 @@
-# Agentnik v0.8.6
+# Agentnik v0.8.7
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.8.6
+
+- **Continue limited runs:** Code and Chat research runs can start again with fresh limits after reaching a limit. Code retains the original task and attachments with bounded activity, plan and source evidence; Chat retains the request and visible partial work. Incomplete tool calls are not replayed, and unsent drafts are preserved. Context is bounded and may omit details. See CODING_GUIDE.md and CHAT_AND_DECISIONS.md.
+- **Validation:** 676 offline tests passed, with one skipped; endpoint responses and continuation scenarios used mocks and offscreen Qt. Build-host startup results are recorded in BUILD-MANIFEST.json. Live model compatibility, clean-machine installation and full native workflows remain unverified.
+
+## Earlier release: v0.8.6
 
 This release adds independent document review workflows, track-bound findings and history, review progress recovery, and updated documentation. See CODE_FEATURES.md and VALIDATION.md for details and validation limits.
 
-# Agentnik v0.8.5
+## Earlier release: v0.8.5
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
