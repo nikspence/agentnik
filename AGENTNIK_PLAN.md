@@ -1,6 +1,6 @@
 # Agentnik implementation plan
 
-Reviewed after the v0.2.0 release: 2026-11-08. This roadmap describes the current development tree and the remaining acceptance gates. Detailed historical evidence is in [VALIDATION.md](VALIDATION.md); installation and delivered behavior are in [README.md](README.md).
+This roadmap includes historical milestones and design decisions as well as remaining acceptance gates; older status and priorities may be superseded by later sections and the implementation. Scoped evidence and outstanding qualification are in [VALIDATION.md](VALIDATION.md); installation and delivered behavior are in [README.md](README.md).
 
 Current MCP approval policy supersedes the older milestone notes below: discovery, supported resource and prompt reads, and MCP tool calls run without approval, including write-capable tools. The server controls its own actions.
 
@@ -144,7 +144,7 @@ Delivered: `tools/live_compat.py` is the separate explicit compatibility harness
 4. Distinguish model tool-calling from successful external search/fetch and from final-answer citation rendering. Test routing errors with mocks; do not manufacture repeated live failures to exercise fallback.
 5. Update only the capability actually demonstrated. Report unavailable credentials/models as not tested. Do not claim every model on a compatible server works.
 
-D1 tooling has offline coverage for planning without key reads/requests/writes, invalid scope rejection, report overwrite prevention, bounded chat parsing, cancellation, sanitized error/report output, and distinguishing an answer from real search evidence. No live checks were issued in this tooling slice; prior scoped live results remain in MILESTONE_D_LIVE_RESULTS.md.
+D1 tooling has offline coverage for planning without key reads/requests/writes, invalid scope rejection, report overwrite prevention, bounded chat parsing, cancellation, sanitized error/report output, and distinguishing an answer from real search evidence. No live checks were issued in this tooling slice; prior scoped live results are summarized in [VALIDATION.md](VALIDATION.md).
 
 Acceptance is per endpoint/model/protocol/route, not a global supported-provider label. No live requests are authorized merely by this plan review. Keep System One verification separate and require a substantive real request before claiming a model supports it.
 

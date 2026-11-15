@@ -14,11 +14,11 @@ When you choose to issue the displayed requests, add `--execute --key-file C:\ke
 
 Checks use the bounded protocol parsers and GUI research limits, with at most three model requests, two tool calls, 45 seconds per request and 120 seconds per turn. Ctrl+C requests cancellation; upstream work/billing may continue. Reports contain revision/dirty state, timestamp, selected scope, sanitized numeric metrics, failure category/status, tool/source/citation counts and continuation evidence. They omit transcripts, thinking, raw upstream errors, search content, and keys. They do not modify application settings or mark other models compatible. A completed answer without the requested real search/fetch is not a research pass. Citation link generation is checked headlessly; native UI behavior needs separate testing. Exit codes: 0 pass/plan, 1 failed or incomplete evidence, 2 invalid arguments/setup, 130 cancelled.
 
-Unit tests mock endpoints and do not issue live requests. Use the manual application checklist in [MILESTONE_D_LIVE_TEST_PLAN.md](MILESTONE_D_LIVE_TEST_PLAN.md) for dialogs, actual streaming presentation, history, cancellation, and other native workflows.
+Unit tests mock endpoints and do not issue live requests. Separately check native dialogs, streaming presentation, history, cancellation, credentials and other workflows on each target platform. Record the exact environment and scope; see [validation](VALIDATION.md) for remaining gaps.
 
 ## Dedicated Windows build environment
 
-`tools/build_release.py` targets Windows x64 onedir ZIPs. It plans by default and never tags, pushes, publishes, signs, or replaces an existing build directory/archive. The label identifies a development artifact; it does not change the package version. Keep v0.1.0 artifacts/tag intact. A future actual release still needs an explicitly selected version synchronized across metadata, notes and tag.
+`tools/build_release.py` targets Windows x64 onedir ZIPs. It plans by default and never tags, pushes, publishes, signs, or replaces an existing build directory/archive. The label identifies a development artifact; it does not change the package version. A release needs an explicitly selected version synchronized across metadata, notes and tag.
 
 ```powershell
 python -m venv .venv-build
