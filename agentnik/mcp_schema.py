@@ -83,8 +83,12 @@ def validate_tool_result(tool,result):
     if not isinstance(result,dict):raise ValueError('Invalid MCP tool result.')
     if result.get('isError') is True:return True
     if 'output_schema_status' not in tool:return True
-    if tool.get('output_schema_status')!='available' or not isinstance(tool.get('output_schema'),dict) or not isinstance(result.get('structuredContent'),dict):
-        raise ValueError('MCP tool output does not have a verifiable structured result.')
+    if tool.get('output_schema_status')!='available' or not isinstance(tool.get('output_schema'),dict):
+        raise ValueError('MCP output schema is unavailable.')
+    if not isinstance(result.get('structuredContent'),dict):
+        raise ValueError('MCP tool declared an output schema but did not return a structured object.')
     try:validate_tool_arguments(tool['output_schema'],result['structuredContent'])
-    except (ValueError,RecursionError,UnicodeError):raise ValueError('MCP structured result failed output schema validation.') from None
+    except (ValueError,RecursionError,UnicodeError) as exc:
+        if str(exc)=='Arguments do not match the tool input schema.':raise ValueError('MCP structured result does not match the declared output schema.') from None
+        raise ValueError('MCP output schema is invalid or uses unsupported validation features.') from None
     return True

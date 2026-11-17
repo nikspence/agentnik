@@ -1,10 +1,11 @@
-"""Local structured Git operations; no subprocesses or network transports."""
+"""Structured Git operations with explicitly reviewed remote transfers."""
 import difflib
 import hashlib
 import json
 import time
 import io
 import re
+from urllib.parse import urlsplit
 from dulwich.file import GitFile
 from dulwich.index import write_index_dict
 from pathlib import Path
@@ -13,6 +14,47 @@ from dulwich.objects import Blob, Commit
 from dulwich.index import index_entry_from_stat
 from dulwich.refs import check_ref_format
 from dulwich.ignore import IgnoreFilterManager
+
+FETCH_PACK_LIMIT=32_000_000
+PUSH_PACK_LIMIT=32_000_000
+
+
+def fetch_client(url,check,timeout):
+    """Public HTTPS only; disable proxies, redirects, retries and ambient credentials."""
+    import urllib3
+    from dulwich.client import HttpGitClient
+    class Pool(urllib3.PoolManager):
+        def request(self,method,url,**kwargs):
+            check();kwargs.update(redirect=False,retries=False)
+            body=kwargs.get('body')
+            if body is not None and not isinstance(body,(bytes,str)):
+                def bounded_body():
+                    total=0
+                    for chunk in body:
+                        check();total+=len(chunk)
+                        if total>PUSH_PACK_LIMIT:raise ValueError('Push request exceeds 32 MB limit')
+                        yield chunk
+                kwargs['body']=bounded_body()
+            return super().request(method,url,**kwargs)
+    class Client(HttpGitClient):
+        def _http_request(self,*args,**kwargs):
+            response,read=super()._http_request(*args,**kwargs)
+            total=0
+            def bounded_read(size):
+                nonlocal total
+                check();data=read(size);total+=len(data)
+                if total>FETCH_PACK_LIMIT+2_000_000:raise ValueError('Fetch response exceeds size limit')
+                check();return data
+            return response,bounded_read
+        def fetch_pack(self,path,determine_wants,graph_walker,pack_data,**kwargs):
+            size=0
+            def write(data):
+                nonlocal size
+                check();size+=len(data)
+                if size>FETCH_PACK_LIMIT:raise ValueError('Fetch pack exceeds 32 MB limit')
+                return pack_data(data)
+            return super().fetch_pack(path,determine_wants,graph_walker,write,**kwargs)
+    return Client(url,pool_manager=Pool(),timeout=timeout,thin_packs=False,quiet=True)
 
 
 class GitService:
@@ -30,6 +72,125 @@ class GitService:
             item=metadata/name
             if item.is_symlink() or getattr(item,'is_junction',lambda:False)(): raise ValueError('Linked Git metadata is unavailable')
         return Repo(str(self.root))
+
+    def fetch_destination(self,remote,branch):
+        if not re.fullmatch(r'[A-Za-z0-9._-]{1,100}',remote) or remote in ('.','..'):raise ValueError('Invalid remote name')
+        if not branch or len(branch.encode())>200 or not check_ref_format(b'refs/heads/'+branch.encode()) or branch.startswith('-'):raise ValueError('Invalid branch name')
+        with self.repo() as repo:
+            try:urls=list(repo.get_config().get_multivar((b'remote',remote.encode()),b'url'))
+            except KeyError:raise ValueError('Remote has no configured fetch URL') from None
+            if len(urls)!=1:raise ValueError('Fetch requires exactly one configured remote URL')
+            try:url=urls[0].decode('ascii')
+            except UnicodeError:raise ValueError('Fetch URL must be an ASCII HTTPS URL') from None
+            parts=urlsplit(url)
+            if (parts.scheme!='https' or not parts.hostname or parts.username is not None or parts.password is not None or parts.query or parts.fragment or any(ord(c)<33 or ord(c)>126 for c in url)):
+                raise ValueError('Fetch supports credential-free HTTPS URLs without query or fragment only')
+            try:parts.port
+            except ValueError:raise ValueError('Invalid remote URL port') from None
+            target=b'refs/remotes/'+remote.encode()+b'/'+branch.encode()
+            if not check_ref_format(target):raise ValueError('Invalid remote-tracking reference')
+            self.check_fetch_ref(repo,target)
+            old=repo.refs.read_ref(target)
+            if old is not None and not re.fullmatch(rb'[0-9a-f]{40}',old):raise ValueError('Remote-tracking reference is not a direct commit ID')
+            return {'operation':'git_fetch_connect','cwd':str(self.root),'remote':remote,'branch':branch,'url':url,'target':target.decode(),'previous':old.decode() if old else ''}
+
+    def check_fetch_ref(self,repo,target):
+        metadata=Path(repo.controldir());path=metadata/target.decode()
+        for part in (path,*path.parents):
+            if part==metadata.parent:break
+            if part.is_symlink() or getattr(part,'is_junction',lambda:False)():raise ValueError('Linked Git references are unavailable')
+        if (metadata/'packed-refs').is_symlink() or getattr(metadata/'packed-refs','is_junction',lambda:False)():raise ValueError('Linked Git references are unavailable')
+
+    def fetch_preview(self,proposal,check,timeout):
+        check()
+        if self.fetch_destination(proposal['remote'],proposal['branch'])!=proposal:raise ValueError('Remote configuration or tracking reference changed after review')
+        client=fetch_client(proposal['url'],check,timeout)
+        refs=client.get_refs(proposal['url']).refs;check()
+        sha=refs.get(('refs/heads/'+proposal['branch']).encode())
+        if not isinstance(sha,bytes) or not re.fullmatch(rb'[0-9a-f]{40}',sha):raise ValueError('Remote branch was not found or uses an unsupported object format')
+        return {**proposal,'operation':'git_fetch','commit':sha.decode()}
+
+    def fetch_apply(self,proposal,check,timeout):
+        before={**proposal,'operation':'git_fetch_connect'};before.pop('commit')
+        check()
+        if self.fetch_destination(proposal['remote'],proposal['branch'])!=before:raise ValueError('Remote configuration or tracking reference changed after review')
+        source=('refs/heads/'+proposal['branch']).encode();expected=proposal['commit'].encode();target=proposal['target'].encode()
+        client=fetch_client(proposal['url'],check,timeout)
+        with self.repo() as repo:
+            def wants(refs,*args,**kwargs):
+                check()
+                if refs.get(source)!=expected:raise ValueError('Remote branch changed after review; fetch again to review the new commit')
+                return [] if expected in repo.object_store else [expected]
+            client.fetch(proposal['url'],repo,determine_wants=wants,progress=lambda _:check(),ref_prefix=[source])
+            check()
+            if self.fetch_destination(proposal['remote'],proposal['branch'])!=before:raise ValueError('Remote configuration or tracking reference changed during fetch')
+            if expected not in repo.object_store or not isinstance(repo[expected],Commit):raise ValueError('Fetched commit is unavailable')
+            self.check_fetch_ref(repo,target);check()
+            changed=(repo.refs.set_if_equals(target,proposal['previous'].encode(),expected) if proposal['previous'] else repo.refs.add_if_new(target,expected))
+            if not changed:raise ValueError('Remote-tracking reference changed during fetch')
+        return {'fetched':True,'remote':proposal['remote'],'branch':proposal['branch'],'commit':proposal['commit'],'tracking_ref':proposal['target'],'working_files_changed':False}
+
+    def push_destination(self,remote,branch,local_branch):
+        if not re.fullmatch(r'[A-Za-z0-9._-]{1,100}',remote) or remote in ('.','..'):raise ValueError('Invalid remote name')
+        for name in (branch,local_branch):
+            if not name or len(name.encode())>200 or name.startswith('-') or not check_ref_format(b'refs/heads/'+name.encode()):raise ValueError('Invalid branch name')
+        with self.repo() as repo:
+            config=repo.get_config();section=(b'remote',remote.encode())
+            try:urls=list(config.get_multivar(section,b'pushurl'))
+            except KeyError:urls=[]
+            if not urls:
+                try:urls=list(config.get_multivar(section,b'url'))
+                except KeyError:raise ValueError('Remote has no configured push URL') from None
+            if len(urls)!=1:raise ValueError('Push requires exactly one configured destination URL')
+            try:url=urls[0].decode('ascii')
+            except UnicodeError:raise ValueError('Push URL must be an ASCII HTTPS URL') from None
+            parts=urlsplit(url)
+            if parts.scheme!='https' or not parts.hostname or parts.username is not None or parts.password is not None or parts.query or parts.fragment or any(ord(c)<33 or ord(c)>126 for c in url):raise ValueError('Push supports credential-free HTTPS URLs without query or fragment only')
+            try:parts.port
+            except ValueError:raise ValueError('Invalid remote URL port') from None
+            source=b'refs/heads/'+local_branch.encode();self.check_fetch_ref(repo,source);sha=repo.refs.read_ref(source)
+            if sha is None or not re.fullmatch(rb'[0-9a-f]{40}',sha) or not isinstance(repo[sha],Commit):raise ValueError('Local branch must name an existing direct commit')
+            return {'operation':'git_push_connect','cwd':str(self.root),'remote':remote,'branch':branch,'local_branch':local_branch,'url':url,'commit':sha.decode(),'target':'refs/heads/'+branch}
+
+    def push_preview(self,destination,check,timeout):
+        check()
+        if self.push_destination(destination['remote'],destination['branch'],destination['local_branch'])!=destination:raise ValueError('Push destination or local branch changed after review')
+        refs=fetch_client(destination['url'],check,timeout).get_refs(destination['url']).refs;check()
+        old=refs.get(destination['target'].encode())
+        if old is not None and (not isinstance(old,bytes) or not re.fullmatch(rb'[0-9a-f]{40}',old)):raise ValueError('Remote branch uses an unsupported object format')
+        with self.repo() as repo:
+            if old:
+                target=destination['commit'].encode();pending=[target];visited=set();found=False
+                while pending:
+                    check();sha=pending.pop()
+                    if sha==old:found=True;break
+                    if sha in visited:continue
+                    visited.add(sha)
+                    if len(visited)>10000:raise ValueError('Commit history exceeds push review limit')
+                    try:commit=repo[sha]
+                    except KeyError:raise ValueError('Local history is incomplete; fetch the remote branch first') from None
+                    if not isinstance(commit,Commit):raise ValueError('Invalid commit history')
+                    pending.extend(commit.parents)
+                if not found:raise ValueError('Push is not a verified fast-forward; fetch and reconcile first')
+        if old==destination['commit'].encode():raise ValueError('Remote branch already points to this commit')
+        return {**destination,'operation':'git_push','previous':old.decode() if old else ''}
+
+    def push_apply(self,proposal,check,timeout):
+        before={**proposal,'operation':'git_push_connect'};before.pop('previous')
+        check()
+        if self.push_destination(proposal['remote'],proposal['branch'],proposal['local_branch'])!=before:raise ValueError('Push destination or local branch changed after review')
+        target=proposal['target'].encode();expected=proposal['previous'].encode() if proposal['previous'] else None;commit=proposal['commit'].encode()
+        client=fetch_client(proposal['url'],check,timeout)
+        with self.repo() as repo:
+            def update(refs):
+                check()
+                if refs.get(target)!=expected:raise ValueError('Remote branch changed after review')
+                if self.push_destination(proposal['remote'],proposal['branch'],proposal['local_branch'])!=before:raise ValueError('Push destination or local branch changed after review')
+                return {target:commit}
+            result=client.send_pack(proposal['url'],update,repo.generate_pack_data,progress=lambda _:check())
+            check()
+            if not isinstance(result.ref_status,dict) or target not in result.ref_status or result.ref_status[target] is not None:raise ValueError('Remote did not confirm the branch update')
+        return {'pushed':True,'remote':proposal['remote'],'branch':proposal['branch'],'commit':proposal['commit'],'previous':proposal['previous']}
 
     def inspect(self, action, path=''):
         with self.repo() as repo:

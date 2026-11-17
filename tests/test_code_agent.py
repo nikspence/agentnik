@@ -6,7 +6,7 @@ import threading
 import unittest
 from unittest.mock import patch
 from agentnik import core
-from agentnik.code_agent import ProjectFiles,CodingRun
+from agentnik.code_agent import ProjectFiles,CodingRun,TOOLS
 from test_routing import Wire,response,function_call,message
 from test_compat_tools import chat,msg
 
@@ -88,6 +88,68 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_git_push_approval_and_uncertain_outcome_stops_run(self):
+        from unittest.mock import Mock
+        for deny in ('git_push_connect','git_push','none'):
+            with self.subTest(deny=deny),tempfile.TemporaryDirectory() as directory:
+                run=CodingRun(dict(C,stream=False),directory,'Push');events=[]
+                destination={'operation':'git_push_connect','cwd':directory,'remote':'origin','branch':'main','local_branch':'main','url':'https://example.invalid/repo','target':'refs/heads/main','commit':'a'*40}
+                git=Mock();git.push_destination.return_value=destination;git.push_preview.return_value={**destination,'operation':'git_push','previous':'b'*40};git.push_apply.side_effect=OSError('sensitive remote error')
+                replies=[Wire(chat(calls=[call('git_push',{'remote':'origin','branch':'main','local_branch':'main'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['operation']!=deny)
+                with patch('agentnik.git_service.GitService',return_value=git),patch.object(core,'open_request',side_effect=replies):run.run(emit)
+                if deny=='git_push_connect':git.push_preview.assert_not_called()
+                if deny!='none':git.push_apply.assert_not_called();self.assertEqual(events[-1]['status'],'completed')
+                else:git.push_apply.assert_called_once();self.assertEqual(events[-1]['status'],'failed');self.assertIn('outcome is uncertain',events[-1]['text']);self.assertNotIn('sensitive remote error',str(events))
+
+    def test_git_fetch_requires_both_approvals_and_returns_result(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            events=[];bodies=[];run=CodingRun(dict(C,stream=False),directory,'Fetch branch')
+            destination={'operation':'git_fetch_connect','cwd':directory,'remote':'origin','branch':'main','url':'https://example.invalid/repo','target':'refs/remotes/origin/main','previous':''}
+            proposal={**destination,'operation':'git_fetch','commit':'a'*40}
+            git=Mock();git.fetch_destination.return_value=destination;git.fetch_preview.return_value=proposal;git.fetch_apply.return_value={'fetched':True,'commit':'a'*40}
+            replies=[Wire(chat(calls=[call('git_fetch',{'remote':'origin','branch':'main'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':
+                    if event['proposal']['operation']=='git_fetch_connect':git.fetch_preview.assert_not_called()
+                    else:git.fetch_apply.assert_not_called()
+                    run.decide(event['fingerprint'],True)
+            with patch('agentnik.git_service.GitService',return_value=git),patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],['git_fetch_connect','git_fetch'])
+            git.fetch_apply.assert_called_once();self.assertIn('fetched',json.dumps(bodies[1]));self.assertEqual(events[-1]['status'],'completed')
+
+    def test_git_fetch_denial_stops_before_network_or_download(self):
+        from unittest.mock import Mock
+        for deny in ('git_fetch_connect','git_fetch'):
+            with self.subTest(deny=deny),tempfile.TemporaryDirectory() as directory:
+                run=CodingRun(dict(C,stream=False),directory,'Fetch');events=[]
+                destination={'operation':'git_fetch_connect','cwd':directory,'remote':'origin','branch':'main','url':'https://example.invalid/repo','target':'refs/remotes/origin/main','previous':''}
+                git=Mock();git.fetch_destination.return_value=destination;git.fetch_preview.return_value={**destination,'operation':'git_fetch','commit':'a'*40}
+                replies=[Wire(chat(calls=[call('git_fetch',{'remote':'origin','branch':'main'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],event['proposal']['operation']!=deny)
+                with patch('agentnik.git_service.GitService',return_value=git),patch.object(core,'open_request',side_effect=replies):run.run(emit)
+                git.fetch_apply.assert_not_called()
+                if deny=='git_fetch_connect':git.fetch_preview.assert_not_called()
+                self.assertEqual(events[-1]['status'],'completed')
+
+    def test_tool_argument_guidance_survives_protocol_adapters(self):
+        from agentnik import responses_tools,compat_tools
+        selected=[next(t for t in TOOLS if t.name==name) for name in ('apply_patch','update_plan','run_shell')]
+        for definitions in ([t.wire()['function'] for t in selected],responses_tools.wire_tools(selected),compat_tools.wire_tools(selected,'messages')):
+            by_name={item['name']:item for item in definitions}
+            schema=by_name['update_plan'].get('parameters',by_name['update_plan'].get('input_schema'))
+            self.assertIn('JSON array encoded as a string',schema['properties']['steps']['description'])
+            self.assertIn('not a unified diff',by_name['apply_patch']['description'])
+            self.assertIn('user approval',by_name['run_shell']['description'])
+            self.assertEqual(set(schema['required']),{'explanation','steps'})
+
     def test_git_remotes_tool_returns_redacted_local_configuration(self):
         from dulwich import porcelain
         with tempfile.TemporaryDirectory() as directory:
@@ -509,12 +571,25 @@ class ModelCoding(unittest.TestCase):
 
     def test_shell_rejects_visual_direction_controls_before_review(self):
         with tempfile.TemporaryDirectory() as directory:
-            events=[];reply=Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo \u202eevil'})],finish='tool_calls'),False)
-            with patch.object(core,'open_request',return_value=reply),patch('agentnik.shell.execute') as execute:
+            events=[];replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo \u202eevil'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute') as execute:
                 CodingRun(dict(C,stream=False),directory,'Run a command').run(events.append)
                 execute.assert_not_called()
             self.assertFalse(any(event['kind']=='operation_proposal' for event in events))
-            self.assertEqual(events[-1]['status'],'failed')
+            self.assertEqual(events[-1]['status'],'completed')
+
+    def test_invalid_arguments_reject_batch_and_allow_correction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('write_file',{'path':'new.txt','content':'first'}),call('read_file',{'path':42},'bad')],finish='tool_calls'),False),
+                     Wire(chat(calls=[call('write_file',{'path':'new.txt','content':'corrected'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(c,url,body,timeout):
+                bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Edit').run(events.append)
+            self.assertEqual(Path(directory,'new.txt').read_text(),'corrected')
+            self.assertIn('Every field must be a string',json.dumps(bodies[1]))
+            self.assertIn('not executed',json.dumps(bodies[1]))
+            self.assertEqual(events[-1]['status'],'completed')
 
     def test_google_block_allows_fetch_without_repeating_search(self):
         from agentnik.tools import ResearchError,Source

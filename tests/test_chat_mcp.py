@@ -84,6 +84,18 @@ class ChatMCPIntegration(unittest.TestCase):
             controller.invoke('mcp_call',{'request':json.dumps({'tool':'write','arguments':{}})},runtime)
         controller.bridge.request.assert_called_once();self.assertIn('Tool write failed. The call may have completed; inspect server state before retrying.',events)
 
+    def test_invalid_structured_output_reports_safe_reason_without_retry(self):
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock()
+        controller.tools=[{'name':'search','description_clipped':False,'schema_status':'available','schema':{'type':'object'},'output_schema_status':'available','output_schema':{'type':'object'}}]
+        controller.bridge.request.return_value={'call_result':{'content':[{'type':'text','text':'private-result'}]}}
+        events=[];runtime=Runtime();runtime.notify=lambda kind,detail:events.append(detail)
+        with self.assertRaisesRegex(ResearchError,'did not return a structured object'):
+            controller.invoke('mcp_call',{'request':json.dumps({'tool':'search','arguments':{}})},runtime)
+        controller.bridge.request.assert_called_once();self.assertNotIn('private-result',str(events));self.assertIn('may have completed',str(events))
+
     def test_nested_arguments_cannot_send_inference_or_mapped_credentials(self):
         from agentnik.chat_mcp import ChatMCP
         from agentnik.tools import Runtime,ResearchError

@@ -241,7 +241,8 @@ class RouteContracts(unittest.TestCase):
         cfg=config(); research.set_capability(cfg,C,'unknown','',field='hosted_search')
         _,order,_,_=self.execute(cfg=cfg); self.assertEqual(order,['managed'])
         cfg=config(dict(C,model='other'))
-        _,order,_,_=self.execute(cfg=cfg); self.assertEqual(order,[])
+        result,order,_,_=self.execute(cfg=cfg); self.assertEqual(order,[])
+        self.assertIn('In Web settings, enable managed tool requests',result['error'])
 
     def test_strict_navigation_disables_external_routes_before_submission(self):
         with patch.object(hosted,'run_hosted') as h,patch.object(research,'run_managed') as m:

@@ -6,8 +6,8 @@ from .web import PublicTransport,resolve_public
 
 DEFINITIONS=(
     ToolDefinition('parallel_place_search','request','Find places near a location with Parallel. JSON string: {"query":"...","location":"..."}, or provide latitude and longitude. Optional open_now, max_distance_km, max_results, mode (fast or advanced).',4000),
-    ToolDefinition('parallel_entity_search','request','Find people or companies with Parallel. JSON string: {"entity_type":"people or companies","objective":"..."}; optional match_limit. Results are candidates, not verified matches.',4000),
-    ToolDefinition('parallel_image_search','request','Find image URLs and source pages with Parallel. JSON string: {"search_queries":["..."],"objective":"..."}; optional location (country code), max_results, mode (fast or advanced).',4000),
+    ToolDefinition('parallel_entity_search','request','Find people or companies with Parallel. request is a JSON object encoded as a string, for example {"entity_type":"companies","objective":"..."}. entity_type must be "people" or "companies"; optional match_limit is an integer from 5 to 1000. Results are candidates, not verified matches.',4000),
+    ToolDefinition('parallel_image_search','request','Find image URLs and source pages with Parallel. request is a JSON object encoded as a string, for example {"search_queries":["..."],"objective":"..."}. search_queries requires 1–5 strings; objective, location (two-letter country code), max_results and mode (fast or advanced) are optional.',4000),
 )
 
 class ParallelTools:

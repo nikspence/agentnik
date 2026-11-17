@@ -125,6 +125,8 @@ def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=N
                 break
             notice('route_switch' if route!=order[-1] else 'route_stopped',route+' did not complete; '+('considering the next eligible route' if route!=order[-1] else 'policy permits no further route'))
         last=empty(); last['error']='No eligible research route completed; review the recorded reasons and settings'
+        if any(a.get('route')=='managed' and a.get('status')=='skipped' and 'managed_tools: unknown' in a.get('reason','') for a in attempts):
+            last['error']+='. In Web settings, enable managed tool requests for this endpoint/model if it supports tool calls.'
         return merged(last)
     except Exception as exc:
         value=last or empty(); value['status']='failed'; value['error']=str(exc)[:1000]

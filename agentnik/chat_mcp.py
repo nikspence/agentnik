@@ -86,12 +86,14 @@ class ChatMCP(QObject):
         if 'error' in response:
             notify('mcp','Tool '+tool['name']+' failed.'+(' The call may have completed; inspect server state before retrying.' if response.get('call_uncertain') else ''))
             raise ResearchError(response['error']+(' The call may have completed; inspect server state before retrying.' if response.get('call_uncertain') else ''))
-        try:
-            validate_tool_result(tool,response.get('call_result'))
-            result,user_text,user_nontext=model_tool_result(response['call_result'])
+        try:validate_tool_result(tool,response.get('call_result'))
+        except ValueError as exc:
+            reason=str(exc);notify('mcp','Tool '+tool['name']+': '+reason+' The call may have completed; inspect server state before retrying.')
+            raise ResearchError(reason+' The call may have completed; inspect server state before retrying.') from None
+        try:result,user_text,user_nontext=model_tool_result(response['call_result'])
         except ValueError:
-            notify('mcp','Tool '+tool['name']+' returned invalid output. The call may have completed; inspect server state before retrying.')
-            raise ResearchError('MCP output validation failed. The call may have completed; inspect server state before retrying.') from None
+            notify('mcp','Tool '+tool['name']+' returned invalid content or audience annotations. The call may have completed; inspect server state before retrying.')
+            raise ResearchError('MCP result content or audience annotations are invalid. The call may have completed; inspect server state before retrying.') from None
         notify('mcp','Tool '+tool['name']+(' reported an error.' if result.get('isError') is True else ' completed.'))
         if user_text:
             text='\n'.join(user_text);notify('mcp_user',text[:400]+(' [truncated]' if len(text)>400 else ''))

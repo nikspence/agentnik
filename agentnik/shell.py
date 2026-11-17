@@ -9,7 +9,7 @@ import time
 from .tools import LimitError
 
 MAX_OUTPUT = 32000
-MAX_SECONDS = 60
+MAX_SECONDS = 1800
 ENVIRONMENT_KEYS = {'PATH','SYSTEMROOT','WINDIR','COMSPEC','PATHEXT','TEMP','TMP','LANG','LC_ALL','LC_CTYPE','TERM'}
 _ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-_])')
 
@@ -84,7 +84,7 @@ def execute(command,cwd,runtime,environment=None,program=None):
             finally:process.stdout.close()
         reader=threading.Thread(target=drain,daemon=True);reader.start()
         runtime.check();process.stdin.write(command.encode('utf-8')+b'\n');process.stdin.close()
-        deadline=time.monotonic()+min(MAX_SECONDS,runtime.timeout())
+        deadline=min(time.monotonic()+MAX_SECONDS,runtime.started+runtime.limits.turn_seconds)
         while process.poll() is None:
             runtime.check()
             if time.monotonic()>=deadline:raise LimitError('Shell command time limit reached')

@@ -45,6 +45,127 @@ class GitServiceTests(unittest.TestCase):
             repo.close()
 
 
+class GitFetchTests(unittest.TestCase):
+    def test_https_transport_rejects_redirects_and_bounds_pack(self):
+        from unittest.mock import Mock
+        from agentnik.git_service import fetch_client
+        from dulwich.client import HttpGitClient,GitProtocolError
+        client=fetch_client('https://example.invalid/repo',lambda:None,10)
+        response=Mock(status=302,headers={},geturl=lambda:'https://example.invalid/repo')
+        with patch('urllib3.PoolManager.request',return_value=response) as request:
+            with self.assertRaises(GitProtocolError):client._http_request('https://example.invalid/repo')
+            self.assertFalse(request.call_args.kwargs['redirect']);self.assertFalse(request.call_args.kwargs['retries'])
+        def transfer(instance,path,wants,walker,write,**kwargs):write(b'12345')
+        with patch('agentnik.git_service.FETCH_PACK_LIMIT',4),patch.object(HttpGitClient,'fetch_pack',transfer):
+            with self.assertRaisesRegex(ValueError,'pack exceeds'):client.fetch_pack('path',lambda *_:[],None,lambda _:None)
+        def consume(pool,method,url,**kwargs):return list(kwargs['body'])
+        with patch('agentnik.git_service.PUSH_PACK_LIMIT',4),patch('urllib3.PoolManager.request',consume):
+            with self.assertRaisesRegex(ValueError,'Push request exceeds'):client.pool_manager.request('POST','https://example.invalid',body=iter([b'123',b'45']))
+
+    def test_fetch_review_and_stale_remote_or_tracking_reference(self):
+        from dulwich.client import LocalGitClient
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'source';target=root/'target';source.mkdir();target.mkdir()
+            remote=porcelain.init(str(source));local=porcelain.init(str(target))
+            try:
+                config=remote.get_config();config.set((b'user',),b'name',b'Test');config.set((b'user',),b'email',b'test@example.invalid');config.write_to_path()
+                (source/'file.txt').write_text('first');porcelain.add(remote,['file.txt']);porcelain.commit(remote,message=b'first',no_verify=True,sign=False)
+                branch=remote.refs.follow(b'HEAD')[0][-1].decode().removeprefix('refs/heads/')
+                config=local.get_config();config.set((b'remote',b'origin'),b'url',b'https://example.invalid/project.git');config.write_to_path()
+                service=GitService(ProjectFiles(target));calls=[]
+                class Fixture:
+                    def get_refs(self,path):calls.append('refs');return LocalGitClient().get_refs(str(source))
+                    def fetch(self,path,repo,**kwargs):calls.append('fetch');return LocalGitClient().fetch(str(source),repo,**kwargs)
+                with patch('agentnik.git_service.fetch_client',return_value=Fixture()):
+                    destination=service.fetch_destination('origin',branch);self.assertEqual(calls,[])
+                    proposal=service.fetch_preview(destination,lambda:None,10);self.assertEqual(proposal['commit'],remote.head().decode())
+                    result=service.fetch_apply(proposal,lambda:None,10)
+                    self.assertTrue(result['fetched']);self.assertEqual(local.refs[result['tracking_ref'].encode()],remote.head())
+                    self.assertFalse((target/'file.txt').exists())
+                    proposal=service.fetch_preview(service.fetch_destination('origin',branch),lambda:None,10)
+                    (source/'file.txt').write_text('second');porcelain.add(remote,['file.txt']);porcelain.commit(remote,message=b'second',no_verify=True,sign=False)
+                    with self.assertRaisesRegex(ValueError,'changed after review'):service.fetch_apply(proposal,lambda:None,10)
+                    proposal=service.fetch_preview(service.fetch_destination('origin',branch),lambda:None,10)
+                    local.refs[result['tracking_ref'].encode()]=remote.head()
+                    with self.assertRaisesRegex(ValueError,'changed after review'):service.fetch_apply(proposal,lambda:None,10)
+            finally:remote.close();local.close()
+
+    def test_fetch_rejects_credentials_and_unapproved_transports(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repo=porcelain.init(folder)
+            try:
+                config=repo.get_config();service=GitService(ProjectFiles(Path(folder)))
+                for url in (b'https://user:password@example.com/repo',b'https://example.com/repo?token=secret',b'http://example.com/repo',b'git@example.com:repo',b'/tmp/repo'):
+                    config.set((b'remote',b'origin'),b'url',url);config.write_to_path()
+                    with self.subTest(url=url),self.assertRaises(ValueError):service.fetch_destination('origin','main')
+            finally:repo.close()
+
+
+class GitPushTests(unittest.TestCase):
+    def test_unconfirmed_remote_status_is_not_reported_as_success(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);repo=porcelain.init(folder)
+            try:
+                config=repo.get_config();config.set((b'user',),b'name',b'Test');config.set((b'user',),b'email',b'test@example.invalid');config.set((b'remote',b'origin'),b'url',b'https://example.invalid/repo');config.write_to_path()
+                (root/'f').write_text('one');porcelain.add(repo,['f']);porcelain.commit(repo,message=b'one',no_verify=True,sign=False)
+                branch=repo.refs.follow(b'HEAD')[0][-1].decode().removeprefix('refs/heads/');service=GitService(ProjectFiles(root));destination=service.push_destination('origin','new',branch)
+                proposal={**destination,'operation':'git_push','previous':''};client=Mock();client.send_pack.return_value=Mock(ref_status=None)
+                with patch('agentnik.git_service.fetch_client',return_value=client):
+                    with self.assertRaisesRegex(ValueError,'did not confirm'):service.push_apply(proposal,lambda:None,10)
+            finally:repo.close()
+
+    def test_push_new_and_fast_forward_with_stale_checks(self):
+        from dulwich.client import LocalGitClient
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'source';target=root/'target';source.mkdir();target.mkdir()
+            local=porcelain.init(str(source));remote=porcelain.init(str(target),bare=True)
+            try:
+                config=local.get_config();config.set((b'user',),b'name',b'Test');config.set((b'user',),b'email',b'test@example.invalid');config.set((b'remote',b'origin'),b'url',b'https://example.invalid/project.git');config.write_to_path()
+                (source/'file.txt').write_text('first');porcelain.add(local,['file.txt']);porcelain.commit(local,message=b'first',no_verify=True,sign=False)
+                branch=local.refs.follow(b'HEAD')[0][-1].decode().removeprefix('refs/heads/');service=GitService(ProjectFiles(source));calls=[]
+                class Fixture:
+                    def get_refs(self,path):calls.append('refs');return LocalGitClient().get_refs(str(target))
+                    def send_pack(self,path,update_refs,generate_pack_data,progress=None):
+                        calls.append('push');result=LocalGitClient().send_pack(str(target),update_refs,generate_pack_data,progress=progress)
+                        if not result.ref_status:result.ref_status={name:None for name in result.refs}
+                        return result
+                with patch('agentnik.git_service.fetch_client',return_value=Fixture()):
+                    destination=service.push_destination('origin','main',branch);self.assertEqual(calls,[])
+                    proposal=service.push_preview(destination,lambda:None,10);self.assertEqual(proposal['previous'],'')
+                    result=service.push_apply(proposal,lambda:None,10);self.assertTrue(result['pushed']);self.assertEqual(remote.refs[b'refs/heads/main'],local.head())
+                    old=local.head();(source/'file.txt').write_text('second');porcelain.add(local,['file.txt']);porcelain.commit(local,message=b'second',no_verify=True,sign=False)
+                    proposal=service.push_preview(service.push_destination('origin','main',branch),lambda:None,10);self.assertEqual(proposal['previous'],old.decode())
+                    result=service.push_apply(proposal,lambda:None,10);self.assertEqual(remote.refs[b'refs/heads/main'],local.head())
+                    (source/'file.txt').write_text('third');porcelain.add(local,['file.txt']);porcelain.commit(local,message=b'third',no_verify=True,sign=False)
+                    proposal=service.push_preview(service.push_destination('origin','main',branch),lambda:None,10)
+                    remote.refs[b'refs/heads/main']=old
+                    with self.assertRaisesRegex(ValueError,'Remote branch changed'):service.push_apply(proposal,lambda:None,10)
+                    self.assertEqual(remote.refs[b'refs/heads/main'],old)
+                    proposal=service.push_preview(service.push_destination('origin','main',branch),lambda:None,10)
+                    (source/'file.txt').write_text('fourth');porcelain.add(local,['file.txt']);porcelain.commit(local,message=b'fourth',no_verify=True,sign=False)
+                    with self.assertRaisesRegex(ValueError,'local branch changed'):service.push_apply(proposal,lambda:None,10)
+            finally:local.close();remote.close()
+
+    def test_rejects_non_fast_forward(self):
+        from dulwich.client import LocalGitClient
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'source';target=root/'target';source.mkdir();target.mkdir();local=porcelain.init(str(source));remote=porcelain.init(str(target))
+            try:
+                for repo in (local,remote):
+                    c=repo.get_config();c.set((b'user',),b'name',b'Test');c.set((b'user',),b'email',b'test@example.invalid');c.write_to_path()
+                config=local.get_config();config.set((b'remote',b'origin'),b'url',b'https://example.invalid/repo');config.write_to_path()
+                for repo,path in ((local,source),(remote,target)):
+                    (path/'f').write_text(str(path));porcelain.add(repo,['f']);porcelain.commit(repo,message=b'initial',no_verify=True,sign=False)
+                branch=local.refs.follow(b'HEAD')[0][-1].decode().removeprefix('refs/heads/');remote_branch=remote.refs.follow(b'HEAD')[0][-1].decode().removeprefix('refs/heads/')
+                class Fixture:
+                    def get_refs(self,path):return LocalGitClient().get_refs(str(target))
+                with patch('agentnik.git_service.fetch_client',return_value=Fixture()):
+                    service=GitService(ProjectFiles(source))
+                    with self.assertRaisesRegex(ValueError,'fast-forward'):service.push_preview(service.push_destination('origin',remote_branch,branch),lambda:None,10)
+            finally:local.close();remote.close()
+
+
 class GitLocalWorkflow(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)

@@ -25,9 +25,6 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);window.show();app.processEvents()
                 tab=window.tabs.currentWidget()
-                self.assertFalse(tab.context_toggle.isChecked());self.assertTrue(tab.context_view.isHidden())
-                tab.context_toggle.setChecked(True);self.assertFalse(tab.context_view.isHidden())
-                tab.context_toggle.setChecked(False);self.assertTrue(tab.context_view.isHidden())
                 for number in range(120):tab.record('output','Activity line '+str(number))
                 app.processEvents();scroll=tab.activity.verticalScrollBar();self.assertGreater(scroll.maximum(),0)
                 self.assertEqual(scroll.value(),scroll.maximum())
@@ -220,11 +217,12 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 tab.job=MagicMock();tab.run_id='git-run'
-                for operation,label in [('git_stage','STAGE FILES'),('git_unstage','UNSTAGE FILES'),('git_create_branch','CREATE BRANCH'),('git_commit_staged','GIT COMMIT')]:
-                    proposal={'operation':operation,'cwd':str(project),'path':'one.txt','paths':['one.txt'],'diff':'-old\n+new\n','head':'a'*40,'name':'feature/review','identity':'Test <test@example.invalid>','message':'Reviewed snapshot'}
+                for operation,label in [('git_stage','STAGE FILES'),('git_unstage','UNSTAGE FILES'),('git_create_branch','CREATE BRANCH'),('git_commit_staged','GIT COMMIT'),('git_fetch_connect','CONNECT TO GIT REMOTE'),('git_fetch','FETCH GIT BRANCH'),('git_push_connect','CONNECT TO GIT PUSH DESTINATION'),('git_push','PUSH GIT BRANCH')]:
+                    proposal={'operation':operation,'cwd':str(project),'path':'one.txt','paths':['one.txt'],'diff':'-old\n+new\n','head':'a'*40,'name':'feature/review','identity':'Test <test@example.invalid>','message':'Reviewed snapshot','remote':'origin','branch':'main','local_branch':'main','url':'https://example.invalid/repo','commit':'a'*40,'target':'refs/remotes/origin/main','previous':''}
                     tab.receive({'run_id':'git-run','kind':'operation_proposal','fingerprint':operation,'proposal':proposal})
                     self.assertFalse(tab.approval_panel.isHidden());self.assertIn(label,tab.approval.toPlainText())
-                    self.assertEqual(tab.diff.isHidden(),operation=='git_create_branch');self.assertTrue(tab.advice_label.isHidden())
+                    self.assertEqual(tab.diff.isHidden(),operation in ('git_create_branch','git_fetch_connect','git_fetch','git_push_connect','git_push'));self.assertTrue(tab.advice_label.isHidden())
+                    if operation=='git_fetch':self.assertIn('a'*40,tab.approval.toPlainText());self.assertIn('refs/remotes/origin/main',tab.approval.toPlainText())
                     tab.decide(False);self.assertTrue(tab.approval_panel.isHidden())
                 tab.job=None;tab.run_id=None
             finally:window.close();app.processEvents();store.db.close()
@@ -559,7 +557,7 @@ class CodingWorkspace(unittest.TestCase):
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents()
                 reopened=window.tabs.currentWidget();self.assertEqual(reopened.roles['heavy'][1].text(),'my-heavy-coder')
                 self.assertEqual(reopened.roles['light'][1].text(),'my-light-coder');self.assertFalse(reopened.light_enabled.isChecked());self.assertIsNone(reopened.job)
-                self.assertIn('Created test.txt',reopened.context_view.toPlainText());self.assertFalse(reopened.use_context.isChecked())
+                self.assertIn('Created test.txt',reopened.session['coding_context']['answer']);self.assertFalse(reopened.use_context.isChecked())
                 reopened.use_context.setChecked(True);reopened.composer.setPlainText('Follow up');bodies=[]
                 def reply(c,url,body,timeout):bodies.append(body);return Wire(chat('Follow-up complete'),False)
                 with patch.object(core,'open_request',side_effect=reply):

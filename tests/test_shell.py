@@ -8,10 +8,17 @@ import unittest
 from unittest.mock import patch
 
 from agentnik import shell
-from agentnik.tools import Runtime
+from agentnik.tools import Limits,Runtime
 
 
 class ShellExecutor(unittest.TestCase):
+    def test_shell_uses_run_deadline_not_request_timeout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime=Runtime(limits=Limits(request_seconds=.1,turn_seconds=10))
+            command="Start-Sleep -Milliseconds 400; Write-Output 'done'" if os.name=='nt' else "sleep 0.4; printf done"
+            result=shell.execute(command,directory,runtime)
+            self.assertEqual(result['exit_code'],0);self.assertIn('done',result['output'])
+
     def test_output_is_bounded_and_environment_omits_credentials(self):
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'AGENTNIK_TEST_KEY':'secret-value'}):
             command="Write-Output 'shell-ok'; Write-Output ('x' * 40000)" if os.name=='nt' else "printf 'shell-ok\\n'; head -c 40000 /dev/zero | tr '\\0' x"

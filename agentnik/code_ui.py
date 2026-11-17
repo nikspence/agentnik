@@ -252,19 +252,14 @@ class CodeTab(QWidget):
         self.history_up.clicked.connect(lambda:self.navigate_prompt_history(-1));self.history_down.clicked.connect(lambda:self.navigate_prompt_history(1));self.composer.history_requested.connect(self.navigate_prompt_history)
         self.update_prompt_history_buttons()
         context=session.get('coding_context')
-        self.context_toggle=QPushButton(self.tr('Previous task and answer'));self.context_toggle.setCheckable(True);layout.addWidget(self.context_toggle)
-        self.context_view=QPlainTextEdit(self.context_text(context))
-        self.context_view.setReadOnly(True);self.context_view.setMaximumHeight(110);layout.addWidget(self.context_view);self.context_view.hide()
-        self.context_toggle.toggled.connect(self.context_view.setVisible)
-        self.use_context=QCheckBox(self.tr('Send previous task and answer with next run (up to 2,048 characters each)'));self.use_context.setEnabled(bool(context))
-        options=QHBoxLayout();layout.addLayout(options)
-        self.coding_context_button=QPushButton(self.tr('Coding context…'));self.coding_context_button.clicked.connect(self.edit_coding_context);options.addWidget(self.coding_context_button)
-        self.coding_auto_compact=QCheckBox(self.tr('Auto compact context'));self.coding_auto_compact.setToolTip(self.tr('Before a follow-up run, summarize a long previous task and answer using the selected Heavy model. This uses an additional model request.'));self.coding_auto_compact.setChecked(session.get('coding_auto_compact',True));self.coding_auto_compact.toggled.connect(self.save_coding_auto_compact);options.addWidget(self.coding_auto_compact)
+        self.use_context=QCheckBox(self.tr('Send previous context'));self.use_context.setToolTip(self.tr('Send the previous task and answer with the next run, up to 2,048 characters each.'));self.use_context.setEnabled(bool(context))
+        self.coding_context_button=QPushButton(self.tr('Coding context…'));self.coding_context_button.clicked.connect(self.edit_coding_context)
+        self.coding_auto_compact=QCheckBox(self.tr('Auto compact context'),self);self.coding_auto_compact.setToolTip(self.tr('Before a follow-up run, summarize a long previous task and answer using the selected Heavy model. This uses an additional model request.'));self.coding_auto_compact.setChecked(session.get('coding_auto_compact',True));self.coding_auto_compact.toggled.connect(self.save_coding_auto_compact);self.coding_auto_compact.hide()
         self.roles={}
         bindings=dict(session.get('coding_models',{}));bindings['decision']=session.get('coding_decision_model',{});bindings['alternate']=session.get('coding_subagent_model',{});bindings['alternate2']=session.get('coding_subagent_model_2',{})
-        self.model_toggle=QPushButton(self.tr('Models'));self.model_toggle.setCheckable(True);layout.addWidget(self.model_toggle)
-        self.model_panel=QWidget();model_layout=QVBoxLayout(self.model_panel);layout.addWidget(self.model_panel);self.model_panel.hide()
-        self.model_toggle.toggled.connect(self.model_panel.setVisible)
+        self.model_toggle=QPushButton(self.tr('Models…'))
+        self.model_panel=QDialog(self);self.model_panel.setWindowTitle(self.tr('Coding models'));self.model_panel.resize(850,500);model_layout=QVBoxLayout(self.model_panel)
+        self.model_toggle.clicked.connect(self.model_panel.exec)
         for role in ('heavy','light','alternate','alternate2','decision'):
             row=QHBoxLayout();model_layout.addLayout(row);row.addWidget(QLabel({'heavy':self.tr('Heavy model'),'light':self.tr('Light model'),'alternate':self.tr('Alternate subagent model (optional)'),'alternate2':self.tr('Second alternate subagent model (optional)'),'decision':self.tr('Decision model')}[role]))
             connection=QComboBox();connection.addItem(self.tr('Not configured'),'');
@@ -285,23 +280,27 @@ class CodeTab(QWidget):
         self.advice_enabled.setChecked(session.get('coding_advice_enabled',False));self.advice_enabled.toggled.connect(self.save_advice_enabled);model_layout.addWidget(self.advice_enabled)
         disclosure=QLabel(self.tr('When enabled, each shell proposal sends its command, working directory, shell, and environment variable names to the selected Decision endpoint. Environment values are not sent. Advice never approves a command.'))
         disclosure.setWordWrap(True);model_layout.addWidget(disclosure)
-        self.skills_button=QPushButton();self.skills_button.clicked.connect(self.choose_skills);options.addWidget(self.skills_button);self.refresh_skills_button()
-        self.tracks_button=QPushButton(self.tr('Spec & Plan…'));self.tracks_button.clicked.connect(self.show_tracks);options.addWidget(self.tracks_button)
-        self.memory_button=QPushButton(self.tr('Project memory…'));self.memory_button.clicked.connect(self.edit_project_memory);options.addWidget(self.memory_button)
-        self.notes_button=QPushButton(self.tr('Working notes…'));self.notes_button.clicked.connect(self.edit_working_notes);options.addWidget(self.notes_button)
-        self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);options.addWidget(self.skills_history_button)
-        self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setToolTip(self.tr('Allow Light delegation, parallel analysis, and independent reviews. Heavy may choose either configured alternate for parallel tasks or reviews; alternates are not fallbacks. Each project file sent to a subagent requires approval; optional read, glob, and grep tools only inspect approved snapshots. Run limits are shared.'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);options.addWidget(self.light_enabled);options.addWidget(self.use_context)
+        self.skills_button=QPushButton();self.skills_button.clicked.connect(self.choose_skills);self.refresh_skills_button()
+        self.tracks_button=QPushButton(self.tr('Spec & Plan…'));self.tracks_button.clicked.connect(self.show_tracks)
+        more_options=QHBoxLayout();layout.addLayout(more_options)
+        self.memory_button=QPushButton(self.tr('Project memory…'));self.memory_button.clicked.connect(self.edit_project_memory);more_options.addWidget(self.memory_button)
+        self.notes_button=QPushButton(self.tr('Working notes…'));self.notes_button.clicked.connect(self.edit_working_notes);more_options.addWidget(self.notes_button)
+        self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);more_options.addWidget(self.skills_history_button)
+        self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setToolTip(self.tr('Allow Light delegation, parallel analysis, and independent reviews. Heavy may choose either configured alternate for parallel tasks or reviews; alternates are not fallbacks. Each project file sent to a subagent requires approval; optional read, glob, and grep tools only inspect approved snapshots. Run limits are shared.'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);model_layout.insertWidget(0,self.light_enabled)
         self.light_enabled.toggled.connect(self.save_light_enabled)
-        self.save_review_progress=QCheckBox(self.tr('Save Heavy review progress'));self.save_review_progress.setToolTip(self.tr('Save approved Heavy-requested parallel batches and single structured reviews to this session before reviewer requests start. Unfinished passes reopen as interrupted.'));self.save_review_progress.setChecked(session.get('coding_save_review_progress',False));self.save_review_progress.toggled.connect(self.save_heavy_review_progress);options.addWidget(self.save_review_progress)
+        close_models=QPushButton(self.tr('Close'));close_models.clicked.connect(self.model_panel.accept);model_layout.addWidget(close_models)
+        preferences=QHBoxLayout();layout.addLayout(preferences);preferences.addWidget(self.use_context)
+        self.save_review_progress=QCheckBox(self.tr('Save Heavy review progress'));self.save_review_progress.setToolTip(self.tr('Save approved Heavy-requested parallel batches and single structured reviews to this session before reviewer requests start. Unfinished passes reopen as interrupted.'));self.save_review_progress.setChecked(session.get('coding_save_review_progress',False));self.save_review_progress.toggled.connect(self.save_heavy_review_progress);preferences.addWidget(self.save_review_progress)
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.'))
-        self.web_enabled.setChecked(session.get('coding_web_enabled',False));options.addWidget(self.web_enabled)
+        self.web_enabled.setChecked(session.get('coding_web_enabled',False));preferences.addWidget(self.web_enabled);preferences.addStretch()
         self.web_enabled.toggled.connect(self.save_web_enabled)
         mcp_row=QHBoxLayout();layout.addLayout(mcp_row);mcp_row.addWidget(QLabel(self.tr('MCP server for this run:')))
         self.mcp_choice=QComboBox();self.mcp_choice.setToolTip(self.tr('Optional MCP server for this run. MCP operations run without approval and may write data or perform other actions; tool results go to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
         saved_mcp=session.get('coding_mcp_selection',{});self.mcp_primary_ref=saved_mcp.get('primary');self.mcp_extra_refs=list(saved_mcp.get('extra',[]));self.mcp_extra=[ref['name'] for ref in self.mcp_extra_refs]
         self.mcp_extra_button=QPushButton(self.tr('Additional servers…'));self.mcp_extra_button.clicked.connect(self.choose_additional_mcp);mcp_row.addWidget(self.mcp_extra_button)
         self.mcp_refresh=QPushButton(self.tr('Refresh MCP'));self.mcp_refresh.clicked.connect(self.refresh_mcp_servers);mcp_row.addWidget(self.mcp_refresh);self.refresh_mcp_servers();self.mcp_choice.currentIndexChanged.connect(self.mcp_primary_changed)
-        self.limits_button=QPushButton(self.tr('Limits…'));self.limits_button.clicked.connect(self.configure_limits);options.addWidget(self.limits_button)
+        self.limits_button=QPushButton(self.tr('Limits…'));self.limits_button.clicked.connect(self.configure_limits);more_options.addWidget(self.limits_button)
+        more_options.addStretch();more_options.addWidget(self.coding_context_button);more_options.addWidget(self.skills_button);more_options.addWidget(self.tracks_button)
         self.sources_button=QPushButton();self.sources_button.clicked.connect(self.show_sources)
         run_row=QHBoxLayout();layout.addLayout(run_row)
         self.send=QPushButton(self.tr('Run'));self.send.clicked.connect(self.start_coding);run_row.addWidget(self.send)
@@ -389,10 +388,6 @@ class CodeTab(QWidget):
             if not self._closed:QMessageBox.warning(self,self.tr('Coding models'),self.tr('Model listing failed. You can enter an alias manually.'))
         self.model_jobs[role]=Job(lambda *_:core.models(c),done,failed)
 
-    def context_text(self,context):
-        if not context:return self.tr('No completed coding task available.')
-        return self.tr('Previous task:\n{task}\n\nPrevious answer:\n{answer}').format(task=context['task'],answer=context['answer'])
-
     def save_coding_auto_compact(self,enabled):
         self.session['coding_auto_compact']=bool(enabled);self.store.save(self.session);self.updated.emit()
 
@@ -402,6 +397,7 @@ class CodeTab(QWidget):
         context=self.session.get('coding_context');snapshot=self.session.get('coding_compaction')
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Coding context'));dialog.resize(700,520)
         layout=QVBoxLayout(dialog);hint=QLabel(self.tr('The previous task and answer are retained separately. A summary replaces them only when you enable previous context for a future run. Compaction uses the selected Heavy model and may omit details.'));hint.setWordWrap(True);layout.addWidget(hint)
+        layout.addWidget(self.coding_auto_compact);self.coding_auto_compact.show()
         layout.addWidget(QLabel(self.tr('Previous task and answer (JSON):')))
         original=QPlainTextEdit(json.dumps(context or {'task':'','answer':''},ensure_ascii=False,indent=2));layout.addWidget(original)
         layout.addWidget(QLabel(self.tr('Compacted summary:')))
@@ -427,13 +423,15 @@ class CodeTab(QWidget):
             if resume_editor:self.session['coding_resume']={**resume,**resume_value}
             if new_snapshot:self.session['coding_compaction']=new_snapshot
             else:self.session.pop('coding_compaction',None)
-            self.context_view.setPlainText(self.context_text(value));self.use_context.setEnabled(True);self.store.save(self.session);self.updated.emit();dialog.accept()
+            self.use_context.setEnabled(True);self.store.save(self.session);self.updated.emit();dialog.accept()
         def restore():summary.clear()
         def compact_now():
             if original.toPlainText()!=json.dumps(context or {'task':'','answer':''},ensure_ascii=False,indent=2):
                 QMessageBox.information(dialog,self.tr('Coding context'),self.tr('Save your edits before compacting.'));return
             dialog.accept();self.compact_coding_context()
-        save.clicked.connect(save_context);reset.clicked.connect(restore);compact.clicked.connect(compact_now);dialog.exec()
+        save.clicked.connect(save_context);reset.clicked.connect(restore);compact.clicked.connect(compact_now)
+        try:dialog.exec()
+        finally:self.coding_auto_compact.setParent(self);self.coding_auto_compact.hide()
 
     def compact_coding_context(self,auto_start=False,connection=None):
         from .context_compaction import coding_summary_input,coding_snapshot,coding_digest
@@ -1713,6 +1711,14 @@ class CodeTab(QWidget):
                 text=self.tr('{operation}\nProject: {cwd}\nFiles: {path}\nWorking files will remain unchanged. Review the index diff below.').format(operation=label,cwd=proposal['cwd'],path=proposal['path'])
             elif operation=='git_create_branch':
                 text=self.tr('CREATE BRANCH\nProject: {cwd}\nBranch: {name}\nStarting commit: {head}\nThe current branch will remain selected.').format(**proposal)
+            elif operation=='git_fetch_connect':
+                text=self.tr('CONNECT TO GIT REMOTE\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nBranch: {branch}\n\nAgentnik will contact this destination to inspect the branch. A separate approval is required before downloading objects or updating the tracking reference.').format(**proposal)
+            elif operation=='git_fetch':
+                text=self.tr('FETCH GIT BRANCH\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nBranch: {branch}\nCommit: {commit}\nTracking reference: {target}\nPrevious commit: {previous}\n\nThe tracking reference may move backward or diverge. Working files and local branches are not changed.').format(**proposal)
+            elif operation=='git_push_connect':
+                text=self.tr('CONNECT TO GIT PUSH DESTINATION\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nLocal branch: {local_branch}\nLocal commit: {commit}\nRemote branch: {branch}\n\nAgentnik will inspect the remote branch. A separate approval is required to send repository history and update it.').format(**proposal)
+            elif operation=='git_push':
+                text=self.tr('PUSH GIT BRANCH\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nLocal branch: {local_branch}\nCommit to send: {commit}\nRemote reference: {target}\nPrevious remote commit: {previous}\n\nThe server will receive the commits and repository objects needed for this update. Only a new branch or a verified fast-forward is permitted.').format(**proposal)
             elif operation=='project_memory':
                 text=self.tr('PROJECT MEMORY PROPOSAL\nProject: {project}\nReview the complete proposed entry and previous value below.').format(project=proposal['cwd'])+'\n\n'+json.dumps({'previous':proposal['previous'],'proposed':proposal['entry']},ensure_ascii=False,indent=2)
             elif operation=='run_shell':
@@ -1738,13 +1744,12 @@ class CodeTab(QWidget):
                 evidence='\n'.join(filter(None,[previous.get('evidence',''),recent,event['text'],json.dumps({'plan':self.session.get('coding_plan'),'sources':self.session.get('coding_sources',[])},ensure_ascii=True)]))
                 resume={'task':scrub(task,secrets)[:16000],'evidence':scrub(evidence,secrets)[-24000:],'images':list(self.job.images),'documents':scrub(copy.deepcopy(self.job.documents),secrets)};self.session['coding_resume']=resume
                 context={'task':plain(resume['task'])[:2048],'answer':plain(resume['evidence'])[-2048:]}
-                self.session['coding_context']=context;self.session.pop('coding_compaction',None);self.context_view.setPlainText(self.context_text(context))
+                self.session['coding_context']=context;self.session.pop('coding_compaction',None)
             if event['status']=='completed' and isinstance(self.job,CodingRun) and not getattr(self.job,'direct_review',False):
                 self.session.pop('coding_resume',None)
                 secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]
                 context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)
-                self.context_view.setPlainText(self.context_text(context))
                 self.use_context.setChecked(False)
             self.stop_subagents('stopped');self.session['code_state']='limited' if event.get('limited') else event['status'];self.finish();self.record(kind,event['text'])
             if event.get('usage'):self.record('usage',event['usage'])
