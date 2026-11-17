@@ -145,8 +145,8 @@ TOOLS=[CodeTool('list_skill_resources','List bounded relative resource paths for
        CodeTool('git_log','List the last 20 commits.',()),
        CodeTool('git_branches','List local branches.',()),
        CodeTool('git_remotes','Inspect remote names and configured transport types from local Git config without revealing URLs or connecting to remotes.',()),
-       CodeTool('git_fetch','Fetch one branch from a configured credential-free HTTPS remote. Requires approval to contact the destination, then separate approval of the exact commit and tracking reference. Does not change working files or local branches.',('remote','branch')),
-       CodeTool('git_push','Push one local branch to a named branch on a configured credential-free HTTPS remote. Only new branches or verified fast-forward updates are supported. Requires approval before connecting and a second approval for the exact destination, branch and commits. Never repeat an uncertain push without inspection and user direction.',('remote','branch','local_branch')),
+       CodeTool('git_fetch','Fetch one branch from a configured HTTPS remote without credentials in its URL. The user may enter an optional token privately during connection approval. Separate approval of the exact commit and tracking reference is required. Does not change working files or local branches.',('remote','branch')),
+       CodeTool('git_push','Push one local branch to a named branch on a configured HTTPS remote without credentials in its URL. The user may enter an optional token privately during connection approval. Only new branches or verified fast-forward updates are supported. Requires approval before connecting and a second approval for the exact destination, branch and commits. Never repeat an uncertain push without inspection and user direction.',('remote','branch','local_branch')),
        CodeTool('git_diff_staged','Review a UTF-8 file diff from HEAD to the staged index.',('path',)),
        CodeTool('git_stage','Propose staging explicit files, including deletions. paths is a JSON array encoded as a string. Requires approval.',('paths',)),
        CodeTool('git_unstage','Propose restoring explicit index entries to HEAD, preserving working files. paths is a JSON array encoded as a string. Requires approval.',('paths',)),
@@ -589,7 +589,7 @@ class CodingRun:
         self.limits=coding_limits(limits);self.plan=None
         self.unsupported_subagent_roles=set(unsupported_subagent_roles or ())
         if self.unsupported_subagent_roles-{'light','alternate','alternate2'}:raise ValueError('Invalid subagent capability roles')
-        self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
+        self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self._git_credentials=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
         if type(save_review_progress) is not bool:raise ValueError('Invalid review progress setting')
         self.save_review_progress=save_review_progress;self.manifest_ack=threading.Event();self.manifest_saved=False
 
@@ -597,7 +597,7 @@ class CodingRun:
         with self.lock:self.manifest_saved=saved is True;self.manifest_ack.set()
 
     def stop(self):
-        with self.lock:self.cancel.set();self.pending=None;self.mcp_run_allowed.clear();self.decision.set()
+        with self.lock:self.cancel.set();self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
 
     def cancel_subagent(self,ident):
         with self.lock:
@@ -605,14 +605,23 @@ class CodingRun:
             if self.cancel.is_set() or cancel is None or cancel.is_set():return False
             cancel.set();return True
 
-    def decide(self,fingerprint,approved,scope='once'):
+    def decide(self,fingerprint,approved,scope='once',git_credentials=None):
         with self.lock:
             if self.cancel.is_set() or not self.pending or self.pending[0]!=fingerprint or self.answer is not None or type(approved) is not bool or scope not in ('once','mcp_server_run'):return False
+            if git_credentials is not None:
+                if not approved or self.pending[1].get('operation') not in ('git_fetch_connect','git_push_connect') or not isinstance(git_credentials,tuple) or len(git_credentials)!=2:return False
+                username,token=git_credentials
+                if not isinstance(username,str) or not isinstance(token,str) or not 1<=len(username)<=256 or not 1<=len(token)<=4096 or ':' in username or any(not 33<=ord(ch)<=126 for ch in username+token):return False
+                self._git_credentials=git_credentials
             if scope=='mcp_server_run':
                 proposal=self.pending[1]
                 if not approved or proposal.get('operation') not in MCP_APPROVAL_OPERATIONS or proposal.get('server') not in {bridge.server['name'] for bridge in self.mcp_bridges}:return False
                 self.mcp_run_allowed.add(proposal['server'])
             self.answer=approved;self.decision.set();return True
+
+    def take_git_credentials(self):
+        with self.lock:
+            value=self._git_credentials;self._git_credentials=None;return value
 
     def review(self,proposal,emit,runtime,kind='edit_proposal'):
         fingerprint=hashlib.sha256(json.dumps({'run_id':self.run_id,'proposal':proposal},sort_keys=True).encode()).hexdigest()
@@ -1457,7 +1466,9 @@ class CodingRun:
                                 allowed=review(destination,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal')
                                 if not allowed:result={'pushed':False,'stage':'connection approval denied'}
                                 else:
-                                    try:proposal=git.push_preview(destination,runtime.check,min(30,runtime.timeout()))
+                                    credentials=self.take_git_credentials()
+                                    if credentials:secrets.append(credentials[1])
+                                    try:proposal=git.push_preview(destination,runtime.check,min(30,runtime.timeout()),credentials)
                                     except (InterruptedError,LimitError):raise
                                     except ValueError as exc:raise ProjectToolError(str(exc)) from None
                                     except Exception:raise ProjectToolError('Could not inspect the remote branch. Check HTTPS access; no push was submitted.') from None
@@ -1465,7 +1476,7 @@ class CodingRun:
                                     if not allowed:result={'pushed':False,'stage':'push approval denied'}
                                     else:
                                         event('output',text='Submitting approved Git push. If interrupted, inspect the remote before any retry.')
-                                        try:result=git.push_apply(proposal,runtime.check,min(30,runtime.timeout()))
+                                        try:result=git.push_apply(proposal,runtime.check,min(30,runtime.timeout()),credentials)
                                         except InterruptedError:raise
                                         except Exception:raise LimitError('Git push outcome is uncertain. The remote may have received data or changed; inspect the remote and ask the user before any retry.') from None
                                 event('output',text='Git push: '+json.dumps(result))
@@ -1476,13 +1487,15 @@ class CodingRun:
                                 allowed=review(destination,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal')
                                 if not allowed:result={'fetched':False,'stage':'connection approval denied'}
                                 else:
-                                    try:proposal=git.fetch_preview(destination,runtime.check,min(30,runtime.timeout()))
+                                    credentials=self.take_git_credentials()
+                                    if credentials:secrets.append(credentials[1])
+                                    try:proposal=git.fetch_preview(destination,runtime.check,min(30,runtime.timeout()),credentials)
                                     except (InterruptedError,LimitError):raise
                                     except Exception:raise ProjectToolError('Could not inspect the remote branch. Check the URL, connectivity and HTTPS access; no tracking reference was changed.') from None
                                     allowed=review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal')
                                     if not allowed:result={'fetched':False,'stage':'commit approval denied'}
                                     else:
-                                        try:result=git.fetch_apply(proposal,runtime.check,min(30,runtime.timeout()))
+                                        try:result=git.fetch_apply(proposal,runtime.check,min(30,runtime.timeout()),credentials)
                                         except (InterruptedError,LimitError):raise
                                         except Exception:raise LimitError('Git fetch did not complete. Objects may have been downloaded or the tracking reference may have changed; inspect repository state before retrying.') from None
                                 event('output',text='Git fetch: '+json.dumps(result))
@@ -1673,4 +1686,4 @@ class CodingRun:
         finally:
             for bridge in self.mcp_bridges:bridge.close_signal.emit()
             runtime.closed=True
-            with self.lock:self.pending=None;self.mcp_run_allowed.clear()
+            with self.lock:self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear()

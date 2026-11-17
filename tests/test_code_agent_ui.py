@@ -223,7 +223,11 @@ class CodingWorkspace(unittest.TestCase):
                     self.assertFalse(tab.approval_panel.isHidden());self.assertIn(label,tab.approval.toPlainText())
                     self.assertEqual(tab.diff.isHidden(),operation in ('git_create_branch','git_fetch_connect','git_fetch','git_push_connect','git_push'));self.assertTrue(tab.advice_label.isHidden())
                     if operation=='git_fetch':self.assertIn('a'*40,tab.approval.toPlainText());self.assertIn('refs/remotes/origin/main',tab.approval.toPlainText())
-                    tab.decide(False);self.assertTrue(tab.approval_panel.isHidden())
+                    if operation=='git_push_connect':
+                        self.assertFalse(tab.git_auth_row.isHidden());tab.git_username.setText('git-user');tab.git_token.setText('secret-token');tab.decide(True)
+                        self.assertEqual(tab.job.decide.call_args.kwargs['git_credentials'],('git-user','secret-token'));self.assertEqual(tab.git_token.text(),'');self.assertNotIn('secret-token',json.dumps(tab.session))
+                    else:tab.decide(False)
+                    self.assertTrue(tab.approval_panel.isHidden())
                 tab.job=None;tab.run_id=None
             finally:window.close();app.processEvents();store.db.close()
 

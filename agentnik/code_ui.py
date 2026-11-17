@@ -313,6 +313,10 @@ class CodeTab(QWidget):
         run_row.addWidget(self.sources_button);self.update_sources_button()
         self.approval_panel=QWidget();review=QVBoxLayout(self.approval_panel);layout.addWidget(self.approval_panel);self.approval_panel.hide()
         self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText(self.tr('Command approval preview'));review.addWidget(self.approval)
+        self.git_auth_row=QWidget();git_auth=QHBoxLayout(self.git_auth_row);git_auth.setContentsMargins(0,0,0,0)
+        git_auth.addWidget(QLabel(self.tr('Git username')));self.git_username=QLineEdit();self.git_username.setAccessibleName(self.tr('Git username'));git_auth.addWidget(self.git_username)
+        git_auth.addWidget(QLabel(self.tr('Token')));self.git_token=QLineEdit();self.git_token.setAccessibleName(self.tr('Git access token'));self.git_token.setEchoMode(QLineEdit.EchoMode.Password);git_auth.addWidget(self.git_token)
+        self.git_auth_row.setToolTip(self.tr('Optional HTTPS Basic authentication for this operation only. Credentials are not saved or sent to the model.'));review.addWidget(self.git_auth_row);self.git_auth_row.hide();self._git_auth_pending=False
         self.advice_label=QLabel();self.advice_label.setWordWrap(True);self.advice_label.setTextFormat(Qt.TextFormat.PlainText);review.addWidget(self.advice_label);self.advice_label.hide()
         actions=QHBoxLayout();review.addLayout(actions)
         self.approve=QPushButton(self.tr('Approve proposed step'));self.reject=QPushButton(self.tr('Reject proposed step'))
@@ -1659,6 +1663,7 @@ class CodeTab(QWidget):
                 sources.append({'id':ident,'title':plain(title)[:200],'url':url});self.store.save(self.session);self.update_sources_button()
             except (KeyError,TypeError,ValueError):return
         elif kind=='edit_proposal':
+            self._git_auth_pending=False;self.git_auth_row.hide();self.git_username.clear();self.git_token.clear()
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
             self.advice_fingerprint=None;self.advice_label.hide()
             proposal=event['proposal'];self.diff.setVisible(True);self.diff.setPlainText(proposal['diff'])
@@ -1666,6 +1671,7 @@ class CodeTab(QWidget):
             self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval for file edit: '+proposal['path'])
         elif kind=='operation_proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval';proposal=event['proposal'];operation=proposal['operation']
+            self._git_auth_pending=operation in ('git_fetch_connect','git_push_connect');self.git_username.clear();self.git_token.clear();self.git_auth_row.setVisible(self._git_auth_pending)
             from .code_agent import MCP_APPROVAL_OPERATIONS
             if operation in MCP_APPROVAL_OPERATIONS:
                 self.approve_mcp_run.show();self.approve_mcp_run.setEnabled(True)
@@ -1712,11 +1718,11 @@ class CodeTab(QWidget):
             elif operation=='git_create_branch':
                 text=self.tr('CREATE BRANCH\nProject: {cwd}\nBranch: {name}\nStarting commit: {head}\nThe current branch will remain selected.').format(**proposal)
             elif operation=='git_fetch_connect':
-                text=self.tr('CONNECT TO GIT REMOTE\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nBranch: {branch}\n\nAgentnik will contact this destination to inspect the branch. A separate approval is required before downloading objects or updating the tracking reference.').format(**proposal)
+                text=self.tr('CONNECT TO GIT REMOTE\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nBranch: {branch}\n\nOptionally enter a Git username and token below for this operation. They are sent only to this HTTPS origin and are not saved. Agentnik will inspect the branch. A separate approval is required before downloading objects or updating the tracking reference.').format(**proposal)
             elif operation=='git_fetch':
                 text=self.tr('FETCH GIT BRANCH\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nBranch: {branch}\nCommit: {commit}\nTracking reference: {target}\nPrevious commit: {previous}\n\nThe tracking reference may move backward or diverge. Working files and local branches are not changed.').format(**proposal)
             elif operation=='git_push_connect':
-                text=self.tr('CONNECT TO GIT PUSH DESTINATION\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nLocal branch: {local_branch}\nLocal commit: {commit}\nRemote branch: {branch}\n\nAgentnik will inspect the remote branch. A separate approval is required to send repository history and update it.').format(**proposal)
+                text=self.tr('CONNECT TO GIT PUSH DESTINATION\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nLocal branch: {local_branch}\nLocal commit: {commit}\nRemote branch: {branch}\n\nOptionally enter a Git username and token below for this operation. They are sent only to this HTTPS origin and are not saved. Agentnik will inspect the remote branch. A separate approval is required to send repository history and update it.').format(**proposal)
             elif operation=='git_push':
                 text=self.tr('PUSH GIT BRANCH\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nLocal branch: {local_branch}\nCommit to send: {commit}\nRemote reference: {target}\nPrevious remote commit: {previous}\n\nThe server will receive the commits and repository objects needed for this update. Only a new branch or a verified fast-forward is permitted.').format(**proposal)
             elif operation=='project_memory':
@@ -1756,14 +1762,23 @@ class CodeTab(QWidget):
 
     def decide(self,allowed,scope='once'):
         if self.advice_job:return
-        accepted=self.job and self.pending_fingerprint and (self.job.decide(self.pending_fingerprint,allowed,scope) if scope!='once' else self.job.decide(self.pending_fingerprint,allowed))
+        credentials=None
+        if allowed and self._git_auth_pending:
+            username=self.git_username.text();token=self.git_token.text()
+            if username or token:
+                if not username or not token or len(username)>256 or len(token)>4096 or ':' in username or any(not 33<=ord(ch)<=126 for ch in username+token):
+                    QMessageBox.warning(self,self.tr('Git credentials'),self.tr('Enter both a username and token using visible ASCII characters; usernames cannot contain a colon.'));return
+                credentials=(username,token)
+        accepted=self.job and self.pending_fingerprint and (self.job.decide(self.pending_fingerprint,allowed,git_credentials=credentials) if credentials else self.job.decide(self.pending_fingerprint,allowed,scope) if scope!='once' else self.job.decide(self.pending_fingerprint,allowed))
         if accepted:
+            self.git_username.clear();self.git_token.clear();self.git_auth_row.hide();self._git_auth_pending=False
             decision=self.pending_fingerprint;self.approve.setEnabled(False);self.reject.setEnabled(False);self.approve_mcp_run.setEnabled(False);self.approve_mcp_run.hide();self.pending_fingerprint=None
             self.advice_fingerprint=None
             self.approval_panel.hide();self.approval.clear();self.diff.clear()
             self.session['code_state']='running';self.record('decision',('Allowed MCP server for this run' if scope=='mcp_server_run' else 'Approved' if allowed else 'Rejected')+' proposal '+decision)
 
     def finish(self):
+        self.git_username.clear();self.git_token.clear();self.git_auth_row.hide();self._git_auth_pending=False
         if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
         self.advice_connection=None;self.advice_destination=''
         self.run_id=None;self.job=None;self.pending_fingerprint=None;self.advice_fingerprint=None

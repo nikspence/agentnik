@@ -19,13 +19,16 @@ FETCH_PACK_LIMIT=32_000_000
 PUSH_PACK_LIMIT=32_000_000
 
 
-def fetch_client(url,check,timeout):
-    """Public HTTPS only; disable proxies, redirects, retries and ambient credentials."""
+def fetch_client(url,check,timeout,credentials=None):
+    """HTTPS with optional ephemeral Basic authentication, bound to one origin."""
     import urllib3
     from dulwich.client import HttpGitClient
+    origin=urlsplit(url);expected_origin=(origin.scheme,origin.hostname,origin.port or 443)
     class Pool(urllib3.PoolManager):
         def request(self,method,url,**kwargs):
-            check();kwargs.update(redirect=False,retries=False)
+            check();target=urlsplit(url)
+            if target.username is not None or target.password is not None or (target.scheme,target.hostname,target.port or 443)!=expected_origin:raise ValueError('Git request changed origin')
+            kwargs.update(redirect=False,retries=False)
             body=kwargs.get('body')
             if body is not None and not isinstance(body,(bytes,str)):
                 def bounded_body():
@@ -54,7 +57,8 @@ def fetch_client(url,check,timeout):
                 if size>FETCH_PACK_LIMIT:raise ValueError('Fetch pack exceeds 32 MB limit')
                 return pack_data(data)
             return super().fetch_pack(path,determine_wants,graph_walker,write,**kwargs)
-    return Client(url,pool_manager=Pool(),timeout=timeout,thin_packs=False,quiet=True)
+    username,password=credentials if credentials else (None,None)
+    return Client(url,pool_manager=Pool(),timeout=timeout,thin_packs=False,quiet=True,username=username,password=password)
 
 
 class GitService:
@@ -101,21 +105,21 @@ class GitService:
             if part.is_symlink() or getattr(part,'is_junction',lambda:False)():raise ValueError('Linked Git references are unavailable')
         if (metadata/'packed-refs').is_symlink() or getattr(metadata/'packed-refs','is_junction',lambda:False)():raise ValueError('Linked Git references are unavailable')
 
-    def fetch_preview(self,proposal,check,timeout):
+    def fetch_preview(self,proposal,check,timeout,credentials=None):
         check()
         if self.fetch_destination(proposal['remote'],proposal['branch'])!=proposal:raise ValueError('Remote configuration or tracking reference changed after review')
-        client=fetch_client(proposal['url'],check,timeout)
+        client=fetch_client(proposal['url'],check,timeout,credentials)
         refs=client.get_refs(proposal['url']).refs;check()
         sha=refs.get(('refs/heads/'+proposal['branch']).encode())
         if not isinstance(sha,bytes) or not re.fullmatch(rb'[0-9a-f]{40}',sha):raise ValueError('Remote branch was not found or uses an unsupported object format')
         return {**proposal,'operation':'git_fetch','commit':sha.decode()}
 
-    def fetch_apply(self,proposal,check,timeout):
+    def fetch_apply(self,proposal,check,timeout,credentials=None):
         before={**proposal,'operation':'git_fetch_connect'};before.pop('commit')
         check()
         if self.fetch_destination(proposal['remote'],proposal['branch'])!=before:raise ValueError('Remote configuration or tracking reference changed after review')
         source=('refs/heads/'+proposal['branch']).encode();expected=proposal['commit'].encode();target=proposal['target'].encode()
-        client=fetch_client(proposal['url'],check,timeout)
+        client=fetch_client(proposal['url'],check,timeout,credentials)
         with self.repo() as repo:
             def wants(refs,*args,**kwargs):
                 check()
@@ -152,10 +156,12 @@ class GitService:
             if sha is None or not re.fullmatch(rb'[0-9a-f]{40}',sha) or not isinstance(repo[sha],Commit):raise ValueError('Local branch must name an existing direct commit')
             return {'operation':'git_push_connect','cwd':str(self.root),'remote':remote,'branch':branch,'local_branch':local_branch,'url':url,'commit':sha.decode(),'target':'refs/heads/'+branch}
 
-    def push_preview(self,destination,check,timeout):
+    def push_preview(self,destination,check,timeout,credentials=None):
         check()
         if self.push_destination(destination['remote'],destination['branch'],destination['local_branch'])!=destination:raise ValueError('Push destination or local branch changed after review')
-        refs=fetch_client(destination['url'],check,timeout).get_refs(destination['url']).refs;check()
+        try:refs=fetch_client(destination['url'],check,timeout,credentials).get_refs(destination['url']).refs
+        except ValueError:raise ValueError('Remote branch inspection returned an invalid response.') from None
+        check()
         old=refs.get(destination['target'].encode())
         if old is not None and (not isinstance(old,bytes) or not re.fullmatch(rb'[0-9a-f]{40}',old)):raise ValueError('Remote branch uses an unsupported object format')
         with self.repo() as repo:
@@ -175,12 +181,12 @@ class GitService:
         if old==destination['commit'].encode():raise ValueError('Remote branch already points to this commit')
         return {**destination,'operation':'git_push','previous':old.decode() if old else ''}
 
-    def push_apply(self,proposal,check,timeout):
+    def push_apply(self,proposal,check,timeout,credentials=None):
         before={**proposal,'operation':'git_push_connect'};before.pop('previous')
         check()
         if self.push_destination(proposal['remote'],proposal['branch'],proposal['local_branch'])!=before:raise ValueError('Push destination or local branch changed after review')
         target=proposal['target'].encode();expected=proposal['previous'].encode() if proposal['previous'] else None;commit=proposal['commit'].encode()
-        client=fetch_client(proposal['url'],check,timeout)
+        client=fetch_client(proposal['url'],check,timeout,credentials)
         with self.repo() as repo:
             def update(refs):
                 check()

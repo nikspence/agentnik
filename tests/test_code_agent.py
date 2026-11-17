@@ -88,6 +88,23 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_git_credentials_are_transient_and_do_not_reach_model_or_events(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Fetch');events=[];bodies=[]
+            destination={'operation':'git_fetch_connect','cwd':directory,'remote':'origin','branch':'main','url':'https://example.invalid/repo','target':'refs/remotes/origin/main','previous':''}
+            git=Mock();git.fetch_destination.return_value=destination;git.fetch_preview.return_value={**destination,'operation':'git_fetch','commit':'a'*40};git.fetch_apply.return_value={'fetched':True}
+            replies=[Wire(chat(calls=[call('git_fetch',{'remote':'origin','branch':'main'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':
+                    if event['proposal']['operation']=='git_fetch_connect':run.decide(event['fingerprint'],True,git_credentials=('user','secret-token'))
+                    else:run.decide(event['fingerprint'],True)
+            with patch('agentnik.git_service.GitService',return_value=git),patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(git.fetch_preview.call_args.args[-1],('user','secret-token'));self.assertEqual(git.fetch_apply.call_args.args[-1],('user','secret-token'))
+            self.assertNotIn('secret-token',json.dumps(events)+json.dumps(bodies));self.assertIsNone(run._git_credentials)
+
     def test_git_push_approval_and_uncertain_outcome_stops_run(self):
         from unittest.mock import Mock
         for deny in ('git_push_connect','git_push','none'):

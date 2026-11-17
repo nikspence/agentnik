@@ -46,6 +46,18 @@ class GitServiceTests(unittest.TestCase):
 
 
 class GitFetchTests(unittest.TestCase):
+    def test_git_credentials_are_sent_only_to_approved_https_origin(self):
+        from unittest.mock import Mock
+        from agentnik.git_service import fetch_client
+        client=fetch_client('https://example.invalid/repo',lambda:None,10,('testuser','secret-token'))
+        response=Mock(status=200,headers={},geturl=lambda:'https://example.invalid/repo')
+        with patch('urllib3.PoolManager.request',return_value=response) as request:
+            client._http_request('https://example.invalid/repo')
+            self.assertTrue(request.call_args.kwargs['headers']['authorization'].startswith('Basic '))
+            self.assertNotIn('secret-token',str(request.call_args.kwargs))
+            with self.assertRaisesRegex(ValueError,'changed origin'):client._http_request('https://other.invalid/repo')
+            self.assertEqual(request.call_count,1)
+
     def test_https_transport_rejects_redirects_and_bounds_pack(self):
         from unittest.mock import Mock
         from agentnik.git_service import fetch_client
