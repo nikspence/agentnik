@@ -10,7 +10,7 @@ from dulwich.file import GitFile
 from dulwich.index import write_index_dict
 from pathlib import Path
 from dulwich.repo import Repo
-from dulwich.objects import Blob, Commit
+from dulwich.objects import Blob, Commit, Tree
 from dulwich.index import index_entry_from_stat
 from dulwich.refs import check_ref_format
 from dulwich.ignore import IgnoreFilterManager
@@ -197,6 +197,107 @@ class GitService:
             check()
             if not isinstance(result.ref_status,dict) or target not in result.ref_status or result.ref_status[target] is not None:raise ValueError('Remote did not confirm the branch update')
         return {'pushed':True,'remote':proposal['remote'],'branch':proposal['branch'],'commit':proposal['commit'],'previous':proposal['previous']}
+
+    def remote_branches(self,check=lambda:None):
+        with self.repo() as repo:
+            names=sorted(repo.refs.keys(b'refs/remotes'));items=[];omitted=0
+            for name in names:
+                check();ref=b'refs/remotes/'+name
+                try:
+                    if not check_ref_format(ref):raise ValueError()
+                    self.check_fetch_ref(repo,ref);sha=repo.refs.read_ref(ref)
+                    if not isinstance(sha,bytes) or not re.fullmatch(rb'[0-9a-f]{40}',sha):raise ValueError()
+                    decoded=ref.decode('utf-8')
+                except (ValueError,UnicodeError,OSError):omitted+=1;continue
+                if len(items)>=128:omitted+=1;continue
+                items.append({'ref':decoded,'commit':sha.decode('ascii')})
+            return {'branches':items,'omitted':omitted,'notice':'Local remote-tracking references only; they may be stale. Symbolic or unsupported refs are omitted.'}
+
+    def checked_ref(self,repo,name):
+        if not isinstance(name,str) or not name.startswith(('refs/heads/','refs/remotes/')) or len(name.encode('utf-8'))>512:raise ValueError('Use exact refs/heads/... or refs/remotes/... reference names')
+        ref=name.encode('utf-8')
+        if not check_ref_format(ref):raise ValueError('Invalid branch reference')
+        self.check_fetch_ref(repo,ref);sha=repo.refs.read_ref(ref)
+        if not isinstance(sha,bytes) or not re.fullmatch(rb'[0-9a-f]{40}',sha):raise ValueError('Branch reference is missing, symbolic, or has an unsupported object format')
+        return sha
+
+    def ref_commits(self,repo,left,right):
+        left_sha=self.checked_ref(repo,left);right_sha=self.checked_ref(repo,right)
+        try:commits=(repo[left_sha],repo[right_sha])
+        except KeyError:raise ValueError('Branch commit is missing; fetch complete history first') from None
+        if not all(isinstance(commit,Commit) for commit in commits):raise ValueError('Branch reference does not point to a commit')
+        return left_sha,right_sha,commits
+
+    def check_ref_snapshot(self,repo,left,right,left_sha,right_sha):
+        if self.checked_ref(repo,left)!=left_sha or self.checked_ref(repo,right)!=right_sha:raise ValueError('Branch references changed during comparison; inspect them again')
+
+    def changed_files(self,left,right,check=lambda:None):
+        from dulwich.diff_tree import tree_changes
+        with self.repo() as repo:
+            check();left_sha,right_sha,commits=self.ref_commits(repo,left,right);items=[];omitted=0;truncated=False;scanned=0
+            try:
+                for change in tree_changes(repo.object_store,commits[0].tree,commits[1].tree):
+                    check();scanned+=1
+                    if scanned>2000:truncated=True;break
+                    entry=change.new if change.new is not None else change.old
+                    try:
+                        path=entry.path.decode('utf-8');self.files.path(path)
+                    except (ValueError,UnicodeError,OSError):omitted+=1;continue
+                    if len(items)>=128:truncated=True;break
+                    items.append({'path':path,'status':change.type,'left_mode':change.old.mode if change.old else None,'right_mode':change.new.mode if change.new else None})
+            except KeyError:raise ValueError('A branch tree is unavailable locally') from None
+            check();self.check_ref_snapshot(repo,left,right,left_sha,right_sha)
+            return {'left':{'ref':left,'commit':left_sha.decode()},'right':{'ref':right,'commit':right_sha.decode()},'changes':items,'omitted':omitted,'truncated':truncated,'notice':'Local committed trees only. Renames appear as deletion and addition; excluded paths are omitted. Tracking refs may be stale.'}
+
+    def diff_refs(self,left,right,path,check=lambda:None):
+        with self.repo() as repo:
+            self.files.path(path);key=self.key(path);check();left_sha,right_sha,commits=self.ref_commits(repo,left,right)
+            def file_at(commit):
+                def load_tree(sha):
+                    try:tree=repo.object_store[sha]
+                    except KeyError:raise ValueError('A branch tree is unavailable locally') from None
+                    if not isinstance(tree,Tree):raise ValueError('Invalid branch tree')
+                    return tree
+                try:mode,sha=load_tree(commit.tree).lookup_path(load_tree,key)
+                except KeyError:return None,None
+                if mode not in (0o100644,0o100755):raise ValueError('Only regular UTF-8 files can be compared')
+                try:blob=repo[sha]
+                except KeyError:raise ValueError('File content is unavailable locally') from None
+                if not isinstance(blob,Blob) or len(blob.data)>32000 or b'\x00' in blob.data:raise ValueError('File is binary, unavailable or exceeds the diff budget')
+                try:return blob.data.decode('utf-8'),mode
+                except UnicodeError:raise ValueError('Only UTF-8 files can be compared') from None
+            before,left_mode=file_at(commits[0]);after,right_mode=file_at(commits[1])
+            if before is None and after is None:raise ValueError('File does not exist in either branch')
+            result={'path':path,'left':{'ref':left,'commit':left_sha.decode(),'present':before is not None,'mode':left_mode},'right':{'ref':right,'commit':right_sha.decode(),'present':after is not None,'mode':right_mode},'diff':self.diff(before or '',after or '',path),'notice':'Local committed contents only; tracking refs may be stale. This does not authorize edits.'}
+            check();self.check_ref_snapshot(repo,left,right,left_sha,right_sha);return result
+
+    def compare_refs(self,left,right,check=lambda:None):
+        """Compare locally available branch histories without network access."""
+        with self.repo() as repo:
+            check()
+            if repo.get_shallow():raise ValueError('Cannot compare shallow history reliably; obtain complete history first')
+            left_sha=self.checked_ref(repo,left);right_sha=self.checked_ref(repo,right)
+            def ancestors(head):
+                pending=[head];seen=set()
+                while pending:
+                    check();sha=pending.pop()
+                    if sha in seen:continue
+                    if len(seen)>=10000:raise ValueError('Commit history exceeds comparison limit')
+                    try:commit=repo[sha]
+                    except KeyError:raise ValueError('Commit history is incomplete; fetch complete history first') from None
+                    if not isinstance(commit,Commit):raise ValueError('Branch history contains a non-commit object')
+                    if len(commit.parents)>128 or len(pending)+len(commit.parents)>20000:raise ValueError('Commit history exceeds comparison limit')
+                    seen.add(sha);pending.extend(commit.parents)
+                return seen
+            left_set=ancestors(left_sha);right_set=ancestors(right_sha)
+            self.check_ref_snapshot(repo,left,right,left_sha,right_sha)
+            left_only=left_set-right_set;right_only=right_set-left_set
+            def samples(items):
+                return [sha.decode('ascii') for sha in sorted(items)[:20]]
+            return {'left':{'ref':left,'commit':left_sha.decode(),'only_count':len(left_only),'example_commits':samples(left_only)},
+                    'right':{'ref':right,'commit':right_sha.decode(),'only_count':len(right_only),'example_commits':samples(right_only)},
+                    'relationship':('equal' if not left_only and not right_only else 'left_ahead' if left_only and not right_only else 'right_ahead' if right_only and not left_only else 'diverged'),
+                    'notice':'Local references and objects only; remote-tracking refs may be stale. Commit examples are sorted by ID, not time.'}
 
     def inspect(self, action, path=''):
         with self.repo() as repo:

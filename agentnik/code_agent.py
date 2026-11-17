@@ -113,6 +113,8 @@ FIELD_HELP={
     'remote':'Exact configured Git remote name, for example origin.',
     'branch':'Remote branch name without the refs/heads/ prefix, for example main.',
     'local_branch':'Local branch name without the refs/heads/ prefix.',
+    'left':'Exact local reference, such as refs/heads/main or refs/remotes/origin/main.',
+    'right':'Exact local reference to compare against left, such as refs/remotes/origin/main.',
     'model':'Configured reviewer model role: "light", "alternate", or "alternate2".',
 }
 FIELD_OVERRIDES={
@@ -144,6 +146,10 @@ TOOLS=[CodeTool('list_skill_resources','List bounded relative resource paths for
        CodeTool('git_diff','Review a UTF-8 file diff against HEAD.',('path',)),
        CodeTool('git_log','List the last 20 commits.',()),
        CodeTool('git_branches','List local branches.',()),
+       CodeTool('git_remote_branches','List up to 128 local remote-tracking branch references and commit IDs. These may be stale; this tool does not contact a remote.',()),
+       CodeTool('git_compare_refs','Compare two exact local branch or remote-tracking references, returning their commit IDs, ahead/behind counts and relationship. Uses only local Git objects; remote-tracking refs can be stale. Use git_fetch first if current remote state is needed. This does not contact a remote or modify files.',('left','right')),
+       CodeTool('git_changed_files','List bounded committed file changes from left to right between exact local branch or remote-tracking references. Renames appear as separate delete/add entries; protected paths are omitted. Uses local objects only, so tracking refs may be stale.',('left','right')),
+       CodeTool('git_diff_refs','Compare one project-relative UTF-8 file between exact local branch or remote-tracking references. The diff is from left to right; files must be at most 32 KB on each side. Uses local committed objects and does not authorize edits.',('left','right','path')),
        CodeTool('git_remotes','Inspect remote names and configured transport types from local Git config without revealing URLs or connecting to remotes.',()),
        CodeTool('git_fetch','Fetch one branch from a configured HTTPS remote without credentials in its URL. The user may enter an optional token privately during connection approval. Separate approval of the exact commit and tracking reference is required. Does not change working files or local branches.',('remote','branch')),
        CodeTool('git_push','Push one local branch to a named branch on a configured HTTPS remote without credentials in its URL. The user may enter an optional token privately during connection approval. Only new branches or verified fast-forward updates are supported. Requires approval before connecting and a second approval for the exact destination, branch and commits. Never repeat an uncertain push without inspection and user direction.',('remote','branch','local_branch')),
@@ -1459,7 +1465,14 @@ class CodingRun:
                         elif call.name.startswith('git_'):
                             from .git_service import GitService
                             git=GitService(files)
-                            if call.name=='git_push':
+                            if call.name=='git_remote_branches':result=git.remote_branches(runtime.check)
+                            elif call.name in ('git_compare_refs','git_changed_files','git_diff_refs'):
+                                try:
+                                    if call.name=='git_compare_refs':result=git.compare_refs(args['left'],args['right'],runtime.check)
+                                    elif call.name=='git_changed_files':result=git.changed_files(args['left'],args['right'],runtime.check)
+                                    else:result=git.diff_refs(args['left'],args['right'],args['path'],runtime.check)
+                                except (ValueError,OSError,UnicodeError) as exc:raise ProjectToolError(str(exc)) from None
+                            elif call.name=='git_push':
                                 try:destination=git.push_destination(args['remote'],args['branch'],args['local_branch'])
                                 except (ValueError,OSError,UnicodeError,KeyError) as exc:raise ProjectToolError('Invalid push destination or local branch: '+str(exc)) from None
                                 if any(secret and secret in destination['url'] for secret in secrets):raise ProjectToolError('Remote URL contains a configured credential; push is unavailable.')

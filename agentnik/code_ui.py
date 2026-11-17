@@ -313,10 +313,14 @@ class CodeTab(QWidget):
         run_row.addWidget(self.sources_button);self.update_sources_button()
         self.approval_panel=QWidget();review=QVBoxLayout(self.approval_panel);layout.addWidget(self.approval_panel);self.approval_panel.hide()
         self.approval=QPlainTextEdit();self.approval.setReadOnly(True);self.approval.setPlaceholderText(self.tr('Command approval preview'));review.addWidget(self.approval)
-        self.git_auth_row=QWidget();git_auth=QHBoxLayout(self.git_auth_row);git_auth.setContentsMargins(0,0,0,0)
+        self.git_auth_row=QWidget();git_auth_layout=QVBoxLayout(self.git_auth_row);git_auth_layout.setContentsMargins(0,0,0,0);git_auth=QHBoxLayout();git_auth_layout.addLayout(git_auth)
         git_auth.addWidget(QLabel(self.tr('Git username')));self.git_username=QLineEdit();self.git_username.setAccessibleName(self.tr('Git username'));git_auth.addWidget(self.git_username)
         git_auth.addWidget(QLabel(self.tr('Token')));self.git_token=QLineEdit();self.git_token.setAccessibleName(self.tr('Git access token'));self.git_token.setEchoMode(QLineEdit.EchoMode.Password);git_auth.addWidget(self.git_token)
-        self.git_auth_row.setToolTip(self.tr('Optional HTTPS Basic authentication for this operation only. Credentials are not saved or sent to the model.'));review.addWidget(self.git_auth_row);self.git_auth_row.hide();self._git_auth_pending=False
+        git_saved=QHBoxLayout();git_auth_layout.addLayout(git_saved)
+        self.git_remember_token=QCheckBox(self.tr('Save token in OS credential store'));git_saved.addWidget(self.git_remember_token)
+        self.git_load_token=QPushButton(self.tr('Use saved token'));self.git_load_token.clicked.connect(self.load_git_token);git_saved.addWidget(self.git_load_token)
+        self.git_forget_token=QPushButton(self.tr('Forget saved token'));self.git_forget_token.clicked.connect(self.forget_git_token);git_saved.addWidget(self.git_forget_token);git_saved.addStretch()
+        self.git_auth_row.setToolTip(self.tr('Optional HTTPS Basic authentication. Tokens are saved only if selected, and are not sent to the model.'));review.addWidget(self.git_auth_row);self.git_auth_row.hide();self._git_auth_pending=False;self._git_auth_url=''
         self.advice_label=QLabel();self.advice_label.setWordWrap(True);self.advice_label.setTextFormat(Qt.TextFormat.PlainText);review.addWidget(self.advice_label);self.advice_label.hide()
         actions=QHBoxLayout();review.addLayout(actions)
         self.approve=QPushButton(self.tr('Approve proposed step'));self.reject=QPushButton(self.tr('Reject proposed step'))
@@ -1663,7 +1667,7 @@ class CodeTab(QWidget):
                 sources.append({'id':ident,'title':plain(title)[:200],'url':url});self.store.save(self.session);self.update_sources_button()
             except (KeyError,TypeError,ValueError):return
         elif kind=='edit_proposal':
-            self._git_auth_pending=False;self.git_auth_row.hide();self.git_username.clear();self.git_token.clear()
+            self._git_auth_pending=False;self._git_auth_url='';self.git_auth_row.hide();self.git_username.clear();self.git_token.clear();self.git_remember_token.setChecked(False)
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval'
             self.advice_fingerprint=None;self.advice_label.hide()
             proposal=event['proposal'];self.diff.setVisible(True);self.diff.setPlainText(proposal['diff'])
@@ -1671,7 +1675,7 @@ class CodeTab(QWidget):
             self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval for file edit: '+proposal['path'])
         elif kind=='operation_proposal':
             self.pending_fingerprint=event['fingerprint'];self.session['code_state']='awaiting_approval';proposal=event['proposal'];operation=proposal['operation']
-            self._git_auth_pending=operation in ('git_fetch_connect','git_push_connect');self.git_username.clear();self.git_token.clear();self.git_auth_row.setVisible(self._git_auth_pending)
+            self._git_auth_pending=operation in ('git_fetch_connect','git_push_connect');self._git_auth_url=proposal.get('url','') if self._git_auth_pending else '';self.git_username.clear();self.git_token.clear();self.git_remember_token.setChecked(False);self.git_auth_row.setVisible(self._git_auth_pending)
             from .code_agent import MCP_APPROVAL_OPERATIONS
             if operation in MCP_APPROVAL_OPERATIONS:
                 self.approve_mcp_run.show();self.approve_mcp_run.setEnabled(True)
@@ -1718,11 +1722,11 @@ class CodeTab(QWidget):
             elif operation=='git_create_branch':
                 text=self.tr('CREATE BRANCH\nProject: {cwd}\nBranch: {name}\nStarting commit: {head}\nThe current branch will remain selected.').format(**proposal)
             elif operation=='git_fetch_connect':
-                text=self.tr('CONNECT TO GIT REMOTE\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nBranch: {branch}\n\nOptionally enter a Git username and token below for this operation. They are sent only to this HTTPS origin and are not saved. Agentnik will inspect the branch. A separate approval is required before downloading objects or updating the tracking reference.').format(**proposal)
+                text=self.tr('CONNECT TO GIT REMOTE\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nBranch: {branch}\n\nOptionally enter a Git username and token below. They are sent only to this HTTPS origin; save the token only if desired. Agentnik will inspect the branch. A separate approval is required before downloading objects or updating the tracking reference.').format(**proposal)
             elif operation=='git_fetch':
                 text=self.tr('FETCH GIT BRANCH\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nBranch: {branch}\nCommit: {commit}\nTracking reference: {target}\nPrevious commit: {previous}\n\nThe tracking reference may move backward or diverge. Working files and local branches are not changed.').format(**proposal)
             elif operation=='git_push_connect':
-                text=self.tr('CONNECT TO GIT PUSH DESTINATION\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nLocal branch: {local_branch}\nLocal commit: {commit}\nRemote branch: {branch}\n\nOptionally enter a Git username and token below for this operation. They are sent only to this HTTPS origin and are not saved. Agentnik will inspect the remote branch. A separate approval is required to send repository history and update it.').format(**proposal)
+                text=self.tr('CONNECT TO GIT PUSH DESTINATION\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nLocal branch: {local_branch}\nLocal commit: {commit}\nRemote branch: {branch}\n\nOptionally enter a Git username and token below. They are sent only to this HTTPS origin; save the token only if desired. Agentnik will inspect the remote branch. A separate approval is required to send repository history and update it.').format(**proposal)
             elif operation=='git_push':
                 text=self.tr('PUSH GIT BRANCH\nProject: {cwd}\nRemote: {remote}\nHTTPS destination: {url}\nLocal branch: {local_branch}\nCommit to send: {commit}\nRemote reference: {target}\nPrevious remote commit: {previous}\n\nThe server will receive the commits and repository objects needed for this update. Only a new branch or a verified fast-forward is permitted.').format(**proposal)
             elif operation=='project_memory':
@@ -1760,8 +1764,29 @@ class CodeTab(QWidget):
             self.stop_subagents('stopped');self.session['code_state']='limited' if event.get('limited') else event['status'];self.finish();self.record(kind,event['text'])
             if event.get('usage'):self.record('usage',event['usage'])
 
+    def load_git_token(self):
+        if not self._git_auth_pending:return
+        try:
+            from .git_credentials import load_token
+            token=load_token(self._git_auth_url,self.git_username.text())
+            if token is not None and (not isinstance(token,str) or not 1<=len(token)<=4096 or any(not 33<=ord(ch)<=126 for ch in token)):raise ValueError('Invalid saved token')
+        except Exception:
+            QMessageBox.warning(self,self.tr('Git credentials'),self.tr('Could not read the saved Git token. Check the username and OS credential store.'));return
+        if token is None:QMessageBox.information(self,self.tr('Git credentials'),self.tr('No saved token was found for this destination and username.'));return
+        self.git_token.setText(token)
+
+    def forget_git_token(self):
+        if not self._git_auth_pending:return
+        try:
+            from .git_credentials import delete_token
+            delete_token(self._git_auth_url,self.git_username.text())
+        except Exception:
+            QMessageBox.warning(self,self.tr('Git credentials'),self.tr('Could not remove the saved Git token. Check the username and OS credential store.'));return
+        self.git_token.clear();self.git_remember_token.setChecked(False)
+        QMessageBox.information(self,self.tr('Git credentials'),self.tr('The saved token for this destination and username was removed.'))
+
     def decide(self,allowed,scope='once'):
-        if self.advice_job:return
+        if self.advice_job or not self.job or not self.pending_fingerprint:return
         credentials=None
         if allowed and self._git_auth_pending:
             username=self.git_username.text();token=self.git_token.text()
@@ -1769,16 +1794,24 @@ class CodeTab(QWidget):
                 if not username or not token or len(username)>256 or len(token)>4096 or ':' in username or any(not 33<=ord(ch)<=126 for ch in username+token):
                     QMessageBox.warning(self,self.tr('Git credentials'),self.tr('Enter both a username and token using visible ASCII characters; usernames cannot contain a colon.'));return
                 credentials=(username,token)
+            if self.git_remember_token.isChecked():
+                if credentials is None:
+                    QMessageBox.warning(self,self.tr('Git credentials'),self.tr('Enter a username and token before saving.'));return
+                try:
+                    from .git_credentials import save_token
+                    save_token(self._git_auth_url,username,token)
+                except Exception:
+                    QMessageBox.warning(self,self.tr('Git credentials'),self.tr('Could not save the Git token in the OS credential store. Nothing was submitted.'));return
         accepted=self.job and self.pending_fingerprint and (self.job.decide(self.pending_fingerprint,allowed,git_credentials=credentials) if credentials else self.job.decide(self.pending_fingerprint,allowed,scope) if scope!='once' else self.job.decide(self.pending_fingerprint,allowed))
         if accepted:
-            self.git_username.clear();self.git_token.clear();self.git_auth_row.hide();self._git_auth_pending=False
+            self.git_username.clear();self.git_token.clear();self.git_remember_token.setChecked(False);self.git_auth_row.hide();self._git_auth_pending=False;self._git_auth_url=''
             decision=self.pending_fingerprint;self.approve.setEnabled(False);self.reject.setEnabled(False);self.approve_mcp_run.setEnabled(False);self.approve_mcp_run.hide();self.pending_fingerprint=None
             self.advice_fingerprint=None
             self.approval_panel.hide();self.approval.clear();self.diff.clear()
             self.session['code_state']='running';self.record('decision',('Allowed MCP server for this run' if scope=='mcp_server_run' else 'Approved' if allowed else 'Rejected')+' proposal '+decision)
 
     def finish(self):
-        self.git_username.clear();self.git_token.clear();self.git_auth_row.hide();self._git_auth_pending=False
+        self.git_username.clear();self.git_token.clear();self.git_remember_token.setChecked(False);self.git_auth_row.hide();self._git_auth_pending=False;self._git_auth_url=''
         if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
         self.advice_connection=None;self.advice_destination=''
         self.run_id=None;self.job=None;self.pending_fingerprint=None;self.advice_fingerprint=None

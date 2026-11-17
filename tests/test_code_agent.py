@@ -88,6 +88,25 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_compare_git_branches_is_read_only_and_model_can_correct_bad_ref(self):
+        from dulwich import porcelain
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);repo=porcelain.init(directory)
+            try:
+                config=repo.get_config();config.set((b'user',),b'name',b'Test');config.set((b'user',),b'email',b'test@example.invalid');config.write_to_path()
+                (root/'file').write_text('content');porcelain.add(repo,['file']);porcelain.commit(repo,message=b'initial',no_verify=True,sign=False)
+                branch=repo.refs.follow(b'HEAD')[0][-1].decode();repo.refs[b'refs/remotes/origin/main']=repo.head()
+                calls=[call('git_remote_branches',{}),call('git_compare_refs',{'left':'bad','right':'refs/remotes/origin/main'},'bad')]
+                good={'left':branch,'right':'refs/remotes/origin/main'}
+                replies=[Wire(chat(calls=calls,finish='tool_calls'),False),Wire(chat(calls=[call('git_compare_refs',good,'good'),call('git_changed_files',good,'files'),call('git_diff_refs',{**good,'path':'file'},'diff')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                bodies=[];events=[]
+                def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Compare branches').run(events.append)
+                self.assertIn('refs/remotes/origin/main',json.dumps(bodies[1]));self.assertIn('Use exact refs',json.dumps(bodies[1]));self.assertIn('"relationship": "equal"',json.dumps(bodies[2]).replace('\\"','"'))
+                self.assertIn('"changes": []',json.dumps(bodies[2]).replace('\\"','"'));self.assertIn('"path": "file"',json.dumps(bodies[2]).replace('\\"','"'))
+                self.assertFalse(any(event['kind']=='operation_proposal' for event in events));self.assertEqual(events[-1]['status'],'completed')
+            finally:repo.close()
+
     def test_git_credentials_are_transient_and_do_not_reach_model_or_events(self):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as directory:

@@ -224,8 +224,21 @@ class CodingWorkspace(unittest.TestCase):
                     self.assertEqual(tab.diff.isHidden(),operation in ('git_create_branch','git_fetch_connect','git_fetch','git_push_connect','git_push'));self.assertTrue(tab.advice_label.isHidden())
                     if operation=='git_fetch':self.assertIn('a'*40,tab.approval.toPlainText());self.assertIn('refs/remotes/origin/main',tab.approval.toPlainText())
                     if operation=='git_push_connect':
-                        self.assertFalse(tab.git_auth_row.isHidden());tab.git_username.setText('git-user');tab.git_token.setText('secret-token');tab.decide(True)
+                        self.assertFalse(tab.git_auth_row.isHidden());tab.git_username.setText('git-user')
+                        with patch('agentnik.git_credentials.load_token',return_value='secret-token') as load:
+                            tab.git_load_token.click();load.assert_called_once_with('https://example.invalid/repo','git-user')
+                        with patch('agentnik.git_credentials.delete_token') as delete,patch('agentnik.code_ui.QMessageBox.information'):
+                            tab.git_forget_token.click();delete.assert_called_once_with('https://example.invalid/repo','git-user');self.assertEqual(tab.git_token.text(),'')
+                        tab.git_token.setText('secret-token')
+                        tab.git_remember_token.setChecked(True)
+                        with patch('agentnik.git_credentials.save_token') as save:
+                            tab.decide(True);save.assert_called_once_with('https://example.invalid/repo','git-user','secret-token')
                         self.assertEqual(tab.job.decide.call_args.kwargs['git_credentials'],('git-user','secret-token'));self.assertEqual(tab.git_token.text(),'');self.assertNotIn('secret-token',json.dumps(tab.session))
+                    elif operation=='git_fetch_connect':
+                        tab.job.decide.reset_mock();tab.git_username.setText('git-user');tab.git_token.setText('secret-token');tab.git_remember_token.setChecked(True)
+                        with patch('agentnik.git_credentials.save_token',side_effect=RuntimeError('private')),patch('agentnik.code_ui.QMessageBox.warning') as warning:
+                            tab.decide(True);warning.assert_called_once();tab.job.decide.assert_not_called()
+                        self.assertFalse(tab.approval_panel.isHidden());self.assertNotIn('private',str(warning.call_args));tab.decide(False)
                     else:tab.decide(False)
                     self.assertTrue(tab.approval_panel.isHidden())
                 tab.job=None;tab.run_id=None

@@ -1,4 +1,17 @@
-# Agentnik v0.8.8
+# Agentnik v0.8.9
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.8.8
+
+- **Git workflows:** inspect and compare local and remote-tracking branches, list committed changes and inspect text diffs. Fetch and push a single branch over HTTPS with destination and exact-commit approvals. Optional Git tokens can be stored in the OS credential store for a specific destination and username. Push supports new branches and verified fast-forwards; live HTTPS compatibility remains unverified.
+- **Coding reliability:** malformed tool argument batches return corrective feedback to the model without executing the batch. Approved shell and test commands can run for up to 30 minutes within the overall run deadline.
+- **Code pane:** model roles and delegation settings open in a window, and automatic context compaction is managed in Coding context. Controls use less horizontal space.
+- **Research diagnostics:** research routing points to managed-tool configuration when needed, and MCP output validation reports more specific failure categories without automatically retrying uncertain calls.
+
+The offline suite ran 704 tests successfully, with one skipped, using mocked endpoints, temporary repositories and offscreen Qt. Build-host startup evidence is recorded in BUILD-MANIFEST.json. Live model and Git provider compatibility, clean-machine installation, full native workflows, macOS/Linux, signing and complete license review remain unverified.
+
+## Earlier release: v0.8.8
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 

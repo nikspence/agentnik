@@ -186,6 +186,62 @@ class GitLocalWorkflow(unittest.TestCase):
         (self.root/'one.txt').write_text('old\n');porcelain.add(self.repo,['one.txt']);porcelain.commit(self.repo,message=b'Initial',no_verify=True,sign=False)
         self.git=GitService(ProjectFiles(self.root))
 
+    def test_changed_files_and_diff_between_refs(self):
+        first=self.repo.head();self.repo.refs[b'refs/heads/before']=first
+        (self.root/'one.txt').write_text('new content\n');(self.root/'new.txt').write_text('added\n');(self.root/'.env').write_text('secret')
+        (self.root/'binary.dat').write_bytes(b'\0binary');porcelain.add(self.repo,['one.txt','new.txt','.env','binary.dat']);porcelain.commit(self.repo,message=b'second',no_verify=True,sign=False)
+        self.repo.refs[b'refs/remotes/origin/main']=self.repo.head()
+        left='refs/heads/before';right='refs/remotes/origin/main'
+        result=self.git.changed_files(left,right);by_path={item['path']:item for item in result['changes']}
+        self.assertEqual(by_path['one.txt']['status'],'modify');self.assertEqual(by_path['new.txt']['status'],'add');self.assertEqual(result['omitted'],1)
+        self.assertNotIn('.env',str(result));self.assertFalse(result['truncated'])
+        diff=self.git.diff_refs(left,right,'one.txt');self.assertIn('-old',diff['diff']);self.assertIn('+new content',diff['diff']);self.assertTrue(diff['left']['present'])
+        added=self.git.diff_refs(left,right,'new.txt');self.assertFalse(added['left']['present']);self.assertTrue(added['right']['present'])
+        for path in ('.env','../outside','binary.dat','missing'):
+            with self.subTest(path=path),self.assertRaises(ValueError):self.git.diff_refs(left,right,path)
+        self.assertEqual((self.root/'one.txt').read_text(),'new content\n')
+        (self.root/'one.txt').unlink();porcelain.rm(self.repo,['one.txt']);porcelain.commit(self.repo,message=b'delete',no_verify=True,sign=False)
+        self.repo.refs[b'refs/heads/deleted']=self.repo.head();deleted=self.git.changed_files(right,'refs/heads/deleted')
+        self.assertEqual(deleted['changes'][0]['status'],'delete')
+        self.assertFalse(self.git.diff_refs(right,'refs/heads/deleted','one.txt')['right']['present'])
+
+    def test_changed_file_listing_reports_truncation(self):
+        from dulwich.diff_tree import TreeChange
+        from dulwich.objects import TreeEntry
+        changes=(TreeChange.add(TreeEntry(('file%03d.txt'%i).encode(),0o100644,b'a'*40)) for i in range(130))
+        with patch('dulwich.diff_tree.tree_changes',return_value=changes):
+            branch=self.repo.refs.follow(b'HEAD')[0][-1].decode();result=self.git.changed_files(branch,branch)
+        self.assertEqual(len(result['changes']),128);self.assertTrue(result['truncated'])
+
+
+    def test_compare_branch_and_tracking_histories(self):
+        import copy
+        base=self.repo.head();base_commit=self.repo[base]
+        def new_commit(parent,message):
+            commit=copy.copy(base_commit);commit.parents=[parent];commit.message=message;self.repo.object_store.add_object(commit);return commit.id
+        first=new_commit(base,b'first');second=new_commit(first,b'second');other=new_commit(base,b'other')
+        self.repo.refs[b'refs/heads/work']=second;self.repo.refs[b'refs/remotes/origin/main']=first
+        result=self.git.compare_refs('refs/heads/work','refs/remotes/origin/main')
+        self.assertEqual(result['relationship'],'left_ahead');self.assertEqual(result['left']['only_count'],1);self.assertEqual(result['right']['only_count'],0)
+        self.assertEqual(result['left']['example_commits'],[second.decode()]);self.assertIn('may be stale',result['notice'])
+        self.repo.refs[b'refs/remotes/origin/main']=other
+        result=self.git.compare_refs('refs/heads/work','refs/remotes/origin/main')
+        self.assertEqual(result['relationship'],'diverged');self.assertEqual((result['left']['only_count'],result['right']['only_count']),(2,1))
+        self.assertEqual(self.git.compare_refs('refs/heads/work','refs/heads/work')['relationship'],'equal')
+        self.assertEqual(self.git.remote_branches()['branches'],[{'ref':'refs/remotes/origin/main','commit':other.decode()}])
+        with self.assertRaisesRegex(ValueError,'exact refs'):self.git.compare_refs('work','refs/heads/work')
+        self.repo.refs[b'refs/heads/missing']=b'a'*40
+        with self.assertRaisesRegex(ValueError,'incomplete'):self.git.compare_refs('refs/heads/missing','refs/heads/work')
+        (self.root/'.git'/'shallow').write_text(base.decode()+'\n')
+        with self.assertRaisesRegex(ValueError,'shallow'):self.git.compare_refs('refs/heads/work','refs/remotes/origin/main')
+
+    def test_compare_stops_if_ref_changes_during_scan(self):
+        base=self.repo.head();self.repo.refs[b'refs/heads/work']=base;calls=[0]
+        def change():
+            calls[0]+=1
+            if calls[0]==2:self.repo.refs[b'refs/heads/work']=b'b'*40
+        with self.assertRaisesRegex(ValueError,'changed during comparison'):self.git.compare_refs('refs/heads/work','refs/heads/work',change)
+
     def test_stage_staged_commit_preserves_later_working_edits(self):
         (self.root/'one.txt').write_text('staged\n',newline='\n')
         with patch('subprocess.Popen',side_effect=AssertionError('No subprocesses')):
