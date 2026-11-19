@@ -6,6 +6,8 @@ Agentnik's automated suite uses mocked endpoints, temporary data and offscreen Q
 
 These narrowly scoped observations are historical, not guarantees for current accounts, versions or other models:
 
+- The user reports completing live multi-file coding tasks with Qwen3-Coder-Next, Kimi V3.1 Pro, Qwen3.5 9B, Gemma 4 12B and DeepSeek V4.1 Flash, including tool calls and recovery from invalid arguments. Improved tool argument descriptions reduced errors for some models. These are user-reported results; endpoint details and transcripts were not available for independent verification. The user also reports Inkling-2-Small stopped immediately with a `ResearchError` on another computer; the cause and reproduction remain open.
+
 - An authorized LiteLLM gateway check completed streamed chat with `ollama-cloud/gpt-oss:20b` using Chat Completions, `chatgpt/gpt-6-luna` using Responses, and `us-west-2/google.gemma-3-4b-it` using Chat Completions. The first two also completed tool-call continuation with a synthetic local source.
 - A separate LiteLLM Responses check with `chatgpt/gpt-6-luna` completed managed research using Ollama search and a direct public-page fetch, then returned citations. It did not test hosted search or the native GUI.
 - Authorized adapter-only searches returned results from Brave, Firecrawl Keyless and LangSearch. These were not end-to-end model research or provider page-retrieval tests; one ambiguous LangSearch query returned irrelevant results, while a site-restricted follow-up returned relevant Qt pages.

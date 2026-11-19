@@ -918,6 +918,39 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             self.assertEqual(path.read_text(),'user change\n')
 
+    def test_multi_file_conflict_retains_first_edit_and_reports_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first=Path(directory,'a.txt');second=Path(directory,'b.txt')
+            first.write_text('old a\n');second.write_text('old b\n')
+            reads=[call('read_file',{'path':'a.txt'},'read-a'),call('read_file',{'path':'b.txt'},'read-b')]
+            edits=[call('write_file',{'path':'a.txt','content':'new a\n'},'edit-a'),call('write_file',{'path':'b.txt','content':'new b\n'},'edit-b')]
+            replies=[Wire(chat(calls=reads,finish='tool_calls'),False),Wire(chat(calls=edits,finish='tool_calls'),False),Wire(chat('Conflict noted.'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Update both');events=[];bodies=[]
+            def emit(event):
+                events.append(event)
+                if event.get('text','').startswith('Applying project edit: b.txt'):second.write_text('user change\n')
+            def send(connection,url,body,timeout):
+                bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(first.read_text(),'new a\n');self.assertEqual(second.read_text(),'user change\n')
+            results={item.get('tool_call_id'):json.loads(item['content']) for item in bodies[-1]['messages'] if item.get('role')=='tool'}
+            self.assertTrue(results['edit-a']['applied']);self.assertIn('error',results['edit-b'])
+            self.assertEqual(events[-1]['status'],'completed')
+
+    def test_multi_file_cancellation_retains_only_completed_edit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first=Path(directory,'a.txt');second=Path(directory,'b.txt')
+            first.write_text('old a\n');second.write_text('old b\n')
+            reads=[call('read_file',{'path':'a.txt'},'read-a'),call('read_file',{'path':'b.txt'},'read-b')]
+            edits=[call('write_file',{'path':'a.txt','content':'new a\n'},'edit-a'),call('write_file',{'path':'b.txt','content':'new b\n'},'edit-b')]
+            replies=[Wire(chat(calls=reads,finish='tool_calls'),False),Wire(chat(calls=edits,finish='tool_calls'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Update both')
+            def emit(event):
+                if event.get('text','').startswith('Applying project edit: b.txt'):run.stop()
+            with patch.object(core,'open_request',side_effect=replies) as endpoint:run.run(emit)
+            self.assertEqual(first.read_text(),'new a\n');self.assertEqual(second.read_text(),'old b\n')
+            self.assertEqual(endpoint.call_count,2)
+
     def test_heavy_can_delegate_to_light_using_a_different_protocol(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,protocol='responses',stream=False),directory,'Analyze',dict(C,protocol='messages',model='light',stream=False))

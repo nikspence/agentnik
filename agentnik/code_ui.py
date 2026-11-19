@@ -1831,7 +1831,9 @@ class CodeTab(QWidget):
             return
         if getattr(self,'_compaction_active',False):
             self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
-        self.job.stop()
+        job=self.job;job.stop()
+        usage=job.usage_text() if isinstance(job,CodingRun) and not getattr(job,'direct_review',False) else None
         for bridge in getattr(self.job,'mcp_bridges',[]):bridge.close()
         self.stop_subagents('cancelled');self.session['code_state']='cancelled';self.finish()
         self.record('cancelled','Run cancelled. No further tool work will be scheduled; project changes already applied are retained.')
+        if usage:self.record('usage',usage)

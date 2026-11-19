@@ -11,9 +11,37 @@ from agentnik import core
 from agentnik.storage import Store
 from test_routing import Wire
 from test_compat_tools import chat
-from test_code_agent import call
+from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_cancel_records_inflight_usage_and_ignores_late_events(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.code_agent import CodingRun
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            started=threading.Event();release=threading.Event()
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                run=CodingRun(dict(C,stream=False),str(project),'task')
+                def delayed(*args,**kwargs):started.set();release.wait(5);return Wire(chat('Late answer'),False)
+                with patch.object(core,'open_request',side_effect=delayed):
+                    tab.launch(run,'Started');deadline=time.monotonic()+3
+                    while not started.is_set() and time.monotonic()<deadline:app.processEvents();time.sleep(.01)
+                    self.assertTrue(started.is_set(),tab.activity.toPlainText());tab.cancel()
+                    self.assertIsNone(tab.job);self.assertEqual(tab.session['code_state'],'cancelled')
+                    saved=next(row for row in store.list_sessions() if row['id']==session['id'])
+                    self.assertIn('Heavy: 1 request(s), input unknown, output unknown tokens',saved['code_activity'][-1]['text'])
+                    tab.receive({'run_id':run.run_id,'kind':'finished','status':'completed','text':'Late answer','usage':'Usage: fabricated'})
+                    release.set();tab.worker.join(3);app.processEvents()
+                    self.assertEqual(tab.session['code_state'],'cancelled');self.assertNotIn('Late answer',json.dumps(tab.session))
+            finally:
+                release.set()
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_activity_follows_bottom_and_respects_scrolled_position(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QPoint

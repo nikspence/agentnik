@@ -13,6 +13,42 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_cancellation_counts_inflight_single_review(self):
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root)/'spec.md').write_text('SPEC',encoding='utf-8');started=threading.Event();release=threading.Event()
+            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False))
+            def send(connection,url,body,timeout):
+                if connection['model']=='light':started.set();release.wait(5);return Wire(chat('Late'),False)
+                return Wire(chat(calls=[call('review_document',{'path':'spec.md','model':'light'})],finish='tool_calls'),False)
+            def emit(event):
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(core,'open_request',side_effect=send):
+                worker=threading.Thread(target=run.run,args=(emit,));worker.start()
+                try:
+                    self.assertTrue(started.wait(3));run.stop();summary=run.usage_text()
+                    self.assertIn('Light: 1 request(s), input unknown, output unknown tokens',summary)
+                    self.assertIn('single review light: 1 request(s), input unknown, output unknown tokens',summary)
+                finally:release.set();worker.join(5)
+                self.assertFalse(worker.is_alive())
+
+    def test_cancellation_counts_inflight_parallel_requests_as_unknown(self):
+        with tempfile.TemporaryDirectory() as root:
+            started=[threading.Event(),threading.Event()];release=threading.Event();run=CodingRun(dict(C,stream=False),root,'Analyze',light=dict(C,model='light',stream=False),alternate=dict(C,model='other',stream=False));events=[]
+            def send(connection,url,body,timeout):
+                if connection['model'] in ('light','other'):
+                    started[connection['model']=='other'].set();release.wait(5);return Wire(chat('Late'),False)
+                return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['first',{'task':'second','model':'alternate'}])})],finish='tool_calls'),False)
+            with patch.object(core,'open_request',side_effect=send):
+                worker=threading.Thread(target=run.run,args=(events.append,));worker.start()
+                try:
+                    self.assertTrue(started[0].wait(3));self.assertTrue(started[1].wait(3));run.stop();summary=run.usage_text()
+                    self.assertIn('Heavy: 1 request(s), input 10, output 3 tokens',summary)
+                    self.assertIn('Light: 2 request(s), input unknown, output unknown tokens',summary)
+                    self.assertIn('parallel light: 1 request(s), input unknown, output unknown tokens',summary)
+                    self.assertIn('parallel alternate: 1 request(s), input unknown, output unknown tokens',summary)
+                finally:release.set();worker.join(5)
+                self.assertFalse(worker.is_alive())
+
     def test_single_review_usage_identifies_alternate_role(self):
         with tempfile.TemporaryDirectory() as root:
             (Path(root)/'spec.md').write_text('SPEC',encoding='utf-8');events=[];count=0
