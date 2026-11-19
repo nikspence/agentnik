@@ -602,6 +602,7 @@ class CodingRun:
         self.batch_review_usage={role:self._empty_usage() for role in ('light','alternate','alternate2')}
         if type(save_review_progress) is not bool:raise ValueError('Invalid review progress setting')
         self.save_review_progress=save_review_progress;self.manifest_ack=threading.Event();self.manifest_saved=False
+        self.show_thinking=False
 
     def acknowledge_manifest(self,saved):
         with self.lock:self.manifest_saved=saved is True;self.manifest_ack.set()
@@ -695,6 +696,12 @@ class CodingRun:
                 for key in ('input_tokens','output_tokens'):
                     value=metrics.get(key)
                     if type(value) in (int,float) and math.isfinite(value) and 0<=value<=2**63-1:totals[key]+=value;totals[key.replace('tokens','missing')]-=1
+            response=state.get('text','');thinking=state.get('thinking','') if self.show_thinking else ''
+            if isinstance(response,str) and response or isinstance(thinking,str) and thinking:
+                def bounded(value):
+                    value=scrub(value,secrets) if isinstance(value,str) else ''
+                    return value[:32000]+('\n[Response truncated in activity.]' if len(value)>32000 else '')
+                event('model_response',role=role,model=connection.get('model',''),text=bounded(response),thinking=bounded(thinking))
             return result
         usage_text=self.usage_text
         def event(kind,**data):
@@ -886,7 +893,7 @@ class CodingRun:
                 if protocol=='responses':body['input'].extend(assistant)
                 else:body['messages'].append(assistant)
                 if not calls:
-                    event('finished',status='completed',text=state.get('text','') or 'Coding turn completed.',usage=usage_text());return
+                    event('finished',status='completed',text=state.get('text','') or 'Coding turn completed.',response_shown=bool(state.get('text')),usage=usage_text());return
                 if round_number>=runtime.limits.rounds:raise LimitError('Coding tool round limit reached')
                 validated=[]
                 for call in calls:

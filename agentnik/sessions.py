@@ -168,6 +168,7 @@ def validate_session(value, ident=None):
             history=data['coding_prompt_history'];require(isinstance(history,list) and len(history)<=100)
             require(all(isinstance(prompt,str) and bool(prompt.strip()) for prompt in history) and sum(map(len,history))<=2_000_000)
         if 'coding_auto_compact' in data:require(type(data['coding_auto_compact']) is bool)
+        if 'coding_show_thinking' in data:require(type(data['coding_show_thinking']) is bool)
         if 'coding_compaction' in data:
             snapshot=data['coding_compaction'];require(isinstance(snapshot,dict) and set(snapshot)=={'digest','summary'})
             require(isinstance(snapshot['digest'],str) and len(snapshot['digest'])==64 and all(c in '0123456789abcdef' for c in snapshot['digest']))

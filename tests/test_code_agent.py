@@ -895,6 +895,22 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(events[-1]['status'],'failed')
             self.assertIn('Heavy: 1 request(s), input unknown, output unknown',events[-1]['usage'])
 
+    def test_model_responses_include_optional_redacted_thinking(self):
+        from types import SimpleNamespace
+        for show in (False,True):
+            with self.subTest(show=show),tempfile.TemporaryDirectory() as directory:
+                run=CodingRun(dict(C,api_key='private-key'),directory,'Analyze');run.show_thinking=show;events=[];count=0
+                def request(connection,body,runtime,emit,state):
+                    nonlocal count
+                    count+=1;state.update(text=('First private-key' if count==1 else 'Final'),thinking='Thought private-key',metrics={})
+                    calls=[SimpleNamespace(name='list_files',arguments={'path':'.'},id='one',provider={})] if count==1 else []
+                    return ({'role':'assistant','content':state['text']},calls)
+                with patch('agentnik.compat_tools.request',side_effect=request):run.run(events.append)
+                responses=[event for event in events if event['kind']=='model_response']
+                self.assertEqual(len(responses),2);self.assertIn('[redacted]',responses[0]['text']);self.assertNotIn('private-key',json.dumps(events))
+                self.assertEqual(responses[0]['thinking'],'Thought [redacted]' if show else '')
+                self.assertTrue(events[-1]['response_shown']);self.assertEqual(events[-1]['text'],'Final')
+
     def test_chat_reads_approves_and_applies_real_temp_file_edit(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'example.py';path.write_text('old\n')

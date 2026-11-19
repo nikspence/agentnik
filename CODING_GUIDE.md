@@ -1,6 +1,6 @@
 # Coding with Agentnik
 
-Agentnik's Code pane uses your configured model connections to inspect and change files in a selected local project. Coding compatibility has offline test coverage but has not yet been established with live models.
+Agentnik's Code pane uses your configured model connections to inspect and change files in a selected local project. See [validation](VALIDATION.md) for user-reported live coding results and their scope.
 
 ## Start a task
 
@@ -8,6 +8,8 @@ Agentnik's Code pane uses your configured model connections to inspect and chang
 2. Click **＋ Code**, choose **Add folder** if needed, select the project, and open it. A Git repository is optional. Opening a pane does not start inference.
 3. Select the **Heavy model** connection and enter its model alias, or use **Choose model…**. Optionally configure a separate **Light model** in the same way. You can use different connections and providers.
 4. Describe the task and select **Run coding task**. Project file changes apply without per-file approval and appear in activity. Review and approve or reject shell commands and other operations when prompted. Activity follows the bottom until you scroll up; return to the bottom to resume following. Each session retains up to 10,000 activity entries and 4 million text characters, trimming the oldest entries when needed. Long histories use a newer saved-session version; earlier Agentnik versions preserve these sessions as unavailable rather than rewriting them.
+
+Activity records each run's local start and end time and elapsed duration, along with completed Heavy and ordinary Light model responses, including intermediate responses before tool calls. Responses appear after each model request completes; up to 32,000 characters per response are retained, with a truncation notice. Enable **Show model thinking** before a run to show and save thinking supplied by the provider; it is off by default and some providers do not expose thinking. The setting is saved per Code pane. Model responses and enabled thinking become part of the saved activity history, with configured credentials redacted. Parallel subagent and review results continue to appear in their existing activity views.
 
 The Heavy model plans, reads project files, and makes changes. It may delegate bounded analysis to the configured Light model, which has no repository tools. Project contents read by Heavy can be sent to its endpoint, and delegated context can be sent to the Light endpoint. Choose services appropriate for the contents of your project.
 
@@ -179,7 +181,7 @@ The first subagent slice adds `delegate_parallel`: with Allow Light model delega
 
 For a child that makes multiple requests, its input or output total is unknown if any request lacks that count. Failed or cancelled children also report unknown usage; the run summary counts their submitted requests without treating missing tokens as zero. Known totals from other children remain identified as partial usage.
 
-The run summary also breaks down parallel-analysis, Heavy-requested single-review, and Heavy-requested batch-review accounting separately by configured role (`light`, `alternate`, and `alternate2`). These figures are included in the Light aggregate above them and must not be added to it. Ordinary Light delegation is not included in these breakdowns; per-child activity identifies the model used. Reviews stopped before submission are not counted as model requests. Cancellation of the whole run may leave no final summary.
+The run summary also breaks down parallel-analysis, Heavy-requested single-review, and Heavy-requested batch-review accounting separately by configured role (`light`, `alternate`, and `alternate2`). These figures are included in the Light aggregate above them and must not be added to it. Ordinary Light delegation is not included in these breakdowns; per-child activity identifies the model used. Reviews stopped before submission are not counted as model requests. Cancellation records a snapshot with unknown counts for in-flight usage.
 
 
 The two optional alternate subagent models in the Models window let Heavy select `light`, `alternate`, or `alternate2` for each parallel task; omitted roles use Light. Both require Allow Light model delegation and a configured Light model. Each task, selected Skills, scoped guidance and approved file snapshots go to the chosen endpoint. Each file-transfer approval names that task’s exact model and endpoint; configured credentials are redacted. An unavailable or unconfigured role fails without model fallback. Each alternate assignment is saved as a connection name and model alias, never its credentials.

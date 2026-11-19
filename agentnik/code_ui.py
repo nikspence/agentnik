@@ -6,6 +6,8 @@ import re
 import sqlite3
 import threading
 import uuid
+import time
+from datetime import datetime
 from urllib.parse import urlsplit
 from PySide6.QtCore import Qt,Signal,QObject,QUrl,QPoint,QTimer
 from PySide6.QtGui import QDesktopServices,QTextCursor
@@ -233,6 +235,8 @@ class CodeTab(QWidget):
         self.review_results_button=QPushButton(self.tr('Review findings…'));self.review_results_button.setEnabled(False);self.review_results_button.clicked.connect(self.show_review_results);subagent_actions.insertWidget(2,self.review_results_button)
         self.subagents_toggle.toggled.connect(self.subagents_view.setVisible);self.subagents_toggle.toggled.connect(self.subagents_controls.setVisible);self.subagents_view.hide();self.subagents_controls.hide();self.refresh_subagents()
         self.saved_reviews_button=QPushButton(self.tr('Saved review snapshots…'));self.saved_reviews_button.setEnabled(bool(session.get('coding_review_history')));self.saved_reviews_button.clicked.connect(self.show_saved_reviews);layout.addWidget(self.saved_reviews_button)
+        activity_options=QHBoxLayout();layout.addLayout(activity_options)
+        self.show_thinking=QCheckBox(self.tr('Show model thinking'));self.show_thinking.setToolTip(self.tr('Show and save thinking returned by the model in coding activity. Applies to the next run; not all providers expose thinking.'));self.show_thinking.setChecked(session.get('coding_show_thinking',False));self.show_thinking.toggled.connect(self.save_show_thinking);activity_options.addWidget(self.show_thinking);activity_options.addStretch()
         self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])));self.activity.setPlaceholderText(self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1);self._activity_selection_scroll=SelectionScroll(self.activity)
         self.activity.moveCursor(QTextCursor.MoveOperation.End)
         self._activity_revision=0;self._activity_initial_follow=True;self.activity.verticalScrollBar().actionTriggered.connect(self.activity_scrolled)
@@ -398,6 +402,9 @@ class CodeTab(QWidget):
 
     def save_coding_auto_compact(self,enabled):
         self.session['coding_auto_compact']=bool(enabled);self.store.save(self.session);self.updated.emit()
+
+    def save_show_thinking(self,enabled):
+        self.session['coding_show_thinking']=bool(enabled);self.store.save(self.session);self.updated.emit()
 
     def edit_coding_context(self):
         if self.job:return
@@ -1211,6 +1218,7 @@ class CodeTab(QWidget):
 
     def launch(self,run,notice):
         if isinstance(run,CodingRun):
+            run.show_thinking=self.show_thinking.isChecked()
             self.review_results.clear();self.review_dispositions.clear();self.review_progress_ids.clear();self.review_results_button.setEnabled(False)
             self.session['coding_subagents']=[];self.refresh_subagents()
             if not getattr(run,'direct_review',False):
@@ -1224,6 +1232,7 @@ class CodeTab(QWidget):
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
+        self._run_started_at=time.monotonic();self.record('timing',self.tr('Started: {time}').format(time=datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')))
         signals=self.events
         def work():
             try:run.run(signals.event.emit)
@@ -1743,6 +1752,13 @@ class CodeTab(QWidget):
             self.approval.setPlainText(text);self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval: '+operation+' '+proposal.get('path',''))
             if operation=='run_shell' and self.advice_connection:self.check_advice(proposal,self.pending_fingerprint)
         elif kind=='output':self.record(kind,event['text'])
+        elif kind=='model_response':
+            role=event.get('role','Model');model=event.get('model','')
+            for field,label in (('thinking',self.tr('Thinking')),('text',self.tr('Response'))):
+                value=event.get(field,'')
+                if not isinstance(value,str) or not value:continue
+                self.record('output',self.tr('{role} model {model} — {label}:').format(role=role,model=model,label=label))
+                for start in range(0,len(value),1800):self.record('output',value[start:start+1800])
         elif kind=='finished':
             if event.get('limited') and isinstance(self.job,CodingRun) and not getattr(self.job,'direct_review',False):
                 secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in self.job.web_backends]
@@ -1761,7 +1777,7 @@ class CodeTab(QWidget):
                 context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)
                 self.use_context.setChecked(False)
-            self.stop_subagents('stopped');self.session['code_state']='limited' if event.get('limited') else event['status'];self.finish();self.record(kind,event['text'])
+            self.stop_subagents('stopped');self.session['code_state']='limited' if event.get('limited') else event['status'];self.finish();self.record(kind,self.tr('Coding turn completed.') if event.get('response_shown') and event['status']=='completed' else event['text'])
             if event.get('usage'):self.record('usage',event['usage'])
 
     def load_git_token(self):
@@ -1811,6 +1827,10 @@ class CodeTab(QWidget):
             self.session['code_state']='running';self.record('decision',('Allowed MCP server for this run' if scope=='mcp_server_run' else 'Approved' if allowed else 'Rejected')+' proposal '+decision)
 
     def finish(self):
+        started=getattr(self,'_run_started_at',None)
+        if started is not None:
+            self._run_started_at=None
+            self.record('timing',self.tr('Ended: {time} · Elapsed: {elapsed:.1f} seconds').format(time=datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z'),elapsed=max(0,time.monotonic()-started)))
         self.git_username.clear();self.git_token.clear();self.git_remember_token.setChecked(False);self.git_auth_row.hide();self._git_auth_pending=False;self._git_auth_url=''
         if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
         self.advice_connection=None;self.advice_destination=''

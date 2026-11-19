@@ -14,6 +14,32 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_response_thinking_preference_and_run_timing_are_saved(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.code_agent import CodingRun
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.show_thinking.setChecked(True);run=CodingRun(dict(C,stream=False),str(project),'task')
+                def answer(connection,body,runtime,emit,state):
+                    state.update(text='Response text',thinking='Thought text',metrics={});return ({'role':'assistant','content':'Response text'},[])
+                with patch('agentnik.compat_tools.request',side_effect=answer):
+                    tab.launch(run,'Started');deadline=time.monotonic()+4
+                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+                    app.processEvents()
+                self.assertIsNone(tab.job);saved=next(row for row in store.list_sessions() if row['id']==session['id'])
+                activity='\n'.join(item['text'] for item in saved['code_activity'])
+                self.assertIn('Started: ',activity);self.assertIn('Ended: ',activity);self.assertIn('Elapsed: ',activity)
+                self.assertIn('Thought text',activity);self.assertEqual(activity.count('Response text'),1);self.assertTrue(saved['coding_show_thinking'])
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);self.assertTrue(window.tabs.currentWidget().show_thinking.isChecked())
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_cancel_records_inflight_usage_and_ignores_late_events(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

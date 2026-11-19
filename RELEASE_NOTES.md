@@ -1,4 +1,16 @@
-# Agentnik v0.8.9
+# Agentnik v0.8.10
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.8.9
+
+- **Coding activity:** run start, end and elapsed times appear in activity. Completed Heavy and ordinary Light responses are visible throughout a run; optional model-provided thinking can be saved per Code pane.
+- **Cancellation accounting:** cancelled coding runs retain a usage snapshot, with unavailable in-flight token counts marked unknown.
+- **Coding qualification:** the user reported successful live multi-file coding and invalid-argument recovery with five models. An Inkling-2-Small ResearchError remains unreproduced; see VALIDATION.md.
+
+The offline suite passed 711 tests with one skipped, using mocked endpoints and offscreen Qt. Build-host startup evidence is recorded in BUILD-MANIFEST.json; clean-machine installation, full native workflows, macOS/Linux, signing and a complete bundled-library license review remain open.
+
+## Earlier release: v0.8.9
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
