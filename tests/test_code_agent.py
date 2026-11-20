@@ -275,6 +275,30 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=replies):run.run(events.append)
             self.assertEqual(events[-1]['status'],'failed');self.assertTrue(events[-1]['limited']);self.assertEqual(run.goal_status,'active')
 
+    def test_model_protocol_failure_reports_safe_detail_without_provider_text(self):
+        from agentnik.tools import ResearchError
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False,api_key='private-secret'),directory,'Task');events=[]
+            with patch.object(core,'open_request',return_value=Wire({'choices':'invalid'},False)):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'failed');self.assertIn('Malformed completion choices',events[-1]['text'])
+            events=[];run=CodingRun(dict(C,stream=False,api_key='private-secret'),directory,'Task')
+            with patch.object(core,'open_request',return_value=Wire(chat('Partial',finish='private-secret'),False)):run.run(events.append)
+            self.assertRegex(events[-1]['text'],r'ResearchError at compat_tools\.py:\d+');self.assertNotIn('private-secret',json.dumps(events))
+            events=[];run=CodingRun(dict(C,stream=False,api_key='private-secret'),directory,'Task')
+            with patch('agentnik.compat_tools.request',side_effect=ResearchError('provider private-secret detail')):run.run(events.append)
+            self.assertIn('ResearchError',events[-1]['text']);self.assertNotIn('private-secret',json.dumps(events))
+
+    def test_responses_identity_conflict_reports_field_and_stage_without_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,protocol='responses',stream=True),directory,'Task');events=[]
+            original=dict(function_call(),id='private-original');changed=dict(original,id='private-replacement',arguments='{"query":"changed"}')
+            stream=[{'type':'response.output_item.added','output_index':0,'item':original},
+                    {'type':'response.completed','response':response([changed])}]
+            with patch.object(core,'open_request',return_value=Wire(stream)):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'failed')
+            self.assertIn('Responses function_call item identity conflict: id during response.completed (text to text)',events[-1]['text'])
+            self.assertNotIn('private-original',json.dumps(events));self.assertNotIn('private-replacement',json.dumps(events))
+
     def test_goal_objective_is_not_silently_truncated(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError,'16,000 characters'):CodingRun(dict(C,stream=False),directory,'x'*16001,goal=True)
@@ -1152,6 +1176,26 @@ class ModelCoding(unittest.TestCase):
             self.assertIn('Every field must be a string',json.dumps(bodies[1]))
             self.assertIn('not executed',json.dumps(bodies[1]))
             self.assertEqual(events[-1]['status'],'completed')
+
+    def test_malformed_call_is_not_replayed_as_invalid_json(self):
+        for protocol in ('responses','chat'):
+            with self.subTest(protocol=protocol),tempfile.TemporaryDirectory() as directory:
+                bodies=[];events=[];invalid='{"path":"a"}{"path":"b"}'
+                if protocol=='responses':
+                    bad=dict(function_call('bad'),name='read_file',arguments=invalid)
+                    good=dict(function_call('good'),name='write_file',arguments=json.dumps({'path':'new.txt','content':'do not write'}))
+                    replies=[Wire(response([bad,good]),False),Wire(response([message('Corrected')]),False)]
+                else:
+                    bad=call('read_file',{},'bad');bad['function']['arguments']=invalid
+                    good=call('write_file',{'path':'new.txt','content':'do not write'},'good')
+                    replies=[Wire(chat(calls=[bad,good],finish='tool_calls'),False),Wire(chat('Corrected'),False)]
+                def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,protocol=protocol,stream=False),directory,'Task').run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events);self.assertFalse(Path(directory,'new.txt').exists())
+                self.assertNotIn(invalid,json.dumps(bodies[1]));self.assertIn('not executed',json.dumps(bodies[1]));self.assertIn('Invalid tool arguments',json.dumps(bodies[1]))
+                if protocol=='responses':replayed=next(item['arguments'] for item in bodies[1]['input'] if item.get('call_id')=='bad' and item.get('type')=='function_call')
+                else:replayed=next(item['function']['arguments'] for msg in bodies[1]['messages'] for item in msg.get('tool_calls',[]) if item.get('id')=='bad')
+                self.assertEqual(replayed,'{}')
 
     def test_google_block_allows_fetch_without_repeating_search(self):
         from agentnik.tools import ResearchError,Source

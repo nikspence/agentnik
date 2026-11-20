@@ -57,6 +57,72 @@ class ResponsesIntegrity(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'after completion'):
             accumulator.feed({'type':'response.completed','response':response([item])})
 
+    def test_final_function_item_id_may_change_only_for_same_complete_call(self):
+        from agentnik.tools import ResearchError
+        original=dict(function_call(),id='stream-id');final=dict(original,id='final-id')
+        def finish(updated):
+            state={};accumulator=responses_tools.Accumulator(Runtime(),state,lambda _:None)
+            accumulator.feed({'type':'response.output_item.added','output_index':0,'item':original})
+            accumulator.feed({'type':'response.output_item.done','output_index':0,'item':original})
+            accumulator.feed({'type':'response.completed','response':response([updated])})
+            return state
+        self.assertEqual(finish(final)['output'],[final])
+        formatted=dict(final,arguments=json.dumps(json.loads(original['arguments']),indent=2))
+        self.assertEqual(finish(formatted)['output'],[formatted])
+        for change in ({'call_id':'other'},{'name':'other'},{'arguments':'{"query":"other"}'},{'call_id':''}):
+            with self.subTest(change=change),self.assertRaises(ResearchError):finish(dict(final,**change))
+
+    def test_reformatted_argument_comparison_rejects_ambiguous_json(self):
+        from agentnik.responses_tools import same_call_arguments
+        self.assertTrue(same_call_arguments('{"b":2,"a":1}','{ "a": 1, "b": 2 }'))
+        self.assertFalse(same_call_arguments('{"a":1,"a":2}','{"a":2}'))
+        self.assertFalse(same_call_arguments('{"a":true}','{"a":1}'))
+
+    def test_reordered_calls_are_correlated_and_changed_calls_are_rejected(self):
+        first=dict(function_call(),id='first');second=dict(function_call('call-2'),id='second')
+        def begin():
+            state={};accumulator=responses_tools.Accumulator(Runtime(),state,lambda _:None)
+            accumulator.feed({'type':'response.output_item.added','output_index':0,'item':first})
+            accumulator.feed({'type':'response.output_item.added','output_index':1,'item':second})
+            return state,accumulator
+        state,accumulator=begin();final=[dict(second,id='changed'),first]
+        accumulator.feed({'type':'response.completed','response':response(final)})
+        self.assertEqual(state['output'],final)
+        state,accumulator=begin()
+        with self.assertRaises(responses_tools.ResponseIdentityError) as caught:
+            accumulator.feed({'type':'response.completed','response':response([dict(second,id='changed',arguments='{"query":"changed"}'),first])})
+        self.assertTrue(caught.exception.other_match);self.assertEqual(caught.exception.call_fields['arguments'],'different')
+        empty=responses_tools.Accumulator(Runtime(),{},lambda _:None)
+        empty.feed({'type':'response.output_item.added','output_index':0,'item':{'type':'function_call','id':'stream'}})
+        with self.assertRaises(responses_tools.ResponseIdentityError) as caught:
+            empty.feed({'type':'response.completed','response':response([dict(first,id='final')])})
+        self.assertEqual(set(caught.exception.call_fields.values()),{'stream_missing'})
+
+    def test_reordered_call_batch_executes_each_once(self):
+        first=dict(function_call(),id='first');second=dict(function_call('call-2'),id='second');backend=Backend();bodies=[]
+        replies=[Wire([{'type':'response.output_item.added','output_index':0,'item':first},
+                       {'type':'response.output_item.added','output_index':1,'item':second},
+                       {'type':'response.completed','response':response([dict(second,id='final-second'),dict(first,id='final-first')])}]),
+                 Wire([{'type':'response.completed','response':response([message('Done')])}])]
+        def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,MESSAGES,'test-key',lambda _:None,threading.Event(),backend=backend)
+        self.assertEqual(result['status'],'ok');self.assertEqual(len(backend.searches),2)
+        self.assertEqual([item['call_id'] for item in bodies[1]['input'] if item.get('type')=='function_call_output'],['call-2','call-1'])
+
+    def test_reconciled_function_id_executes_once_and_continues(self):
+        original=dict(function_call(),id='stream-id');final=dict(original,id='final-id');backend=Backend();bodies=[]
+        replies=[Wire([{'type':'response.output_item.added','output_index':0,'item':original},
+                       {'type':'response.output_item.done','output_index':0,'item':original},
+                       {'type':'response.completed','response':response([final])}]),
+                 Wire([{'type':'response.completed','response':response([message('Done')])}])]
+        def send(connection,url,body,timeout):
+            bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):
+            result=research.run_managed(C,MESSAGES,'test-key',lambda _:None,threading.Event(),backend=backend)
+        self.assertEqual(result['status'],'ok');self.assertEqual(len(backend.searches),1)
+        outputs=[item for item in bodies[1]['input'] if item.get('type')=='function_call_output']
+        self.assertEqual([item['call_id'] for item in outputs],[original['call_id']])
+
     def test_multiblock_citations_remain_local_to_their_text(self):
         # The invalid first span fits the combined answer but exceeds its own block.
         output=message('abc',[citation(1,6)])

@@ -9,6 +9,40 @@ from . import core
 from .tools import LimitError,ResearchError,ToolCall,UncertainError
 
 
+class ResponseIdentityError(ResearchError):
+    """Conflicting locally classified identity fields; values remain private."""
+    def __init__(self,field,stage,previous,item,item_type,call_fields=None,other_match=False):
+        self.field=field
+        self.stage=stage if stage in ('output_item.added','output_item.done','response.completed','response.snapshot') else 'other'
+        self.item_type=item_type if item_type in ('message','reasoning','function_call','web_search_call') else 'other'
+        def shape(value):
+            if value is None:return 'null'
+            if isinstance(value,str):return 'empty' if not value else 'text'
+            return 'other'
+        self.shapes=(shape(previous),shape(item))
+        self.call_fields=call_fields or {}
+        self.other_match=bool(other_match)
+        super().__init__('Conflicting Responses item identity')
+
+
+def same_call_arguments(left,right):
+    if not isinstance(left,str) or not isinstance(right,str) or not left or not right:return False
+    if left==right:return True
+    def object_without_duplicates(pairs):
+        result={}
+        for key,value in pairs:
+            if key in result:raise ValueError('Duplicate key')
+            result[key]=value
+        return result
+    try:
+        def canonical(value):
+            parsed=json.loads(value,object_pairs_hook=object_without_duplicates,parse_constant=lambda _:(_ for _ in ()).throw(ValueError('Invalid constant')))
+            if not isinstance(parsed,dict):raise ValueError('Arguments must be an object')
+            return json.dumps(parsed,sort_keys=True,ensure_ascii=True,separators=(',',':'))
+        return canonical(left)==canonical(right)
+    except (ValueError,TypeError,RecursionError):return False
+
+
 def wire_tools(definitions):
     return [dict(type='function',name=d.name,description=d.description,
                  parameters=d.wire()['function']['parameters'],strict=True) for d in definitions]
@@ -60,15 +94,36 @@ class Accumulator:
         if stage not in self.search_stages:
             self.search_stages.add(stage); self.on_event('searching',stage[1])
 
-    def ingest_item(self,index,item):
+    def ingest_item(self,index,item,stage='other',previous_items=None):
         if not isinstance(item,dict) or item.get('type') not in ('message','reasoning','function_call','web_search_call'):
             raise ResearchError('Unexpected Responses output item')
         if len(json.dumps(item).encode())>self.runtime.limits.model_bytes: raise LimitError('Responses item byte limit reached')
         previous=self.items.get(index)
         if previous:
+            # Some gateways replace a function-call item's transport ID in the
+            # final snapshot. Only accept that change when the executable call
+            # itself is fully identified and unchanged; never infer correlation
+            # from the item ID alone or accept changed arguments.
+            def compare(key):
+                left,right=previous.get(key),item.get(key)
+                if not isinstance(left,str) or not left:return 'stream_missing'
+                if not isinstance(right,str) or not right:return 'final_missing'
+                equal=same_call_arguments(left,right) if key=='arguments' else left==right
+                return 'same' if equal else 'different'
+            comparison={key:compare(key) for key in ('call_id','name','arguments')}
+            other_match=any(other_index!=index and isinstance(other,dict) and other.get('type')=='function_call'
+                            and isinstance(item.get('call_id'),str) and item['call_id']
+                            and item['call_id']==other.get('call_id')
+                            for other_index,other in (previous_items or {}).items())
+            same_call=(stage=='response.completed' and previous.get('type')=='function_call'
+                       and item.get('type')=='function_call'
+                       and all(value=='same' for value in comparison.values()))
             for field in ('type','id','call_id','name'):
                 if field in previous and field in item and previous[field]!=item[field]:
-                    raise ResearchError('Conflicting Responses item identity')
+                    if field=='id' and same_call:continue
+                    raise ResponseIdentityError(field,stage,previous[field],item[field],item.get('type'),comparison if item.get('type')=='function_call' else None,other_match)
+            if stage=='response.completed' and previous.get('type')=='function_call' and previous.get('id')!=item.get('id') and not same_call:
+                raise ResponseIdentityError('id',stage,previous.get('id'),item.get('id'),item.get('type'),comparison,other_match)
         self.items[index]=copy.deepcopy(item)
         kind=item['type']
         if kind=='message':
@@ -130,16 +185,39 @@ class Accumulator:
                 if terminal or output or not self.parts:
                     previous_items=self.items
                     self.items={}; self.parts={}; self.annotations={}; self.thoughts={}
+                    # A gateway may reorder function calls in the completed
+                    # snapshot. Correlate only unique, nonempty call IDs and
+                    # verify the complete call before accepting a moved item.
+                    prior_calls={}
+                    if terminal:
+                        for prior_index,prior in previous_items.items():
+                            ident=prior.get('call_id') if isinstance(prior,dict) and prior.get('type')=='function_call' else None
+                            if isinstance(ident,str) and ident:
+                                if ident in prior_calls:raise ResearchError('Duplicate Responses call ID')
+                                prior_calls[ident]=prior_index
+                    final_ids=set()
+                    for item in output:
+                        ident=item.get('call_id') if isinstance(item,dict) and item.get('type')=='function_call' else None
+                        if isinstance(ident,str) and ident:
+                            if ident in final_ids:raise ResearchError('Duplicate Responses call ID')
+                            final_ids.add(ident)
+                    claimed=set()
                     for index,item in enumerate(output):
-                        if index in previous_items:
-                            self.items[index]=previous_items[index]
-                        self.ingest_item(index,item)
+                        ident=item.get('call_id') if isinstance(item,dict) and item.get('type')=='function_call' else None
+                        previous_index=prior_calls.get(ident,index) if isinstance(ident,str) and ident else index
+                        if previous_index in previous_items and previous_index not in claimed:
+                            prior=previous_items[previous_index]
+                            if previous_index!=index:
+                                if not (isinstance(prior.get('name'),str) and prior['name'] and prior['name']==item.get('name') and same_call_arguments(prior.get('arguments'),item.get('arguments'))):
+                                    raise ResponseIdentityError('id','response.completed',prior.get('id'),item.get('id'),'function_call',{'call_id':'same','name':'different' if prior.get('name')!=item.get('name') else 'same','arguments':'same' if same_call_arguments(prior.get('arguments'),item.get('arguments')) else 'different'},True)
+                            self.items[index]=prior;claimed.add(previous_index)
+                        self.ingest_item(index,item,'response.completed' if terminal else 'response.snapshot',previous_items)
         if typ=='response.output_item.added' and self.index(data) in self.items:
             raise ResearchError('Duplicate Responses output item')
         if typ in ('response.output_item.added','response.output_item.done'):
             index=self.index(data)
             if index in self.closed_items: raise ResearchError('Responses item after closure')
-            self.ingest_item(index,data.get('item'))
+            self.ingest_item(index,data.get('item'),typ.removeprefix('response.'))
             if typ.endswith('.done'): self.closed_items.add(index)
         elif typ in ('response.output_text.delta','response.output_text.done'):
             key=self.index(data),data.get('content_index',0)

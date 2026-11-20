@@ -10,6 +10,7 @@ from pathlib import Path
 import stat
 import tempfile
 import threading
+import traceback
 from concurrent.futures.thread import ThreadPoolExecutor
 from concurrent.futures import FIRST_COMPLETED, wait as wait_futures
 import time
@@ -37,6 +38,39 @@ class MovePartialError(Exception):
 class DirectoryMoveError(Exception):
     """Directory rename outcome needs inspection before retrying."""
     pass
+
+# Only fixed, locally authored messages are safe to persist. Provider-supplied
+# errors and interpolated values can contain credentials or private content.
+MODEL_PROTOCOL_ERRORS=frozenset({
+    'Provider stream error; restart explicitly', 'Malformed protocol response',
+    'Malformed completion choices', 'Multiple completion choices are not supported',
+    'Completion data after finish', 'Malformed completion choice',
+    'Unexpected completion choice index', 'Malformed completion delta',
+    'Malformed text delta', 'Malformed tool calls', 'Malformed tool call',
+    'Streamed tool call missing index', 'Unregistered tool type',
+    'Duplicate tool index in event', 'Malformed tool ID', 'Conflicting tool ID',
+    'Malformed function fragment', 'Inconsistent tool stop reason',
+    'Missing or duplicate tool identifier', 'Invalid tool name',
+    'Chat stream disconnected before completion',
+    'Messages disconnected before completion', 'Malformed streamed tool JSON',
+    'Unsupported content delta', 'Unexpected Messages event',
+    'Unregistered server content block', 'Thinking signature missing before tool continuation',
+    'Native streaming research requires NDJSON', 'Malformed native model response',
+    'Malformed native tool calls', 'Malformed native tool call',
+    'Malformed streamed tool arguments', 'Incomplete tool call',
+    'Unexpected Responses output item', 'Completed Responses object missing output',
+    'Malformed Responses event', 'Malformed Responses function call',
+    'Duplicate Responses call ID', 'Responses request did not complete; restart explicitly',
+})
+
+def protocol_error_location(exc):
+    """Identify a local parser failure without recording untrusted error text."""
+    allowed={'compat_tools.py','responses_tools.py','ollama_tools.py'}
+    for frame in reversed(traceback.extract_tb(exc.__traceback__)):
+        path=Path(frame.filename)
+        if path.name in allowed and path.parent.resolve()==Path(__file__).resolve().parent:
+            return path.name+':'+str(frame.lineno)
+    return None
 
 def subagent_task_identity(task,paths):
     normalized=unicodedata.normalize('NFKC',' '.join(task.split())).casefold()
@@ -979,7 +1013,7 @@ class CodingRun:
                         event('finished',status='blocked',text=self.goal_detail,usage=usage_text());return
                     event('finished',status='completed',text=state.get('text','') or 'Coding turn completed.',response_shown=bool(state.get('text')),usage=usage_text());return
                 if round_number>=runtime.limits.rounds:raise LimitError('Coding tool round limit reached')
-                validated=[]
+                validated=[];malformed_ids=set()
                 for call in calls:
                     runtime.charge('calls',1,runtime.limits.calls)
                     args=None;validation_error=None
@@ -998,8 +1032,21 @@ class CodingRun:
                     except LimitError:raise
                     except (ValueError,TypeError,UnicodeError,RecursionError):
                         validation_error='Invalid tool arguments. Supply a valid JSON object matching the tool definition.'
+                        if isinstance(call.arguments,str):
+                            try:json.loads(call.arguments)
+                            except (ValueError,TypeError,RecursionError):malformed_ids.add(call.id)
                     validated.append((call,args,validation_error))
                 batch_invalid=any(error for _,_,error in validated)
+                if malformed_ids:
+                    # Keep a correlated tool result, but never replay invalid JSON
+                    # to providers that parse prior assistant calls themselves.
+                    if protocol=='responses':
+                        for item in assistant:
+                            if item.get('type')=='function_call' and item.get('call_id') in malformed_ids:item['arguments']='{}'
+                    elif not native and protocol=='chat':
+                        for item in assistant.get('tool_calls',[]):
+                            if item.get('id') in malformed_ids:item['function']['arguments']='{}'
+                    event('output',text='Invalid JSON tool arguments were replaced with an empty object in continuation history; the batch was not executed.')
                 for call,args,error in validated:
                     if not batch_invalid:discover_arguments(args)
                 sync_guidance()
@@ -1641,7 +1688,15 @@ class CodingRun:
                 for message in pending_steering:emit({'run_id':self.run_id,'kind':'steering_undelivered','text':scrub(message,secrets)})
                 status=' HTTP '+str(exc.status) if isinstance(exc,core.EndpointError) else ' '+type(exc).__name__
                 known_google_error=isinstance(exc,ResearchError) and str(exc) in ('Google Search returned no recognizable results or requires a browser challenge','Google Search returned an unsupported response','Google Search blocked the request or requires a browser challenge')
-                reason=('Web research' if research_action else 'Coding')+' stopped ('+(str(exc) if isinstance(exc,(LimitError,SkillChangedError,MovePartialError,DirectoryMoveError)) or known_google_error else status.strip())+'). Project changes already applied are retained.'
+                known_model_error=isinstance(exc,ResearchError) and not research_action and str(exc) in MODEL_PROTOCOL_ERRORS
+                if isinstance(exc,responses_tools.ResponseIdentityError) and not research_action:
+                    status='Responses '+exc.item_type+' item identity conflict: '+exc.field+' during '+exc.stage+' ('+exc.shapes[0]+' to '+exc.shapes[1]+')'
+                    if exc.call_fields:status+='; '+', '.join(key+' '+exc.call_fields[key] for key in ('call_id','name','arguments'))
+                    if exc.other_match:status+='; call_id matches another streamed item'
+                if isinstance(exc,ResearchError) and not isinstance(exc,LimitError) and not research_action and not known_model_error:
+                    location=protocol_error_location(exc)
+                    if location and not isinstance(exc,responses_tools.ResponseIdentityError):status+=' at '+location
+                reason=('Web research' if research_action else 'Coding')+' stopped ('+(str(exc) if isinstance(exc,(LimitError,SkillChangedError,MovePartialError,DirectoryMoveError)) or known_google_error or known_model_error else status.strip())+'). Project changes already applied are retained.'
                 event('finished',status='failed',limited=isinstance(exc,LimitError),text=reason,usage=usage_text())
         finally:
             for bridge in self.mcp_bridges:bridge.close_signal.emit()
