@@ -258,7 +258,7 @@ class CodeTab(QWidget):
         self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);more_options.addWidget(self.skills_history_button)
         close_models=QPushButton(self.tr('Close'));close_models.clicked.connect(self.model_panel.accept);model_layout.addWidget(close_models)
         preferences=QHBoxLayout();layout.addLayout(preferences);preferences.addWidget(self.use_context)
-        self.goal_enabled=QCheckBox(self.tr('Pursue as goal'));self.goal_enabled.setToolTip(self.tr('Keep taking the next step until the objective is complete, blocked, stopped, or a run limit is reached.'));self.goal_enabled.setChecked(session.get('coding_last_run_goal',True) and session.get('coding_goal',{}).get('status') in ('active','limited','paused','blocked','interrupted'));preferences.addWidget(self.goal_enabled)
+        self.goal_enabled=QCheckBox(self.tr('Pursue as goal'));self.goal_enabled.setToolTip(self.tr('Keep taking the next step until the objective is complete, blocked, stopped, or a run limit is reached.'));self.goal_enabled.setChecked(session.get('coding_last_run_goal',True) and session.get('coding_goal',{}).get('status') in ('active','limited','paused','blocked','interrupted','failed'));preferences.addWidget(self.goal_enabled)
         self.shell_auto=QCheckBox(self.tr('Run shell commands without approval'));self.shell_auto.setToolTip(self.tr('Shell and test commands run with your account permissions, including network access and files outside the project. This setting can be changed during a run.'));preferences.addWidget(self.shell_auto);self.shell_auto.toggled.connect(self.change_shell_approval)
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.'))
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));preferences.addWidget(self.web_enabled);preferences.addStretch()
@@ -1142,7 +1142,7 @@ class CodeTab(QWidget):
 
     def can_continue(self):
         state=self.session.get('code_state')
-        if self.session.get('coding_last_run_goal',True) and self.session.get('coding_goal',{}).get('status')==state and state in ('limited','paused','blocked','interrupted'):return bool(self.session['coding_goal'].get('objective'))
+        if self.session.get('coding_last_run_goal',True) and self.session.get('coding_goal',{}).get('status')==state and state in ('limited','paused','blocked','interrupted','failed'):return bool(self.session['coding_goal'].get('objective'))
         return state=='limited' and bool(self.session.get('coding_context'))
 
     def refresh_goal_status(self):
@@ -1172,7 +1172,7 @@ class CodeTab(QWidget):
 
     def continue_coding(self):
         if self.job or not self.can_continue():return
-        if self.session.get('coding_last_run_goal',True) and self.session.get('coding_goal',{}).get('status')==self.session.get('code_state') and self.session.get('code_state') in ('limited','paused','blocked','interrupted'):
+        if self.session.get('coding_last_run_goal',True) and self.session.get('coding_goal',{}).get('status')==self.session.get('code_state') and self.session.get('code_state') in ('limited','paused','blocked','interrupted','failed'):
             if self.session.get('code_state')!='limited' or not self.session.get('coding_resume'):self.capture_goal_resume()
             self.goal_enabled.setChecked(True)
         if not self.session.get('coding_resume'):

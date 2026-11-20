@@ -91,6 +91,27 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_failed_goal_can_be_explicitly_continued_after_reopen(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident)
+                session.update(code_state='failed',coding_goal={'objective':'Original objective','status':'failed','detail':'Connection interrupted'},coding_last_run_goal=True,coding_resume={'task':'Original objective','evidence':'Earlier evidence'},draft='Unsent draft')
+                store.save(session)
+                with patch.object(core,'open_request') as request:window.open_session(session);request.assert_not_called()
+                tab=window.tabs.currentWidget();self.assertTrue(tab.continue_button.isEnabled());self.assertTrue(tab.goal_enabled.isChecked())
+                self.assertIn('Failed',tab.goal_status_label.text());self.assertEqual(tab.composer.toPlainText(),'Unsent draft')
+                with patch.object(tab,'start_coding') as start:tab.continue_coding();start.assert_called_once_with(True)
+                self.assertEqual(session['coding_resume']['task'],'Original objective');self.assertIn('Earlier evidence',session['coding_resume']['evidence'])
+                self.assertIn('Connection interrupted',session['coding_resume']['evidence']);self.assertIn('uncertain actions',session['coding_resume']['evidence'])
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_goal_pause_and_resume_preserve_objective_and_draft(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
