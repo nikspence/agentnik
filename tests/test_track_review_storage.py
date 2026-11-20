@@ -81,16 +81,16 @@ class TrackReviewStorage(unittest.TestCase):
         with self.assertRaises(ValueError):apply_append(self.files,prepared,change)
         self.assertEqual(external.read_text(encoding='utf-8'),'external')
 
-    def test_project_history_in_preview_and_pre_request_guard(self):
+    def test_project_history_remains_separate_from_coding_requests(self):
         apply_append(self.files,prepare_append(self.files,'sample_feature',self.snapshot),lambda proposal:True)
         summary=track_review_summary(self.files,self.track,[])
         self.assertEqual(len(summary['snapshots']),1);self.assertEqual(summary['snapshots'][0]['origin'],'project');self.assertEqual(summary['snapshots'][0]['snapshot_id'],self.snapshot['id'])
         duplicate=track_review_summary(self.files,self.track,[self.snapshot]);self.assertEqual([item['origin'] for item in duplicate['snapshots']],['session','project'])
         bodies=[];events=[]
         def send_ok(connection,url,body,timeout):bodies.append(body);return Wire(chat('Done'),False)
-        with patch.object(core,'open_request',side_effect=send_ok):CodingRun({'url':'https://example.invalid/v1','protocol':'chat','model':'heavy','stream':False},self.root,'Work',selected_track=self.track,review_guard={'history':[],'summary':summary}).run(events.append)
+        with patch.object(core,'open_request',side_effect=send_ok):CodingRun({'url':'https://example.invalid/v1','protocol':'chat','model':'heavy','stream':False},self.root,'Work',selected_track=self.track).run(events.append)
         self.assertEqual(events[-1]['status'],'completed');self.assertNotIn(self.snapshot['id'],json.dumps(bodies))
-        run=CodingRun({'url':'https://example.invalid/v1','protocol':'chat','model':'heavy','stream':False},self.root,'Work',selected_track=self.track,review_guard={'history':[],'summary':summary})
+        run=CodingRun({'url':'https://example.invalid/v1','protocol':'chat','model':'heavy','stream':False},self.root,'Work',selected_track=self.track)
         path=self.root/self.path;path.write_text('{"version":2}',encoding='utf-8');events=[]
-        with patch.object(core,'open_request') as send:run.run(events.append)
-        send.assert_not_called();self.assertEqual(events[-1]['status'],'failed');self.assertEqual(path.read_text(encoding='utf-8'),'{"version":2}')
+        with patch.object(core,'open_request',side_effect=send_ok) as send:run.run(events.append)
+        send.assert_called_once();self.assertEqual(events[-1]['status'],'completed');self.assertEqual(path.read_text(encoding='utf-8'),'{"version":2}')

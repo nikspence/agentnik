@@ -458,7 +458,7 @@ class CodeTab(QWidget):
     def send_steering(self):
         job=self.job;text=self.steering_input.text()
         if not isinstance(job,CodingRun) or not text.strip():return
-        secrets=[job.connection.get('api_key',''),(job.light or {}).get('api_key',''),(job.alternate or {}).get('api_key',''),(job.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in job.web_backends]
+        secrets=[job.connection.get('api_key','')]+[item.get('key','') for item in job.web_backends]
         for bridge in job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
         message=scrub(text.strip(),secrets)
         if not job.steer(message):
@@ -1495,31 +1495,6 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
-        if kind=='independent_review_manifest':
-            from .independent_review import validate_review_history
-            job=self.job
-            if not isinstance(job,CodingRun) or not (getattr(job,'save_progress',False) or getattr(job,'save_review_progress',False)):return
-            saved=False
-            try:
-                reviews=event.get('reviews');snapshot_id=event.get('snapshot_id')
-                if not isinstance(snapshot_id,str) or not re.fullmatch('[0-9a-f]{32}',snapshot_id):raise ValueError('Invalid review snapshot id')
-                if not isinstance(reviews,list) or not 1<=len(reviews)<=3:raise ValueError('Invalid review progress manifest')
-                records=[]
-                manifest_statuses={review.get('pass_status') for review in reviews if isinstance(review,dict)}
-                if len(manifest_statuses)!=1 or not manifest_statuses<= {'pending','skipped'}:raise ValueError('Invalid review progress manifest')
-                for review in reviews:
-                    if not isinstance(review,dict):raise ValueError('Invalid review progress manifest')
-                    item=copy.deepcopy(review)
-                    if item['pass_status']=='pending':item['pass_status']='interrupted'
-                    item['dispositions']={};records.append(item)
-                snapshot={'version':1,'id':snapshot_id,'track_id':None,'reviews':records}
-                history=validate_review_history([*self.session.get('coding_review_history',[]),snapshot])
-                updated=copy.deepcopy(self.session);updated['coding_review_history']=history;self.store.save(updated);self.session['coding_review_history']=history
-                for review in records:self.review_progress_ids[review['id']]=snapshot_id
-                self.saved_reviews_button.setEnabled(True);self.updated.emit();saved=True
-            except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError,RecursionError):pass
-            if not saved:self.activity.appendPlainText(self.tr('Review progress could not be saved; no reviewer requests were sent.'))
-            job.acknowledge_manifest(saved);return
         if kind=='independent_review_result':
             from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements,validate_review_endpoint_identity,validate_review_batch_approved_at,review_provenance_matches,RUBRIC_VERSION
             review=event.get('review')
@@ -1739,7 +1714,7 @@ class CodeTab(QWidget):
                 self.session['coding_goal']['status']='limited' if event.get('limited') else event['status']
                 if event['status']!='completed':self.session['coding_goal']['detail']=event['text'][:4000]
             if event.get('limited') and isinstance(self.job,CodingRun):
-                secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in self.job.web_backends]
+                secrets=[self.job.connection.get('api_key','')]+[item.get('key','') for item in self.job.web_backends]
                 for bridge in self.job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
                 activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
                 recent='\n'.join(item.get('text','') for item in activity[start:] if item.get('kind') in ('output','approval','decision','finished') or (item.get('kind')=='steering' and item.get('text','').startswith(self.tr('Steering delivered: '))))
@@ -1751,7 +1726,7 @@ class CodeTab(QWidget):
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)
             if event['status']=='completed' and isinstance(self.job,CodingRun):
                 self.session.pop('coding_resume',None)
-                secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]
+                secrets=[self.job.connection.get('api_key','')]
                 context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)
                 self.use_context.setChecked(False)

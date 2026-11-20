@@ -18,11 +18,13 @@ Code pane transition: normal Code runs select one Model and do not configure leg
 
 Track-start transition: starting a selected Spec & Plan track no longer reads or gates on independent-review histories. The preview still shows the task, exact track context, model and endpoint, and track changes invalidate the start. Existing review records remain available and untouched, including unreadable project review files. Legacy review code remains to be removed separately.
 
-The coding loop no longer defines or executes the five independent document-review tools, including when a legacy Light connection is supplied. Unknown calls return useful model feedback. The direct-review launcher and execution module are removed. Existing saved review readers remain and saved records are not erased; additional legacy review helpers and settings still need cleanup.
+The coding loop no longer defines or executes the five independent document-review tools. Unknown calls return useful model feedback. The direct-review launcher and execution module are removed. Existing saved review readers remain and saved records are not erased; additional legacy review helpers and settings still need cleanup.
 
 The retired `delegate_light` tool and its separate request path are removed. Tests verify that legacy single-Light calls return an unavailable-tool error and that same-model children receive scoped guidance.
 
-The older `delegate_parallel` tool and multi-model routing have now been removed as well. Same-model children retain approved snapshot transfer, scoped inspection, shared budgets and cancellation. Legacy calls return an unavailable-tool error even if legacy model connections are passed to the backend.
+The older `delegate_parallel` tool and multi-model routing have now been removed as well. Same-model children retain approved snapshot transfer, scoped inspection, shared budgets and cancellation. Legacy calls return an unavailable-tool error.
+
+The coding backend no longer accepts separate Light or alternate connections or the retired review guard. Saved legacy assignments and review records remain readable without being used to start a run.
 
 Active Code activity and usage now name the request role **Model** and its children **Subagent**, without reporting the same child requests twice under a parallel model role. Historical Heavy/Light activity remains readable, and Korean translations cover the new activity strings.
 

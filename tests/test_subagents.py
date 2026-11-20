@@ -118,7 +118,7 @@ class Subagents(unittest.TestCase):
     def test_subagents_reject_alternate_model_selection(self):
         with tempfile.TemporaryDirectory() as root:
             events=[];requests=[];bodies=[];parent_requests=0
-            run=CodingRun(dict(C,stream=False),root,'Analyze',light=dict(C,model='light',stream=False),alternate=dict(C,model='alternate',stream=False))
+            run=CodingRun(dict(C,stream=False),root,'Analyze')
             def send(connection,url,body,timeout):
                 nonlocal parent_requests
                 requests.append(connection['model']);bodies.append(copy.deepcopy(body));parent_requests+=1

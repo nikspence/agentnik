@@ -148,7 +148,7 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertFalse(tab.roles['heavy'][0].isHidden());self.assertEqual(set(tab.roles),{'heavy','decision'})
                 with patch.object(tab,'launch') as launch:
                     tab.start_coding();run=launch.call_args.args[0]
-                self.assertIsNone(run.light);self.assertIsNone(run.alternate);self.assertIsNone(run.alternate2)
+                self.assertEqual(run.connection['model'],'main')
                 self.assertEqual(session['coding_models']['light']['model'],'legacy');self.assertEqual(session['coding_subagent_model']['model'],'old-alternate')
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()

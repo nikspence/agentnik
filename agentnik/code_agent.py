@@ -530,20 +530,15 @@ MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_cal
 
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,light=None,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,alternate=None,alternate2=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,review_guard=None,save_review_progress=False,resume_context=None,goal=False):
+    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False):
         from .code_artifacts import validate_notes, Artifacts
         self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.project_memory=project_memory
         from .track_execution import validate_runtime_track,initial_progress
         self.selected_track=validate_runtime_track(selected_track) if selected_track else None;self.track_progress=initial_progress(self.selected_track) if self.selected_track else None
-        self.connection=dict(connection);self.light=dict(light) if light else None;self.alternate=dict(alternate) if alternate else None;self.alternate2=dict(alternate2) if alternate2 else None;self.root=root;self.prompt=prompt;self.run_id=uuid.uuid4().hex
+        self.connection=dict(connection);self.root=root;self.prompt=prompt;self.run_id=uuid.uuid4().hex
         from .document_reader import validate_documents
         import copy
         self.images=list(images or []);self.documents=copy.deepcopy(validate_documents(documents or []))
-        self.review_guard=None
-        if review_guard is not None:
-            from .independent_review import validate_review_history
-            if not self.selected_track or not isinstance(review_guard,dict) or set(review_guard)!={'history','summary'} or not isinstance(review_guard['summary'],dict):raise ValueError('Invalid track review guard')
-            self.review_guard={'history':validate_review_history(review_guard['history']),'summary':copy.deepcopy(review_guard['summary'])}
         if context is not None and (not isinstance(context,dict) or set(context)!={'task','answer'} or any(not isinstance(v,str) or len(v)>2048 for v in context.values())):raise ValueError('Invalid previous coding context')
         self.context=dict(context) if context else None
         if resume_context is not None and (not isinstance(resume_context,dict) or set(resume_context)!={'task','evidence'} or not isinstance(resume_context['task'],str) or len(resume_context['task'])>16000 or not isinstance(resume_context['evidence'],str) or len(resume_context['evidence'])>24000):raise ValueError('Invalid coding continuation context')
@@ -569,12 +564,7 @@ class CodingRun:
         self.shell_without_approval=False;self.shell_automatic_last=False
         self.steering=[];self.accepting_steering=True
         self.usage={role:self._empty_usage() for role in ('Model','Subagent')}
-        if type(save_review_progress) is not bool:raise ValueError('Invalid review progress setting')
-        self.save_review_progress=save_review_progress;self.manifest_ack=threading.Event();self.manifest_saved=False
         self.show_thinking=False
-
-    def acknowledge_manifest(self,saved):
-        with self.lock:self.manifest_saved=saved is True;self.manifest_ack.set()
 
     @staticmethod
     def _empty_usage():
@@ -684,7 +674,7 @@ class CodingRun:
     def run(self,emit):
         runtime=Runtime(self.cancel,Limits(argument_bytes=1000000,model_bytes=2000000,request_seconds=45,**{key:value for key,value in self.limits.items() if key!='model_seconds'}))
         next_source=1;research_action=None;google_unavailable=False;search_access_blocked=False
-        secrets=[self.connection.get('api_key',''),(self.light or {}).get('api_key',''),(self.alternate or {}).get('api_key',''),(self.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in self.web_backends]
+        secrets=[self.connection.get('api_key','')]+[item.get('key','') for item in self.web_backends]
         for bridge in self.mcp_bridges:
             values=getattr(bridge,'environment_values',{})
             if isinstance(values,dict):secrets.extend(value for value in values.values() if isinstance(value,str) and value)
@@ -895,11 +885,6 @@ class CodingRun:
                     message=scrub(message,secrets);runtime.charge('context_bytes',len(message.encode('utf-8')),runtime.limits.context_bytes)
                     if protocol=='responses':body['input'].append({'role':'user','content':message})
                     else:body['messages'].append({'role':'user','content':message})
-                if round_number==0 and self.review_guard is not None:
-                    from .independent_review import track_review_summary
-                    try:current_reviews=track_review_summary(files,self.selected_track,self.review_guard['history'])
-                    except (ValueError,OSError,UnicodeError,RecursionError):raise LimitError('Review history became invalid or unavailable; review and start again') from None
-                    if current_reviews!=self.review_guard['summary']:raise LimitError('Saved review sources or project history changed after approval; review and start again')
                 runtime.charge('requests',1,runtime.limits.requests);state={}
                 event('output',text='Model task: requesting '+c['model']+' through the selected connection.')
                 seen_guidance=guidance_payload

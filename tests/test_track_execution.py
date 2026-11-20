@@ -74,14 +74,10 @@ class TrackExecution(unittest.TestCase):
             history=[{'version':1,'id':'d'*32,'track_id':None,'reviews':[review]}]
             summary=track_review_summary(files,track,history);item=summary['snapshots'][0]['reviews'][0]
             self.assertEqual((item['track_revision_status'],item['source_status']),('matches','matches'));self.assertEqual(item['structured']['findings'][0]['user_disposition']['status'],'unresolved')
-            run=CodingRun(CONNECTION,project,'Work',selected_track=track,review_guard={'history':history,'summary':summary})
             evidence.write_text('changed',encoding='utf-8');self.assertEqual(track_review_summary(files,track,history)['snapshots'][0]['reviews'][0]['source_status'],'stale_or_unavailable')
-            events=[]
-            with patch.object(core,'open_request') as send:run.run(events.append)
-            send.assert_not_called();self.assertIn('review sources or project history changed after approval',events[-1]['text'].lower())
             evidence.write_text('original',encoding='utf-8');events=[];bodies=[]
             def send_ok(c,url,body,timeout):bodies.append(body);return Wire(chat('Done'),False)
-            with patch.object(core,'open_request',side_effect=send_ok):CodingRun(CONNECTION,project,'Work',selected_track=track,review_guard={'history':history,'summary':summary}).run(events.append)
+            with patch.object(core,'open_request',side_effect=send_ok):CodingRun(CONNECTION,project,'Work',selected_track=track).run(events.append)
             self.assertEqual(events[-1]['status'],'completed',events);self.assertNotIn('Missing test',json.dumps(bodies))
             evidence.write_text('changed',encoding='utf-8')
             review['track_context']['digest']='e'*64;self.assertEqual(track_review_summary(files,track,history)['snapshots'][0]['reviews'][0]['track_revision_status'],'changed')

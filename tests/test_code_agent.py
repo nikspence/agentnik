@@ -111,18 +111,18 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(transport.call_count,1);self.assertTrue(events[-1]['limited'])
             self.assertEqual([e['text'] for e in events if e['kind']=='steering_undelivered'],[message]);self.assertFalse(any(e['kind']=='steering_delivered' for e in events))
 
-    def test_removed_light_delegation_is_unavailable_with_legacy_connection(self):
+    def test_removed_light_delegation_is_unavailable(self):
         with tempfile.TemporaryDirectory() as directory:
-            run=CodingRun(dict(C,stream=False),directory,'Analyze',light=dict(C,model='legacy',stream=False));bodies=[];events=[]
+            run=CodingRun(dict(C,stream=False),directory,'Analyze');bodies=[];events=[]
             replies=[Wire(chat(calls=[call('delegate_light',{'task':'Analyze'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
             def send(connection,url,body,timeout):bodies.append((connection['model'],json.loads(json.dumps(body))));return replies.pop(0)
             with patch.object(core,'open_request',side_effect=send):run.run(events.append)
             self.assertEqual([model for model,_ in bodies],[C['model'],C['model']]);self.assertEqual(events[-1]['status'],'completed')
             self.assertNotIn('delegate_light',json.dumps(bodies[0][1]['tools']));self.assertIn('Unknown or unavailable tool',json.dumps(bodies[-1][1]))
 
-    def test_removed_parallel_delegation_cannot_use_legacy_models(self):
+    def test_removed_parallel_delegation_is_unavailable(self):
         with tempfile.TemporaryDirectory() as directory:
-            run=CodingRun(dict(C,stream=False),directory,'Analyze',light=dict(C,model='legacy',stream=False));bodies=[];events=[]
+            run=CodingRun(dict(C,stream=False),directory,'Analyze');bodies=[];events=[]
             replies=[Wire(chat(calls=[call('delegate_parallel',{'tasks':'["one","two"]'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
             def send(connection,url,body,timeout):bodies.append((connection['model'],json.loads(json.dumps(body))));return replies.pop(0)
             with patch.object(core,'open_request',side_effect=send):run.run(events.append)
@@ -143,9 +143,9 @@ class ModelCoding(unittest.TestCase):
                 CodingRun(dict(C,stream=False),directory,'Research',limits=limits,web_enabled=True,search_provider='none').run(events.append)
             self.assertEqual(events[-1]['status'],'completed');self.assertEqual(len(timeouts),2);self.assertTrue(all(239<timeout<=240 for timeout in timeouts))
 
-    def test_removed_review_tools_are_unavailable_even_with_legacy_connections(self):
+    def test_removed_review_tools_are_unavailable(self):
         with tempfile.TemporaryDirectory() as directory:
-            run=CodingRun(dict(C,stream=False),directory,'Review',light=dict(C,model='legacy',stream=False));bodies=[];events=[]
+            run=CodingRun(dict(C,stream=False),directory,'Review');bodies=[];events=[]
             replies=[Wire(chat(calls=[call('review_document',{'path':'spec.md','model':'light'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
             def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
             with patch.object(core,'open_request',side_effect=send):run.run(events.append)

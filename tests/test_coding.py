@@ -36,23 +36,6 @@ class PromptHistory(unittest.TestCase):
                 tab.receive({'kind':'independent_review_result','run_id':'active','review':completed});self.assertEqual(tab.review_results[pending['id']]['pass_status'],'completed')
             finally:tab.job=None;window.close();app.processEvents();store.db.close()
 
-    def test_saved_review_manifest_rejects_mismatched_terminal_record(self):
-        from agentnik.ui import Window
-        from agentnik.code_agent import CodingRun
-        app=QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
-            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
-            try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                connection={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer'}
-                run=CodingRun(connection,project,'',save_review_progress=True);tab.job=run;tab.run_id=run.run_id;session['code_state']='running'
-                pending={'id':'a'*32+'-1','role':'design','model':'reviewer','path':'spec.md','source_sha256':'a'*64,'payload_sha256':'b'*64,'evidence':[],'track_context':None,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
-                tab.receive({'kind':'independent_review_manifest','run_id':run.run_id,'snapshot_id':'c'*32,'reviews':[pending]});self.assertTrue(run.manifest_saved)
-                altered=dict(pending,model='different',pass_status='completed',structured={'status':'valid','findings':[]})
-                tab.receive({'kind':'independent_review_result','run_id':run.run_id,'review':altered})
-                saved=next(row for row in store.list_sessions() if row['id']==session['id']);review=saved['coding_review_history'][0]['reviews'][0]
-                self.assertEqual(review['pass_status'],'interrupted');self.assertEqual(review['model'],'reviewer');self.assertIsNone(tab.job)
-            finally:window.close();app.processEvents();store.db.close()
 
     def test_parallel_review_findings_view_is_bounded_and_session_local(self):
         from agentnik.ui import Window
