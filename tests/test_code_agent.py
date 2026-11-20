@@ -1044,7 +1044,7 @@ class ModelCoding(unittest.TestCase):
             run=CodingRun(C,directory,'Analyze');events=[]
             with patch('agentnik.compat_tools.request',side_effect=ValueError('failure')):run.run(events.append)
             self.assertEqual(events[-1]['status'],'failed')
-            self.assertIn('Heavy: 1 request(s), input unknown, output unknown',events[-1]['usage'])
+            self.assertIn('Model: 1 request(s), input unknown, output unknown',events[-1]['usage'])
 
     def test_model_responses_include_optional_redacted_thinking(self):
         from types import SimpleNamespace

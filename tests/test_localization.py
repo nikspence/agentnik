@@ -119,6 +119,7 @@ class Localization(unittest.TestCase):
                     self.assertEqual(tab.session['coding_context']['task'],'Keep {user} text')
                     window.stats();self.assertIn('준비됨',window.statusBar().currentMessage());self.assertIn(session['project_name'],window.statusBar().currentMessage())
                     self.assertIn('model/{x}',tab.activity_text({'kind':'output','text':'Heavy task: requesting model/{x} through the selected connection.'}))
+                    self.assertIn('모델 작업',tab.activity_text({'kind':'output','text':'Model task: requesting model/{x} through the selected connection.'}))
                     self.assertIn('위임',tab.activity_text({'kind':'output','text':'Light task delegated to model/light through its configured connection.'}))
                     self.assertIn('src/{name}.py',tab.activity_text({'kind':'output','text':'Applied approved edit: src/{name}.py'}))
                     self.assertEqual(tab.activity_text({'kind':'finished','text':'Applied approved edit: text'}),'Applied approved edit: text')
@@ -126,6 +127,8 @@ class Localization(unittest.TestCase):
                     tab.record('usage',usage);display=tab.activity.toPlainText()
                     self.assertIn('고성능: 요청 2회',display);self.assertIn('입력 10 (알려진 사용량만)',display);self.assertIn('출력 알 수 없음',display)
                     self.assertIn('경량: 요청 1회',display);self.assertEqual(store.list_sessions()[0]['code_activity'][-1]['text'],usage)
+                    current='Usage: Model: 1 request(s), input 3, output 0 tokens; Subagent: 2 request(s), input unknown, output unknown tokens'
+                    localized=tab.activity_text({'kind':'usage','text':current});self.assertIn('모델: 요청 1회',localized);self.assertIn('하위 에이전트: 요청 2회',localized)
                     malformed='Usage: unexpected';self.assertEqual(tab.activity_text({'kind':'usage','text':malformed}),malformed)
                     run=CodingRun({'model':'test'},str(folder),'task');tab.job=run;tab.run_id=run.run_id
                     tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':{'cwd':str(folder),'path':'src/file.py','diff':'+exact text'}})

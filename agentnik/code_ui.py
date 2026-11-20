@@ -1099,7 +1099,7 @@ class CodeTab(QWidget):
             resume=self.session.get('coding_resume') if continuation else None
             prompt=(self.tr('Continue the previous task with fresh limits. Inspect the current project state before proceeding; do not repeat an uncertain operation without checking.') if continuation else self.composer.toPlainText());ident=self.session.get('selected_track')
             if continuation and not resume:return
-            if not heavy or (not prompt.strip() and not ident and not self.attachments.paths and not self.documents):raise ValueError(self.tr('Choose a heavy model and enter a coding task, attach a file, or select a track'))
+            if not heavy or (not prompt.strip() and not ident and not self.attachments.paths and not self.documents):raise ValueError(self.tr('Choose a model and enter a coding task, attach a file, or select a track'))
             if not prompt.strip():prompt=self.tr('Work on the selected project track. Inspect the project and report progress against its task IDs.') if ident else self.tr('Consider the attached files for this coding task.')
             context=self.session.get('coding_context') if self.use_context.isChecked() and not continuation else None
             if context:
@@ -1260,6 +1260,8 @@ class CodeTab(QWidget):
         for prefix,template in [('Approved proposal ',self.tr('Approved proposal {id}')),('Rejected proposal ',self.tr('Rejected proposal {id}'))]:
             if kind=='decision' and text.startswith(prefix):return template.format(id=text[len(prefix):])
         if kind=='output':
+            prefix='Model task: requesting ';suffix=' through the selected connection.'
+            if text.startswith(prefix) and text.endswith(suffix):return self.tr('Model task: requesting {model} through the selected connection.').format(model=text[len(prefix):-len(suffix)])
             prefix='Heavy task: requesting ';suffix=' through the selected connection.'
             if text.startswith(prefix) and text.endswith(suffix):return self.tr('Heavy task: requesting {model} through the selected connection.').format(model=text[len(prefix):-len(suffix)])
             prefix='Light task delegated to ';suffix=' through its configured connection.'
@@ -1271,13 +1273,13 @@ class CodeTab(QWidget):
             if text.startswith('Usage: '):
                 parts=[]
                 for part in text[7:].split('; '):
-                    match=re.fullmatch(r'(Heavy|Light): (\d+) request\(s\), input (\d+(?:\.\d+)?|unknown)( \(known usage only\))?, output (\d+(?:\.\d+)?|unknown)( \(known usage only\))? tokens',part)
+                    match=re.fullmatch(r'(Model|Subagent|Heavy|Light): (\d+) request\(s\), input (\d+(?:\.\d+)?|unknown)( \(known usage only\))?, output (\d+(?:\.\d+)?|unknown)( \(known usage only\))? tokens',part)
                     if not match:return text
                     role,count,incoming,in_partial,outgoing,out_partial=match.groups()
                     incoming=self.tr('unknown') if incoming=='unknown' else incoming
                     outgoing=self.tr('unknown') if outgoing=='unknown' else outgoing
                     partial=self.tr(' (known usage only)')
-                    parts.append(self.tr('{role}: {count} request(s), input {incoming}{in_partial}, output {outgoing}{out_partial} tokens').format(role=self.tr('Heavy') if role=='Heavy' else self.tr('Light'),count=count,incoming=incoming,in_partial=partial if in_partial else '',outgoing=outgoing,out_partial=partial if out_partial else ''))
+                    parts.append(self.tr('{role}: {count} request(s), input {incoming}{in_partial}, output {outgoing}{out_partial} tokens').format(role=self.tr(role),count=count,incoming=incoming,in_partial=partial if in_partial else '',outgoing=outgoing,out_partial=partial if out_partial else ''))
                 return self.tr('Usage: {details}').format(details='; '.join(parts))
         return text
 

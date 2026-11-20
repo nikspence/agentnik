@@ -269,6 +269,11 @@ Previous answer:
             <translation>제안 거부됨: {id}</translation>
         </message>
         <message>
+            <location filename="../code_ui.py" line="1263" />
+            <source>Model task: requesting {model} through the selected connection.</source>
+            <translation>모델 작업: 선택한 연결을 통해 {model} 모델에 요청 중입니다.</translation>
+        </message>
+        <message>
             <location filename="../code_ui.py" line="211" />
             <source>Heavy task: requesting {model} through the selected connection.</source>
             <translation>고성능 작업: 선택한 연결을 통해 {model} 모델에 요청 중입니다.</translation>
@@ -298,6 +303,16 @@ Previous answer:
             <location filename="../code_ui.py" line="226" />
             <source> (known usage only)</source>
             <translation> (알려진 사용량만)</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="1282" />
+            <source>Model</source>
+            <translation>모델</translation>
+        </message>
+        <message>
+            <location filename="../code_ui.py" line="1282" />
+            <source>Subagent</source>
+            <translation>하위 에이전트</translation>
         </message>
         <message>
             <location filename="../code_ui.py" line="227" />

@@ -90,7 +90,6 @@ FIELD_HELP={
     'local_branch':'Local branch name without the refs/heads/ prefix.',
     'left':'Exact local reference, such as refs/heads/main or refs/remotes/origin/main.',
     'right':'Exact local reference to compare against left, such as refs/remotes/origin/main.',
-    'model':'Configured reviewer model role: "light", "alternate", or "alternate2".',
 }
 FIELD_OVERRIDES={
     ('read_skill_resource','path'):'Resource path relative to the selected skill directory.',
@@ -151,7 +150,7 @@ TOOLS=[CodeTool('list_skill_resources','List bounded relative resource paths for
        CodeTool('search_artifact','Find literal text in a current-run artifact; returns up to 20 offsets and excerpts.',('id','query')),
        CodeTool('get_test_report','Get the most recent approved test command report from this run. failure is an empty string for summary or a zero-based failure index.',('failure',)),
        CodeTool('report_track_progress','Report run-local status by stable selected-track task IDs. updates is a JSON array of objects with exactly id, status (pending, in_progress, completed, blocked), and detail (short text). Does not write project track files or establish verification.',('updates',)),
-       CodeTool('get_context_usage','Inspect the previous Heavy request size and reported input tokens, configured context limit, and shared run budgets. Sizes are estimates, not token counts; this tool does not compact context.',()),
+       CodeTool('get_context_usage','Inspect the previous model request size and reported input tokens, configured context limit, and shared run budgets. Sizes are estimates, not token counts; this tool does not compact context.',()),
        CodeTool('get_plan','Read the current run task checklist and its explanation. Plan status is model-reported, not execution permission.',()),
        CodeTool('update_plan','Create or replace the task checklist. explanation is a short reason; steps is a JSON array encoded as a string of {step,status} objects. Use 1–20 steps, at most one in_progress; other statuses pending, completed, blocked. Update after meaningful progress, and never claim unconfirmed work completed.',('explanation','steps')),
        CodeTool('project_overview','Inspect bounded project structure, languages, dependency names and test configuration without executing metadata.',()),
@@ -565,12 +564,11 @@ class CodingRun:
         self.goal=goal;self.goal_status='active';self.goal_detail=''
         self.limits=coding_limits(limits);self.plan=None
         self.unsupported_subagent_roles=set(unsupported_subagent_roles or ())
-        if self.unsupported_subagent_roles-{'model','light','alternate','alternate2'}:raise ValueError('Invalid subagent capability roles')
+        if self.unsupported_subagent_roles-{'model'}:raise ValueError('Invalid subagent capability roles')
         self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self._git_credentials=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
         self.shell_without_approval=False;self.shell_automatic_last=False
         self.steering=[];self.accepting_steering=True
-        self.usage={role:self._empty_usage() for role in ('Heavy','Light','Subagent')}
-        self.parallel_usage={role:self._empty_usage() for role in ('model','light','alternate','alternate2')}
+        self.usage={role:self._empty_usage() for role in ('Model','Subagent')}
         if type(save_review_progress) is not bool:raise ValueError('Invalid review progress setting')
         self.save_review_progress=save_review_progress;self.manifest_ack=threading.Event();self.manifest_saved=False
         self.show_thinking=False
@@ -585,7 +583,6 @@ class CodingRun:
     def usage_text(self):
         with self.lock:
             groups=[('',{role:dict(values) for role,values in self.usage.items()})]
-            groups.append(('parallel',{role:dict(values) for role,values in self.parallel_usage.items()}))
         parts=[]
         for label,group in groups:
             for role,values in group.items():
@@ -691,7 +688,7 @@ class CodingRun:
         for bridge in self.mcp_bridges:
             values=getattr(bridge,'environment_values',{})
             if isinstance(values,dict):secrets.extend(value for value in values.values() if isinstance(value,str) and value)
-        usage=self.usage;parallel_usage=self.parallel_usage
+        usage=self.usage
         def request(role,adapter,connection,body,state):
             totals=usage[role]
             with self.lock:
@@ -904,10 +901,10 @@ class CodingRun:
                     except (ValueError,OSError,UnicodeError,RecursionError):raise LimitError('Review history became invalid or unavailable; review and start again') from None
                     if current_reviews!=self.review_guard['summary']:raise LimitError('Saved review sources or project history changed after approval; review and start again')
                 runtime.charge('requests',1,runtime.limits.requests);state={}
-                event('output',text='Heavy task: requesting '+c['model']+' through the selected connection.')
+                event('output',text='Model task: requesting '+c['model']+' through the selected connection.')
                 seen_guidance=guidance_payload
                 steering_submitted=bool(steering_batch)
-                assistant,calls=request('Heavy',adapter,c,body,state)
+                assistant,calls=request('Model',adapter,c,body,state)
                 for message in steering_batch:event('steering_delivered',text=scrub(message,secrets))
                 steering_batch=[];steering_submitted=False
                 check_skill_versions()
@@ -1172,8 +1169,7 @@ class CodingRun:
                                 def submitted_request():
                                     with self.lock:
                                         child_runtime.check()
-                                        for totals in (usage['Subagent'],parallel_usage[model_role]):
-                                            totals['requests']+=1;totals['input_missing']+=1;totals['output_missing']+=1
+                                        totals=usage['Subagent'];totals['requests']+=1;totals['input_missing']+=1;totals['output_missing']+=1
                                 try:
                                     if fallback:prompt=prompt.replace('The read_file, glob_files and grep_files tools access only your approved file snapshots; no other filesystem, network, writes, or delegation are available. ','You have no tools, filesystem, network, or delegation. ',1)
                                     body=core.chat_body(light,[{'role':'user','text':prompt}])
@@ -1275,13 +1271,13 @@ class CodingRun:
                                         if child_cancel is not None and child_cancel.is_set():
                                             item.pop('analysis',None);item.update(status='cancelled',error='Cancelled by user; the provider may continue processing.');metrics={'requests':metrics.get('requests',0)}
                                             self.cancelled_subagent_tasks.add(subagent_task_identity(item['task'],item['paths']))
-                                        totals=usage['Subagent'];role_totals=parallel_usage[item['model_role']];request_count=metrics.get('requests',1)
+                                        totals=usage['Subagent'];request_count=metrics.get('requests',1)
                                         reported={}
                                         with self.lock:
                                             for key in ('input_tokens','output_tokens'):
                                                 value=metrics.get(key)
                                                 if type(value) in (int,float) and math.isfinite(value) and 0<=value<=2**63-1:
-                                                    for entry in (totals,role_totals):entry[key]+=value;entry[key.replace('tokens','missing')]-=request_count
+                                                    totals[key]+=value;totals[key.replace('tokens','missing')]-=request_count
                                                     reported[key]=value
                                                 else:reported[key]=None
                                         item['usage']=reported;item['elapsed_seconds']=round(elapsed,2);results.append(item)

@@ -109,6 +109,9 @@ class Subagents(unittest.TestCase):
             children=[body for _,body in requests if 'Independent read-only coding analysis.' in json.dumps(body)]
             self.assertEqual(len(children),2);self.assertTrue(all('Use project naming.' in json.dumps(body) for body in children))
             self.assertIn('Subagent: 2 request(s)',run.usage_text())
+            self.assertIn('Model: 2 request(s)',run.usage_text());self.assertNotIn('parallel model:',run.usage_text())
+            self.assertTrue(any(event.get('role')=='Model' for event in events if event['kind']=='model_response'))
+            self.assertTrue(any(event.get('text','').startswith('Model task: requesting ') for event in events))
             self.assertTrue(any(tool.get('function',{}).get('name')=='delegate_subagents' for tool in requests[0][1]['tools']))
             self.assertFalse({tool.get('function',{}).get('name') for tool in requests[0][1]['tools']} & {'delegate_light','delegate_parallel','review_document','review_document_role','review_document_evidence','review_document_structured','review_document_parallel'})
 

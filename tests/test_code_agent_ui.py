@@ -246,7 +246,7 @@ class CodingWorkspace(unittest.TestCase):
                     self.assertTrue(started.is_set(),tab.activity.toPlainText());tab.cancel()
                     self.assertIsNone(tab.job);self.assertEqual(tab.session['code_state'],'cancelled')
                     saved=next(row for row in store.list_sessions() if row['id']==session['id'])
-                    self.assertIn('Heavy: 1 request(s), input unknown, output unknown tokens',saved['code_activity'][-1]['text'])
+                    self.assertIn('Model: 1 request(s), input unknown, output unknown tokens',saved['code_activity'][-1]['text'])
                     tab.receive({'run_id':run.run_id,'kind':'finished','status':'completed','text':'Late answer','usage':'Usage: fabricated'})
                     release.set();tab.worker.join(3);app.processEvents()
                     self.assertEqual(tab.session['code_state'],'cancelled');self.assertNotIn('Late answer',json.dumps(tab.session))

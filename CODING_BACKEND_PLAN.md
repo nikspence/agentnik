@@ -24,6 +24,8 @@ The retired `delegate_light` tool and its separate request path are removed. Tes
 
 The older `delegate_parallel` tool and multi-model routing have now been removed as well. Same-model children retain approved snapshot transfer, scoped inspection, shared budgets and cancellation. Legacy calls return an unavailable-tool error even if legacy model connections are passed to the backend.
 
+Active Code activity and usage now name the request role **Model** and its children **Subagent**, without reporting the same child requests twice under a parallel model role. Historical Heavy/Light activity remains readable, and Korean translations cover the new activity strings.
+
 ## Heavy and light models in one workflow
 
 Each Code pane has independent Heavy and Light connection/model assignments. Select any alias supported by the connection, including LiteLLM coding models, or use Choose model to retrieve its model list. Listing does not establish tool capability. Start with a tool-capable heavy model; the light role is optional and is not automatically chosen.
