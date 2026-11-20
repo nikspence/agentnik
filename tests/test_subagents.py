@@ -71,6 +71,39 @@ class Subagents(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):run.run(events.append)
             self.assertEqual(len(bodies),1);self.assertEqual(events[-1]['status'],'failed');self.assertTrue(events[-1]['limited'])
 
+    def test_goal_deadline_stops_waiting_for_same_model_subagents(self):
+        with tempfile.TemporaryDirectory() as root:
+            release=threading.Event();started=threading.Event();count=[0];lock=threading.Lock();events=[]
+            run=CodingRun(dict(C,stream=False),root,'Analyze',goal=True,goal_budget={'steps':0,'seconds':1})
+            def send(connection,url,body,timeout):
+                if 'Independent read-only coding analysis.' in json.dumps(body):
+                    with lock:
+                        count[0]+=1
+                        if count[0]==2:started.set()
+                    release.wait(4);return Wire(chat('Late finding'),False)
+                return Wire(chat(calls=[call('delegate_subagents',{'tasks':json.dumps(['one','two'])})],finish='tool_calls'),False)
+            try:
+                with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+                self.assertTrue(started.is_set());self.assertTrue(events[-1]['limited']);self.assertIn('goal time limit',events[-1]['text'])
+                self.assertNotIn('Late finding',json.dumps(events));self.assertEqual(run.usage['Subagent']['requests'],2)
+            finally:release.set()
+
+    def test_subagent_request_budget_refreshes_on_next_goal_step(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as root:
+            limits=coding_limits();limits['requests']=4;events=[];parents=[0];children=[0];lock=threading.Lock()
+            run=CodingRun(dict(C,stream=False),root,'Analyze',goal=True,limits=limits)
+            def send(connection,url,body,timeout):
+                if 'Independent read-only coding analysis.' in json.dumps(body):
+                    with lock:children[0]+=1
+                    return Wire(chat('Finding'),False)
+                parents[0]+=1
+                if parents[0] in (1,3):return Wire(chat(calls=[call('delegate_subagents',{'tasks':json.dumps(['one','two'])})],finish='tool_calls'),False)
+                if parents[0]==5:return Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Analyses reviewed'})],finish='tool_calls'),False)
+                return Wire(chat('Step complete'),False)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(parents[0],6);self.assertEqual(children[0],4)
+
     def test_same_model_subagent_cancellation_drops_late_output(self):
         with tempfile.TemporaryDirectory() as root:
             started=threading.Event();release=threading.Event();events=[];lock=threading.Lock();count=[0]
