@@ -246,14 +246,15 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(send.call_count,6);self.assertEqual(events[-1]['status'],'completed',events)
             self.assertEqual(sum(e['kind']=='output' and 'continuing to the next step' in e.get('text','') for e in events),2)
 
-    def test_goal_step_limit_stops_before_next_step_and_survives_resume(self):
+    def test_goal_step_limit_stops_before_next_step_and_resume_is_fresh(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':2,'seconds':0});events=[]
             with patch.object(core,'open_request',side_effect=[Wire(chat('Step one'),False),Wire(chat('Step two'),False)]) as send:run.run(events.append)
             self.assertEqual(send.call_count,2);self.assertTrue(events[-1]['limited']);self.assertIn('goal step limit',events[-1]['text']);self.assertEqual(events[-1]['goal_progress']['steps'],2)
-            resumed=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':2,'seconds':0},goal_progress=events[-1]['goal_progress']);events=[]
-            with patch.object(core,'open_request') as send:resumed.run(events.append);send.assert_not_called()
-            self.assertIn('goal step limit',events[-1]['text'])
+            resumed=CodingRun(dict(C,stream=False),directory,'Continue',goal=True,goal_budget={'steps':2,'seconds':0},resume_context={'task':'Finish','evidence':'Two steps completed'});events=[]
+            replies=[Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Finished'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            with patch.object(core,'open_request',side_effect=replies) as send:resumed.run(events.append)
+            self.assertEqual(send.call_count,2);self.assertEqual(events[-1]['status'],'completed');self.assertEqual(events[-1]['goal_progress']['steps'],0)
 
     def test_goal_time_limit_interrupts_inflight_model_request(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -263,15 +264,6 @@ class ModelCoding(unittest.TestCase):
                 with patch.object(core,'open_request',side_effect=delayed):run.run(events.append)
                 self.assertTrue(events[-1]['limited']);self.assertIn('goal time limit',events[-1]['text']);self.assertGreaterEqual(events[-1]['goal_progress']['seconds'],1)
             finally:release.set()
-
-    def test_reducing_goal_time_limit_does_not_erase_previous_elapsed_time(self):
-        with tempfile.TemporaryDirectory() as directory:
-            run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':0,'seconds':5},goal_progress={'steps':1,'seconds':10});events=[]
-            with patch.object(core,'open_request') as send:run.run(events.append);send.assert_not_called()
-            self.assertTrue(events[-1]['limited']);self.assertIn('goal time limit',events[-1]['text']);self.assertGreaterEqual(events[-1]['goal_progress']['seconds'],10)
-            resumed=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':0,'seconds':8},goal_progress=events[-1]['goal_progress']);events=[]
-            with patch.object(core,'open_request') as send:resumed.run(events.append);send.assert_not_called()
-            self.assertIn('goal time limit',events[-1]['text'])
 
     def test_shell_approval_displays_goal_time_remaining(self):
         with tempfile.TemporaryDirectory() as directory:

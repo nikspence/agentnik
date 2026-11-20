@@ -530,7 +530,7 @@ MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_cal
 
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None,goal_progress=None):
+    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None):
         from .code_artifacts import validate_notes, Artifacts
         self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.project_memory=project_memory
         from .track_execution import validate_runtime_track,initial_progress
@@ -558,9 +558,8 @@ class CodingRun:
         if type(goal) is not bool:raise ValueError('Invalid goal setting')
         self.goal=goal;self.goal_status='active';self.goal_detail=''
         from .code_limits import goal_limits
-        self.goal_budget=goal_limits(goal_budget);progress=goal_progress or {'steps':0,'seconds':0}
-        if not isinstance(progress,dict) or set(progress)!={'steps','seconds'} or type(progress['steps']) is not int or progress['steps']<0 or type(progress['seconds']) not in (int,float) or not math.isfinite(progress['seconds']) or progress['seconds']<0:raise ValueError('Invalid goal progress')
-        self.goal_steps=progress['steps'];self.goal_elapsed=float(progress['seconds']);self.goal_started=None
+        self.goal_budget=goal_limits(goal_budget)
+        self.goal_steps=0;self.goal_elapsed=0.0;self.goal_started=None
         self.limits=coding_limits(limits);self.plan=None
         self.unsupported_subagent_roles=set(unsupported_subagent_roles or ())
         if self.unsupported_subagent_roles-{'model'}:raise ValueError('Invalid subagent capability roles')
@@ -901,7 +900,6 @@ class CodingRun:
                     sync_guidance()
                     raise GuidanceError('Repository guidance changed before the file operation. Review the updated instructions and reconsider the operation.')
             sync_guidance()
-            if self.goal and self.goal_budget['steps'] and self.goal_steps>=self.goal_budget['steps']:raise LimitError('Coding goal step limit reached')
             adapter=responses_tools if protocol=='responses' else ollama_tools if native else compat_tools
             round_number=-1
             while True:
