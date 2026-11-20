@@ -50,6 +50,26 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_open_code_pane_refreshes_redaction_after_shared_search_change(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session)
+                with patch.object(store,'web_backend_specs',return_value=[{'key':'first-secret'}]):window.open_session(session)
+                tab=window.tabs.currentWidget();store.config['web_backends']=[{'id':'changed','kind':'brave','name':'Changed','credential_id':'new-id'}]
+                with patch.object(store,'web_backend_specs',return_value=[{'key':'second-secret'}]) as specs:
+                    tab.composer.setPlainText('Use second-secret');tab.steering_input.setText('Avoid second-secret')
+                    self.assertEqual(specs.call_count,1)
+                self.assertEqual(session['draft'],'Use [redacted]');self.assertEqual(session['coding_steering_draft'],'Avoid [redacted]')
+            finally:
+                store.config['web_backends']=[]
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_late_approval_event_is_cleared_after_steering_invalidation(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

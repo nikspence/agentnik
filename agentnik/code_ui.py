@@ -27,7 +27,7 @@ from .selection_scroll import SelectionScroll
 from .web import public_url
 from . import core,routing
 from .research_ui import SearchBackends
-from .search_providers import SEARCH_KINDS
+from .search_providers import SEARCH_KINDS,SEARCH_PROVIDERS
 
 
 class CodingComposer(QPlainTextEdit):
@@ -168,7 +168,7 @@ class CodeTab(QWidget):
     updated=Signal()
     def __init__(self,window,session):
         super().__init__();self.window=window;self.store=window.store;self.session=session;self.job=None;self.model_jobs={};self._closed=False;self.run_id=None;self.pending_fingerprint=None;self.advice_fingerprint=None;self.advice_job=None;self.advice_connection=None;self.advice_destination=''
-        self._draft_search_secrets=[item.get('key','') for item in self.store.web_backend_specs()]
+        self._draft_search_signature=None;self._draft_search_secrets=[];self.refresh_draft_search_secrets()
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
         self.goal_checkpoint_timer=QTimer(self);self.goal_checkpoint_timer.setInterval(2000);self.goal_checkpoint_timer.timeout.connect(self.checkpoint_goal_progress)
         if session.get("code_state") in ("running","awaiting_approval"):
@@ -476,7 +476,14 @@ class CodeTab(QWidget):
             self.job.set_shell_without_approval(enabled)
             self.record('output',self.tr('Shell commands without approval: {state}').format(state=self.tr('on') if enabled else self.tr('off')))
 
+    def refresh_draft_search_secrets(self):
+        environment=[os.environ.get(variable,'') for _,variable,_ in SEARCH_PROVIDERS.values() if variable]
+        signature=json.dumps([self.store.config.get('web_backends',[]),environment],sort_keys=True)
+        if signature!=self._draft_search_signature:
+            self._draft_search_secrets=[item.get('key','') for item in self.store.web_backend_specs()];self._draft_search_signature=signature
+
     def draft_secrets(self):
+        self.refresh_draft_search_secrets()
         secrets=[connection.get('api_key','') for connection in self.window.connections.values()]
         secrets.extend(self._draft_search_secrets)
         for server in self.store.config.get('mcp_servers',[]):
@@ -528,7 +535,7 @@ class CodeTab(QWidget):
 
     def configure_search(self):
         if not self.job:
-            SearchBackends(self,self.store).exec();self._draft_search_secrets=[item.get('key','') for item in self.store.web_backend_specs()]
+            SearchBackends(self,self.store).exec();self.refresh_draft_search_secrets()
 
     def update_sources_button(self):
         count=len(self.session.get('coding_sources',[]));self.sources_button.setText(self.tr('Sources ({count})').format(count=count));self.sources_button.setVisible(count>0)
