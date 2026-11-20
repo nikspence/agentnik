@@ -1577,7 +1577,8 @@ class CodeTab(QWidget):
             if event['status']=='completed' and isinstance(self.job,CodingRun):
                 self.session.pop('coding_resume',None)
                 secrets=[self.job.connection.get('api_key','')]
-                context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
+                original=(self.job.resume_context or {}).get('task',self.job.prompt)
+                context={'task':plain(scrub(original,secrets)),'answer':plain(event['text'])}
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)
                 self.use_context.setChecked(False)
             self.stop_subagents('stopped');self.session['code_state']='limited' if event.get('limited') else event['status'];self.finish();self.record(kind,self.tr('Coding turn completed.') if event.get('response_shown') and event['status']=='completed' else event['text'])

@@ -164,6 +164,7 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertIn('The original goal',json.dumps(bodies[0]));self.assertNotIn('Unsent next task',json.dumps(bodies[0]));self.assertNotIn('Unsent steering',json.dumps(bodies[0]));self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
                 self.assertEqual(tab.session['coding_goal']['status'],'completed');self.assertIn('Completed (model reported)',tab.goal_status_label.text())
                 self.assertEqual(tab.session['coding_goal_progress']['steps'],1);self.assertLess(tab.session['coding_goal_progress']['seconds'],10)
+                self.assertEqual(tab.session['coding_context']['task'],'The original goal')
             finally:
                 release.set()
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
