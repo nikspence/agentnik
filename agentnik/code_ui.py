@@ -521,6 +521,15 @@ class CodeTab(QWidget):
         prefixes=('Steering delivered: ',self.tr('Steering delivered: '))
         return '\n'.join(item.get('text','') for item in activity[start:] if item.get('kind') in ('output','approval','decision','finished','steering_delivered') or (item.get('kind')=='steering' and item.get('text','').startswith(prefixes)))
 
+    def continuation_steering(self,secrets):
+        activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
+        prefixes=('Steering delivered: ',self.tr('Steering delivered: '))
+        text=scrub('\n'.join(item.get('text','') for item in activity[start:] if item.get('kind')=='steering_delivered' or (item.get('kind')=='steering' and item.get('text','').startswith(prefixes))),secrets)
+        if not text:return ''
+        marker='[Earlier delivered steering omitted due to the size limit.]\n'
+        if len(text)>14000:text=marker+text[-(14000-len(marker)):]
+        return 'Delivered steering from this run:\n'+text
+
     def continuation_snapshot(self,secrets):
         sources=scrub(copy.deepcopy(self.session.get('coding_sources',[])),secrets)
         plan=scrub(copy.deepcopy(self.session.get('coding_plan')),secrets);omitted=0
@@ -1234,7 +1243,7 @@ class CodeTab(QWidget):
         goal=self.session['coding_goal'];previous=self.session.get('coding_resume',{})
         recent=self.continuation_activity()
         secrets=self.draft_secrets();snapshot=self.continuation_snapshot(secrets)
-        evidence=self.bounded_continuation_evidence('\n'.join(filter(None,[scrub(previous.get('evidence',''),secrets),scrub(recent,secrets),scrub(goal.get('detail',''),secrets),snapshot,'Interrupted or uncertain actions must be inspected before any retry.'])))
+        evidence=self.bounded_continuation_evidence('\n'.join(filter(None,[scrub(previous.get('evidence',''),secrets),scrub(recent,secrets),scrub(goal.get('detail',''),secrets),self.continuation_steering(secrets),snapshot,'Interrupted or uncertain actions must be inspected before any retry.'])))
         self.session['coding_resume']={'task':goal['objective'],'evidence':evidence,'images':list(previous.get('images',[])),'documents':copy.deepcopy(previous.get('documents',[]))}
         self.session['coding_context']={'task':plain(goal['objective'])[:2048],'answer':plain(evidence)[-2048:]}
 
@@ -1607,7 +1616,7 @@ class CodeTab(QWidget):
                 recent=self.continuation_activity()
                 previous=getattr(self.job,'resume_context',None) or {}
                 task=previous.get('task',self.job.prompt)
-                evidence='\n'.join(filter(None,[scrub(previous.get('evidence',''),secrets),scrub(recent,secrets),scrub(event['text'],secrets),self.continuation_snapshot(secrets)]))
+                evidence='\n'.join(filter(None,[scrub(previous.get('evidence',''),secrets),scrub(recent,secrets),scrub(event['text'],secrets),self.continuation_steering(secrets),self.continuation_snapshot(secrets)]))
                 resume={'task':scrub(task,secrets)[:16000],'evidence':self.bounded_continuation_evidence(evidence),'images':list(self.job.images),'documents':scrub(copy.deepcopy(self.job.documents),secrets)};self.session['coding_resume']=resume
                 context={'task':plain(resume['task'])[:2048],'answer':plain(resume['evidence'])[-2048:]}
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)

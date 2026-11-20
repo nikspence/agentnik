@@ -138,11 +138,11 @@ class CodingWorkspace(unittest.TestCase):
                 session['coding_goal']={'objective':'Goal','status':'paused','detail':''};session['coding_resume']={'task':'Goal','evidence':'Earlier evidence'}
                 session['coding_plan']={'explanation':'Progress','steps':[{'step':'Finish remaining work','status':'pending'}]}
                 session['coding_sources']=[{'id':'S'+str(i),'title':'Reference','url':'https://example.com/'+('x'*1800)+str(i)} for i in range(1,33)]
-                session['code_activity']=[{'kind':'started','text':'Run'}]+[{'kind':'output','text':'x'*1800} for _ in range(20)]+[{'kind':'steering_delivered','text':'Steering delivered: Latest correction'}]
+                session['code_activity']=[{'kind':'started','text':'Run'},{'kind':'steering_delivered','text':'Steering delivered: Important correction'}]+[{'kind':'output','text':'x'*1800} for _ in range(20)]
                 snapshot=tab.continuation_snapshot([]);parsed=json.loads(snapshot);self.assertLessEqual(len(snapshot),8000);self.assertGreater(parsed['sources_omitted'],0)
                 tab.capture_goal_resume();evidence=session['coding_resume']['evidence']
                 self.assertLessEqual(len(evidence),24000);self.assertTrue(evidence.startswith('[Earlier continuation evidence omitted'))
-                self.assertIn('Latest correction',evidence);self.assertIn('Finish remaining work',evidence);self.assertIn(snapshot,evidence)
+                self.assertIn('Important correction',evidence);self.assertIn('Finish remaining work',evidence);self.assertIn(snapshot,evidence)
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
