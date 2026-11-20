@@ -299,6 +299,20 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=replies) as transport:run.run(events.append)
             self.assertEqual(transport.call_count,3);self.assertEqual(events[-1]['status'],'completed',events)
 
+    def test_goal_small_context_reset_is_consistent_across_protocols(self):
+        from agentnik.code_limits import coding_limits
+        from test_research import Response,answer
+        for protocol,url in [('chat','https://gateway.example/v1'),('messages','https://gateway.example/v1'),('responses','https://gateway.example/v1'),('chat','http://localhost:11434/v1')]:
+            with self.subTest(protocol=protocol,url=url),tempfile.TemporaryDirectory() as directory:
+                limits=coding_limits();limits['context_bytes']=4096;events=[]
+                run=CodingRun(dict(C,protocol=protocol,url=url,stream=False),directory,'Finish',limits=limits,goal=True,goal_budget={'steps':2,'seconds':0})
+                if protocol=='messages':replies=[Wire(msg([{'type':'text','text':'Step'}]),False) for _ in range(2)]
+                elif protocol=='responses':replies=[Wire(response([message('Step')]),False) for _ in range(2)]
+                elif 'localhost' in url:replies=[Response([answer('Step')]) for _ in range(2)]
+                else:replies=[Wire(chat('Step'),False) for _ in range(2)]
+                with patch.object(core,'open_request',side_effect=replies) as transport:run.run(events.append)
+                self.assertEqual(transport.call_count,2);self.assertTrue(events[-1]['limited']);self.assertIn('goal step limit',events[-1]['text'])
+
     def test_goal_step_limit_reports_boundary_steering_undelivered(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':1,'seconds':0});events=[]
