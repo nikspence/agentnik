@@ -80,7 +80,7 @@ Goal completion checks reject a model-reported completion while the ordinary run
 
 Goal and steering protocol fixtures now cover native Ollama, Responses, and Messages in addition to Chat Completions: a steering message received during a model request defers the proposed call, retains the correlated tool result, and reaches the next goal request before a model-reported completion. These are mocked, non-streaming checks, not live provider qualification; additional streaming, interruption and multi-call cases remain open.
 
-Mocked Chat Completions streaming coverage also delivers steering while fragmented tool-call arguments are arriving, in both ordinary and goal runs. The proposed write is deferred, its correlated result is retained, and the correction reaches the next request. Other streaming protocols and live behavior remain unqualified.
+Mocked Chat Completions and Messages streaming coverage also delivers steering while fragmented tool-call arguments are arriving, in both ordinary and goal runs. The proposed write is deferred, its correlated result is retained, and the correction reaches the next request. Other streaming protocols and live behavior remain unqualified.
 
 Steering delivery accounting now waits for a complete model response before recording delivery; an exhausted limit before submission is recorded as not delivered, while a failed submitted request is recorded as uncertain. Long steering text is split into bounded persisted activity entries. Offline tests cover these paths and keep uncertain messages out of automatic continuation evidence.
 
