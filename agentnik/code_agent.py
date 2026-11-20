@@ -594,7 +594,6 @@ class CodingRun:
     def goal_progress_snapshot(self,freeze=False):
         with self.lock:
             elapsed=self.goal_elapsed+(max(0,time.monotonic()-self.goal_started) if self.goal_started is not None else 0)
-            if self.goal_budget['seconds']:elapsed=min(elapsed,self.goal_budget['seconds'])
             if freeze:self.goal_elapsed=elapsed;self.goal_started=None
             return {'steps':self.goal_steps,'seconds':elapsed}
 

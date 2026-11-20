@@ -261,8 +261,17 @@ class ModelCoding(unittest.TestCase):
             def delayed(*args,**kwargs):release.wait(3);return Wire(chat('Late answer'),False)
             try:
                 with patch.object(core,'open_request',side_effect=delayed):run.run(events.append)
-                self.assertTrue(events[-1]['limited']);self.assertIn('goal time limit',events[-1]['text']);self.assertEqual(events[-1]['goal_progress']['seconds'],1)
+                self.assertTrue(events[-1]['limited']);self.assertIn('goal time limit',events[-1]['text']);self.assertGreaterEqual(events[-1]['goal_progress']['seconds'],1)
             finally:release.set()
+
+    def test_reducing_goal_time_limit_does_not_erase_previous_elapsed_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':0,'seconds':5},goal_progress={'steps':1,'seconds':10});events=[]
+            with patch.object(core,'open_request') as send:run.run(events.append);send.assert_not_called()
+            self.assertTrue(events[-1]['limited']);self.assertIn('goal time limit',events[-1]['text']);self.assertGreaterEqual(events[-1]['goal_progress']['seconds'],10)
+            resumed=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':0,'seconds':8},goal_progress=events[-1]['goal_progress']);events=[]
+            with patch.object(core,'open_request') as send:resumed.run(events.append);send.assert_not_called()
+            self.assertIn('goal time limit',events[-1]['text'])
 
     def test_shell_approval_displays_goal_time_remaining(self):
         with tempfile.TemporaryDirectory() as directory:
