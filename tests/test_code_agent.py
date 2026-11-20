@@ -582,6 +582,50 @@ class ModelCoding(unittest.TestCase):
             self.assertNotIn('model-secret',json.dumps(events)+json.dumps(bodies))
             self.assertIn('[redacted]',json.dumps(bodies[1]))
 
+    def test_shell_switch_applies_before_and_during_approval(self):
+        for initial,tool in ((True,'run_shell'),(False,'run_tests')):
+            with self.subTest(initial=initial,tool=tool), tempfile.TemporaryDirectory() as directory:
+                args={'path':'.','command':'echo hello'}
+                if tool=='run_tests':args['format']='auto'
+                replies=[Wire(chat(calls=[call(tool,args)],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                run=CodingRun(dict(C,stream=False,api_key='model-secret'),directory,'Run a command');run.set_shell_without_approval(initial)
+                events=[]
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.set_shell_without_approval(True)
+                with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute',return_value={'exit_code':0,'output':'model-secret','truncated':False}) as execute:
+                    run.run(emit);execute.assert_called_once()
+                self.assertEqual(any(e['kind']=='operation_proposal' for e in events),not initial)
+                self.assertEqual(any(e['kind']=='shell_approval_resolved' for e in events),not initial)
+                self.assertNotIn('model-secret',json.dumps(events));self.assertEqual(events[-1]['status'],'completed')
+
+    def test_disabling_shell_switch_before_dispatch_requires_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo test'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Run a command');run.set_shell_without_approval(True)
+            original=run.review_shell;events=[]
+            def review(*args):
+                result=original(*args)
+                if run.shell_automatic_last:run.set_shell_without_approval(False)
+                return result
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],False)
+            with patch.object(run,'review_shell',side_effect=review),patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute') as execute:
+                run.run(emit);execute.assert_not_called()
+            self.assertTrue(any(e['kind']=='operation_proposal' for e in events))
+
+    def test_cancelling_pending_shell_is_not_released_by_switch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo test'})],finish='tool_calls'),False)]
+            run=CodingRun(dict(C,stream=False),directory,'Run a command');events=[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.stop();run.set_shell_without_approval(True)
+            with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute') as execute:
+                run.run(emit);execute.assert_not_called()
+            self.assertTrue(any(e['kind']=='operation_proposal' for e in events))
+
     def test_project_edit_runs_before_rejected_shell_in_same_batch(self):
         with tempfile.TemporaryDirectory() as directory:
             events=[];run=CodingRun(dict(C,stream=False),directory,'Create and test')

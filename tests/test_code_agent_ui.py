@@ -14,6 +14,31 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_shell_switch_can_release_a_pending_command(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.code_agent import CodingRun
+        app=QApplication.instance() or QApplication([])
+        def settle(predicate):
+            deadline=time.monotonic()+4
+            while not predicate() and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+            self.assertTrue(predicate())
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                self.assertFalse(tab.shell_auto.isChecked());run=CodingRun(dict(C,stream=False),str(project),'task')
+                replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo hello'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute',return_value={'exit_code':0,'output':'ok','truncated':False}) as execute:
+                    tab.launch(run,'Started');settle(lambda:bool(tab.pending_fingerprint));execute.assert_not_called()
+                    self.assertTrue(tab.shell_auto.isEnabled());tab.shell_auto.setChecked(True)
+                    settle(lambda:tab.job is None);execute.assert_called_once()
+                self.assertIsNone(tab.pending_fingerprint);self.assertIn('echo hello',tab.activity.toPlainText())
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_response_thinking_preference_and_run_timing_are_saved(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

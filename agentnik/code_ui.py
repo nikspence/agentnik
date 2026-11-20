@@ -294,6 +294,7 @@ class CodeTab(QWidget):
         self.light_enabled.toggled.connect(self.save_light_enabled)
         close_models=QPushButton(self.tr('Close'));close_models.clicked.connect(self.model_panel.accept);model_layout.addWidget(close_models)
         preferences=QHBoxLayout();layout.addLayout(preferences);preferences.addWidget(self.use_context)
+        self.shell_auto=QCheckBox(self.tr('Run shell commands without approval'));self.shell_auto.setToolTip(self.tr('Shell and test commands run with your account permissions, including network access and files outside the project. This setting can be changed during a run.'));preferences.addWidget(self.shell_auto);self.shell_auto.toggled.connect(self.change_shell_approval)
         self.save_review_progress=QCheckBox(self.tr('Save Heavy review progress'));self.save_review_progress.setToolTip(self.tr('Save approved Heavy-requested parallel batches and single structured reviews to this session before reviewer requests start. Unfinished passes reopen as interrupted.'));self.save_review_progress.setChecked(session.get('coding_save_review_progress',False));self.save_review_progress.toggled.connect(self.save_heavy_review_progress);preferences.addWidget(self.save_review_progress)
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.'))
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));preferences.addWidget(self.web_enabled);preferences.addStretch()
@@ -490,6 +491,11 @@ class CodeTab(QWidget):
 
     def save_light_enabled(self,enabled):
         self.session['coding_light_enabled']=enabled;self.store.save(self.session)
+
+    def change_shell_approval(self,enabled):
+        if isinstance(self.job,CodingRun):
+            self.job.set_shell_without_approval(enabled)
+            self.record('output',self.tr('Shell commands without approval: {state}').format(state=self.tr('on') if enabled else self.tr('off')))
 
     def save_heavy_review_progress(self,enabled):
         self.session['coding_save_review_progress']=enabled;self.store.save(self.session)
@@ -1207,7 +1213,7 @@ class CodeTab(QWidget):
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if not continuation and self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.advice_connection=advice;self.advice_destination=destination
-        self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval; shell commands require approval. Repository content goes to the selected models.')
+        self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval. Shell commands '+('run without approval' if self.shell_auto.isChecked() else 'require approval')+'. Repository content goes to the selected models.')
         if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[provider])
 
     def continue_coding(self):
@@ -1218,6 +1224,7 @@ class CodeTab(QWidget):
 
     def launch(self,run,notice):
         if isinstance(run,CodingRun):
+            run.set_shell_without_approval(self.shell_auto.isChecked())
             run.show_thinking=self.show_thinking.isChecked()
             self.review_results.clear();self.review_dispositions.clear();self.review_progress_ids.clear();self.review_results_button.setEnabled(False)
             self.session['coding_subagents']=[];self.refresh_subagents()
@@ -1751,6 +1758,12 @@ class CodeTab(QWidget):
             if proposal.get('purpose')=='tests':text=self.tr('TEST RUN · Report format: {format}').format(format=proposal['test_format'])+'\n'+text
             self.approval.setPlainText(text);self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval: '+operation+' '+proposal.get('path',''))
             if operation=='run_shell' and self.advice_connection:self.check_advice(proposal,self.pending_fingerprint)
+        elif kind=='shell_approval_resolved':
+            if self.pending_fingerprint==event.get('fingerprint'):
+                self.pending_fingerprint=None;self.advice_fingerprint=None
+                if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
+                self.approve.setEnabled(False);self.reject.setEnabled(False);self.approval_panel.hide();self.approval.clear();self.diff.clear();self.session['code_state']='running'
+                self.record('decision',self.tr('Shell command allowed by the current switch.'))
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='model_response':
             role=event.get('role','Model');model=event.get('model','')

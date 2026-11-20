@@ -50,13 +50,15 @@ Single-file deletion requires a prior read, shows a deletion diff, and rechecks 
 
 The shell executor binds approval to the exact command, shell, working directory and inherited environment snapshot. The preview discloses unrestricted user-level filesystem and network access; shell commands can execute Git or other programs. PowerShell on Windows runs in a kill-on-close process job; POSIX uses a process group, which does not contain detached processes. Command time and output are bounded, known keys are redacted, and cancellation retains completed effects. A Windows build-host smoke check covered PowerShell and child-process cancellation; POSIX and live model compatibility remain open. Stronger OS isolation, interactive command support, and MCP/Skills integration remain future work.
 
-### Planned shell approval switch
+### Shell approval switch
 
 Add a clearly labeled per-Code-pane switch that allows shell commands, including test commands using the shell executor, to run without individual approval. Default it off and disclose that commands run with the user's filesystem and network permissions. The user can turn it on or off before or during an ordinary run or goal pursuit. Show the current setting and record commands and their outcomes in activity, with existing secret redaction. The switch applies only to shell execution; other operation approvals remain unchanged.
 
 Apply changes immediately and synchronize them with command dispatch. Enabling the switch while a shell command is awaiting approval permits that pending command to proceed after the existing cancellation, guidance and execution checks; disabling it requires approval for commands not yet dispatched. A command already started is not undone or automatically cancelled by changing the switch. Preserve cancellation, command limits, environment handling, guidance checks and no-replay rules. Optional System One advice remains advisory and cannot override the switch or authorize execution. Reopening a session must not start a command or resume a run.
 
 Acceptance: offline and offscreen Qt tests cover the default, toggling before and during both kinds of run, a pending shell approval, dispatch races, disabling before dispatch, cancellation, test commands, independent panes, activity and redaction, and unchanged approvals for non-shell operations.
+
+First slice implemented for ordinary Code runs: the per-pane switch starts off, may change during a run, and releases a pending shell approval when enabled. The synchronized dispatch decision rechecks the switch, commands and outcomes appear in redacted activity, and test commands use the same policy. Offline model and offscreen Qt tests cover initial enablement, a pending approval, disabling before dispatch, and command output redaction. Goal-mode coverage remains pending implementation.
 
 ## Planned web research and adjustable run limits
 
