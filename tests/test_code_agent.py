@@ -88,6 +88,29 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_removed_light_delegation_is_unavailable_with_legacy_connection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Analyze',light=dict(C,model='legacy',stream=False));bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('delegate_light',{'task':'Analyze'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(connection,url,body,timeout):bodies.append((connection['model'],json.loads(json.dumps(body))));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual([model for model,_ in bodies],[C['model'],C['model']]);self.assertEqual(events[-1]['status'],'completed')
+            self.assertNotIn('delegate_light',json.dumps(bodies[0][1]['tools']));self.assertIn('Unknown or unavailable tool',json.dumps(bodies[-1][1]))
+
+    def test_model_timeout_does_not_change_web_timeout(self):
+        from agentnik.tools import Source
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as directory:
+            limits=coding_limits();limits['model_seconds']=240;timeouts=[];events=[]
+            replies=[Wire(chat(calls=[call('web_fetch',{'url':'https://example.com/docs'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(connection,url,body,timeout):timeouts.append(timeout);return replies.pop(0)
+            def fetch(url,runtime):
+                self.assertEqual(runtime.limits.request_seconds,45);return [Source('','Docs',url,'Documentation','now')]
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.code_agent.PublicWeb') as reader:
+                reader.return_value.fetch.side_effect=fetch
+                CodingRun(dict(C,stream=False),directory,'Research',limits=limits,web_enabled=True,search_provider='none').run(events.append)
+            self.assertEqual(events[-1]['status'],'completed');self.assertEqual(len(timeouts),2);self.assertTrue(all(239<timeout<=240 for timeout in timeouts))
+
     def test_removed_review_tools_are_unavailable_even_with_legacy_connections(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Review',light=dict(C,model='legacy',stream=False));bodies=[];events=[]
@@ -827,22 +850,6 @@ class ModelCoding(unittest.TestCase):
                 self.assertEqual(events[-1]['status'],expected);self.assertEqual(request.call_count,1)
                 self.assertEqual(timeouts,[min(seconds,total)])
 
-    def test_heavy_and_light_have_model_timeout_while_web_keeps_its_deadline(self):
-        from agentnik.tools import Source
-        from agentnik.code_limits import coding_limits
-        with tempfile.TemporaryDirectory() as directory:
-            limits=coding_limits();limits['model_seconds']=240;timeouts=[];events=[]
-            replies=[Wire(chat(calls=[call('delegate_light',{'task':'Review API'}),call('web_fetch',{'url':'https://example.com/docs'},'web')],finish='tool_calls'),False),Wire(chat('Analysis'),False),Wire(chat('Done'),False)]
-            def send(c,url,body,timeout):timeouts.append((c['model'],timeout));return replies.pop(0)
-            def fetch(url,runtime):
-                self.assertEqual(runtime.limits.request_seconds,45)
-                return [Source('','Docs',url,'Documentation','now')]
-            with patch.object(core,'open_request',side_effect=send),patch('agentnik.code_agent.PublicWeb') as reader:
-                reader.return_value.fetch.side_effect=fetch
-                CodingRun(dict(C,stream=False),directory,'Research',light=dict(C,model='light',stream=False),limits=limits,web_enabled=True,search_provider='none').run(events.append)
-            self.assertEqual(events[-1]['status'],'completed')
-            self.assertEqual([name for name,_ in timeouts],['heavy','light','heavy'])
-            self.assertTrue(all(239<timeout<=240 for _,timeout in timeouts))
 
     def test_cancel_waiting_model_discards_late_response(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -999,19 +1006,6 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(Path(directory,'b.txt').read_bytes(),b'new b\n')
             self.assertEqual(events[-1]['status'],'completed')
 
-    def test_usage_is_attributed_to_roles_and_missing_counts_are_visible(self):
-        from types import SimpleNamespace
-        with tempfile.TemporaryDirectory() as directory:
-            run=CodingRun(dict(C),directory,'Analyze',dict(C,model='light'));events=[]
-            responses=[({'input_tokens':10,'output_tokens':2},[SimpleNamespace(name='delegate_light',arguments={'task':'Check'},id='one',provider={})]),
-                       ({'input_tokens':3,'output_tokens':0},[]),({},[])]
-            def request(connection,body,runtime,emit,state):
-                metrics,calls=responses.pop(0);state.update(metrics=metrics,text='Done')
-                return ({'role':'assistant','content':'Done'},calls)
-            with patch('agentnik.compat_tools.request',side_effect=request):run.run(events.append)
-            self.assertEqual(events[-1]['status'],'completed')
-            self.assertIn('Heavy: 2 request(s), input 10 (known usage only), output 2 (known usage only)',events[-1]['usage'])
-            self.assertIn('Light: 1 request(s), input 3, output 0 tokens',events[-1]['usage'])
 
     def test_failed_request_usage_is_unknown(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1092,17 +1086,6 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(first.read_text(),'new a\n');self.assertEqual(second.read_text(),'old b\n')
             self.assertEqual(endpoint.call_count,2)
 
-    def test_heavy_can_delegate_to_light_using_a_different_protocol(self):
-        with tempfile.TemporaryDirectory() as directory:
-            run=CodingRun(dict(C,protocol='responses',stream=False),directory,'Analyze',dict(C,protocol='messages',model='light',stream=False))
-            fc=dict(function_call(),name='delegate_light',arguments=json.dumps({'task':'Suggest a simple test'}))
-            bodies=[];replies=[Wire(response([fc]),False),Wire(msg([{'type':'text','text':'Use a unit test.'}]),False),Wire(response([message('Summary')]),False)]
-            def send(c,url,body,timeout):bodies.append((c['model'],body));return replies.pop(0)
-            events=[]
-            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
-            self.assertEqual([name for name,_ in bodies],['heavy','light','heavy'])
-            self.assertNotIn('tools',bodies[1][1]);self.assertIn('Use a unit test.',json.dumps(bodies[2][1]))
-            self.assertEqual(events[-1]['status'],'completed')
 
     def test_known_connection_keys_are_not_sent_in_file_results(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1148,14 +1131,6 @@ class ModelCoding(unittest.TestCase):
                 if protocol=='messages':self.assertEqual(bodies[-1]['messages'][-1]['content'][0]['tool_use_id'],'edit-1')
                 else:self.assertEqual(bodies[-1]['messages'][-1]['tool_call_id'],'call-0')
 
-    def test_light_endpoint_failure_stops_without_replaying_the_heavy_turn(self):
-        with tempfile.TemporaryDirectory() as directory:
-            run=CodingRun(dict(C,stream=False),directory,'Analyze',dict(C,model='light',stream=False))
-            first=Wire(chat(calls=[call('delegate_light',{'task':'Analyze this task'})],finish='tool_calls'),False)
-            events=[]
-            with patch.object(core,'open_request',side_effect=[first,core.EndpointError(401,'private-body')]) as endpoint:run.run(events.append)
-            self.assertEqual(endpoint.call_count,2);self.assertEqual(events[-1]['status'],'failed')
-            self.assertNotIn('private-body',json.dumps(events))
 
     def test_cancel_before_write_never_applies_edit(self):
         with tempfile.TemporaryDirectory() as directory:

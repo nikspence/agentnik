@@ -89,13 +89,9 @@ class RepositoryGuidanceTests(unittest.TestCase):
             self.assertFalse((root/'new').exists());self.assertIn('Changed rules',bodies[1]['messages'][0]['content'])
             result=next(json.loads(m['content']) for m in bodies[1]['messages'] if m['role']=='tool');self.assertIn('changed before the file operation',result['error'])
 
-    def test_light_receives_loaded_guidance_and_initial_context_budget_is_enforced(self):
+    def test_initial_guidance_context_budget_is_enforced(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);(root/'AGENTS.md').write_text('Use project naming.')
-            bodies=[];events=[];replies=[Wire(chat(calls=[call('delegate_light',{'task':'Review naming'})],finish='tool_calls'),False),Wire(chat('Naming reviewed'),False),Wire(chat('Done'),False)]
-            def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
-            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
-            self.assertIn('Use project naming.',bodies[1]['messages'][0]['content']);self.assertNotIn('tools',bodies[1]);self.assertEqual(events[-1]['status'],'completed')
             (root/'AGENTS.md').write_text('x'*6000)
             limits=coding_limits();limits['context_bytes']=4096;events=[]
             with patch.object(core,'open_request',side_effect=AssertionError('Must not send oversized guidance')):CodingRun(dict(C,stream=False),root,'Review',limits=limits).run(events.append)

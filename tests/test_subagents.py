@@ -15,6 +15,7 @@ from test_routing import Wire
 class Subagents(unittest.TestCase):
     def test_subagents_use_parent_connection_without_light_configuration(self):
         with tempfile.TemporaryDirectory() as root:
+            (Path(root)/'AGENTS.md').write_text('Use project naming.',encoding='utf-8')
             events=[];requests=[];parent_requests=0;lock=threading.Lock()
             run=CodingRun(dict(C,stream=False,api_key='parent-key'),root,'Analyze')
             def send(connection,url,body,timeout):
@@ -30,6 +31,8 @@ class Subagents(unittest.TestCase):
             self.assertEqual(events[-1]['status'],'completed',events)
             self.assertEqual(len(requests),4)
             self.assertTrue(all(request[0]['model']==C['model'] and request[0]['api_key']=='parent-key' for request in requests))
+            children=[body for _,body in requests if 'Independent read-only coding analysis.' in json.dumps(body)]
+            self.assertEqual(len(children),2);self.assertTrue(all('Use project naming.' in json.dumps(body) for body in children))
             self.assertIn('Subagent: 2 request(s)',run.usage_text())
             self.assertTrue(any(tool.get('function',{}).get('name')=='delegate_subagents' for tool in requests[0][1]['tools']))
             self.assertFalse({tool.get('function',{}).get('name') for tool in requests[0][1]['tools']} & {'delegate_light','delegate_parallel','review_document','review_document_role','review_document_evidence','review_document_structured','review_document_parallel'})
@@ -93,7 +96,7 @@ class Subagents(unittest.TestCase):
 
     def test_delegation_charges_complete_utf8_prompts_before_requests(self):
         from agentnik.tools import Runtime
-        for tool,tasks in [('delegate_light',{'task':'Check café'}),('delegate_parallel',{'tasks':json.dumps(['Check café','Review API'])})]:
+        for tool,tasks in [('delegate_parallel',{'tasks':json.dumps(['Check café','Review API'])})]:
             with self.subTest(tool=tool),tempfile.TemporaryDirectory() as root:
                 bodies=[];charges=[];events=[];heavy_count=0
                 original=Runtime.charge
@@ -111,7 +114,7 @@ class Subagents(unittest.TestCase):
                     CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
                 self.assertEqual(events[-1]['status'],'completed',events)
                 children=[body for body in bodies if body['model']=='light']
-                self.assertEqual(len(children),1 if tool=='delegate_light' else 2)
+                self.assertEqual(len(children),2)
                 expected=sum(len(body['messages'][0]['content'].encode('utf-8')) for body in children)
                 self.assertIn(expected,charges)
 

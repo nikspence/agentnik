@@ -20,6 +20,8 @@ Track-start transition: starting a selected Spec & Plan track no longer reads or
 
 The coding loop no longer defines or executes the five independent document-review tools, including when a legacy Light connection is supplied. Unknown calls return useful model feedback. Existing saved review readers and the retired direct-review implementation remain for a subsequent removal slice; saved records are not erased.
 
+The retired `delegate_light` tool and its separate request path are removed. The same-model `delegate_subagents` path remains available; the older multi-model parallel path still needs removal. Tests verify that legacy single-Light calls return an unavailable-tool error and that same-model children receive scoped guidance.
+
 ## Heavy and light models in one workflow
 
 Each Code pane has independent Heavy and Light connection/model assignments. Select any alias supported by the connection, including LiteLLM coding models, or use Choose model to retrieve its model list. Listing does not establish tool capability. Start with a tool-capable heavy model; the light role is optional and is not automatically chosen.
