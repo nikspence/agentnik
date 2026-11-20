@@ -930,9 +930,10 @@ class CodingRun:
                 if not calls:
                     with self.lock:
                         has_steering=bool(self.steering)
+                        if self.goal and has_steering:self.goal_status='active'
                         goal_continues=self.goal and self.goal_status=='active'
                         if not has_steering and not goal_continues:self.accepting_steering=False
-                    if has_steering:
+                    if has_steering and not self.goal:
                         if round_number>=runtime.limits.rounds:raise LimitError('Coding tool round limit reached before steering could be delivered')
                         continue
                     if goal_continues:

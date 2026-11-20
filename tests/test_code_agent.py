@@ -256,6 +256,27 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=replies) as send:resumed.run(events.append)
             self.assertEqual(send.call_count,2);self.assertEqual(events[-1]['status'],'completed');self.assertEqual(events[-1]['goal_progress']['steps'],0)
 
+    def test_goal_steering_at_step_boundary_uses_fresh_limits(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as directory:
+            limits=coding_limits();limits.update(requests=2,rounds=1,calls=1)
+            run=CodingRun(dict(C,stream=False),directory,'Finish',limits=limits,goal=True);events=[];bodies=[]
+            replies=[Wire(chat(calls=[call('get_plan',{})],finish='tool_calls'),False),Wire(chat('Step done'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Addressed correction'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(connection,url,body,timeout):
+                bodies.append(json.loads(json.dumps(body)))
+                if len(bodies)==2:self.assertTrue(run.steer('Apply this correction'))
+                return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(bodies),4)
+            self.assertIn('Apply this correction',json.dumps(bodies[2]));self.assertEqual([e['text'] for e in events if e['kind']=='steering_delivered'],['Apply this correction'])
+
+    def test_goal_step_limit_reports_boundary_steering_undelivered(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':1,'seconds':0});events=[]
+            def send(connection,url,body,timeout):self.assertTrue(run.steer('Correction'));return Wire(chat('Step done'),False)
+            with patch.object(core,'open_request',side_effect=send) as transport:run.run(events.append)
+            self.assertEqual(transport.call_count,1);self.assertTrue(events[-1]['limited']);self.assertEqual([e['text'] for e in events if e['kind']=='steering_undelivered'],['Correction'])
+
     def test_goal_time_limit_interrupts_inflight_model_request(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':0,'seconds':1});events=[];release=threading.Event()
