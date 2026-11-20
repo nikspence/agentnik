@@ -182,7 +182,10 @@ def validate_session(value, ident=None):
             require(isinstance(resume.get('images',[]),list) and all(isinstance(p,str) for p in resume.get('images',[])))
             try:validate_documents(resume.get('documents',[]))
             except ValueError:require(False)
-        require(data.get('code_state','idle') in ('idle','running','awaiting_approval','completed','failed','limited','cancelled','rejected','timed_out','interrupted'))
+        if 'coding_goal' in data:
+            goal=data['coding_goal'];require(isinstance(goal,dict) and set(goal)=={'objective','status','detail'})
+            require(isinstance(goal['objective'],str) and 0<len(goal['objective'])<=16000 and goal['status'] in ('active','completed','blocked','limited','cancelled','failed','interrupted') and isinstance(goal['detail'],str) and len(goal['detail'])<=4000)
+        require(data.get('code_state','idle') in ('idle','running','awaiting_approval','completed','blocked','failed','limited','cancelled','rejected','timed_out','interrupted'))
         return data
     require(data.get('version',1)<=3)
     def form(value):

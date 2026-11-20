@@ -14,6 +14,29 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_goal_mode_persists_model_reported_completion(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
+            store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.composer.setPlainText('Finish the feature');tab.goal_enabled.setChecked(True)
+                replies=[Wire(chat('Working'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Verified result'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                with patch.object(core,'open_request',side_effect=replies):
+                    tab.start_coding();deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+                    app.processEvents()
+                self.assertIsNone(tab.job);saved=next(row for row in store.list_sessions() if row['id']==session['id'])
+                self.assertEqual(saved['coding_goal'],{'objective':'Finish the feature','status':'completed','detail':'Verified result'})
+                self.assertIn('model reported',tab.activity.toPlainText())
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_steering_during_approval_preserves_composer_and_reaches_model(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

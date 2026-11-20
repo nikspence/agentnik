@@ -88,6 +88,24 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_goal_continues_until_explicit_completion_with_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Complete the task',goal=True);events=[];bodies=[]
+            replies=[Wire(chat('First step done'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Checked the requested result'})],finish='tool_calls'),False),Wire(chat('Completed and checked'),False)]
+            def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(len(bodies),3);self.assertEqual(events[-1]['status'],'completed')
+            self.assertIn('Continue the current goal',json.dumps(bodies[1]))
+            self.assertEqual([e['status'] for e in events if e['kind']=='goal_status'],['completed'])
+
+    def test_goal_limit_is_not_completion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            from agentnik.code_limits import coding_limits
+            limits=coding_limits();limits['rounds']=1
+            run=CodingRun(dict(C,stream=False),directory,'Unfinished goal',limits=limits,goal=True);events=[]
+            with patch.object(core,'open_request',side_effect=[Wire(chat('First step'),False),Wire(chat('More remains'),False)]):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'failed');self.assertTrue(events[-1]['limited']);self.assertEqual(run.goal_status,'active')
+
     def test_steering_is_delivered_after_inflight_model_response(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Original task');events=[];bodies=[]

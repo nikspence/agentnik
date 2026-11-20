@@ -46,6 +46,8 @@ Acceptance: offline model and storage tests cover multiple next steps, evidence-
 
 Steering first slice: normal Code runs accept ordered messages in a separate field. Messages are inserted at a complete continuation boundary, pending approvals are invalidated and later calls in the batch are deferred, and activity records queued and delivered states with known credentials redacted. The main composer is preserved. Offline mocked Chat Completions and offscreen Qt tests cover model-in-flight steering, pending shell approval, ordering and drafts; other protocols, limits and goal-mode behavior need further qualification. Queued messages are not automatically replayed after interruption.
 
+Goal first slice: the opt-in Code setting continues after intermediate model responses and accepts a bounded model-reported active, completed or blocked status with detail. Limits remain limited rather than completed; goal status and objective are saved, and reopen does not restart work. Steering and shell controls are shared with normal runs. Mocked Chat Completions and offscreen tests cover continuation, completion and limits. Pause, interrupted/blocked resume, independent verification of model claims, broader protocol and goal-steering coverage remain open.
+
 ## Approval and next steps
 
 The earlier no-execution simulation remains available for trying the UI. Its approvals cannot authorize real edits. Optional System One advice applies to shell approvals only; other operations show **Not checked**. Heavy/light model outputs and advisory results are not execution authority.

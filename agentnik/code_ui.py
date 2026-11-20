@@ -205,6 +205,7 @@ class CodeTab(QWidget):
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
         if session.get("code_state") in ("running","awaiting_approval"):
             session["code_state"]="interrupted"
+            if session.get('coding_goal',{}).get('status')=='active':session['coding_goal']['status']='interrupted'
             for item in session.get("coding_subagents",[]):
                 if item["status"] in ("queued","running"):item["status"]="interrupted"
             append_code_activity(session,'interrupted','Interrupted coding run; nothing resumes automatically.')
@@ -300,6 +301,7 @@ class CodeTab(QWidget):
         self.light_enabled.hide()
         close_models=QPushButton(self.tr('Close'));close_models.clicked.connect(self.model_panel.accept);model_layout.addWidget(close_models)
         preferences=QHBoxLayout();layout.addLayout(preferences);preferences.addWidget(self.use_context)
+        self.goal_enabled=QCheckBox(self.tr('Pursue as goal'));self.goal_enabled.setToolTip(self.tr('Keep taking the next step until the objective is complete, blocked, stopped, or a run limit is reached.'));self.goal_enabled.setChecked(session.get('coding_goal',{}).get('status') in ('active','limited','interrupted'));preferences.addWidget(self.goal_enabled)
         self.shell_auto=QCheckBox(self.tr('Run shell commands without approval'));self.shell_auto.setToolTip(self.tr('Shell and test commands run with your account permissions, including network access and files outside the project. This setting can be changed during a run.'));preferences.addWidget(self.shell_auto);self.shell_auto.toggled.connect(self.change_shell_approval)
         self.save_review_progress=QCheckBox(self.tr('Save Heavy review progress'));self.save_review_progress.setToolTip(self.tr('Save approved Heavy-requested parallel batches and single structured reviews to this session before reviewer requests start. Unfinished passes reopen as interrupted.'));self.save_review_progress.setChecked(session.get('coding_save_review_progress',False));self.save_review_progress.toggled.connect(self.save_heavy_review_progress);preferences.addWidget(self.save_review_progress)
         self.save_review_progress.hide()
@@ -1215,9 +1217,12 @@ class CodeTab(QWidget):
                 files=ProjectFiles(self.session['path_snapshot']);limit=coding_limits(self.session.get('coding_limits'))['context_bytes'];selected=prepare_track(files,ident,secrets,limit)
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None)
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked())
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if not continuation and self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
+        if run.goal:
+            objective=(resume or {}).get('task',prompt);secrets=[heavy.get('api_key','')]+[item.get('key','') for item in backends]
+            self.session['coding_goal']={'objective':scrub(objective,secrets)[:16000],'status':'active','detail':''}
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval. Shell commands '+('run without approval' if self.shell_auto.isChecked() else 'require approval')+'. Repository content goes to the selected models.')
         if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[provider])
@@ -1240,6 +1245,7 @@ class CodeTab(QWidget):
                 self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.steering_input.setEnabled(isinstance(run,CodingRun));self.steering_button.setEnabled(isinstance(run,CodingRun))
+        self.goal_enabled.setEnabled(False)
         self.continue_button.setEnabled(False)
         self.send.setEnabled(False);self.direct_review_button.setEnabled(False);self.cancel_button.setEnabled(True)
         self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.save_review_progress.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
@@ -1772,6 +1778,9 @@ class CodeTab(QWidget):
                 if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
                 self.approve.setEnabled(False);self.reject.setEnabled(False);self.approval_panel.hide();self.approval.clear();self.diff.clear();self.session['code_state']='running'
                 self.record('decision',self.tr('Shell command allowed by the current switch.'))
+        elif kind=='goal_status':
+            if self.session.get('coding_goal'):
+                self.session['coding_goal']['detail']=event['detail'][:4000];self.record('output',self.tr('Goal status (model reported): ')+event['status']+' · '+event['detail'])
         elif kind=='steering_delivered':self.record('steering',self.tr('Steering delivered: ')+event['text'])
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='model_response':
@@ -1782,6 +1791,9 @@ class CodeTab(QWidget):
                 self.record('output',self.tr('{role} model {model} — {label}:').format(role=role,model=model,label=label))
                 for start in range(0,len(value),1800):self.record('output',value[start:start+1800])
         elif kind=='finished':
+            if isinstance(self.job,CodingRun) and self.job.goal and self.session.get('coding_goal'):
+                self.session['coding_goal']['status']='limited' if event.get('limited') else event['status']
+                if event['status']!='completed':self.session['coding_goal']['detail']=event['text'][:4000]
             if event.get('limited') and isinstance(self.job,CodingRun) and not getattr(self.job,'direct_review',False):
                 secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in self.job.web_backends]
                 for bridge in self.job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
@@ -1858,6 +1870,7 @@ class CodeTab(QWidget):
         self.advice_connection=None;self.advice_destination=''
         self.run_id=None;self.job=None;self.pending_fingerprint=None;self.advice_fingerprint=None
         self.steering_input.setEnabled(False);self.steering_button.setEnabled(False)
+        self.goal_enabled.setEnabled(True)
         self.approval_panel.hide()
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
@@ -1875,6 +1888,7 @@ class CodeTab(QWidget):
         if getattr(self,'_compaction_active',False):
             self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
         job=self.job;job.stop()
+        if isinstance(job,CodingRun) and job.goal and self.session.get('coding_goal'):self.session['coding_goal']['status']='cancelled'
         usage=job.usage_text() if isinstance(job,CodingRun) and not getattr(job,'direct_review',False) else None
         for bridge in getattr(self.job,'mcp_bridges',[]):bridge.close()
         self.stop_subagents('cancelled');self.session['code_state']='cancelled';self.finish()
