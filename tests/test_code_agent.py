@@ -279,6 +279,20 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(bodies),4)
             self.assertIn('Apply this correction',json.dumps(bodies[2]));self.assertEqual([e['text'] for e in events if e['kind']=='steering_delivered'],['Apply this correction'])
 
+    def test_steering_reopens_terminal_goal_before_final_response(self):
+        for initial_status in ('completed','blocked'):
+            with self.subTest(status=initial_status),tempfile.TemporaryDirectory() as directory:
+                run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True);events=[];bodies=[]
+                replies=[Wire(chat(calls=[call('set_goal_status',{'status':initial_status,'detail':'Initial assessment'})],finish='tool_calls'),False),Wire(chat('Initial response'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Correction addressed'})],finish='tool_calls'),False),Wire(chat('Revised response'),False)]
+                def send(connection,url,body,timeout):
+                    bodies.append(json.loads(json.dumps(body)))
+                    if len(bodies)==2:self.assertTrue(run.steer('Please address this correction'))
+                    return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+                self.assertEqual(len(bodies),4);self.assertIn('Please address this correction',json.dumps(bodies[2]))
+                self.assertEqual([e['status'] for e in events if e['kind']=='goal_status'],[initial_status,'completed'])
+                self.assertEqual(events[-1]['status'],'completed');self.assertEqual(events[-1]['text'],'Revised response')
+
     def test_goal_step_reset_keeps_retained_request_bounded(self):
         from agentnik.code_limits import coding_limits
         with tempfile.TemporaryDirectory() as directory:
