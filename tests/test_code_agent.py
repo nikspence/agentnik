@@ -263,7 +263,7 @@ class ModelCoding(unittest.TestCase):
             resumed=CodingRun(dict(C,stream=False),directory,'Continue',goal=True,goal_budget={'steps':2,'seconds':0},resume_context={'task':'Finish','evidence':'Two steps completed'});events=[]
             replies=[Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Finished'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
             with patch.object(core,'open_request',side_effect=replies) as send:resumed.run(events.append)
-            self.assertEqual(send.call_count,2);self.assertEqual(events[-1]['status'],'completed');self.assertEqual(events[-1]['goal_progress']['steps'],0)
+            self.assertEqual(send.call_count,2);self.assertEqual(events[-1]['status'],'completed');self.assertEqual(events[-1]['goal_progress']['steps'],1)
 
     def test_goal_steering_at_step_boundary_uses_fresh_limits(self):
         from agentnik.code_limits import coding_limits

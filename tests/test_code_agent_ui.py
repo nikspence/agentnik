@@ -143,7 +143,7 @@ class CodingWorkspace(unittest.TestCase):
                 with patch.object(core,'open_request',side_effect=answer):tab.continue_coding();settle(lambda:tab.job is None)
                 self.assertIn('The original goal',json.dumps(bodies[0]));self.assertNotIn('Unsent next task',json.dumps(bodies[0]));self.assertNotIn('Unsent steering',json.dumps(bodies[0]));self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
                 self.assertEqual(tab.session['coding_goal']['status'],'completed');self.assertIn('Completed (model reported)',tab.goal_status_label.text())
-                self.assertEqual(tab.session['coding_goal_progress']['steps'],0);self.assertLess(tab.session['coding_goal_progress']['seconds'],10)
+                self.assertEqual(tab.session['coding_goal_progress']['steps'],1);self.assertLess(tab.session['coding_goal_progress']['seconds'],10)
             finally:
                 release.set()
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
@@ -196,7 +196,7 @@ class CodingWorkspace(unittest.TestCase):
                     tab.start_coding();settle();self.assertEqual(tab.session['code_state'],'limited');self.assertEqual(tab.session['coding_goal_progress']['steps'],1)
                     self.assertTrue(tab.continue_button.isEnabled());tab.composer.setPlainText('Unsent draft');tab.continue_coding();settle()
                 self.assertEqual(len(bodies),3);self.assertIn('Original objective',json.dumps(bodies[1]));self.assertIn('First step done',json.dumps(bodies[1]))
-                self.assertEqual(tab.session['coding_goal']['status'],'completed');self.assertEqual(tab.session['coding_goal_progress']['steps'],0);self.assertEqual(tab.composer.toPlainText(),'Unsent draft')
+                self.assertEqual(tab.session['coding_goal']['status'],'completed');self.assertEqual(tab.session['coding_goal_progress']['steps'],1);self.assertEqual(tab.composer.toPlainText(),'Unsent draft')
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
@@ -225,7 +225,7 @@ class CodingWorkspace(unittest.TestCase):
                 captured=[]
                 def inspect(dialog):captured.append(dialog.findChild(QPlainTextEdit,'goalDetailsText').toPlainText());return QDialog.DialogCode.Rejected
                 with patch.object(QDialog,'exec',inspect):tab.show_goal_details()
-                self.assertIn('Finish the feature',captured[0]);self.assertIn('Verified result',captured[0]);self.assertIn('Completed goal steps: 1 / Unlimited',captured[0]);self.assertIn('Active goal time (seconds):',captured[0])
+                self.assertIn('Finish the feature',captured[0]);self.assertIn('Verified result',captured[0]);self.assertIn('Completed goal steps: 2 / Unlimited',captured[0]);self.assertIn('Active goal time (seconds):',captured[0])
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()

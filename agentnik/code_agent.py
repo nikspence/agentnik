@@ -962,6 +962,9 @@ class CodingRun:
                         if protocol=='responses':body['input'].append({'role':'user','content':message})
                         else:body['messages'].append({'role':'user','content':message})
                         event('output',text='Goal remains active; continuing to the next step.');continue
+                    if self.goal:
+                        self.goal_steps+=1
+                        event('goal_progress',steps=self.goal_steps,seconds=self.goal_elapsed+time.monotonic()-self.goal_started)
                     if self.goal and self.goal_status=='blocked':
                         event('finished',status='blocked',text=self.goal_detail,usage=usage_text());return
                     event('finished',status='completed',text=state.get('text','') or 'Coding turn completed.',response_shown=bool(state.get('text')),usage=usage_text());return
