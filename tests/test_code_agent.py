@@ -259,6 +259,32 @@ class ModelCoding(unittest.TestCase):
                 elif protocol=='messages':self.assertTrue(any(x.get('role')=='user' and isinstance(x.get('content'),list) and any(block.get('tool_use_id')=='read' for block in x['content'] if isinstance(block,dict)) for x in second))
                 else:self.assertTrue(any(x.get('role')=='tool' and x.get('tool_call_id')=='call-0' for x in second))
 
+    def test_streaming_steering_defers_fragmented_tool_calls(self):
+        for goal in (False,True):
+            with self.subTest(goal=goal),tempfile.TemporaryDirectory() as directory:
+                run=CodingRun(dict(C,stream=True),directory,'Original task',goal=goal);events=[];bodies=[]
+                class SteeringWire(Wire):
+                    def readline(self,size=-1):
+                        line=super().readline(size)
+                        if line.startswith(b'data:') and not getattr(self,'steered',False):
+                            self.steered=True;self_outer.assertTrue(run.steer('Do not write the file'))
+                        return line
+                self_outer=self
+                first=[{'choices':[{'delta':{'tool_calls':[{'index':0,'id':'write','type':'function','function':{'name':'write_file','arguments':'{"path":"new.txt",'}}]}}]},
+                       {'choices':[{'delta':{'tool_calls':[{'index':0,'function':{'arguments':'"content":"wrong"}'}}]},'finish_reason':'tool_calls'}]}]
+                final=[{'choices':[{'delta':{'content':'Adjusted'},'finish_reason':'stop'}]}]
+                replies=[SteeringWire(first)]
+                if goal:
+                    done={'index':0,'id':'goal','type':'function','function':{'name':'set_goal_status','arguments':json.dumps({'status':'completed','detail':'Adjusted as requested'})}}
+                    replies.append(Wire([{'choices':[{'delta':{'tool_calls':[done]},'finish_reason':'tool_calls'}]}]))
+                replies.append(Wire(final))
+                def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events);self.assertFalse(Path(directory,'new.txt').exists())
+                messages=bodies[1]['messages'];self.assertIn('Do not write the file',json.dumps(messages));self.assertIn('reconsider this tool call',json.dumps(messages))
+                self.assertTrue(any(m.get('role')=='tool' and m.get('tool_call_id')=='write' for m in messages))
+                self.assertEqual([e['text'] for e in events if e['kind']=='steering_delivered'],['Do not write the file'])
+
     def test_steering_is_delivered_after_inflight_model_response(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Original task');events=[];bodies=[]
