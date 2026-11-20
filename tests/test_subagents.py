@@ -13,6 +13,35 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_same_model_subagent_wire_continuation_across_protocols(self):
+        from test_compat_tools import msg
+        from test_routing import response,function_call,message
+        from test_research import Response,answer,call as native_call
+        for protocol,url in [('chat','https://gateway.example/v1'),('messages','https://gateway.example/v1'),('responses','https://gateway.example/v1'),('chat','http://localhost:11434/v1')]:
+            with self.subTest(protocol=protocol,url=url),tempfile.TemporaryDirectory() as root:
+                connection=dict(C,protocol=protocol,url=url,stream=False,model='chosen-model');run=CodingRun(connection,root,'Analyze');events=[];requests=[];parents=[0];lock=threading.Lock()
+                def send(selected,endpoint,body,timeout):
+                    child='Independent read-only coding analysis.' in json.dumps(body)
+                    with lock:
+                        requests.append((dict(selected),copy.deepcopy(body),child))
+                        if not child:parents[0]+=1
+                        number=parents[0]
+                    if protocol=='responses':
+                        item=dict(function_call('delegate',json.dumps({'tasks':json.dumps(['one','two'])})),name='delegate_subagents') if not child and number==1 else message('Finding' if child else 'Done')
+                        return Wire(response([item]),False)
+                    if protocol=='messages':
+                        content=[{'type':'tool_use','id':'delegate','name':'delegate_subagents','input':{'tasks':json.dumps(['one','two'])}}] if not child and number==1 else [{'type':'text','text':'Finding' if child else 'Done'}]
+                        return Wire(msg(content,'tool_use' if not child and number==1 else 'end_turn'),False)
+                    if 'localhost' in url:
+                        calls=[native_call('delegate_subagents',{'tasks':json.dumps(['one','two'])})] if not child and number==1 else None
+                        return Response([answer('' if calls else 'Finding' if child else 'Done',calls)])
+                    calls=[call('delegate_subagents',{'tasks':json.dumps(['one','two'])},'delegate')] if not child and number==1 else None
+                    return Wire(chat('' if calls else 'Finding' if child else 'Done',calls=calls,finish='tool_calls' if calls else 'stop'),False)
+                with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(requests),4);self.assertEqual(sum(child for _,_,child in requests),2)
+                self.assertTrue(all(selected['model']=='chosen-model' and selected['url']==url for selected,_,_ in requests))
+                final=[body for _,body,child in requests if not child][-1];self.assertIn('Finding',json.dumps(final));self.assertIn('delegate',json.dumps(final))
+
     def test_same_model_routing_across_supported_protocols(self):
         from agentnik import compat_tools,ollama_tools,responses_tools
         from agentnik.tools import ToolCall

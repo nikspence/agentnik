@@ -24,6 +24,8 @@ The retired `delegate_light` tool and its separate request path are removed. Tes
 
 The older `delegate_parallel` tool and multi-model routing have now been removed as well. Same-model children retain approved snapshot transfer, scoped inspection, shared budgets and cancellation. Legacy calls return an unavailable-tool error.
 
+Offline same-model routing and wire-continuation fixtures cover Chat Completions, Messages, Responses and native Ollama, including correlated parent tool results. These fixtures do not establish live provider compatibility.
+
 The coding backend no longer accepts separate Light or alternate connections or the retired review guard. Saved legacy assignments and review records remain readable without being used to start a run.
 
 The unused live review-findings panel and review-result event handler are removed. Saved session and project review history remain inspectable and exportable through read-only views; the old revision, publishing and deletion controls and project-history write helpers are removed without changing stored records.
