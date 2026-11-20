@@ -32,6 +32,7 @@ class Subagents(unittest.TestCase):
             self.assertTrue(all(request[0]['model']==C['model'] and request[0]['api_key']=='parent-key' for request in requests))
             self.assertIn('Subagent: 2 request(s)',run.usage_text())
             self.assertTrue(any(tool.get('function',{}).get('name')=='delegate_subagents' for tool in requests[0][1]['tools']))
+            self.assertFalse({tool.get('function',{}).get('name') for tool in requests[0][1]['tools']} & {'delegate_light','delegate_parallel','review_document','review_document_role','review_document_evidence','review_document_structured','review_document_parallel'})
 
     def test_subagents_reject_alternate_model_selection(self):
         with tempfile.TemporaryDirectory() as root:
@@ -130,118 +131,8 @@ class Subagents(unittest.TestCase):
                     self.assertNotIn('Light:',events[-1]['usage']);self.assertNotIn('single review',events[-1]['usage'])
                 if mode=='changed_during_request':self.assertIn('single review light: 1 request(s), input unknown, output unknown tokens',events[-1]['usage'])
 
-    def test_single_structured_progress_is_saved_before_request_and_updated(self):
-        import os,time
-        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-        from PySide6.QtWidgets import QApplication
-        from agentnik.ui import Window
-        from agentnik.storage import Store
-        app=QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
-            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');(project/'evidence.txt').write_text('EVIDENCE',encoding='utf-8')
-            store=Store(Path(root)/'data');window=Window(store);started=threading.Event();release=threading.Event();heavy_count=0
-            try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                window.connections['Heavy']=dict(C,stream=False);window.connections['Review']=dict(C,model='light',stream=False)
-                for role,name,alias in [('heavy','Heavy','heavy'),('light','Review','light')]:
-                    box,model=tab.roles[role];box.addItem(name,name);box.setCurrentIndex(box.findData(name));model.setText(alias)
-                tab.light_enabled.setChecked(True);tab.save_review_progress.setChecked(True);tab.composer.setPlainText('Review the document')
-                def send(connection,url,body,timeout):
-                    nonlocal heavy_count
-                    if connection['model']=='light':started.set();release.wait(5);return Wire(chat('{"version":1,"findings":[]}'),False)
-                    heavy_count+=1
-                    if heavy_count==1:return Wire(chat(calls=[call('review_document_structured',{'path':'spec.md','paths':'["evidence.txt"]','model':'light','role':'design'})],finish='tool_calls'),False)
-                    return Wire(chat('Done'),False)
-                with patch.object(core,'open_request',side_effect=send):
-                    tab.start_coding();deadline=time.monotonic()+5
-                    while not started.is_set() and time.monotonic()<deadline:
-                        app.processEvents()
-                        if tab.pending_fingerprint:tab.decide(True)
-                        time.sleep(.01)
-                    self.assertTrue(started.is_set());saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual(saved['coding_review_history'][0]['reviews'][0]['pass_status'],'interrupted')
-                    release.set();deadline=time.monotonic()+5
-                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.01)
-                    app.processEvents()
-                self.assertIsNone(tab.job);saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual(saved['coding_review_history'][0]['reviews'][0]['pass_status'],'completed')
-                with patch.object(core,'open_request') as request:window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
-            finally:release.set();window.close();app.processEvents();store.db.close()
 
-    def test_single_structured_review_findings_can_be_saved(self):
-        import os,time
-        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-        from PySide6.QtWidgets import QApplication,QDialog,QPushButton
-        from agentnik.ui import Window
-        from agentnik.storage import Store
-        app=QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
-            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');(project/'evidence.txt').write_text('EVIDENCE',encoding='utf-8')
-            store=Store(Path(root)/'data');window=Window(store);heavy_count=0
-            try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                window.connections['Heavy']=dict(C,stream=False);window.connections['Review']=dict(C,model='light',stream=False)
-                for role,name,alias in [('heavy','Heavy','heavy'),('light','Review','light')]:
-                    box,model=tab.roles[role];box.addItem(name,name);box.setCurrentIndex(box.findData(name));model.setText(alias)
-                tab.light_enabled.setChecked(True);tab.composer.setPlainText('Review the document')
-                finding={'severity':'high','title':'Gap','rationale':'No criterion','location':'spec.md','assumptions':'','verification':'Check'}
-                def send(connection,url,body,timeout):
-                    nonlocal heavy_count
-                    if connection['model']=='light':return Wire(chat(json.dumps({'version':1,'findings':[finding]})),False)
-                    heavy_count+=1
-                    if heavy_count==1:return Wire(chat(calls=[call('review_document_structured',{'path':'spec.md','paths':'["evidence.txt"]','model':'light','role':'design'})],finish='tool_calls'),False)
-                    return Wire(chat('Done'),False)
-                with patch.object(core,'open_request',side_effect=send):
-                    tab.start_coding();deadline=time.monotonic()+5
-                    while tab.job and time.monotonic()<deadline:
-                        app.processEvents()
-                        if tab.pending_fingerprint:tab.decide(True)
-                        time.sleep(.01)
-                    app.processEvents()
-                self.assertIsNone(tab.job);self.assertTrue(tab.review_results_button.isEnabled());record=next(iter(tab.review_results.values()))
-                self.assertEqual(record['structured']['findings'][0]['title'],'Gap');self.assertEqual(record['pass_status'],'completed')
-                def save(dialog):dialog.findChild(QPushButton,'saveReviewSnapshot').click();return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',save):tab.show_review_results()
-                saved=next(row for row in store.list_sessions() if row['id']==session['id']);review=saved['coding_review_history'][0]['reviews'][0]
-                self.assertEqual(review['structured']['findings'][0]['title'],'Gap');self.assertEqual(review['measurements']['input_tokens'],10)
-                with patch.object(core,'open_request') as request:window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
-            finally:window.close();app.processEvents();store.db.close()
 
-    def test_single_structured_review_is_visible_and_individually_cancellable(self):
-        import os,time
-        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-        from PySide6.QtWidgets import QApplication
-        from agentnik.ui import Window
-        from agentnik.storage import Store
-        app=QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
-            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');(project/'evidence.txt').write_text('EVIDENCE',encoding='utf-8')
-            store=Store(Path(root)/'data');window=Window(store);started=threading.Event();release=threading.Event();heavy_count=0
-            try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                window.connections['Heavy']=dict(C,stream=False);window.connections['Review']=dict(C,model='light',stream=False)
-                for role,name,alias in [('heavy','Heavy','heavy'),('light','Review','light')]:
-                    box,model=tab.roles[role];box.addItem(name,name);box.setCurrentIndex(box.findData(name));model.setText(alias)
-                tab.light_enabled.setChecked(True);tab.composer.setPlainText('Review the document')
-                def send(connection,url,body,timeout):
-                    nonlocal heavy_count
-                    if connection['model']=='light':started.set();release.wait(5);return Wire(chat('LATE REVIEW OUTPUT'),False)
-                    heavy_count+=1
-                    if heavy_count==1:return Wire(chat(calls=[call('review_document_structured',{'path':'spec.md','paths':'["evidence.txt"]','model':'light','role':'design'})],finish='tool_calls'),False)
-                    return Wire(chat('Done'),False)
-                with patch.object(core,'open_request',side_effect=send):
-                    tab.start_coding();deadline=time.monotonic()+5
-                    while time.monotonic()<deadline:
-                        app.processEvents()
-                        if tab.pending_fingerprint:tab.decide(True)
-                        if started.is_set() and session.get('coding_subagents'):break
-                        time.sleep(.01)
-                    self.assertTrue(started.is_set());self.assertEqual(len(session['coding_subagents']),1)
-                    child=session['coding_subagents'][0];self.assertRegex(child['id'],r'^[0-9a-f]{32}-1$');self.assertEqual(child['status'],'running');self.assertTrue(tab.stop_subagent_button.isEnabled())
-                    tab.cancel_selected_subagent();deadline=time.monotonic()+5
-                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.01)
-                    app.processEvents();self.assertIsNone(tab.job)
-                self.assertEqual(session['coding_subagents'][0]['status'],'cancelled');self.assertNotIn('LATE REVIEW OUTPUT',json.dumps(session))
-                self.assertEqual(next(iter(tab.review_results.values()))['pass_status'],'cancelled')
-            finally:release.set();window.close();app.processEvents();store.db.close()
 
     def test_heavy_review_preflight_stale_reports_terminal_records(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1016,18 +907,18 @@ class Subagents(unittest.TestCase):
             window=Window(store)
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                for role in ('heavy','light'):
+                for role in ('heavy',):
                     combo,model=tab.roles[role];combo.setCurrentIndex(combo.findData('Primary'));model.setText(role)
                 tab.composer.setPlainText('Review');tab.save_models()
                 with patch.object(tab,'launch') as launch:
                     tab.start_coding();run=launch.call_args.args[0]
                 self.assertEqual(run.unsupported_subagent_roles,set());tab.job=run;tab.run_id=run.run_id
-                tab.receive({'run_id':run.run_id,'kind':'subagent_tools_unsupported','role':'light'})
-                self.assertTrue(unsupported(load_config(store.config_path),tab.role_connection('light')))
+                tab.receive({'run_id':run.run_id,'kind':'subagent_tools_unsupported','role':'model'})
+                self.assertTrue(unsupported(load_config(store.config_path),tab.role_connection('heavy')))
                 self.assertIn('_capability_scope',store.config['connections']['Primary']);tab.job=None
                 with patch.object(tab,'launch') as launch:
-                    tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,{'light'})
-                tab.forget_subagent_capabilities();self.assertFalse(unsupported(load_config(store.config_path),tab.role_connection('light')))
+                    tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,{'model'})
+                tab.forget_subagent_capabilities();self.assertFalse(unsupported(load_config(store.config_path),tab.role_connection('heavy')))
                 with patch.object(tab,'launch') as launch:
                     tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,set())
             finally:tab.job=None;window.close();app.processEvents();store.db.close()
@@ -1181,33 +1072,6 @@ class Subagents(unittest.TestCase):
                 self.assertIn('FIND THIS',json.dumps(bodies[0]));payload=json.dumps(bodies[1]);self.assertIn('FIND THIS',payload);self.assertIn('outside the approved snapshots',payload);self.assertNotIn('private-marker',payload)
                 self.assertEqual(len([e for e in events if e['kind']=='operation_proposal']),1)
 
-    def test_alternate_model_persists_and_launches_from_code_pane(self):
-        import os
-        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-        from PySide6.QtWidgets import QApplication
-        from agentnik.ui import Window
-        from agentnik.storage import Store
-        app=QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
-            project=Path(root)/'project';project.mkdir();store=Store(Path(root)/'data')
-            store.config['connections']={'First':{'url':'https://first.example/v1','protocol':'chat','model':'base'},'Second':{'url':'https://second.example/v1','protocol':'messages','model':'other'},'Third':{'url':'https://third.example/v1','protocol':'responses','model':'third'}}
-            window=Window(store)
-            try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                from PySide6.QtWidgets import QLabel
-                self.assertTrue(any('not automatic fallbacks' in label.text() and 'independent document reviews' in label.text() for label in tab.model_panel.findChildren(QLabel)))
-                for role,name in [('heavy','First'),('light','First'),('alternate','Second'),('alternate2','Third')]:
-                    combo,model=tab.roles[role];combo.setCurrentIndex(combo.findData(name))
-                tab.roles['alternate'][1].setText('other');tab.composer.setPlainText('Review');tab.save_models()
-                saved=next(s for s in store.list_sessions() if s['id']==session['id'])
-                self.assertEqual(saved['coding_subagent_model'],{'connection':'Second','model':'other'})
-                self.assertEqual(saved['coding_subagent_model_2'],{'connection':'Third','model':'third'})
-                with patch.object(tab,'launch') as launch:
-                    tab.start_coding();run=launch.call_args.args[0]
-                    self.assertEqual(run.alternate['url'],'https://second.example/v1');self.assertEqual(run.alternate['protocol'],'messages');self.assertEqual(run.alternate2['url'],'https://third.example/v1');self.assertEqual(run.alternate2['protocol'],'responses')
-                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved)
-                self.assertEqual(window.tabs.currentWidget().roles['alternate'][1].text(),'other');self.assertEqual(window.tabs.currentWidget().roles['alternate2'][1].text(),'third')
-            finally:window.close();app.processEvents();store.db.close()
 
     def test_subagent_status_survives_cancel_and_interrupted_reopen(self):
         import os

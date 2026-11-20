@@ -94,7 +94,7 @@ class DraftingUI(unittest.TestCase):
                             try:
                                 ai=app.activeModalWidget();self.assertTrue(button(ai,'Apply proposed draft').isEnabled());self.assertNotIn('track_draft',tab.session);self.assertFalse((project/'agentnik-plans').exists());button(ai,'Apply proposed draft').click()
                             except Exception as exc:fail(exc)
-                        QTimer.singleShot(0,first);button(outer,'Ask Heavy…').click()
+                        QTimer.singleShot(0,first);button(outer,'Ask model…').click()
                         tabs=outer.findChild(QTabWidget);self.assertIn('auth_feature',tabs.widget(0).toPlainText());button(outer,'Save draft').click();outer.reject()
                     except Exception as exc:fail(exc)
                 with patch('agentnik.track_drafting.request',side_effect=fake_request):
@@ -129,7 +129,7 @@ class DraftingUI(unittest.TestCase):
                             try:
                                 ai=app.activeModalWidget();self.assertTrue(started.is_set());button(ai,'Cancel request').click();release.set();ai.reject()
                             except Exception as exc:errors.append(repr(exc));release.set();ai.reject()
-                        QTimer.singleShot(0,begin);button(outer,'Ask Heavy…').click();outer.reject()
+                        QTimer.singleShot(0,begin);button(outer,'Ask model…').click();outer.reject()
                     except Exception as exc:errors.append(repr(exc));outer.reject()
                 with patch('agentnik.track_drafting.request',side_effect=fake_request):
                     QTimer.singleShot(0,open_ai);tab.edit_track_draft();deadline=time.monotonic()+.3

@@ -296,50 +296,6 @@ class DirectReview(unittest.TestCase):
             self.assertEqual(request.call_count,1);network.assert_not_called()
             self.assertTrue(any(e['kind']=='independent_review_result' and e['review']['pass_status']=='failed' and not e['review']['structured']['findings'] for e in events),events)
 
-    def test_heavy_review_progress_is_saved_before_children_and_on_completion(self):
-        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-        from PySide6.QtWidgets import QApplication
-        from agentnik.ui import Window
-        from agentnik.storage import Store
-        app=QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
-            project=Path(root)/'project';project.mkdir();(project/'spec.md').write_text('SPEC',encoding='utf-8');store=Store(Path(root)/'data');window=Window(store);started=threading.Event();release=threading.Event();count=[0]
-            try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                window.connections['Heavy']=dict(MODEL,model='heavy');window.connections['Review']=dict(MODEL)
-                for role,name,alias in [('heavy','Heavy','heavy'),('light','Review','reviewer')]:
-                    box,model=tab.roles[role];box.addItem(name,name);box.setCurrentIndex(box.findData(name));model.setText(alias)
-                tab.light_enabled.setChecked(True);tab.save_review_progress.setChecked(True);tab.composer.setPlainText('Review the document')
-                def send(connection,url,body,timeout):
-                    if connection['model']=='reviewer':started.set();release.wait(5);return Wire(chat('{"version":1,"findings":[]}'),False)
-                    count[0]+=1
-                    if count[0]==1:
-                        passes=[{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'light','paths':[]}]
-                        from test_code_agent import call
-                        return Wire(chat(calls=[call('review_document_parallel',{'path':'spec.md','passes':json.dumps(passes)})],finish='tool_calls'),False)
-                    return Wire(chat('Done'),False)
-                with patch.object(core,'open_request',side_effect=send):
-                    tab.start_coding();deadline=time.monotonic()+5
-                    while not started.is_set() and time.monotonic()<deadline:
-                        app.processEvents()
-                        if tab.pending_fingerprint:tab.decide(True)
-                        time.sleep(.01)
-                    self.assertTrue(started.is_set());saved=next(row for row in store.list_sessions() if row['id']==session['id'])
-                    self.assertEqual([item['pass_status'] for item in saved['coding_review_history'][0]['reviews']],['interrupted','interrupted'])
-                    approved_times=[item['batch_approved_at'] for item in saved['coding_review_history'][0]['reviews']];self.assertEqual(len(set(approved_times)),1)
-                    release.set();deadline=time.monotonic()+5
-                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.01)
-                    app.processEvents()
-                self.assertIsNone(tab.job);saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual([item['pass_status'] for item in saved['coding_review_history'][0]['reviews']],['completed','completed'])
-                self.assertEqual([item['batch_approved_at'] for item in saved['coding_review_history'][0]['reviews']],approved_times)
-                for item in saved['coding_review_history'][0]['reviews']:
-                    self.assertEqual(item['rubric_version'],1)
-                    self.assertRegex(item['batch_approved_at'],r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
-                    self.assertEqual(item['target_payload_sha256'],item['source_sha256'])
-                    self.assertEqual(item['endpoint'],{'protocol':'chat','origin':'https://example.invalid'})
-                    self.assertEqual(item['measurements']['input_tokens'],10);self.assertEqual(item['measurements']['output_tokens'],3);self.assertGreaterEqual(item['measurements']['elapsed_seconds'],0)
-                with patch.object(core,'open_request') as request:window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();request.assert_not_called()
-            finally:release.set();window.close();app.processEvents();store.db.close()
 
     def test_opt_in_progress_requires_manifest_ack_before_network(self):
         with tempfile.TemporaryDirectory() as root:

@@ -14,6 +14,28 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_single_model_run_preserves_legacy_assignments(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
+            store.config['connections']={'Main':{'url':'https://main.example/v1','protocol':'chat','model':'main'}};window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident)
+                session['coding_models']={'heavy':{'connection':'Main','model':'main'},'light':{'connection':'Old','model':'legacy'}}
+                session['coding_subagent_model']={'connection':'Other','model':'old-alternate'};store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.composer.setPlainText('Inspect');tab.model_panel.show();app.processEvents()
+                self.assertFalse(tab.roles['heavy'][0].isHidden());self.assertTrue(tab.roles['light'][0].isHidden());self.assertTrue(tab.roles['alternate'][0].isHidden())
+                with patch.object(tab,'launch') as launch:
+                    tab.start_coding();run=launch.call_args.args[0]
+                self.assertIsNone(run.light);self.assertIsNone(run.alternate);self.assertIsNone(run.alternate2)
+                self.assertEqual(session['coding_models']['light']['model'],'legacy');self.assertEqual(session['coding_subagent_model']['model'],'old-alternate')
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_model_binding_migrates_legacy_assignment_without_losing_light(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
@@ -660,7 +682,7 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
                 tab=window.tabs.currentWidget();app.processEvents()
-                for role,model in [('heavy','my-heavy-coder'),('light','my-light-coder')]:
+                for role,model in [('heavy','my-heavy-coder')]:
                     combo,field=tab.roles[role];combo.setCurrentIndex(combo.findData('Gateway'));field.setText(model)
                 tab.light_enabled.setChecked(False)
                 tab.composer.setPlainText('Create a test file')
@@ -674,7 +696,7 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertEqual(saved['coding_context']['task'],'Create a test file')
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents()
                 reopened=window.tabs.currentWidget();self.assertEqual(reopened.roles['heavy'][1].text(),'my-heavy-coder')
-                self.assertEqual(reopened.roles['light'][1].text(),'my-light-coder');self.assertFalse(reopened.light_enabled.isChecked());self.assertIsNone(reopened.job)
+                self.assertTrue(reopened.roles['light'][0].isHidden());self.assertTrue(reopened.light_enabled.isHidden());self.assertIsNone(reopened.job)
                 self.assertIn('Created test.txt',reopened.session['coding_context']['answer']);self.assertFalse(reopened.use_context.isChecked())
                 reopened.use_context.setChecked(True);reopened.composer.setPlainText('Follow up');bodies=[]
                 def reply(c,url,body,timeout):bodies.append(body);return Wire(chat('Follow-up complete'),False)

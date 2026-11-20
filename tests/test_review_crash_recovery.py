@@ -72,7 +72,7 @@ class ReviewCrashRecovery(unittest.TestCase):
         from agentnik.storage import Store
         from agentnik.ui import Window
         app=QApplication.instance() or QApplication([]);repo=Path(__file__).resolve().parent.parent
-        for mode in ('direct','heavy','single','partial'):
+        for mode in ('direct',):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as folder:
                 root=Path(folder);script=root/'child.py';script.write_text(CHILD,encoding='utf-8');log=root/'child.log'
                 env=dict(os.environ,REVIEW_TEST_ROOT=str(repo),REVIEW_TEST_DATA=str(root),REVIEW_TEST_MODE=mode,QT_QPA_PLATFORM='offscreen')

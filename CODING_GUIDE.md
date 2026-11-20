@@ -2,11 +2,13 @@
 
 Agentnik's Code pane uses your configured model connections to inspect and change files in a selected local project. See [validation](VALIDATION.md) for user-reported live coding results and their scope.
 
+Code is transitioning to one Model per request. The Model selector and same-model subagents are active; older descriptions of Heavy, Light, alternate models, and direct independent reviews below describe the previous interface and are being removed. Existing saved review data and legacy model bindings are retained.
+
 ## Start a task
 
 1. Configure a connection in **Connections**. Choose an endpoint and model that support tool calling; an alias appearing in a model list does not establish compatibility.
 2. Click **＋ Code**, choose **Add folder** if needed, select the project, and open it. A Git repository is optional. Opening a pane does not start inference.
-3. Select the **Heavy model** connection and enter its model alias, or use **Choose model…**. Optionally configure a separate **Light model** in the same way. You can use different connections and providers.
+3. Select the **Model** connection and enter its model alias, or use **Choose model…**. Subagents use this same connection and model.
 4. Describe the task and select **Run coding task**. Project file changes apply without per-file approval and appear in activity. Review and approve or reject shell commands and other operations when prompted. Activity follows the bottom until you scroll up; return to the bottom to resume following. Each session retains up to 10,000 activity entries and 4 million text characters, trimming the oldest entries when needed. Long histories use a newer saved-session version; earlier Agentnik versions preserve these sessions as unavailable rather than rewriting them.
 
 Activity records each run's local start and end time and elapsed duration, along with completed Heavy and ordinary Light model responses, including intermediate responses before tool calls. Responses appear after each model request completes; up to 32,000 characters per response are retained, with a truncation notice. Enable **Show model thinking** before a run to show and save thinking supplied by the provider; it is off by default and some providers do not expose thinking. The setting is saved per Code pane. Model responses and enabled thinking become part of the saved activity history, with configured credentials redacted. Parallel subagent and review results continue to appear in their existing activity views.

@@ -14,6 +14,8 @@ Migration groundwork: Code sessions now accept a `model` binding and prefer it w
 
 Subagent routing groundwork: `delegate_subagents` runs parallel children on the parent request's connection and model without a Light assignment. It retains the existing bounded snapshots, approvals, cancellation and shared budgets, and records subagent usage separately. The legacy delegation tools and controls remain temporarily available until their removal; the single-model transition is not complete. Current evidence is mocked requests and offscreen UI tests, not live model compatibility.
 
+Code pane transition: normal Code runs now select one Model and do not configure legacy Light or alternate models. Their saved bindings are retained, but the old selectors and direct-review controls are hidden. The legacy backend and review integration still need removal, and older sections below describe historical behavior.
+
 ## Heavy and light models in one workflow
 
 Each Code pane has independent Heavy and Light connection/model assignments. Select any alias supported by the connection, including LiteLLM coding models, or use Choose model to retrieve its model list. Listing does not establish tool capability. Start with a tool-capable heavy model; the light role is optional and is not automatically chosen.
