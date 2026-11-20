@@ -292,6 +292,23 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(send.call_count,6);self.assertEqual(events[-1]['status'],'completed',events)
             self.assertEqual(sum(e['kind']=='output' and 'continuing to the next step' in e.get('text','') for e in events),2)
 
+    def test_goal_step_time_resets_but_goal_deadline_does_not(self):
+        from agentnik.code_limits import coding_limits
+        for goal_seconds in (0,11):
+            with self.subTest(goal_seconds=goal_seconds),tempfile.TemporaryDirectory() as directory:
+                limits=coding_limits();limits.update(turn_seconds=10,model_seconds=10)
+                run=CodingRun(dict(C,stream=False),directory,'Finish',limits=limits,goal=True,goal_budget={'steps':0,'seconds':goal_seconds});events=[];clock=[100.0];requests=[]
+                replies=[Wire(chat('Step one'),False),Wire(chat('Step two'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Done'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                def send(*args,**kwargs):
+                    requests.append(1)
+                    if len(requests)<=2:clock[0]+=6
+                    return replies.pop(0)
+                with patch('agentnik.code_agent.time.monotonic',side_effect=lambda:clock[0]),patch.object(core,'open_request',side_effect=send):run.run(events.append)
+                if goal_seconds:
+                    self.assertEqual(len(requests),2);self.assertTrue(events[-1]['limited']);self.assertIn('goal time limit',events[-1]['text'])
+                else:
+                    self.assertEqual(len(requests),4);self.assertEqual(events[-1]['status'],'completed',events)
+
     def test_goal_step_limit_stops_before_next_step_and_resume_is_fresh(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':2,'seconds':0});events=[]
