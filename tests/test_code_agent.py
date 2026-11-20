@@ -88,6 +88,16 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_removed_review_tools_are_unavailable_even_with_legacy_connections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Review',light=dict(C,model='legacy',stream=False));bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('review_document',{'path':'spec.md','model':'light'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(len(bodies),2);self.assertEqual(events[-1]['status'],'completed')
+            self.assertIn('Unknown or unavailable tool',json.dumps(bodies[-1]));self.assertFalse(any(e['kind']=='operation_proposal' for e in events))
+            self.assertFalse(any(tool.get('function',{}).get('name','').startswith('review_document') for tool in bodies[0]['tools']))
+
     def test_goal_continues_until_explicit_completion_with_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Complete the task',goal=True);events=[];bodies=[]

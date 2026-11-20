@@ -125,20 +125,6 @@ class TrackExecution(unittest.TestCase):
             context={'id':track['id'],'digest':track['digest']};self.assertTrue(track_context_matches(files,context));self.assertIsNone(track_context_matches(files,None))
             for value in ({'id':'../bad','digest':'a'*64},{'id':'sample_feature','digest':'bad'}):
                 with self.assertRaises(ValueError):validate_track_context(value)
-            events=[];count=0;run=CodingRun(CONNECTION,project,'Review',light=dict(CONNECTION,model='light'),selected_track=track)
-            def send(connection,url,body,timeout):
-                nonlocal count
-                if connection['model']=='light':return Wire(chat('{"version":1,"findings":[]}'),False)
-                count+=1
-                if count==1:
-                    passes=[{'role':'comprehension','model':'light','paths':[]},{'role':'design','model':'light','paths':[]}]
-                    return Wire(chat(calls=[call('review_document_parallel',{'path':'agentnik-plans/tracks/sample_feature/spec.md','passes':json.dumps(passes)})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
-            with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            records=[event['review'] for event in events if event['kind']=='independent_review_result'];self.assertEqual(len(records),4);self.assertTrue(all(item['track_context']==context for item in records))
             plan=project/'agentnik-plans/tracks/sample_feature/plan.md';plan.write_text(plan.read_text(encoding='utf-8')+'\nchanged',encoding='utf-8')
             self.assertFalse(track_context_matches(files,context))
 

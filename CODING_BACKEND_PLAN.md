@@ -18,6 +18,8 @@ Code pane transition: normal Code runs now select one Model and do not configure
 
 Track-start transition: starting a selected Spec & Plan track no longer reads or gates on independent-review histories. The preview still shows the task, exact track context, model and endpoint, and track changes invalidate the start. Existing review records remain available and untouched, including unreadable project review files. Legacy review code remains to be removed separately.
 
+The coding loop no longer defines or executes the five independent document-review tools, including when a legacy Light connection is supplied. Unknown calls return useful model feedback. Existing saved review readers and the retired direct-review implementation remain for a subsequent removal slice; saved records are not erased.
+
 ## Heavy and light models in one workflow
 
 Each Code pane has independent Heavy and Light connection/model assignments. Select any alias supported by the connection, including LiteLLM coding models, or use Choose model to retrieve its model list. Listing does not establish tool capability. Start with a tool-capable heavy model; the light role is optional and is not automatically chosen.
