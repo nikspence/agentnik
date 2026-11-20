@@ -66,6 +66,8 @@ Goal continuation slice: pause, blocked and interrupted goals offer explicit con
 
 The Code pane now shows the saved goal status and objective, with a details dialog for the full objective and latest model-reported detail. Reopened and previous goals remain inspectable; completed status is labeled as model-reported. Offscreen tests cover status changes, reopen and details, including Korean status framing.
 
+Goal completion checks reject a model-reported completion while the ordinary run checklist contains unfinished steps; selected tracks are excluded because they can include work outside the goal. Completion detail records the latest structured test outcome and exit code, including failures or unknown results, or states that no such report was recorded. These are consistency checks, not independent proof that the objective is satisfied; a failed test can be part of a successfully completed investigation.
+
 Goal and steering protocol fixtures now cover native Ollama, Responses, and Messages in addition to Chat Completions: a steering message received during a model request defers the proposed call, retains the correlated tool result, and reaches the next goal request before a model-reported completion. These are mocked, non-streaming checks, not live provider qualification; additional streaming, interruption and multi-call cases remain open.
 
 Steering delivery accounting now waits for a complete model response before recording delivery; an exhausted limit before submission is recorded as not delivered, while a failed submitted request is recorded as uncertain. Long steering text is split into bounded persisted activity entries. Offline tests cover these paths and keep uncertain messages out of automatic continuation evidence.

@@ -120,7 +120,8 @@ class CodingWorkspace(unittest.TestCase):
                     while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
                     app.processEvents()
                 self.assertIsNone(tab.job);saved=next(row for row in store.list_sessions() if row['id']==session['id'])
-                self.assertEqual(saved['coding_goal'],{'objective':'Finish the feature','status':'completed','detail':'Verified result'})
+                self.assertEqual(saved['coding_goal']['objective'],'Finish the feature');self.assertEqual(saved['coding_goal']['status'],'completed')
+                self.assertIn('Verified result',saved['coding_goal']['detail']);self.assertIn('No structured test report',saved['coding_goal']['detail'])
                 self.assertIn('model reported',tab.activity.toPlainText())
                 from PySide6.QtWidgets import QDialog,QPlainTextEdit
                 captured=[]

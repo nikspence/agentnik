@@ -88,6 +88,30 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_goal_completion_rejects_unfinished_checklist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Finish task',goal=True);events=[];bodies=[]
+            def plan(status):return call('update_plan',{'explanation':'Work','steps':json.dumps([{'step':'Verify','status':status}])})
+            def finish():return call('set_goal_status',{'status':'completed','detail':'Work complete'})
+            replies=[Wire(chat(calls=[plan('pending')],finish='tool_calls'),False),Wire(chat(calls=[finish()],finish='tool_calls'),False),Wire(chat(calls=[plan('completed')],finish='tool_calls'),False),Wire(chat(calls=[finish()],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertIn('checklist has unfinished',json.dumps(bodies[2]))
+            statuses=[event for event in events if event['kind']=='goal_status'];self.assertEqual(len(statuses),1)
+            self.assertIn('No structured test report',statuses[0]['detail'])
+
+    def test_goal_completion_discloses_failed_test_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Investigate failure',goal=True);events=[]
+            replies=[Wire(chat(calls=[call('run_tests',{'path':'.','command':'python -m unittest','format':'unittest'})],finish='tool_calls'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Investigation finished'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            result={'exit_code':1,'output':'Ran 1 test in 0.1s\n\nFAILED (failures=1)\n','truncated':False}
+            with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute',return_value=result):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            detail=next(event['detail'] for event in events if event['kind']=='goal_status');self.assertIn('Latest structured test report: failed',detail);self.assertIn('not independent verification',detail)
+
     def test_steering_before_approval_does_not_leave_a_pending_proposal(self):
         from agentnik.tools import Runtime
         with tempfile.TemporaryDirectory() as directory:

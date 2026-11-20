@@ -1451,6 +1451,12 @@ class CodingRun:
                         elif call.name=='set_goal_status':
                             status=args['status'];detail=args['detail'].strip()
                             if status not in ('active','completed','blocked') or not detail or len(detail.encode('utf-8'))>4000:raise ProjectToolError('Use status active, completed or blocked, with a nonempty detail of at most 4 KB.')
+                            if status=='completed':
+                                if self.plan and not self.selected_track and any(step['status']!='completed' for step in self.plan['steps']):raise ProjectToolError('The current checklist has unfinished or blocked steps. Complete or revise the checklist to reflect the goal before reporting completion.')
+                                report=self.latest_test_report
+                                if report is None:validation='No structured test report was recorded in this run.'
+                                else:validation='Latest structured test report: '+report['outcome']+'; format '+report['format']+'; exit code '+str(report['exit_code'])+'. Parsed output is not independent verification.'
+                                detail=detail[:max(0,4000-len(validation)-2)]+'\n\n'+validation
                             self.goal_status=status;self.goal_detail=detail;event('goal_status',status=status,detail=detail)
                             result={'status':status,'detail':detail,'notice':'This status is model-reported; completion requires evidence and does not grant permissions.'}
                         elif call.name=='get_plan':result={'plan':self.plan,**({'track_task_ids':[item['id'] for item in self.selected_track['tasks']]} if self.selected_track else {})}
