@@ -14,6 +14,57 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_interrupted_goal_reopens_without_running_and_can_continue(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident)
+                session.update(code_state='awaiting_approval',coding_goal={'objective':'Original goal','status':'active','detail':'Work started'},coding_last_run_goal=True,coding_resume={'task':'Original goal','evidence':'Earlier result'},draft='Draft next task')
+                store.save(session)
+                with patch.object(core,'open_request') as send:window.open_session(session);send.assert_not_called()
+                tab=window.tabs.currentWidget();self.assertEqual(session['code_state'],'interrupted');self.assertEqual(session['coding_goal']['status'],'interrupted')
+                self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Draft next task')
+                with patch.object(tab,'start_coding') as start:tab.continue_coding();start.assert_called_once_with(True)
+                self.assertIn('Earlier result',session['coding_resume']['evidence']);self.assertIn('uncertain actions',session['coding_resume']['evidence'])
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
+    def test_goal_pause_and_resume_preserve_objective_and_draft(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        def settle(predicate):
+            deadline=time.monotonic()+5
+            while not predicate() and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+            self.assertTrue(predicate())
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
+            started=threading.Event();release=threading.Event();bodies=[]
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.composer.setPlainText('The original goal');tab.goal_enabled.setChecked(True)
+                def delayed(connection,url,body,timeout):started.set();release.wait(5);return Wire(chat('Late'),False)
+                with patch.object(core,'open_request',side_effect=delayed):
+                    tab.start_coding();settle(started.is_set);tab.composer.setPlainText('Unsent next task');tab.pause_goal();self.assertIsNone(tab.job);release.set();tab.worker.join(5);app.processEvents()
+                self.assertEqual(session['code_state'],'paused');self.assertEqual(session['coding_goal']['status'],'paused');self.assertTrue(tab.continue_button.isEnabled())
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
+                self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Unsent next task')
+                replies=[Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Checked result'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                def answer(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=answer):tab.continue_coding();settle(lambda:tab.job is None)
+                self.assertIn('The original goal',json.dumps(bodies[0]));self.assertNotIn('Unsent next task',json.dumps(bodies[0]));self.assertEqual(tab.composer.toPlainText(),'Unsent next task')
+                self.assertEqual(tab.session['coding_goal']['status'],'completed')
+            finally:
+                release.set()
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_goal_mode_persists_model_reported_completion(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

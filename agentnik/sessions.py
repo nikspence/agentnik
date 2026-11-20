@@ -184,8 +184,9 @@ def validate_session(value, ident=None):
             except ValueError:require(False)
         if 'coding_goal' in data:
             goal=data['coding_goal'];require(isinstance(goal,dict) and set(goal)=={'objective','status','detail'})
-            require(isinstance(goal['objective'],str) and 0<len(goal['objective'])<=16000 and goal['status'] in ('active','completed','blocked','limited','cancelled','failed','interrupted') and isinstance(goal['detail'],str) and len(goal['detail'])<=4000)
-        require(data.get('code_state','idle') in ('idle','running','awaiting_approval','completed','blocked','failed','limited','cancelled','rejected','timed_out','interrupted'))
+            require(isinstance(goal['objective'],str) and 0<len(goal['objective'])<=16000 and goal['status'] in ('active','completed','blocked','limited','paused','cancelled','failed','interrupted') and isinstance(goal['detail'],str) and len(goal['detail'])<=4000)
+        if 'coding_last_run_goal' in data:require(type(data['coding_last_run_goal']) is bool)
+        require(data.get('code_state','idle') in ('idle','running','awaiting_approval','completed','blocked','failed','limited','paused','cancelled','rejected','timed_out','interrupted'))
         return data
     require(data.get('version',1)<=3)
     def form(value):
