@@ -13,6 +13,29 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_steering_during_subagents_defers_later_messages_batch_call(self):
+        from test_compat_tools import msg
+        for goal in (False,True):
+            with self.subTest(goal=goal),tempfile.TemporaryDirectory() as root:
+                run=CodingRun(dict(C,protocol='messages',stream=False),root,'Analyze',goal=goal);events=[];parents=[];steered=threading.Event();lock=threading.Lock()
+                def send(connection,url,body,timeout):
+                    if 'Independent read-only coding analysis.' in json.dumps(body):
+                        with lock:
+                            if not steered.is_set():self.assertTrue(run.steer('Do not write the file'));steered.set()
+                        return Wire(msg([{'type':'text','text':'Finding'}]),False)
+                    parents.append(copy.deepcopy(body))
+                    if len(parents)==1:
+                        return Wire(msg([{'type':'tool_use','id':'delegate','name':'delegate_subagents','input':{'tasks':json.dumps(['one','two'])}},
+                                         {'type':'tool_use','id':'write','name':'write_file','input':{'path':'new.txt','content':'wrong'}}],'tool_use'),False)
+                    if goal and len(parents)==2:return Wire(msg([{'type':'tool_use','id':'goal','name':'set_goal_status','input':{'status':'completed','detail':'Correction addressed'}}],'tool_use'),False)
+                    return Wire(msg([{'type':'text','text':'Done'}]),False)
+                with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events);self.assertFalse(Path(root,'new.txt').exists())
+                messages=parents[1]['messages'];groups=[item['content'] for item in messages if item.get('role')=='user' and isinstance(item.get('content'),list)]
+                self.assertTrue(any([block.get('tool_use_id') for block in group]==['delegate','write'] for group in groups))
+                self.assertIn('Finding',json.dumps(groups));self.assertIn('reconsider this tool call',json.dumps(groups));self.assertIn('Do not write the file',json.dumps(messages))
+                self.assertEqual([event['text'] for event in events if event['kind']=='steering_delivered'],['Do not write the file'])
+
     def test_same_model_subagent_wire_continuation_across_protocols(self):
         from test_compat_tools import msg
         from test_routing import response,function_call,message
