@@ -1,4 +1,16 @@
-# Agentnik v0.8.10
+# Agentnik v0.9.0
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.8.10
+
+- **One coding model:** Code uses one selected model for the parent request and its subagents. Light and alternate-model delegation and EGM-style independent review have been removed. Existing model settings and review records remain available for reference.
+- **Goals and steering:** Code can pursue a goal over successive steps and accept steering during goal and ordinary runs. Step budgets reset at each step; separate goal step and active-time limits can be unlimited, and continuing a stopped goal starts fresh limits. Completion is model-reported and should be reviewed.
+- **Shell approval:** a switch can allow shell and test commands without individual approval. It is off by default and can be changed before or during a run; commands run with the user's account permissions.
+
+Offline tests use mocked endpoints and offscreen Qt. Build-host startup evidence is recorded in BUILD-MANIFEST.json; live coding model compatibility, clean-machine installation, full native workflows, macOS/Linux, signing and a complete bundled-library license review remain open.
+
+## Earlier release: v0.8.10
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
