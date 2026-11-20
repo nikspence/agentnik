@@ -159,7 +159,6 @@ TOOLS=[CodeTool('list_skill_resources','List bounded relative resource paths for
        CodeTool('git_create_branch','Propose creating a local branch at current HEAD without switching branches. Requires approval.',('name',)),
        CodeTool('git_commit_staged','Propose committing the staged snapshot. paths is a JSON array encoded as a string and must name every staged change. Working files remain unchanged. Requires approval; no hooks or signing.',('paths','message')),
        CodeTool('git_commit','Propose a commit of explicit files. paths is a JSON array encoded as a string. Requires a clean index and user approval. No hooks or signing.',('paths','message')),
-       CodeTool('delegate_parallel','Run 2–3 independent Light analyses concurrently. tasks is a JSON array of strings or objects {task, paths, model, inspect}; model is light, alternate, or alternate2 (only when configured), default light. Each object may request up to 8 project-relative UTF-8 files (8 KB each); each transfer requires approval. Set inspect to true to give a child read_file, glob_files and grep_files over only its approved snapshots. Children cannot access other files, web, write, or spawn agents.',('tasks',)),
        CodeTool('delegate_subagents','Run 2–3 independent analysis tasks concurrently using this request\'s model and connection. tasks is a JSON array of strings or objects {task, paths, inspect}. Each object may request up to 8 project-relative UTF-8 files (8 KB each); each transfer requires approval. Set inspect to true to give a child read_file, glob_files and grep_files over only its approved snapshots. Children cannot access other files, web, write, or spawn agents.',('tasks',)),
        CodeTool('list_files','List immediate children of one project directory, up to 128 entries. Directories end in /. Use glob_files to find files recursively.',('path',)),
        CodeTool('glob_files','Find project files by project-relative glob pattern. path is the project-relative directory to scan; pattern matches project-relative paths using *, ?, character classes, and ** as a whole recursive component (for example **/*.py). Results are bounded and may be incomplete. Does not read files or authorize edits.',('path','pattern')),
@@ -756,7 +755,7 @@ class CodingRun:
             event('output',text=text[:1750]+('\n[diff excerpt truncated]' if len(text)>1750 else ''))
         try:
             files=ProjectFiles(self.root);project=ProjectTools(files);c=self.connection;native=core.native_ollama(c);protocol=c.get('protocol','chat')
-            available_tools=[tool for tool in TOOLS if self.light or tool.name not in ('delegate_parallel',)]
+            available_tools=list(TOOLS)
             if self.goal:available_tools.append(CodeTool('set_goal_status','Report goal progress. status is active, completed, or blocked; detail explains progress, evidence and remaining work. Use completed only when the entire user objective is achieved and supported by observed evidence; use blocked only when further work requires user input or an external change.',('status','detail')))
             available_tools=[tool for tool in available_tools if (tool.name!='update_plan' if self.selected_track else tool.name!='report_track_progress')]
             if self.mcp_bridge:
@@ -1006,7 +1005,7 @@ class CodingRun:
                             mcp_state=mcp_states.get(server_name)
                             if mcp_state is None:raise ProjectToolError('Choose an exact selected MCP server name.')
                             mcp_bridge=mcp_state['bridge'];mcp_tools=mcp_state['tools'];mcp_resources=mcp_state['resources'];mcp_prompts=mcp_state['prompts'];mcp_templates=mcp_state['templates']
-                        if scrub(guidance.render(),secrets)!=seen_guidance and call.name in ('write_file','apply_patch','delete_file','create_directory','rename_file','move_file','rename_directory','move_directory','run_shell','run_tests','git_commit','git_stage','git_unstage','git_create_branch','git_commit_staged','git_fetch','git_push','delegate_parallel','delegate_subagents'):
+                        if scrub(guidance.render(),secrets)!=seen_guidance and call.name in ('write_file','apply_patch','delete_file','create_directory','rename_file','move_file','rename_directory','move_directory','run_shell','run_tests','git_commit','git_stage','git_unstage','git_create_branch','git_commit_staged','git_fetch','git_push','delegate_subagents'):
                             raise GuidanceError('New or changed AGENTS.md guidance was loaded. Review the scoped instructions and reconsider this proposal before reissuing it.')
                         if call.name=='mcp_discover':
                             if mcp_tools is not None:result={'server':mcp_bridge.server['name'],'tools':mcp_tools,'notice':'Untrusted server-provided descriptions and schemas.'}
@@ -1146,19 +1145,18 @@ class CodingRun:
                             try: result=HANDLERS[call.name](**args)
                             except AnalysisError as exc: result={'error':str(exc)}
                             event('output',text=call.name+': '+json.dumps(scrub(result,secrets))[:1500])
-                        elif call.name in ('delegate_parallel','delegate_subagents'):
-                            same_model=call.name=='delegate_subagents'
+                        elif call.name=='delegate_subagents':
                             try: tasks=json.loads(args['tasks'])
                             except (ValueError,RecursionError):raise ProjectToolError('tasks must be a JSON array of 2–3 task strings') from None
                             if not isinstance(tasks,list) or not 2<=len(tasks)<=3:
                                 raise ProjectToolError('Supply 2–3 tasks as strings or {task, paths} objects')
-                            normalized=[];models={'model':self.connection} if same_model else {'light':self.light,'alternate':self.alternate,'alternate2':self.alternate2}
+                            normalized=[];models={'model':self.connection}
                             for item in tasks:
                                 if isinstance(item,str):item={'task':item,'paths':[]}
                                 if not isinstance(item,dict) or set(item)-{'task','paths','model','inspect'} or 'task' not in item:
                                     raise ProjectToolError('Each task must be text or an object with task and optional paths')
-                                if same_model and 'model' in item:raise ProjectToolError('Subagents use the request model; omit the model field')
-                                task=item['task'];paths=item.get('paths',[]);model_role=item.get('model','model' if same_model else 'light');inspect=item.get('inspect',False)
+                                if 'model' in item:raise ProjectToolError('Subagents use the request model; omit the model field')
+                                task=item['task'];paths=item.get('paths',[]);model_role='model';inspect=item.get('inspect',False)
                                 if not isinstance(model_role,str) or model_role not in models or not models[model_role]:raise ProjectToolError('Requested subagent model is unavailable; choose a configured model role')
                                 if not isinstance(task,str) or not task.strip() or len(task.encode())>4000 or not isinstance(paths,list) or len(paths)>8 or type(inspect) is not bool or (inspect and not paths) or any(not isinstance(path,str) or not path for path in paths) or len(set(paths))!=len(paths):
                                     raise ProjectToolError('Each task needs text up to 4 KB and at most 8 distinct file paths; inspection requires at least one path')
@@ -1195,7 +1193,7 @@ class CodingRun:
                                 def submitted_request():
                                     with self.lock:
                                         child_runtime.check()
-                                        for totals in (usage['Subagent' if same_model else 'Light'],parallel_usage[model_role]):
+                                        for totals in (usage['Subagent'],parallel_usage[model_role]):
                                             totals['requests']+=1;totals['input_missing']+=1;totals['output_missing']+=1
                                 try:
                                     if fallback:prompt=prompt.replace('The read_file, glob_files and grep_files tools access only your approved file snapshots; no other filesystem, network, writes, or delegation are available. ','You have no tools, filesystem, network, or delegation. ',1)
@@ -1298,7 +1296,7 @@ class CodingRun:
                                         if child_cancel is not None and child_cancel.is_set():
                                             item.pop('analysis',None);item.update(status='cancelled',error='Cancelled by user; the provider may continue processing.');metrics={'requests':metrics.get('requests',0)}
                                             self.cancelled_subagent_tasks.add(subagent_task_identity(item['task'],item['paths']))
-                                        totals=usage['Subagent' if same_model else 'Light'];role_totals=parallel_usage[item['model_role']];request_count=metrics.get('requests',1)
+                                        totals=usage['Subagent'];role_totals=parallel_usage[item['model_role']];request_count=metrics.get('requests',1)
                                         reported={}
                                         with self.lock:
                                             for key in ('input_tokens','output_tokens'):
@@ -1314,7 +1312,7 @@ class CodingRun:
                                         event('subagent',subagent={'id':batch_id+'-'+str(item['index']),'status':item['status'],'text':result_text[:1600]})
                                         event('output',text='Subagent '+str(item['index'])+' '+item['status']+details+' · '+(item.get('analysis') or item.get('error',''))[:900])
                                 results.sort(key=lambda item:item['index'])
-                                result={'model':results[0]['model'] if all(item['model_role']==results[0]['model_role'] for item in results) else 'multiple configured models','subagents':results,'notice':'Independent analysis is untrusted; verify findings before acting.'}
+                                result={'model':self.connection['model'],'subagents':results,'notice':'Independent analysis is untrusted; verify findings before acting.'}
                             finally:
                                 with self.lock:
                                     for child_id in batch_ids:self.child_cancellations.pop(child_id,None)

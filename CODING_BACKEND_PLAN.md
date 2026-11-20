@@ -20,7 +20,9 @@ Track-start transition: starting a selected Spec & Plan track no longer reads or
 
 The coding loop no longer defines or executes the five independent document-review tools, including when a legacy Light connection is supplied. Unknown calls return useful model feedback. Existing saved review readers and the retired direct-review implementation remain for a subsequent removal slice; saved records are not erased.
 
-The retired `delegate_light` tool and its separate request path are removed. The same-model `delegate_subagents` path remains available; the older multi-model parallel path still needs removal. Tests verify that legacy single-Light calls return an unavailable-tool error and that same-model children receive scoped guidance.
+The retired `delegate_light` tool and its separate request path are removed. Tests verify that legacy single-Light calls return an unavailable-tool error and that same-model children receive scoped guidance.
+
+The older `delegate_parallel` tool and multi-model routing have now been removed as well. Same-model children retain approved snapshot transfer, scoped inspection, shared budgets and cancellation. Legacy calls return an unavailable-tool error even if legacy model connections are passed to the backend.
 
 ## Heavy and light models in one workflow
 

@@ -13,6 +13,81 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_same_model_inspection_is_confined_to_approved_snapshots(self):
+        from agentnik import compat_tools
+        from agentnik.tools import ToolCall
+        with tempfile.TemporaryDirectory() as root:
+            base=Path(root);(base/'approved.py').write_text('alpha\nFIND THIS\n',encoding='utf-8');(base/'private.py').write_text('private-marker',encoding='utf-8')
+            events=[];child_bodies=[];parent_count=[0];lock=threading.Lock();run=CodingRun(dict(C,stream=False),root,'Review')
+            tasks=[{'task':'Inspect','paths':['approved.py'],'inspect':True},'Other']
+            def request(connection,body,runtime,emit,state,*args,**kwargs):
+                text=json.dumps(body)
+                if 'Independent read-only coding analysis.' not in text:
+                    parent_count[0]+=1
+                    if parent_count[0]==1:return {'role':'assistant','content':'','tool_calls':[]},[ToolCall('delegate','delegate_subagents',{'tasks':json.dumps(tasks)})]
+                    state['text']='Done';return {'role':'assistant','content':'Done'},[]
+                if 'Task: Other' in text:state['text']='Other';return {'role':'assistant','content':'Other'},[]
+                with lock:child_bodies.append(copy.deepcopy(body));index=len(child_bodies)
+                if index==1:
+                    calls=[ToolCall('one','glob_files',{'pattern':'**/*.py'}),ToolCall('two','grep_files',{'pattern':'**/*.py','query':'find','case_sensitive':'false'}),ToolCall('three','read_file',{'path':'approved.py'}),ToolCall('four','read_file',{'path':'private.py'})]
+                    return {'role':'assistant','content':''},calls
+                state['text']='Inspected';return {'role':'assistant','content':'Inspected'},[]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
+            with patch.object(compat_tools,'request',side_effect=request):run.run(emit)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(child_bodies),2)
+            payload=json.dumps(child_bodies[1]);self.assertIn('FIND THIS',payload);self.assertIn('outside the approved snapshots',payload);self.assertNotIn('private-marker',payload)
+            self.assertEqual(len([event for event in events if event['kind']=='operation_proposal']),1)
+
+    def test_same_model_subagent_file_transfer_requires_approval(self):
+        for approve in (False,True):
+            with self.subTest(approve=approve),tempfile.TemporaryDirectory() as root:
+                Path(root,'a.txt').write_text('project evidence',encoding='utf-8');events=[];bodies=[];lock=threading.Lock()
+                run=CodingRun(dict(C,stream=False),root,'Analyze')
+                def send(connection,url,body,timeout):
+                    with lock:bodies.append(copy.deepcopy(body))
+                    if 'Independent read-only coding analysis.' in json.dumps(body):return Wire(chat('Finding'),False)
+                    if len([b for b in bodies if 'Independent read-only coding analysis.' not in json.dumps(b)])==1:
+                        tasks=[{'task':'Inspect','paths':['a.txt']},'Other']
+                        return Wire(chat(calls=[call('delegate_subagents',{'tasks':json.dumps(tasks)})],finish='tool_calls'),False)
+                    return Wire(chat('Done'),False)
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],approve)
+                with patch.object(core,'open_request',side_effect=send):run.run(emit)
+                self.assertEqual(events[-1]['status'],'completed',events)
+                children=[body for body in bodies if 'Independent read-only coding analysis.' in json.dumps(body)]
+                self.assertEqual(len(children),2 if approve else 0)
+                if approve:self.assertTrue(any('project evidence' in json.dumps(body) for body in children))
+
+    def test_same_model_subagents_respect_shared_request_budget(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as root:
+            limits=coding_limits();limits['requests']=2;events=[];bodies=[]
+            run=CodingRun(dict(C,stream=False),root,'Analyze',limits=limits)
+            def send(connection,url,body,timeout):
+                bodies.append(body);return Wire(chat(calls=[call('delegate_subagents',{'tasks':json.dumps(['one','two'])})],finish='tool_calls'),False)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(len(bodies),1);self.assertEqual(events[-1]['status'],'failed');self.assertTrue(events[-1]['limited'])
+
+    def test_same_model_subagent_cancellation_drops_late_output(self):
+        with tempfile.TemporaryDirectory() as root:
+            started=threading.Event();release=threading.Event();events=[];lock=threading.Lock();count=[0]
+            run=CodingRun(dict(C,stream=False),root,'Analyze')
+            def send(connection,url,body,timeout):
+                if 'Independent read-only coding analysis.' in json.dumps(body):
+                    with lock:
+                        count[0]+=1
+                        if count[0]==2:started.set()
+                    release.wait(5);return Wire(chat('Late finding'),False)
+                return Wire(chat(calls=[call('delegate_subagents',{'tasks':json.dumps(['one','two'])})],finish='tool_calls'),False)
+            with patch.object(core,'open_request',side_effect=send):
+                worker=threading.Thread(target=run.run,args=(events.append,));worker.start()
+                try:self.assertTrue(started.wait(3));run.stop()
+                finally:release.set();worker.join(5)
+            self.assertFalse(worker.is_alive());self.assertNotIn('Late finding',json.dumps(events))
+
     def test_subagents_use_parent_connection_without_light_configuration(self):
         with tempfile.TemporaryDirectory() as root:
             (Path(root)/'AGENTS.md').write_text('Use project naming.',encoding='utf-8')
@@ -51,23 +126,6 @@ class Subagents(unittest.TestCase):
             self.assertEqual(requests,[C['model'],C['model']]);self.assertIn('omit the model field',json.dumps(bodies[-1]))
 
 
-    def test_cancellation_counts_inflight_parallel_requests_as_unknown(self):
-        with tempfile.TemporaryDirectory() as root:
-            started=[threading.Event(),threading.Event()];release=threading.Event();run=CodingRun(dict(C,stream=False),root,'Analyze',light=dict(C,model='light',stream=False),alternate=dict(C,model='other',stream=False));events=[]
-            def send(connection,url,body,timeout):
-                if connection['model'] in ('light','other'):
-                    started[connection['model']=='other'].set();release.wait(5);return Wire(chat('Late'),False)
-                return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['first',{'task':'second','model':'alternate'}])})],finish='tool_calls'),False)
-            with patch.object(core,'open_request',side_effect=send):
-                worker=threading.Thread(target=run.run,args=(events.append,));worker.start()
-                try:
-                    self.assertTrue(started[0].wait(3));self.assertTrue(started[1].wait(3));run.stop();summary=run.usage_text()
-                    self.assertIn('Heavy: 1 request(s), input 10, output 3 tokens',summary)
-                    self.assertIn('Light: 2 request(s), input unknown, output unknown tokens',summary)
-                    self.assertIn('parallel light: 1 request(s), input unknown, output unknown tokens',summary)
-                    self.assertIn('parallel alternate: 1 request(s), input unknown, output unknown tokens',summary)
-                finally:release.set();worker.join(5)
-                self.assertFalse(worker.is_alive())
 
 
 
@@ -94,71 +152,8 @@ class Subagents(unittest.TestCase):
 
 
 
-    def test_delegation_charges_complete_utf8_prompts_before_requests(self):
-        from agentnik.tools import Runtime
-        for tool,tasks in [('delegate_parallel',{'tasks':json.dumps(['Check café','Review API'])})]:
-            with self.subTest(tool=tool),tempfile.TemporaryDirectory() as root:
-                bodies=[];charges=[];events=[];heavy_count=0
-                original=Runtime.charge
-                def charge(runtime,name,amount,limit):
-                    if name=='context_bytes':charges.append(amount)
-                    return original(runtime,name,amount,limit)
-                def send(connection,url,body,timeout):
-                    nonlocal heavy_count
-                    bodies.append(copy.deepcopy(body))
-                    if connection['model']=='light':return Wire(chat('Finding'),False)
-                    heavy_count+=1
-                    if heavy_count==1:return Wire(chat(calls=[call(tool,tasks)],finish='tool_calls'),False)
-                    return Wire(chat('Done'),False)
-                with patch.object(Runtime,'charge',charge),patch.object(core,'open_request',side_effect=send):
-                    CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
-                self.assertEqual(events[-1]['status'],'completed',events)
-                children=[body for body in bodies if body['model']=='light']
-                self.assertEqual(len(children),2)
-                expected=sum(len(body['messages'][0]['content'].encode('utf-8')) for body in children)
-                self.assertIn(expected,charges)
 
-    def test_parallel_children_share_light_connection_and_cannot_call_tools(self):
-        with tempfile.TemporaryDirectory() as root:
-            folder=Path(root)/'.agents/skills/review';folder.mkdir(parents=True)
-            (folder/'SKILL.md').write_text('---\nname: review\ndescription: Review\n---\nRespect project style.',encoding='utf-8')
-            barrier=threading.Barrier(2);bodies=[];lock=threading.Lock();events=[];heavy_count=0
-            heavy=dict(C,stream=False);light=dict(C,model='light',stream=False)
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                with lock:bodies.append(copy.deepcopy(body))
-                if c['model']=='light':
-                    barrier.wait(timeout=5)
-                    return Wire(chat('Finding'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['Review interfaces','Check documentation'])})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            with patch.object(core,'open_request',side_effect=send):CodingRun(heavy,root,'Review',light=light,skills=['review']).run(events.append)
-            self.assertEqual(events[-1]['status'],'completed',events)
-            children=[body for body in bodies if body['model']=='light'];self.assertEqual(len(children),2)
-            self.assertTrue(all('tools' not in body for body in children));self.assertTrue(all('Respect project style.' in json.dumps(body) for body in children))
-            results=[json.loads(message['content']) for message in bodies[-1]['messages'] if message['role']=='tool']
-            self.assertEqual([item['status'] for item in results[-1]['subagents']],['completed','completed'])
-            self.assertEqual(sum(' started · ' in event.get('text','') for event in events),2)
-            updates=[event['subagent'] for event in events if event['kind']=='subagent']
-            self.assertEqual(len(updates),4);self.assertEqual({x['status'] for x in updates},{'running','completed'});self.assertEqual(len({x['id'] for x in updates}),2)
 
-    def test_three_parallel_tasks_each_run_once(self):
-        with tempfile.TemporaryDirectory() as root:
-            bodies=[];events=[];heavy_count=0;lock=threading.Lock()
-            def send(connection,url,body,timeout):
-                nonlocal heavy_count
-                if connection['model']=='light':
-                    with lock:bodies.append(copy.deepcopy(body))
-                    return Wire(chat('Finding'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['First task','Second task','Third task'])})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
-            self.assertEqual(events[-1]['status'],'completed',events)
-            self.assertEqual(len(bodies),3)
-            for task in ('First task','Second task','Third task'):
-                self.assertEqual(sum(task in json.dumps(body) for body in bodies),1)
 
     def test_modified_selected_skill_invalidates_pending_approval(self):
         with tempfile.TemporaryDirectory() as root:
@@ -173,50 +168,8 @@ class Subagents(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             self.assertFalse((Path(root)/'new').exists());self.assertEqual(events[-1]['status'],'failed');self.assertIn('skill changed',events[-1]['text'].lower())
 
-    def test_partial_failure_is_attributed_without_replay(self):
-        with tempfile.TemporaryDirectory() as root:
-            bodies=[];lock=threading.Lock();events=[];heavy_count=0
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                with lock:bodies.append(copy.deepcopy(body))
-                if c['model']=='light':
-                    if 'bad task' in json.dumps(body):return Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo fail'})],finish='tool_calls'),False)
-                    return Wire(chat('Useful finding'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['bad task','good task'])})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
-            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(sum(b['model']=='light' for b in bodies),2)
-            tool=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool')
-            self.assertEqual([x['status'] for x in tool['subagents']],['failed','completed']);self.assertIn('unavailable tools',tool['subagents'][0]['error'])
 
-    def test_request_budget_prevents_starting_partial_batch(self):
-        from agentnik.code_limits import coding_limits
-        with tempfile.TemporaryDirectory() as root:
-            limits=coding_limits();limits['requests']=2;events=[];calls=[]
-            def send(c,url,body,timeout):
-                calls.append(c['model']);return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['first','second'])})],finish='tool_calls'),False)
-            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),limits=limits).run(events.append)
-            self.assertEqual(calls,['heavy']);self.assertEqual(events[-1]['status'],'failed');self.assertIn('limit',events[-1]['text'].lower())
 
-    def test_cancellation_stops_parallel_run_without_late_result(self):
-        import time
-        with tempfile.TemporaryDirectory() as root:
-            started=threading.Event();release=threading.Event();events=[];counter=[0];lock=threading.Lock()
-            def send(c,url,body,timeout):
-                if c['model']=='light':
-                    with lock:
-                        counter[0]+=1
-                        if counter[0]==2:started.set()
-                    release.wait(5);return Wire(chat('Late result'),False)
-                return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['one','two'])})],finish='tool_calls'),False)
-            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False))
-            with patch.object(core,'open_request',side_effect=send):
-                thread=threading.Thread(target=run.run,args=(events.append,));thread.start()
-                try:
-                    self.assertTrue(started.wait(5),events);run.stop();thread.join(5);self.assertFalse(thread.is_alive())
-                finally:release.set();thread.join(5)
-            self.assertFalse(any('Late result' in e.get('text','') for e in events))
 
     def test_skill_update_during_model_request_stops_before_completion(self):
         with tempfile.TemporaryDirectory() as root:
@@ -270,68 +223,8 @@ class Subagents(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',skills=['review']).run(events.append)
             self.assertEqual(len(requests),2);self.assertEqual(events[-1]['status'],'completed')
 
-    def test_file_snapshots_require_individual_approval_and_redact_credentials(self):
-        with tempfile.TemporaryDirectory() as root:
-            (Path(root)/'a.txt').write_text('data model-secret',encoding='utf-8')
-            (Path(root)/'b.txt').write_text('other data',encoding='utf-8')
-            bodies=[];events=[];heavy_count=0;run=CodingRun(dict(C,stream=False,api_key='model-secret'),root,'Review',light=dict(C,model='light',stream=False))
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                bodies.append(copy.deepcopy(body))
-                if c['model']=='light':return Wire(chat('Finding'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps([{'task':'Inspect a','paths':['a.txt']},{'task':'Inspect b','paths':['b.txt']}])})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':
-                    self.assertEqual(event['proposal']['operation'],'subagent_file_transfer')
-                    self.assertEqual(event['proposal']['destination'],'https://gateway.example/v1/chat/completions')
-                    self.assertTrue(run.decide(event['fingerprint'],True))
-            with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            self.assertEqual(events[-1]['status'],'completed',events)
-            proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal']
-            self.assertEqual([p['path'] for p in proposals],['a.txt','b.txt']);self.assertEqual(proposals[0]['diff'],'data [redacted]')
-            children=[b for b in bodies if b['model']=='light'];self.assertEqual(len(children),2)
-            self.assertIn('data [redacted]',json.dumps(children));self.assertNotIn('model-secret',json.dumps(children)+json.dumps(events))
-            self.assertTrue(all('tools' not in b for b in children))
 
-    def test_rejected_or_changed_file_never_reaches_light(self):
-        for reject in (True,False):
-            with self.subTest(reject=reject),tempfile.TemporaryDirectory() as root:
-                file=Path(root)/'a.txt';file.write_text('original',encoding='utf-8');events=[];calls=[];heavy_count=0
-                run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False))
-                def send(c,url,body,timeout):
-                    nonlocal heavy_count
-                    calls.append(c['model']);heavy_count+=1
-                    if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps([{'task':'Inspect','paths':['a.txt']},'Other'])})],finish='tool_calls'),False)
-                    return Wire(chat('Stopped'),False)
-                def emit(event):
-                    events.append(event)
-                    if event['kind']=='operation_proposal':
-                        if not reject:file.write_text('changed',encoding='utf-8')
-                        run.decide(event['fingerprint'],not reject)
-                with patch.object(core,'open_request',side_effect=send):run.run(emit)
-                self.assertNotIn('light',calls);self.assertEqual(events[-1]['status'],'completed')
 
-    def test_nested_guidance_defers_file_transfer_until_model_sees_it(self):
-        with tempfile.TemporaryDirectory() as root:
-            folder=Path(root)/'src';folder.mkdir();(folder/'AGENTS.md').write_text('Use local conventions.',encoding='utf-8');(folder/'a.txt').write_text('data',encoding='utf-8')
-            events=[];bodies=[];heavy_count=0;run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False))
-            tasks=json.dumps([{'task':'Inspect','paths':['src/a.txt']},'Other'])
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                bodies.append(copy.deepcopy(body))
-                if c['model']=='light':return Wire(chat('Finding'),False)
-                heavy_count+=1
-                if heavy_count<=2:return Wire(chat(calls=[call('delegate_parallel',{'tasks':tasks})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
-            with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(sum(e['kind']=='operation_proposal' for e in events),1)
-            heavy=[b for b in bodies if b['model']=='heavy'];self.assertIn('Use local conventions.',heavy[1]['messages'][0]['content'])
 
     def test_code_pane_displays_file_and_destination_before_approval(self):
         import os
@@ -363,70 +256,8 @@ class Subagents(unittest.TestCase):
                 if window.tabs.currentWidget():window.tabs.currentWidget().job=None
                 window.close();app.processEvents();store.db.close()
 
-    def test_finished_children_report_immediately_and_missing_usage_stays_unknown(self):
-        with tempfile.TemporaryDirectory() as root:
-            release=threading.Event();events=[];bodies=[];heavy_count=0
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                bodies.append(copy.deepcopy(body))
-                if c['model']=='light':
-                    if 'slow task' in json.dumps(body):
-                        if not release.wait(3):raise AssertionError('Fast child status was not reported while slow child was running')
-                        return Wire(chat('Slow finding'),False)
-                    result=chat('Fast finding');result.pop('usage',None);return Wire(result,False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['slow task','fast task'])})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            def emit(event):
-                events.append(event)
-                if event.get('kind')=='output' and event.get('text','').startswith('Subagent 2 completed'):release.set()
-            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(emit)
-            self.assertEqual(events[-1]['status'],'completed',events)
-            completed=[e['text'] for e in events if e.get('text','').startswith(('Subagent 1 completed','Subagent 2 completed'))]
-            self.assertTrue(completed[0].startswith('Subagent 2 completed'));self.assertIn('input unknown tokens, output unknown tokens',completed[0])
-            result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool')
-            self.assertEqual([item['index'] for item in result['subagents']],[1,2]);self.assertIsNone(result['subagents'][1]['usage']['input_tokens'])
-            self.assertEqual(result['subagents'][0]['usage']['input_tokens'],10)
 
-    def test_parallel_children_route_to_distinct_configured_models(self):
-        from test_compat_tools import msg
-        with tempfile.TemporaryDirectory() as root:
-            file=Path(root)/'data.txt';file.write_text('Value alt-secret',encoding='utf-8')
-            bodies=[];events=[];lock=threading.Lock();heavy_count=0
-            alt={'url':'https://alternate.example/v1','protocol':'messages','model':'other','stream':False,'api_key':'alt-secret'}
-            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=alt)
-            tasks=[{'task':'Review one','model':'light'},{'task':'Review other','model':'alternate','paths':['data.txt']}]
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                with lock:bodies.append((c['model'],url,copy.deepcopy(body)))
-                if c['model']=='other':return Wire(msg([{'type':'text','text':'Alternate finding'}]),False)
-                if c['model']=='light':return Wire(chat('Light finding'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(tasks)})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':
-                    self.assertEqual(event['proposal']['model'],'other');self.assertEqual(event['proposal']['destination'],'https://alternate.example/v1/messages')
-                    self.assertEqual(event['proposal']['diff'],'Value [redacted]');run.decide(event['fingerprint'],True)
-            with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            self.assertEqual(events[-1]['status'],'completed',events)
-            self.assertEqual({model for model,url,body in bodies},{'heavy','light','other'})
-            alt_body=next(body for model,url,body in bodies if model=='other');self.assertIn('[redacted]',json.dumps(alt_body));self.assertNotIn('alt-secret',json.dumps(bodies)+json.dumps(events))
-            result=next(json.loads(m['content']) for m in bodies[-1][2]['messages'] if m['role']=='tool')
-            self.assertEqual([item['model_role'] for item in result['subagents']],['light','alternate'])
-            self.assertEqual([item['model'] for item in result['subagents']],['light','other'])
 
-    def test_unconfigured_alternate_does_not_fall_back(self):
-        with tempfile.TemporaryDirectory() as root:
-            bodies=[];events=[];count=0
-            def send(c,url,body,timeout):
-                nonlocal count
-                bodies.append(c['model']);count+=1
-                if count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['one',{'task':'two','model':'alternate'}])})],finish='tool_calls'),False)
-                return Wire(chat('Stopped'),False)
-            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False)).run(events.append)
-            self.assertEqual(bodies,['heavy','heavy']);self.assertEqual(events[-1]['status'],'completed')
 
     def test_code_pane_remembers_rejection_for_next_run_and_can_clear_it(self):
         import os
@@ -457,26 +288,6 @@ class Subagents(unittest.TestCase):
                     tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,set())
             finally:tab.job=None;window.close();app.processEvents();store.db.close()
 
-    def test_remembered_unsupported_model_starts_with_snapshot_and_no_tools(self):
-        from agentnik import compat_tools
-        from agentnik.tools import ToolCall
-        with tempfile.TemporaryDirectory() as root:
-            Path(root,'a.py').write_text('approved data',encoding='utf-8');events=[];bodies=[];heavy_count=0
-            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=dict(C,model='other',stream=False),unsupported_subagent_roles={'light'})
-            tasks=[{'task':'Review','paths':['a.py'],'inspect':True},{'task':'Other','model':'alternate'}]
-            def request(connection,body,runtime,emit,state,*args,**kwargs):
-                nonlocal heavy_count
-                if connection['model']=='heavy':
-                    heavy_count+=1
-                    if heavy_count==1:return {'role':'assistant','content':''},[ToolCall('d','delegate_parallel',{'tasks':json.dumps(tasks)})]
-                    state['text']='Done';return {'role':'assistant','content':'Done'},[]
-                if connection['model']=='light':bodies.append(copy.deepcopy(body))
-                state['text']='Reviewed';return {'role':'assistant','content':'Reviewed'},[]
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
-            with patch.object(compat_tools,'request',side_effect=request):run.run(emit)
-            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(bodies),1);self.assertNotIn('tools',bodies[0]);self.assertIn('approved data',json.dumps(bodies[0]));self.assertTrue(any('previously rejected' in e.get('text','') for e in events))
 
     def test_remembered_subagent_capability_persists_and_invalidates(self):
         from agentnik.storage import Store,load_config
@@ -491,120 +302,9 @@ class Subagents(unittest.TestCase):
                 invalidate_capabilities(reloaded,[connection]);self.assertFalse(unsupported(reloaded,connection))
             finally:store.db.close()
 
-    def test_inspection_falls_back_only_on_explicit_pre_response_rejection(self):
-        from agentnik import compat_tools,responses_tools
-        from agentnik.tools import ToolCall
-        cases=[('native',400,{'error':'model does not support tools'},False,True),('provider',400,{'error':{'message':'Tool calling is not supported','param':'tools'}},False,True),('auth',401,{'error':'model does not support tools'},False,False),('generic',400,{'error':{'message':'invalid request','param':'tools'}},False,False),('partial',400,{'error':'model does not support tools'},True,False),('timeout',504,{'error':'model does not support tools'},False,False)]
-        for scenario,status,payload,partial,expect_fallback in cases:
-            for protocol in ('chat','messages','responses'):
-                with self.subTest(scenario=scenario,protocol=protocol),tempfile.TemporaryDirectory() as root:
-                    Path(root,'a.py').write_text('approved content',encoding='utf-8');Path(root,'private.py').write_text('private data',encoding='utf-8')
-                    events=[];child_bodies=[];heavy_count=0
-                    run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',protocol=protocol,stream=False),alternate=dict(C,model='other',stream=False))
-                    tasks=[{'task':'Review','paths':['a.py'],'inspect':True},{'task':'Other','model':'alternate'}]
-                    def request(connection,body,runtime,emit,state,*args,**kwargs):
-                        nonlocal heavy_count
-                        if connection['model']=='heavy':
-                            heavy_count+=1
-                            if heavy_count==1:return {'role':'assistant','content':''},[ToolCall('d','delegate_parallel',{'tasks':json.dumps(tasks)})]
-                            state['text']='Done';return {'role':'assistant','content':'Done'},[]
-                        if connection['model']=='other':state['text']='Other';return {},[]
-                        child_bodies.append(copy.deepcopy(body))
-                        if len(child_bodies)==1:
-                            if partial:state['text']='partial response'
-                            raise core.EndpointError(status,json.dumps(payload))
-                        state['text']='Reviewed approved content';return ([] if protocol=='responses' else {'role':'assistant','content':'Reviewed approved content'}),[]
-                    def emit(event):
-                        events.append(event)
-                        if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
-                    with patch.object(compat_tools,'request',side_effect=request),patch.object(responses_tools,'request',side_effect=request):run.run(emit)
-                    self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(child_bodies),2 if expect_fallback else 1)
-                    self.assertIn('approved content',json.dumps(child_bodies[0]));self.assertNotIn('private data',json.dumps(child_bodies))
-                    if expect_fallback:
-                        self.assertIn('tools',child_bodies[0]);self.assertNotIn('tools',child_bodies[1]);self.assertIn('You have no tools',json.dumps(child_bodies[1]))
-                        self.assertTrue(any('rejected tool calling' in e.get('text','') for e in events));self.assertTrue(any('Reviewed approved content' in e.get('text','') for e in events))
-                    else:self.assertFalse(any('rejected tool calling' in e.get('text','') for e in events))
 
-    def test_parallel_inspection_real_chat_tool_round_trip(self):
-        with tempfile.TemporaryDirectory() as root:
-            Path(root,'a.py').write_text('def feature(): pass',encoding='utf-8');events=[];child_bodies=[];heavy_count=0;light_count=0
-            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=dict(C,model='other',stream=False))
-            def send(connection,url,body,timeout):
-                nonlocal heavy_count,light_count
-                if connection['model']=='other':return Wire(chat('Other'),False)
-                if connection['model']=='light':
-                    light_count+=1;child_bodies.append(copy.deepcopy(body))
-                    if light_count==1:return Wire(chat(calls=[call('grep_files',{'query':'feature','pattern':'**/*.py','case_sensitive':'true'})],finish='tool_calls'),False)
-                    return Wire(chat('Found feature'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps([{'task':'Review','paths':['a.py'],'inspect':True},{'task':'Other','model':'alternate'}])})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
-            with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(light_count,2)
-            self.assertIn('def feature()',json.dumps(child_bodies[1]));self.assertTrue(any(m['role']=='tool' for m in child_bodies[1]['messages']))
-            self.assertIn('parallel light: 2 request(s), input 20, output 6 tokens',events[-1]['usage'])
-            self.assertIn('parallel alternate: 1 request(s), input 10, output 3 tokens',events[-1]['usage'])
 
-    def test_multi_round_unknown_usage_does_not_look_like_known_zero(self):
-        with tempfile.TemporaryDirectory() as root:
-            Path(root,'a.py').write_text('content',encoding='utf-8');events=[];heavy_count=0;light_count=0
-            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=dict(C,model='other',stream=False))
-            def send(connection,url,body,timeout):
-                nonlocal heavy_count,light_count
-                if connection['model']=='other':
-                    response=chat('Other');response.pop('usage',None);return Wire(response,False)
-                if connection['model']=='light':
-                    light_count+=1
-                    if light_count==1:
-                        response=chat(calls=[call('read_file',{'path':'a.py'})],finish='tool_calls');response.pop('usage',None);return Wire(response,False)
-                    return Wire(chat('Done'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps([{'task':'Inspect','paths':['a.py'],'inspect':True},{'task':'Other','model':'alternate'}])})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
-            with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            self.assertEqual(events[-1]['status'],'completed',events)
-            self.assertIn('Light: 3 request(s), input unknown, output unknown tokens',events[-1]['usage'])
-            self.assertIn('parallel light: 2 request(s), input unknown, output unknown tokens',events[-1]['usage'])
-            self.assertIn('parallel alternate: 1 request(s), input unknown, output unknown tokens',events[-1]['usage'])
 
-    def test_parallel_inspection_tools_are_scoped_and_continue_across_protocols(self):
-        from agentnik import compat_tools,responses_tools
-        from agentnik.tools import ToolCall
-        for protocol in ('chat','messages','responses'):
-            with self.subTest(protocol=protocol),tempfile.TemporaryDirectory() as root:
-                base=Path(root);(base/'approved.py').write_text('alpha\nFIND THIS\n',encoding='utf-8');(base/'private.py').write_text('private-marker',encoding='utf-8')
-                events=[];bodies=[];heavy_count=0;child_count=0
-                light=dict(C,model='light',protocol=protocol,stream=False)
-                alternate=dict(C,model='other',stream=False)
-                run=CodingRun(dict(C,stream=False),root,'Review',light=light,alternate=alternate)
-                tasks=[{'task':'Inspect','paths':['approved.py'],'model':'light','inspect':True},{'task':'Other','model':'alternate'}]
-                def request(connection,body,runtime,emit,state,*args,**kwargs):
-                    nonlocal heavy_count,child_count
-                    model=connection['model']
-                    if model=='other':state['text']='Other result';return {'role':'assistant','content':'Other result'},[]
-                    if model=='heavy':
-                        heavy_count+=1
-                        if heavy_count==1:return {'role':'assistant','content':'','tool_calls':[]},[ToolCall('delegate','delegate_parallel',{'tasks':json.dumps(tasks)})]
-                        state['text']='Done';return {'role':'assistant','content':'Done'},[]
-                    child_count+=1;bodies.append(copy.deepcopy(body))
-                    if child_count==1:
-                        calls=[ToolCall('one','glob_files',{'pattern':'**/*.py'}),ToolCall('two','grep_files',{'pattern':'**/*.py','query':'find','case_sensitive':'false'}),ToolCall('three','read_file',{'path':'approved.py'}),ToolCall('four','read_file',{'path':'private.py'})]
-                        return ([] if protocol=='responses' else {'role':'assistant','content':[] if protocol=='messages' else ''}),calls
-                    state['text']='Inspected approved file';return ([] if protocol=='responses' else {'role':'assistant','content':'Inspected approved file'}),[]
-                def emit(event):
-                    events.append(event)
-                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
-                with patch.object(compat_tools,'request',side_effect=request),patch.object(responses_tools,'request',side_effect=request):run.run(emit)
-                self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(child_count,2)
-                self.assertEqual({t['name'] if protocol in ('responses','messages') else t['function']['name'] for t in bodies[0]['tools']},{'read_file','glob_files','grep_files'})
-                self.assertIn('FIND THIS',json.dumps(bodies[0]));payload=json.dumps(bodies[1]);self.assertIn('FIND THIS',payload);self.assertIn('outside the approved snapshots',payload);self.assertNotIn('private-marker',payload)
-                self.assertEqual(len([e for e in events if e['kind']=='operation_proposal']),1)
 
 
     def test_subagent_status_survives_cancel_and_interrupted_reopen(self):
@@ -641,93 +341,8 @@ class Subagents(unittest.TestCase):
         with self.assertRaises(ValueError):validate_records([item,item])
         with self.assertRaises(ValueError):validate_records([dict(item,text='x'*1601)])
 
-    def test_three_children_use_three_models_with_matching_file_approvals(self):
-        from test_compat_tools import msg
-        from test_routing import response,message
-        with tempfile.TemporaryDirectory() as root:
-            folder=Path(root);(folder/'data.txt').write_text('shared hidden-third',encoding='utf-8')
-            barrier=threading.Barrier(3);lock=threading.Lock();bodies=[];events=[];heavy_count=0
-            light=dict(C,model='light',stream=False)
-            alternate={'url':'https://second.example/v1','protocol':'messages','model':'second','stream':False,'api_key':'hidden-second'}
-            alternate2={'url':'https://third.example/v1','protocol':'responses','model':'third','stream':False,'api_key':'hidden-third'}
-            run=CodingRun(dict(C,stream=False),root,'Review',light=light,alternate=alternate,alternate2=alternate2)
-            tasks=[{'task':'First','model':'light'},{'task':'Second','model':'alternate','paths':['data.txt']},{'task':'Third','model':'alternate2','paths':['data.txt']}]
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                with lock:bodies.append((c['model'],url,copy.deepcopy(body)))
-                if c['model']!='heavy':
-                    barrier.wait(timeout=5)
-                    if c['model']=='second':return Wire(msg([{'type':'text','text':'Second finding'}]),False)
-                    if c['model']=='third':return Wire(response([message('Third finding')]),False)
-                    return Wire(chat('First finding'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(tasks)})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],True)
-            with patch.object(core,'open_request',side_effect=send):run.run(emit)
-            self.assertEqual(events[-1]['status'],'completed',events)
-            proposals=[event['proposal'] for event in events if event['kind']=='operation_proposal']
-            self.assertEqual([(p['model'],p['destination']) for p in proposals],[('second','https://second.example/v1/messages'),('third','https://third.example/v1/responses')])
-            self.assertTrue(all(p['diff']=='shared [redacted]' for p in proposals))
-            self.assertNotIn('hidden-third',json.dumps(bodies)+json.dumps(events));self.assertNotIn('hidden-second',json.dumps(bodies)+json.dumps(events))
-            result=next(json.loads(m['content']) for m in bodies[-1][2]['messages'] if m['role']=='tool')
-            self.assertEqual([item['model_role'] for item in result['subagents']],['light','alternate','alternate2'])
-            self.assertEqual([item['model'] for item in result['subagents']],['light','second','third'])
-            self.assertTrue(all(item['status']=='completed' for item in result['subagents']))
 
-    def test_second_alternate_is_optional_and_never_silently_falls_back(self):
-        from agentnik.sessions import validate_session,SessionError
-        from agentnik.storage import Store
-        from agentnik.repositories import RepositoryRegistry
-        with tempfile.TemporaryDirectory() as root:
-            project=Path(root)/'project';project.mkdir();store=Store(Path(root)/'data')
-            try:
-                registry=RepositoryRegistry(store);session=registry.session(registry.put(project))
-                self.assertNotIn('coding_subagent_model_2',validate_session(session))
-                session['coding_subagent_model_2']={'connection':'Third','model':'model-three'};store.save(session)
-                self.assertEqual(store.list_sessions()[0]['coding_subagent_model_2']['model'],'model-three')
-                session['coding_subagent_model_2']={'connection':'Third','model':'x','api_key':'secret'}
-                with self.assertRaises(SessionError):validate_session(session)
-            finally:store.db.close()
-            calls=[];events=[]
-            def send(c,url,body,timeout):
-                calls.append(c['model'])
-                if len(calls)==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['one',{'task':'two','model':'alternate2'}])})],finish='tool_calls'),False)
-                return Wire(chat('Stopped'),False)
-            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),project,'Review',light=dict(C,model='light',stream=False)).run(events.append)
-            self.assertEqual(calls,['heavy','heavy']);self.assertEqual(events[-1]['status'],'completed')
 
-    def test_cancel_one_child_preserves_other_result_and_never_replays_late_output(self):
-        with tempfile.TemporaryDirectory() as root:
-            blocked=threading.Event();release=threading.Event();late_finished=threading.Event();events=[];bodies=[];heavy_count=0;selected=[]
-            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False))
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                bodies.append(copy.deepcopy(body))
-                if c['model']=='light':
-                    if 'cancel this task' in json.dumps(body):
-                        blocked.set();release.wait(5);late_finished.set();return Wire(chat('Must not be used'),False)
-                    return Wire(chat('Other finding'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['cancel this task','keep this task'])})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            def emit(event):
-                events.append(event)
-                if event.get('kind')=='subagent' and event['subagent']['status']=='running':
-                    selected.append(event['subagent']['id'])
-                    if len(selected)==2:
-                        self.assertTrue(blocked.wait(3));self.assertTrue(run.cancel_subagent(selected[0]));self.assertFalse(run.cancel_subagent(selected[0]))
-            with patch.object(core,'open_request',side_effect=send):
-                try:run.run(emit)
-                finally:release.set();late_finished.wait(3)
-            self.assertEqual(events[-1]['status'],'completed',events)
-            tool=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool')
-            self.assertEqual([item['status'] for item in tool['subagents']],['cancelled','completed'])
-            self.assertNotIn('analysis',tool['subagents'][0]);self.assertEqual(tool['subagents'][1]['analysis'],'Other finding')
-            self.assertNotIn('Must not be used',json.dumps(events)+json.dumps(bodies))
-            self.assertIsNone(tool['subagents'][0]['usage']['input_tokens'])
 
     def test_individual_cancel_control_keeps_the_other_child_running(self):
         import os
@@ -752,51 +367,3 @@ class Subagents(unittest.TestCase):
             finally:
                 if window.tabs.currentWidget():window.tabs.currentWidget().job=None
                 window.close();app.processEvents();store.db.close()
-
-    def test_child_request_construction_failure_does_not_stop_sibling(self):
-        with tempfile.TemporaryDirectory() as root:
-            events=[];bodies=[];heavy_count=0;original=core.chat_body
-            def build(c,messages):
-                if c['model']=='alternate-bad':raise ValueError('Invalid child configuration')
-                return original(c,messages)
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                bodies.append(copy.deepcopy(body))
-                if c['model']=='light':return Wire(chat('Useful finding'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['first',{'task':'second','model':'alternate'}])})],finish='tool_calls'),False)
-                return Wire(chat('Done'),False)
-            alternate=dict(C,model='alternate-bad',stream=False)
-            with patch.object(core,'open_request',side_effect=send),patch.object(core,'chat_body',side_effect=build):
-                CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=alternate).run(events.append)
-            self.assertEqual(events[-1]['status'],'completed',events)
-            result=next(json.loads(message['content']) for message in bodies[-1]['messages'] if message['role']=='tool')
-            self.assertEqual([item['status'] for item in result['subagents']],['completed','failed'])
-
-    def test_cancelled_task_cannot_be_reassigned_or_replayed_in_same_run(self):
-        with tempfile.TemporaryDirectory() as root:
-            blocked=threading.Event();release=threading.Event();events=[];bodies=[];heavy_count=0;ident=[]
-            run=CodingRun(dict(C,stream=False),root,'Review',light=dict(C,model='light',stream=False),alternate=dict(C,model='alternate',stream=False))
-            def send(c,url,body,timeout):
-                nonlocal heavy_count
-                bodies.append(copy.deepcopy(body))
-                if c['model']=='light':
-                    if 'cancel this task' in json.dumps(body):blocked.set();release.wait(5)
-                    return Wire(chat('Child result'),False)
-                heavy_count+=1
-                if heavy_count==1:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps(['cancel this task','other task'])})],finish='tool_calls'),False)
-                if heavy_count==2:return Wire(chat(calls=[call('delegate_parallel',{'tasks':json.dumps([{'task':'  CANCEL this   task ','model':'alternate'},'another task'])})],finish='tool_calls'),False)
-                return Wire(chat('Stopped'),False)
-            def emit(event):
-                events.append(event)
-                if event.get('kind')=='subagent' and event['subagent']['status']=='running':
-                    ident.append(event['subagent']['id'])
-                    if len(ident)==2:self.assertTrue(blocked.wait(3));self.assertTrue(run.cancel_subagent(ident[0]))
-            with patch.object(core,'open_request',side_effect=send):
-                try:run.run(emit)
-                finally:release.set()
-            self.assertEqual(events[-1]['status'],'completed',events)
-            self.assertEqual(sum(body['model']=='light' for body in bodies),2)
-            self.assertEqual(sum(body['model']=='alternate' for body in bodies),0)
-            result=next(json.loads(m['content']) for m in bodies[-1]['messages'] if m['role']=='tool' and 'cancelled by the user' in m['content'])
-            self.assertIn('do not retry',result['error'])

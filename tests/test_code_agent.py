@@ -97,6 +97,15 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual([model for model,_ in bodies],[C['model'],C['model']]);self.assertEqual(events[-1]['status'],'completed')
             self.assertNotIn('delegate_light',json.dumps(bodies[0][1]['tools']));self.assertIn('Unknown or unavailable tool',json.dumps(bodies[-1][1]))
 
+    def test_removed_parallel_delegation_cannot_use_legacy_models(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Analyze',light=dict(C,model='legacy',stream=False));bodies=[];events=[]
+            replies=[Wire(chat(calls=[call('delegate_parallel',{'tasks':'["one","two"]'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(connection,url,body,timeout):bodies.append((connection['model'],json.loads(json.dumps(body))));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual([model for model,_ in bodies],[C['model'],C['model']]);self.assertEqual(events[-1]['status'],'completed')
+            self.assertNotIn('delegate_parallel',json.dumps(bodies[0][1]['tools']));self.assertIn('Unknown or unavailable tool',json.dumps(bodies[-1][1]))
+
     def test_model_timeout_does_not_change_web_timeout(self):
         from agentnik.tools import Source
         from agentnik.code_limits import coding_limits
