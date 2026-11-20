@@ -1,6 +1,6 @@
 # Independent document review implementation plan
 
-Status: **independent review, project-local snapshot, and bounded read-only drift previews are implemented.** This plan elaborates the F4/F5 roadmap in [AGENTNIK_PLAN.md](AGENTNIK_PLAN.md). Current review tools and limits are described in [Coding features](CODE_FEATURES.md). This document is a design and delivery plan, not evidence of live model compatibility.
+**Historical, superseded plan:** EGM-style independent review and drift functionality has been removed. This document records the earlier design and is not a current implementation or proposal to restore it. See [AGENTNIK_PLAN.md](AGENTNIK_PLAN.md) and [Coding features](CODE_FEATURES.md) for current direction and behavior.
 
 ## Goal and existing baseline
 
