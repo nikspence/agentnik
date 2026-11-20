@@ -50,6 +50,9 @@
     </context>
     <context>
         <name>CodeTab</name>
+        <message><source>Retained steering for future continuations (review the evidence above too):</source><translation>향후 계속 실행을 위해 유지할 지시 (위의 근거도 확인하세요):</translation></message>
+        <message><source>Retained steering must be at most 14,000 characters.</source><translation>유지할 지시는 14,000자 이하여야 합니다.</translation></message>
+        <message><source>A goal objective cannot be empty.</source><translation>목표는 비워 둘 수 없습니다.</translation></message>
         <message><source>Latest detail:</source><translation>최근 세부 정보:</translation></message>
         <message><source>Retained delivered steering:</source><translation>유지된 전달 지시:</translation></message>
         <message><source>Goal objectives must be at most 16,000 characters so they can be saved and resumed.</source><translation>목표를 저장하고 계속할 수 있도록 목표는 16,000자 이하여야 합니다.</translation></message>

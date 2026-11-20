@@ -240,15 +240,18 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident)
                 session.update(code_state='paused',coding_goal={'objective':'Original goal','status':'paused','detail':'Previous progress'},coding_last_run_goal=True,coding_resume={'task':'Original goal','evidence':'Earlier evidence'})
+                session['coding_continuation_steering']={'text':'Old correction','omitted':False}
                 store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 def edit(dialog):
                     editor=dialog.findChild(QPlainTextEdit,'continuationContext');self.assertIsNotNone(editor);self.assertIn('Previous progress',editor.toPlainText())
+                    steering=dialog.findChild(QPlainTextEdit,'continuationSteering');self.assertEqual(steering.toPlainText(),'Old correction');steering.clear()
                     editor.setPlainText(json.dumps({'task':'Revised goal','evidence':'Reviewed evidence'}));next(button for button in dialog.findChildren(QPushButton) if button.text()=='Save context').click()
                     return QDialog.DialogCode.Accepted
                 with patch.object(QDialog,'exec',edit):tab.edit_coding_context()
                 saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertTrue(saved['coding_resume_reviewed']);window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
                 with patch.object(tab,'start_coding') as start:tab.continue_coding();start.assert_called_once_with(True)
                 self.assertEqual(tab.session['coding_resume']['task'],'Revised goal');self.assertEqual(tab.session['coding_resume']['evidence'],'Reviewed evidence')
+                self.assertEqual(tab.session['coding_continuation_steering'],{'text':'','omitted':False})
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()

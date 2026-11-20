@@ -391,13 +391,21 @@ class CodeTab(QWidget):
         original=QPlainTextEdit(json.dumps(context or {'task':'','answer':''},ensure_ascii=False,indent=2));layout.addWidget(original)
         layout.addWidget(QLabel(self.tr('Compacted summary:')))
         summary=QPlainTextEdit(snapshot['summary'] if snapshot else '');layout.addWidget(summary)
-        resume=self.session.get('coding_resume');resume_editor=None
+        resume=self.session.get('coding_resume');resume_editor=None;steering_editor=None;steering_saved=None
         state=self.session.get('code_state')
         if self.session.get('coding_last_run_goal',True) and self.session.get('coding_goal',{}).get('status')==state and state in ('paused','blocked','interrupted','failed') and not self.session.get('coding_resume_reviewed'):
             resume=self.build_goal_resume()
         if resume and state in ('limited','paused','blocked','interrupted','failed'):
             layout.addWidget(QLabel(self.tr('Continue task and evidence (JSON; original attachments are also sent):')))
             resume_editor=QPlainTextEdit(json.dumps({key:resume[key] for key in ('task','evidence')},ensure_ascii=False,indent=2));resume_editor.setObjectName('continuationContext');layout.addWidget(resume_editor)
+            steering_saved=self.session.get('coding_continuation_steering')
+            if steering_saved is None:
+                legacy=self.continuation_steering(self.draft_secrets());header='Delivered steering for this task:\n';legacy=legacy[len(header):] if legacy.startswith(header) else legacy
+                marker='[Earlier delivered steering omitted due to the size limit.]\n';omitted=legacy.startswith(marker)
+                if omitted:legacy=legacy[len(marker):]
+                steering_saved={'text':legacy[-14000:],'omitted':omitted or len(legacy)>14000}
+            label=QLabel(self.tr('Retained steering for future continuations (review the evidence above too):'));label.setWordWrap(True);layout.addWidget(label)
+            steering_editor=QPlainTextEdit(steering_saved['text']);steering_editor.setObjectName('continuationSteering');layout.addWidget(steering_editor)
         row=QHBoxLayout();layout.addLayout(row)
         save=QPushButton(self.tr('Save context'));reset=QPushButton(self.tr('Use original context'));compact=QPushButton(self.tr('Compact now'))
         for control in (save,reset,compact):row.addWidget(control)
@@ -410,9 +418,14 @@ class CodeTab(QWidget):
                 if resume_editor:
                     resume_value=scrub(json.loads(resume_editor.toPlainText()),secrets)
                     if not isinstance(resume_value,dict) or set(resume_value)!={'task','evidence'} or not isinstance(resume_value['task'],str) or len(resume_value['task'])>16000 or not isinstance(resume_value['evidence'],str) or len(resume_value['evidence'])>24000:raise ValueError('Invalid continuation task or evidence')
+                    if self.session.get('coding_last_run_goal',True) and self.session.get('coding_goal') and not resume_value['task'].strip():raise ValueError(self.tr('A goal objective cannot be empty.'))
+                if steering_editor:
+                    steering_value=scrub(steering_editor.toPlainText(),secrets)
+                    if len(steering_value)>14000:raise ValueError(self.tr('Retained steering must be at most 14,000 characters.'))
             except (ValueError,TypeError) as exc:QMessageBox.warning(dialog,self.tr('Coding context'),str(exc));return
             self.session['coding_context']=value
             if resume_editor:self.session['coding_resume']={**resume,**resume_value};self.session['coding_resume_reviewed']=True
+            if steering_editor:self.session['coding_continuation_steering']={'text':steering_value,'omitted':steering_saved['omitted'] if steering_value==steering_saved['text'] else False}
             if new_snapshot:self.session['coding_compaction']=new_snapshot
             else:self.session.pop('coding_compaction',None)
             self.use_context.setEnabled(True);self.store.save(self.session);self.updated.emit();dialog.accept()
