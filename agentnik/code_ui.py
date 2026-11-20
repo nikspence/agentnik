@@ -1652,8 +1652,8 @@ class CodeTab(QWidget):
         if not isinstance(self.job,CodingRun) or not self.job.goal:return
         job=self.job;steering=job.stop()
         for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message)
-        for message in steering['undelivered']:self.record_steering(self.tr('Steering not delivered: '),message)
         for message in steering['uncertain']:self.record_steering(self.tr('Steering delivery uncertain: '),message)
+        for message in steering['undelivered']:self.record_steering(self.tr('Steering not delivered: '),message)
         self.session['coding_goal_progress']=job.goal_progress_snapshot();self.capture_goal_resume();self.session['coding_goal']['status']='paused';self.session['code_state']='paused'
         for bridge in job.mcp_bridges:bridge.close()
         self.stop_subagents('cancelled');self.finish();self.record('output',self.tr('Goal paused. Inspect uncertain actions before resuming.'))
@@ -1669,8 +1669,8 @@ class CodeTab(QWidget):
         job=self.job;steering=job.stop()
         if isinstance(job,CodingRun):
             for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message)
-            for message in steering['undelivered']:self.record_steering(self.tr('Steering not delivered: '),message)
             for message in steering['uncertain']:self.record_steering(self.tr('Steering delivery uncertain: '),message)
+            for message in steering['undelivered']:self.record_steering(self.tr('Steering not delivered: '),message)
         if isinstance(job,CodingRun) and job.goal and self.session.get('coding_goal'):self.session['coding_goal']['status']='cancelled';self.session['coding_goal_progress']=job.goal_progress_snapshot()
         usage=job.usage_text() if isinstance(job,CodingRun) else None
         for bridge in getattr(self.job,'mcp_bridges',[]):bridge.close()

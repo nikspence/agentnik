@@ -149,6 +149,24 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_cancel_records_steering_outcomes_in_submission_order(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.code_agent import CodingRun
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                run=CodingRun(dict(C,stream=False),str(project),'Task');tab.job=run;tab.run_id=run.run_id
+                with run.lock:run.steering_confirmed=['First'];run.steering_inflight=['Second'];run.steering_submitted=True;run.steering=['Third']
+                tab.cancel();texts=[item['text'] for item in session['code_activity'] if item['kind']=='steering']
+                self.assertEqual(texts,['Steering delivered: First','Steering delivery uncertain: Second','Steering not delivered: Third'])
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_pause_reports_inflight_steering_as_uncertain(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
