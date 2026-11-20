@@ -14,6 +14,25 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_steering_drafts_are_independent_and_not_sent_on_reopen(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);first=window.repositories.session(ident);second=window.repositories.session(ident);store.save(first);store.save(second)
+                window.open_session(first);first_tab=window.tabs.currentWidget();first_tab.steering_input.setText('First draft')
+                window.open_session(second);second_tab=window.tabs.currentWidget();second_tab.steering_input.setText('Second draft')
+                saved={row['id']:row for row in store.list_sessions()};self.assertEqual(saved[first['id']]['coding_steering_draft'],'First draft');self.assertEqual(saved[second['id']]['coding_steering_draft'],'Second draft')
+                window.close_tab(window.tabs.indexOf(first_tab))
+                with patch.object(core,'open_request') as request:window.open_session(saved[first['id']]);request.assert_not_called()
+                self.assertEqual(window.tabs.currentWidget().steering_input.text(),'First draft');self.assertEqual(second_tab.steering_input.text(),'Second draft')
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_late_approval_event_is_cleared_after_steering_invalidation(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
@@ -89,14 +108,14 @@ class CodingWorkspace(unittest.TestCase):
                 tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.composer.setPlainText('The original goal');tab.goal_enabled.setChecked(True)
                 def delayed(connection,url,body,timeout):started.set();release.wait(5);return Wire(chat('Late'),False)
                 with patch.object(core,'open_request',side_effect=delayed):
-                    tab.start_coding();settle(started.is_set);tab.composer.setPlainText('Unsent next task');tab.pause_goal();self.assertIsNone(tab.job);release.set();tab.worker.join(5);app.processEvents()
+                    tab.start_coding();settle(started.is_set);tab.composer.setPlainText('Unsent next task');tab.steering_input.setText('Unsent steering');tab.pause_goal();self.assertIsNone(tab.job);release.set();tab.worker.join(5);app.processEvents()
                 self.assertEqual(session['code_state'],'paused');self.assertEqual(session['coding_goal']['status'],'paused');self.assertTrue(tab.continue_button.isEnabled());self.assertIn('Paused',tab.goal_status_label.text())
                 saved=next(row for row in store.list_sessions() if row['id']==session['id']);window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
-                self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Unsent next task')
+                self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
                 replies=[Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Checked result'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
                 def answer(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
                 with patch.object(core,'open_request',side_effect=answer):tab.continue_coding();settle(lambda:tab.job is None)
-                self.assertIn('The original goal',json.dumps(bodies[0]));self.assertNotIn('Unsent next task',json.dumps(bodies[0]));self.assertEqual(tab.composer.toPlainText(),'Unsent next task')
+                self.assertIn('The original goal',json.dumps(bodies[0]));self.assertNotIn('Unsent next task',json.dumps(bodies[0]));self.assertNotIn('Unsent steering',json.dumps(bodies[0]));self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
                 self.assertEqual(tab.session['coding_goal']['status'],'completed');self.assertIn('Completed (model reported)',tab.goal_status_label.text())
             finally:
                 release.set()
@@ -151,7 +170,7 @@ class CodingWorkspace(unittest.TestCase):
                 def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
                 with patch.object(core,'open_request',side_effect=send),patch('agentnik.shell.execute') as execute:
                     tab.launch(run,'Started');settle(lambda:bool(tab.pending_fingerprint))
-                    tab.steering_input.setText('Use another approach secret-key');tab.send_steering();settle(lambda:tab.job is None);execute.assert_not_called()
+                    tab.steering_input.setText('Use another approach secret-key');self.assertNotIn('secret-key',json.dumps(session));tab.send_steering();settle(lambda:tab.job is None);execute.assert_not_called()
                 self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertIn('Use another approach [redacted]',json.dumps(bodies[-1]))
                 self.assertNotIn('secret-key',json.dumps(session));self.assertIn('Steering delivered',tab.activity.toPlainText())
             finally:

@@ -118,6 +118,11 @@ class PromptHistory(unittest.TestCase):
             try:
                 registry=RepositoryRegistry(store);ident=registry.put(directory);session=registry.session(ident)
                 session['coding_prompt_history']=['one','two'];self.assertEqual(validate_session(session)['coding_prompt_history'],['one','two'])
+                session['coding_steering_draft']='pending instruction';self.assertEqual(validate_session(session)['coding_steering_draft'],'pending instruction')
+                for invalid in (123,'x'*16001):
+                    session['coding_steering_draft']=invalid
+                    with self.assertRaises(SessionError):validate_session(session)
+                session.pop('coding_steering_draft')
                 session['coding_save_review_progress']='yes'
                 with self.assertRaises(SessionError):validate_session(session)
                 session.pop('coding_save_review_progress')

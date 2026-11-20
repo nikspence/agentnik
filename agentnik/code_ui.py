@@ -210,7 +210,7 @@ class CodeTab(QWidget):
         self.history_down=QPushButton('↓');self.history_down.setAccessibleName(self.tr('Next coding prompt'));self.history_down.setToolTip(self.tr('Next coding prompt'));history_buttons.addWidget(self.history_down)
         self.composer=CodingComposer(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);composer_row.addWidget(self.composer,1)
         steering_row=QHBoxLayout();layout.addLayout(steering_row)
-        self.steering_input=QLineEdit();self.steering_input.setPlaceholderText(self.tr('Steer the active coding run'));self.steering_input.setEnabled(False);steering_row.addWidget(self.steering_input,1)
+        self.steering_input=QLineEdit();self.steering_input.setMaxLength(16000);self.steering_input.setText(session.get('coding_steering_draft',''));self.steering_input.setPlaceholderText(self.tr('Steer the active coding run'));self.steering_input.setEnabled(False);self.steering_input.textChanged.connect(self.save_steering_draft);steering_row.addWidget(self.steering_input,1)
         self.steering_button=QPushButton(self.tr('Send steering'));self.steering_button.setEnabled(False);self.steering_button.clicked.connect(self.send_steering);self.steering_input.returnPressed.connect(self.send_steering);steering_row.addWidget(self.steering_button)
         from .ui import AttachmentBox
         self.attachments=AttachmentBox(self.store);self.attachments.set_paths(session.get('draft_images',[]));layout.addWidget(self.attachments)
@@ -454,6 +454,13 @@ class CodeTab(QWidget):
         if isinstance(self.job,CodingRun):
             self.job.set_shell_without_approval(enabled)
             self.record('output',self.tr('Shell commands without approval: {state}').format(state=self.tr('on') if enabled else self.tr('off')))
+
+    def save_steering_draft(self,text):
+        secrets=[connection.get('api_key','') for connection in self.window.connections.values()]
+        if isinstance(self.job,CodingRun):
+            secrets.extend([self.job.connection.get('api_key','')]+[item.get('key','') for item in self.job.web_backends])
+            for bridge in self.job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
+        self.session['coding_steering_draft']=scrub(text,secrets);self.store.save(self.session);self.updated.emit()
 
     def send_steering(self):
         job=self.job;text=self.steering_input.text()

@@ -71,6 +71,7 @@ def validate_session(value, ident=None):
         for binding in bindings.values():
             require(isinstance(binding,dict) and set(binding)=={'connection','model'})
             require(all(isinstance(v,str) and len(v)<=1000 for v in binding.values()))
+        if 'coding_steering_draft' in data:require(isinstance(data['coding_steering_draft'],str) and len(data['coding_steering_draft'])<=16000)
         activity=data.get('code_activity',[])
         require(isinstance(activity,list) and len(activity)<=(32 if data['version']==4 else MAX_CODE_ACTIVITY_EVENTS))
         require(all(isinstance(e,dict) and isinstance(e.get('kind'),str) and isinstance(e.get('text'),str) and len(e['text'])<=2048 for e in activity))
