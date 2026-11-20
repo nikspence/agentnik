@@ -1134,14 +1134,14 @@ class CodeTab(QWidget):
                 files=ProjectFiles(self.session['path_snapshot']);limit=coding_limits(self.session.get('coding_limits'))['context_bytes'];selected=prepare_track(files,ident,secrets,limit)
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.session.get('coding_goal_limits'),goal_progress=self.session.get('coding_goal_progress') if resume and self.goal_enabled.isChecked() else None)
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.session.get('coding_goal_limits'))
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if not continuation and self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.session['coding_last_run_goal']=self.goal_enabled.isChecked()
         if self.goal_enabled.isChecked():
             objective=(resume or {}).get('task',prompt);secrets=[heavy.get('api_key','')]+[item.get('key','') for item in backends]
             self.session['coding_goal']={'objective':scrub(objective,secrets)[:16000],'status':'active','detail':''}
-            if not resume:self.session['coding_goal_progress']={'steps':0,'seconds':0}
+            self.session['coding_goal_progress']={'steps':0,'seconds':0}
             if not resume:self.session['coding_resume']={'task':self.session['coding_goal']['objective'],'evidence':'','images':list(run.images),'documents':scrub(copy.deepcopy(run.documents),secrets)}
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval. Shell commands '+('run without approval' if self.shell_auto.isChecked() else 'require approval')+'. Repository content goes to the selected models.')
@@ -1166,7 +1166,11 @@ class CodeTab(QWidget):
         goal=self.session.get('coding_goal')
         if not goal:return
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Goal details'));dialog.resize(700,420);layout=QVBoxLayout(dialog)
-        details=QPlainTextEdit(self.tr('Objective:')+'\n'+goal['objective']+'\n\n'+self.tr('Status:')+' '+goal['status']+'\n\n'+self.tr('Latest detail (model reported):')+'\n'+goal['detail']);details.setObjectName('goalDetailsText');details.setReadOnly(True);layout.addWidget(details)
+        progress=self.job.goal_progress_snapshot() if isinstance(self.job,CodingRun) and self.job.goal else self.session.get('coding_goal_progress',{'steps':0,'seconds':0})
+        limits=goal_limits(self.session.get('coding_goal_limits'));unlimited=self.tr('Unlimited')
+        steps=str(limits['steps']) if limits['steps'] else unlimited;seconds=str(limits['seconds']) if limits['seconds'] else unlimited
+        usage=self.tr('Completed goal steps: {used} / {limit}\nActive goal time (seconds): {seconds:.1f} / {time_limit}').format(used=progress['steps'],limit=steps,seconds=progress['seconds'],time_limit=seconds)
+        details=QPlainTextEdit(self.tr('Objective:')+'\n'+goal['objective']+'\n\n'+self.tr('Status:')+' '+goal['status']+'\n\n'+usage+'\n\n'+self.tr('Latest detail (model reported):')+'\n'+goal['detail']);details.setObjectName('goalDetailsText');details.setReadOnly(True);layout.addWidget(details)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
 
     def capture_goal_resume(self):

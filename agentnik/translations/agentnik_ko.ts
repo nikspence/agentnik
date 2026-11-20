@@ -61,6 +61,10 @@
         <message><source>Objective:</source><translation>목표:</translation></message>
         <message><source>Status:</source><translation>상태:</translation></message>
         <message><source>Latest detail (model reported):</source><translation>최근 세부 정보 (모델 보고):</translation></message>
+        <message><source>Unlimited</source><translation>무제한</translation></message>
+        <message><source>Completed goal steps: {used} / {limit}
+Active goal time (seconds): {seconds:.1f} / {time_limit}</source><translation>완료된 목표 단계: {used} / {limit}
+목표 실행 시간 (초): {seconds:.1f} / {time_limit}</translation></message>
         <message>
             <location filename="../code_ui.py" line="90" />
             <source>Working directory snapshot: {path}</source>

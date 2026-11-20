@@ -135,11 +135,13 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertEqual(session['code_state'],'paused');self.assertEqual(session['coding_goal']['status'],'paused');self.assertTrue(tab.continue_button.isEnabled());self.assertIn('Paused',tab.goal_status_label.text())
                 saved=next(row for row in store.list_sessions() if row['id']==session['id']);window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
                 self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
+                tab.session['coding_goal_progress']={'steps':3,'seconds':999};tab.session['coding_goal_limits']={'steps':1,'seconds':10};store.save(tab.session)
                 replies=[Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Checked result'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
                 def answer(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
                 with patch.object(core,'open_request',side_effect=answer):tab.continue_coding();settle(lambda:tab.job is None)
                 self.assertIn('The original goal',json.dumps(bodies[0]));self.assertNotIn('Unsent next task',json.dumps(bodies[0]));self.assertNotIn('Unsent steering',json.dumps(bodies[0]));self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
                 self.assertEqual(tab.session['coding_goal']['status'],'completed');self.assertIn('Completed (model reported)',tab.goal_status_label.text())
+                self.assertEqual(tab.session['coding_goal_progress']['steps'],0);self.assertLess(tab.session['coding_goal_progress']['seconds'],10)
             finally:
                 release.set()
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
@@ -169,7 +171,7 @@ class CodingWorkspace(unittest.TestCase):
                 captured=[]
                 def inspect(dialog):captured.append(dialog.findChild(QPlainTextEdit,'goalDetailsText').toPlainText());return QDialog.DialogCode.Rejected
                 with patch.object(QDialog,'exec',inspect):tab.show_goal_details()
-                self.assertIn('Finish the feature',captured[0]);self.assertIn('Verified result',captured[0])
+                self.assertIn('Finish the feature',captured[0]);self.assertIn('Verified result',captured[0]);self.assertIn('Completed goal steps: 1 / Unlimited',captured[0]);self.assertIn('Active goal time (seconds):',captured[0])
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
