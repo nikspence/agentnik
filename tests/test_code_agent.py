@@ -264,6 +264,16 @@ class ModelCoding(unittest.TestCase):
                 self.assertTrue(events[-1]['limited']);self.assertIn('goal time limit',events[-1]['text']);self.assertEqual(events[-1]['goal_progress']['seconds'],1)
             finally:release.set()
 
+    def test_shell_approval_displays_goal_time_remaining(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Run command',goal=True,goal_budget={'steps':0,'seconds':5});events=[]
+            replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo test'})],finish='tool_calls'),False),Wire(chat(calls=[call('set_goal_status',{'status':'blocked','detail':'Command declined'})],finish='tool_calls'),False),Wire(chat('Blocked'),False)]
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],False)
+            with patch.object(core,'open_request',side_effect=replies):run.run(emit)
+            proposal=next(e['proposal'] for e in events if e['kind']=='operation_proposal');self.assertLessEqual(proposal['max_seconds'],5);self.assertEqual(events[-1]['status'],'blocked')
+
     def test_goal_steering_and_tool_results_across_protocols(self):
         from test_research import Response,answer,call as native_call
         for protocol,url in [('responses','https://gateway.example/v1'),('messages','https://gateway.example/v1'),('chat','http://localhost:11434/v1')]:

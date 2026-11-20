@@ -1566,6 +1566,7 @@ class CodingRun:
                                 raise ProjectToolError('Invalid command or working directory. Use an existing project directory and a nonempty command without control characters.')
                             environment=shell.snapshot_environment(secrets)
                             proposal={'operation':'run_shell','cwd':str(cwd),'path':args['path'],'command':command,'shell':shell.shell_path(),'environment_keys':sorted(environment),'environment_hash':hashlib.sha256(json.dumps(environment,sort_keys=True).encode()).hexdigest(),'max_seconds':min(shell.MAX_SECONDS,max(0,int(runtime.limits.turn_seconds-(time.monotonic()-runtime.started)))),'max_output_bytes':shell.MAX_OUTPUT}
+                            if runtime.external_deadline is not None:proposal['max_seconds']=min(proposal['max_seconds'],max(0,int(runtime.external_deadline-time.monotonic())))
                             if call.name=='run_tests':proposal.update(purpose='tests',test_format=args['format'])
                             while True:
                                 allowed=review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal');runtime.check()
