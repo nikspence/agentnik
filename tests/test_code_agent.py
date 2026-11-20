@@ -279,6 +279,18 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(bodies),4)
             self.assertIn('Apply this correction',json.dumps(bodies[2]));self.assertEqual([e['text'] for e in events if e['kind']=='steering_delivered'],['Apply this correction'])
 
+    def test_goal_step_reset_keeps_retained_request_bounded(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as directory:
+            limits=coding_limits();limits['context_bytes']=4096
+            run=CodingRun(dict(C,stream=False),directory,'Finish',limits=limits,goal=True);events=[]
+            def send(connection,url,body,timeout):
+                self.assertGreater(len(json.dumps(body).encode()),limits['context_bytes']);self.assertTrue(run.steer('Correction'))
+                return Wire(chat('Step done'),False)
+            with patch.object(core,'open_request',side_effect=send) as transport:run.run(events.append)
+            self.assertEqual(transport.call_count,1);self.assertTrue(events[-1]['limited']);self.assertIn('context bytes limit',events[-1]['text'])
+            self.assertEqual([e['text'] for e in events if e['kind']=='steering_undelivered'],['Correction']);self.assertFalse(any(e['kind']=='steering_delivered' for e in events))
+
     def test_goal_step_limit_reports_boundary_steering_undelivered(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':1,'seconds':0});events=[]
