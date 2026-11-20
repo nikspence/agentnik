@@ -16,52 +16,31 @@ FIXTURE=Path(__file__).parent/'fixtures'/'tracks'
 CONNECTION={'url':'https://gateway.example/v1','protocol':'chat','model':'heavy','stream':False}
 
 class TrackExecution(unittest.TestCase):
-    def test_ui_saves_project_review_only_after_diff_approval(self):
-        import os,copy
+    def test_saved_project_review_history_is_read_only(self):
+        import os
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-        from PySide6.QtWidgets import QApplication,QDialog,QPushButton,QPlainTextEdit,QMessageBox
+        from PySide6.QtWidgets import QApplication,QDialog,QPushButton,QPlainTextEdit
         from agentnik.storage import Store
         from agentnik.ui import Window
+        from agentnik.track_review_storage import prepare_append,apply_append
         app=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             project=Path(root)/'project';shutil.copytree(FIXTURE,project);store=Store(Path(root)/'data');window=Window(store)
             try:
-                track=prepare_track(ProjectFiles(project),'sample_feature');ident=window.repositories.put(project);session=window.repositories.session(ident)
-                review={'id':'a'*32+'-1','role':'design','model':'light','path':'agentnik-plans/tracks/sample_feature/spec.md','source_sha256':'b'*64,'payload_sha256':'c'*64,'evidence':[],'track_context':{'id':track['id'],'digest':track['digest']},'pass_status':'completed','structured':{'status':'valid','findings':[]},'dispositions':{}}
-                session['coding_review_history']=[{'version':1,'id':'d'*32,'track_id':None,'reviews':[review]}];store.save(session);window.open_session(session);tab=window.tabs.currentWidget();sidecar=project/'agentnik-plans/tracks/sample_feature/reviews.json';seen=[];accept=[False]
-                def interact(dialog):
-                    if dialog.windowTitle()=='Review project change':
-                        seen.append(dialog.findChild(QPlainTextEdit,'projectReviewDiff').toPlainText());return QDialog.DialogCode.Accepted if accept[0] else QDialog.DialogCode.Rejected
-                    if dialog.windowTitle()=='Project review history':
-                        seen.append(dialog.findChild(QPlainTextEdit,'projectReviewHistory').toPlainText());return QDialog.DialogCode.Rejected
-                    dialog.findChild(QPushButton,'publishReviewSnapshot').click();return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',interact),patch.object(QMessageBox,'information'),patch.object(QMessageBox,'warning') as warning:
-                    tab.show_saved_reviews();self.assertFalse(sidecar.exists());self.assertTrue(seen,warning.call_args);self.assertIn('reviews.json',seen[-1])
-                    accept[0]=True;tab.show_saved_reviews();self.assertTrue(sidecar.is_file())
-                stored=json.loads(sidecar.read_text(encoding='utf-8'));self.assertEqual(stored['snapshots'][0]['id'],'d'*32)
-                def view_history(dialog):
-                    if dialog.windowTitle()=='Project review history':seen.append(dialog.findChild(QPlainTextEdit,'projectReviewHistory').toPlainText());return QDialog.DialogCode.Rejected
-                    dialog.findChild(QPushButton,'viewProjectReviews').click();return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',view_history):tab.show_saved_reviews()
-                self.assertIn('sample_feature',seen[-1]);self.assertIn('Stale or unavailable',seen[-1])
-                other=window.repositories.session(ident);store.save(other);window.open_session(other);other_tab=window.tabs.currentWidget();self.assertFalse(other.get('coding_review_history'))
-                def view_project_only(dialog):seen.append(dialog.findChild(QPlainTextEdit,'projectReviewHistory').toPlainText());return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',view_project_only),patch.object(core,'open_request') as send:other_tab.show_project_track_reviews('sample_feature');send.assert_not_called()
-                self.assertIn('sample_feature',seen[-1]);self.assertIn('d'*32,seen[-1])
-                def view_start_preview(dialog):seen.append(dialog.findChild(QPlainTextEdit).toPlainText());return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',view_start_preview),patch.object(core,'open_request') as send:
-                    self.assertFalse(other_tab.review_selected_track(track,CONNECTION,'Task'));send.assert_not_called()
-                self.assertIn('Selected track data:',seen[-1]);self.assertNotIn('d'*32,seen[-1])
-                accept[0]=False
-                def remove_project(dialog):
-                    if dialog.windowTitle()=='Review project change':
-                        seen.append(dialog.findChild(QPlainTextEdit,'projectReviewRemoveDiff').toPlainText());return QDialog.DialogCode.Accepted if accept[0] else QDialog.DialogCode.Rejected
-                    dialog.findChild(QPushButton,'removeProjectReview').click();return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',remove_project),patch.object(QMessageBox,'information'),patch.object(QMessageBox,'warning') as warning:
-                    other_tab.show_project_track_reviews('sample_feature');self.assertEqual(len(json.loads(sidecar.read_text(encoding='utf-8'))['snapshots']),1);self.assertIn('reviews.json',seen[-1])
-                    accept[0]=True;other_tab.show_project_track_reviews('sample_feature');self.assertEqual(json.loads(sidecar.read_text(encoding='utf-8'))['snapshots'],[],warning.call_args)
-                self.assertEqual(len(session['coding_review_history']),1)
+                files=ProjectFiles(project);track=prepare_track(files,'sample_feature')
+                review={'id':'a'*32+'-1','role':'design','model':'legacy','path':'agentnik-plans/tracks/sample_feature/spec.md','source_sha256':'b'*64,'payload_sha256':'c'*64,'evidence':[],'track_context':{'id':track['id'],'digest':track['digest']},'pass_status':'completed','structured':{'status':'valid','findings':[]},'dispositions':{}}
+                snapshot={'version':1,'id':'d'*32,'track_id':None,'reviews':[review]}
+                apply_append(files,prepare_append(files,'sample_feature',snapshot),lambda proposal:True)
+                sidecar=project/'agentnik-plans/tracks/sample_feature/reviews.json';before=sidecar.read_bytes()
+                ident=window.repositories.put(project);session=window.repositories.session(ident);session['coding_review_history']=[snapshot];store.save(session);window.open_session(session);tab=window.tabs.currentWidget();seen=[]
+                def inspect(dialog):
+                    seen.append(dialog.findChild(QPlainTextEdit,'projectReviewHistory').toPlainText())
+                    self.assertIsNone(dialog.findChild(QPushButton,'removeProjectReview'));return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',inspect),patch.object(core,'open_request') as send:
+                    tab.show_project_track_reviews('sample_feature');send.assert_not_called()
+                self.assertIn('d'*32,seen[0]);self.assertEqual(sidecar.read_bytes(),before);self.assertEqual(session['coding_review_history'],[snapshot])
             finally:window.close();app.processEvents();store.db.close()
+
 
     def test_track_review_preview_reports_unresolved_and_source_changes(self):
         import hashlib

@@ -657,24 +657,6 @@ class CodeTab(QWidget):
                 return any(item==record for item in read_sidecar(files,track_id)['snapshots'])
             self.export_review_snapshot(record,preview,still_current)
         export.clicked.connect(export_snapshot)
-        remove=QPushButton(self.tr('Remove selected project snapshot…'));remove.setObjectName('removeProjectReview');remove.setEnabled(bool(sidecar['snapshots']) and not self.job);box.addWidget(remove)
-        def remove_snapshot():
-            from .track_review_storage import prepare_remove,apply_append
-            ident=selection.currentData()
-            if not ident or self.job:return
-            try:
-                secrets=[item.get('api_key','') for item in self.window.connections.values()]+[item.get('key','') for item in self.store.web_backend_specs()]
-                prepared=prepare_remove(files,track_id,ident,secrets)
-                def approve(proposal):
-                    dialog=QDialog(preview);dialog.setWindowTitle(self.tr('Review project change'));dialog.resize(760,540);layout=QVBoxLayout(dialog)
-                    label=QLabel(self.tr('Review the complete removal before applying it. This removes the selected project snapshot and its dispositions. Session snapshots remain.\nProject: {project}\nPath: {path}').format(project=proposal['cwd'],path=proposal['path']));label.setWordWrap(True);layout.addWidget(label)
-                    diff=QPlainTextEdit(proposal['diff']);diff.setObjectName('projectReviewRemoveDiff');diff.setReadOnly(True);layout.addWidget(diff)
-                    buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Approve and apply'));buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
-                    return dialog.exec()==QDialog.DialogCode.Accepted
-                result=apply_append(files,prepared,approve,secrets)
-                if result['status']=='completed':preview.accept();QMessageBox.information(parent or self,self.tr('Project review history'),self.tr('Removed the selected project snapshot.'))
-            except (ValueError,TypeError,UnicodeError,OSError,sqlite3.Error,RecursionError) as exc:QMessageBox.warning(preview,self.tr('Project review history'),str(exc))
-        remove.clicked.connect(remove_snapshot)
         controls=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);controls.rejected.connect(preview.reject);box.addWidget(controls);preview.exec()
 
     def export_review_snapshot(self,record,parent,still_current):
@@ -1345,27 +1327,16 @@ class CodeTab(QWidget):
     def show_saved_reviews(self):
         from .code_agent import ProjectFiles
         from .independent_review import sources_unchanged,validate_review_history,track_context_matches
-        try:
-            history=validate_review_history(self.session.get('coding_review_history',[]))
+        try:history=validate_review_history(self.session.get('coding_review_history',[]))
         except (ValueError,TypeError,OSError):return
         try:files=ProjectFiles(self.session['path_snapshot'])
         except (ValueError,OSError):files=None
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Saved review snapshots'));dialog.resize(760,540);layout=QVBoxLayout(dialog)
-        note=QLabel(self.tr('Saved pass statuses and findings are untrusted; older snapshots contain completed passes only. Interrupted batches may have unrecorded passes. Dispositions do not approve implementation. Source hashes are checked when selecting a snapshot and may change.'));note.setWordWrap(True);layout.addWidget(note)
+        note=QLabel(self.tr('Saved findings are untrusted and may be stale. Opening this view does not start a model request or change saved records.'));note.setWordWrap(True);layout.addWidget(note)
         choice=QComboBox();choice.setObjectName('savedReviewChoice');layout.addWidget(choice)
         for index,record in enumerate(history,1):choice.addItem(self.tr('Snapshot {number} · {count} recorded passes · {id}').format(number=index,count=len(record['reviews']),id=record['id'][:8]),record['id'])
         view=QPlainTextEdit();view.setReadOnly(True);layout.addWidget(view)
-        form=QFormLayout();layout.addLayout(form)
-        finding_choice=QComboBox();finding_choice.setObjectName('savedReviewFinding');form.addRow(self.tr('Finding'),finding_choice)
-        disposition=QComboBox();disposition.setObjectName('savedReviewDisposition')
-        for label,value in [(self.tr('Unresolved'),'unresolved'),(self.tr('Accepted'),'accepted'),(self.tr('Contested'),'contested'),(self.tr('Deferred'),'deferred')]:disposition.addItem(label,value)
-        form.addRow(self.tr('Disposition'),disposition)
-        reason=QLineEdit();reason.setObjectName('savedReviewRationale');reason.setMaxLength(500);form.addRow(self.tr('Rationale (optional)'),reason)
-        save_revision=QPushButton(self.tr('Save disposition as new snapshot'));save_revision.setObjectName('saveReviewRevision');layout.addWidget(save_revision)
-        save_revision.setToolTip(self.tr('Creates another session snapshot and preserves the original. This does not approve implementation.'))
-        project_actions=QHBoxLayout();layout.addLayout(project_actions)
-        publish=QPushButton(self.tr('Save snapshot to project track…'));publish.setObjectName('publishReviewSnapshot');project_actions.addWidget(publish)
-        view_project=QPushButton(self.tr('View project track reviews…'));view_project.setObjectName('viewProjectReviews');project_actions.addWidget(view_project)
+        view_project=QPushButton(self.tr('View project track reviews…'));view_project.setObjectName('viewProjectReviews');layout.addWidget(view_project)
         export=QPushButton(self.tr('Export snapshot…'));export.setObjectName('exportReviewSnapshot');export.setEnabled(bool(history));layout.addWidget(export)
         def selected_track_id(record):
             if not record:return None
@@ -1373,91 +1344,24 @@ class CodeTab(QWidget):
             if not contexts or any(not item for item in contexts):return None
             ids={item['id'] for item in contexts}
             return next(iter(ids)) if len(ids)==1 else None
-        def select_finding():
-            record=next((item for item in history if item['id']==choice.currentData()),None);key=finding_choice.currentData();saved={'status':'unresolved','rationale':''}
-            if record and key:
-                review=next((item for item in record['reviews'] if item['id']==key[0]),None)
-                if review:saved=review['dispositions'].get(key[1],saved)
-            disposition.setCurrentIndex(max(0,disposition.findData(saved['status'])));reason.setText(saved['rationale'])
-        finding_choice.currentIndexChanged.connect(select_finding)
         def display_selected():
             record=next((copy.deepcopy(item) for item in history if item['id']==choice.currentData()),None)
-            finding_choice.blockSignals(True);finding_choice.clear()
-            if not record:
-                finding_choice.blockSignals(False);view.clear()
-                for widget in (finding_choice,disposition,reason,save_revision,publish,view_project):widget.setEnabled(False)
-                return
+            if not record:view.clear();view_project.setEnabled(False);return
             for review in record['reviews']:
                 sources=[(review['path'],review['source_sha256'])]+[(entry['path'],entry['sha256']) for entry in review['evidence']]
                 review['source_status']=self.tr('Current source hashes match the reviewed snapshots.') if files and sources_unchanged(files,sources) else self.tr('Stale or unavailable: a reviewed source changed or cannot be read.')
                 if review.get('track_context'):
                     review['track_status']=self.tr('Track run context matches its starting revision; this does not mean the full track was reviewed.') if files and track_context_matches(files,review['track_context']) else self.tr('Track run context changed or is unavailable; this does not mean the full track was reviewed.')
-                for finding in review['structured']['findings']:
-                    finding_choice.addItem(review['role']+' · '+review['model']+' · '+finding['id']+' · '+finding['title'][:100],(review['id'],finding['id']))
-            finding_choice.blockSignals(False)
-            for widget in (finding_choice,disposition,reason,save_revision):widget.setEnabled(finding_choice.count()>0)
-            track_id=selected_track_id(record);publish.setEnabled(bool(files and track_id and not self.job));view_project.setEnabled(bool(files and track_id))
-            select_finding()
-            view.setPlainText(json.dumps(record,ensure_ascii=False,indent=2))
+            view_project.setEnabled(bool(files and selected_track_id(record)));view.setPlainText(json.dumps(record,ensure_ascii=False,indent=2))
         choice.currentIndexChanged.connect(display_selected);display_selected()
-        def save_revised_disposition():
-            ident=choice.currentData();key=finding_choice.currentData()
-            if not ident or not key:return
-            try:
-                current=validate_review_history(self.session.get('coding_review_history',[]))
-                original=next((record for record in current if record['id']==ident),None)
-                shown=next((record for record in history if record['id']==ident),None)
-                if original is None or original!=shown:raise ValueError(self.tr('The selected snapshot changed or is unavailable.'))
-                revised=copy.deepcopy(original);revised['id']=uuid.uuid4().hex
-                review=next(item for item in revised['reviews'] if item['id']==key[0])
-                review['dispositions'][key[1]]={'status':disposition.currentData(),'rationale':reason.text()}
-                updated_history=validate_review_history([*current,revised])
-                updated=copy.deepcopy(self.session);updated['coding_review_history']=updated_history;self.store.save(updated);self.session['coding_review_history']=updated_history
-            except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError,StopIteration) as exc:QMessageBox.warning(dialog,self.tr('Saved reviews'),str(exc));return
-            history[:]=updated_history;choice.addItem(self.tr('Snapshot {number} · {count} recorded passes · {id}').format(number=len(history),count=len(revised['reviews']),id=revised['id'][:8]),revised['id']);choice.setCurrentIndex(choice.count()-1);self.updated.emit()
-        save_revision.clicked.connect(save_revised_disposition)
-        def save_project_snapshot():
-            from .track_review_storage import prepare_append,apply_append
-            record=next((item for item in history if item['id']==choice.currentData()),None);track_id=selected_track_id(record)
-            if not files or not record or not track_id or self.job:return
-            try:
-                current=validate_review_history(self.session.get('coding_review_history',[]))
-                if not any(item==record for item in current):raise ValueError(self.tr('The selected snapshot changed or is unavailable.'))
-                secrets=[item.get('api_key','') for item in self.window.connections.values()]+[item.get('key','') for item in self.store.web_backend_specs()]
-                prepared=prepare_append(files,track_id,record,secrets)
-                def approve(proposal):
-                    preview=QDialog(dialog);preview.setWindowTitle(self.tr('Review project change'));preview.resize(760,540);box=QVBoxLayout(preview)
-                    label=QLabel(self.tr('Review the complete project file change before applying it. Findings are untrusted and this does not approve implementation.\nProject: {project}\nPath: {path}').format(project=proposal['cwd'],path=proposal['path']));label.setWordWrap(True);box.addWidget(label)
-                    diff=QPlainTextEdit(proposal['diff']);diff.setObjectName('projectReviewDiff');diff.setReadOnly(True);box.addWidget(diff)
-                    controls=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);controls.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Approve and apply'));controls.accepted.connect(preview.accept);controls.rejected.connect(preview.reject);box.addWidget(controls)
-                    return preview.exec()==QDialog.DialogCode.Accepted
-                result=apply_append(files,prepared,approve,secrets)
-                if result['status']=='completed':QMessageBox.information(dialog,self.tr('Project review history'),self.tr('Saved snapshot to {path}.').format(path=result['path']))
-            except (ValueError,TypeError,UnicodeError,OSError,sqlite3.Error,RecursionError) as exc:QMessageBox.warning(dialog,self.tr('Project review history'),str(exc))
         def show_project_reviews():
             record=next((item for item in history if item['id']==choice.currentData()),None);track_id=selected_track_id(record)
-            if not files or not track_id:return
-            self.show_project_track_reviews(track_id,dialog)
-        publish.clicked.connect(save_project_snapshot);view_project.clicked.connect(show_project_reviews)
+            if files and track_id:self.show_project_track_reviews(track_id,dialog)
+        view_project.clicked.connect(show_project_reviews)
         def export_snapshot():
             record=next((item for item in history if item['id']==choice.currentData()),None)
-            if not record:return
-            self.export_review_snapshot(record,dialog,lambda:any(item==record for item in validate_review_history(self.session.get('coding_review_history',[]))))
+            if record:self.export_review_snapshot(record,dialog,lambda:any(item==record for item in validate_review_history(self.session.get('coding_review_history',[]))))
         export.clicked.connect(export_snapshot)
-        delete=QPushButton(self.tr('Delete selected snapshot…'));delete.setObjectName('deleteSavedReview');delete.setEnabled(bool(history));layout.addWidget(delete)
-        def delete_selected():
-            ident=choice.currentData()
-            if not ident:return
-            if QMessageBox.question(dialog,self.tr('Delete review snapshot'),self.tr('Delete this saved review snapshot and its dispositions from this session? This cannot be undone.'))!=QMessageBox.StandardButton.Yes:return
-            try:
-                current=validate_review_history(self.session.get('coding_review_history',[]))
-                if not any(record['id']==ident for record in current):raise ValueError(self.tr('The selected snapshot is no longer available.'))
-                remaining=validate_review_history([record for record in current if record['id']!=ident])
-                updated=copy.deepcopy(self.session);updated['coding_review_history']=remaining;self.store.save(updated);self.session['coding_review_history']=remaining
-            except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError) as exc:QMessageBox.warning(dialog,self.tr('Saved reviews'),str(exc));return
-            history[:]=remaining;choice.removeItem(choice.currentIndex());delete.setEnabled(bool(remaining));export.setEnabled(bool(remaining));self.saved_reviews_button.setEnabled(bool(remaining));self.updated.emit()
-            if not remaining:dialog.accept()
-        delete.clicked.connect(delete_selected)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
 
     def receive(self,event):

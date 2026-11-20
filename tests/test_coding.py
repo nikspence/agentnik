@@ -49,35 +49,13 @@ class PromptHistory(unittest.TestCase):
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();tab=window.tabs.currentWidget();self.assertTrue(tab.saved_reviews_button.isEnabled())
                 with patch.object(QDialog,'exec',inspect):tab.show_saved_reviews()
                 self.assertIn('Stale or unavailable',displayed[-1]);self.assertIn('Need clarification',displayed[-1]);self.assertIn('failed',displayed[-1]);self.assertIn('Track run context changed or is unavailable',displayed[-1])
-                def revise_saved(dialog):
-                    box=dialog.findChild(QComboBox,'savedReviewDisposition');box.setCurrentIndex(box.findData('deferred'))
-                    dialog.findChild(QLineEdit,'savedReviewRationale').setText('Revisit later')
-                    dialog.findChild(QPushButton,'saveReviewRevision').click();return QDialog.DialogCode.Rejected
-                with patch.object(QMessageBox,'warning'),patch.object(store,'save',side_effect=OSError('simulated failure')),patch.object(QDialog,'exec',revise_saved):tab.show_saved_reviews()
-                self.assertEqual(len(store.list_sessions()[0]['coding_review_history']),1)
-                with patch.object(QDialog,'exec',revise_saved):tab.show_saved_reviews()
-                history=store.list_sessions()[0]['coding_review_history'];self.assertEqual(len(history),2)
-                self.assertEqual(history[0]['reviews'][0]['dispositions']['finding-1']['status'],'contested')
-                self.assertEqual(history[1]['reviews'][0]['dispositions']['finding-1'],{'status':'deferred','rationale':'Revisit later'})
-                self.assertNotEqual(history[0]['id'],history[1]['id'])
-                def delete_revision(dialog):
-                    dialog.findChild(QComboBox,'savedReviewChoice').setCurrentIndex(1);dialog.findChild(QPushButton,'deleteSavedReview').click();return QDialog.DialogCode.Rejected
-                with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.Yes),patch.object(QDialog,'exec',delete_revision):tab.show_saved_reviews()
-                self.assertEqual(len(store.list_sessions()[0]['coding_review_history']),1)
-                second=copy.deepcopy(tab.session['coding_review_history'][0]);second['id']='e'*32
-                tab.session['coding_review_history'].append(second);store.save(tab.session)
-                def delete_second(dialog):
-                    dialog.findChild(QComboBox,'savedReviewChoice').setCurrentIndex(1)
-                    dialog.findChild(QPushButton,'deleteSavedReview').click();return QDialog.DialogCode.Rejected
-                with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.No),patch.object(QDialog,'exec',delete_second):tab.show_saved_reviews()
-                self.assertEqual(len(store.list_sessions()[0]['coding_review_history']),2)
-                with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.Yes),patch.object(QMessageBox,'warning'),patch.object(store,'save',side_effect=OSError('simulated failure')),patch.object(QDialog,'exec',delete_second):tab.show_saved_reviews()
-                self.assertEqual(len(store.list_sessions()[0]['coding_review_history']),2);self.assertEqual(len(tab.session['coding_review_history']),2)
-                with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.Yes),patch.object(QDialog,'exec',delete_second):tab.show_saved_reviews()
-                remaining=store.list_sessions()[0]['coding_review_history'];self.assertEqual(len(remaining),1);self.assertNotEqual(remaining[0]['id'],second['id']);self.assertTrue(tab.saved_reviews_button.isEnabled())
-                def delete_last(dialog):dialog.findChild(QPushButton,'deleteSavedReview').click();return QDialog.DialogCode.Rejected
-                with patch.object(QMessageBox,'question',return_value=QMessageBox.StandardButton.Yes),patch.object(QDialog,'exec',delete_last):tab.show_saved_reviews()
-                self.assertEqual(store.list_sessions()[0]['coding_review_history'],[]);self.assertFalse(tab.saved_reviews_button.isEnabled())
+                def readonly(dialog):
+                    self.assertIsNone(dialog.findChild(QPushButton,'saveReviewRevision'))
+                    self.assertIsNone(dialog.findChild(QPushButton,'publishReviewSnapshot'))
+                    self.assertIsNone(dialog.findChild(QPushButton,'deleteSavedReview'))
+                    return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',readonly):tab.show_saved_reviews()
+                self.assertEqual(store.list_sessions()[0]['coding_review_history'],saved['coding_review_history'])
             finally:window.close();app.processEvents();store.db.close()
 
     def test_navigation_drafts_multiline_and_reopen(self):
