@@ -26,6 +26,8 @@ The older `delegate_parallel` tool and multi-model routing have now been removed
 
 The coding backend no longer accepts separate Light or alternate connections or the retired review guard. Saved legacy assignments and review records remain readable without being used to start a run.
 
+The current coding guide and feature list now describe the single-model interface, same-model subagents, goals and steering. Historical Heavy/Light and review-generation descriptions remain only in the project plans and historical records.
+
 Active Code activity and usage now name the request role **Model** and its children **Subagent**, without reporting the same child requests twice under a parallel model role. Historical Heavy/Light activity remains readable, and Korean translations cover the new activity strings.
 
 ## Heavy and light models in one workflow
