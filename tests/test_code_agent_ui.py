@@ -246,6 +246,22 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_oversized_goal_is_not_started_or_truncated(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QMessageBox
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.goal_enabled.setChecked(True);objective='x'*16001;tab.composer.setPlainText(objective)
+                with patch.object(QMessageBox,'warning') as warning,patch.object(core,'open_request') as request:tab.start_coding();request.assert_not_called()
+                self.assertIn('16,000',warning.call_args.args[2]);self.assertIsNone(tab.job);self.assertEqual(tab.composer.toPlainText(),objective);self.assertNotIn('coding_goal',session)
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_goal_mode_persists_model_reported_completion(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

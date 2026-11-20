@@ -275,6 +275,11 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=replies):run.run(events.append)
             self.assertEqual(events[-1]['status'],'failed');self.assertTrue(events[-1]['limited']);self.assertEqual(run.goal_status,'active')
 
+    def test_goal_objective_is_not_silently_truncated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError,'16,000 characters'):CodingRun(dict(C,stream=False),directory,'x'*16001,goal=True)
+            self.assertEqual(len(CodingRun(dict(C,stream=False),directory,'x'*16000,goal=True).prompt),16000)
+
     def test_goal_steps_receive_fresh_request_and_round_budgets(self):
         from agentnik.code_limits import coding_limits
         with tempfile.TemporaryDirectory() as directory:

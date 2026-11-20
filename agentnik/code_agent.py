@@ -556,6 +556,7 @@ class CodingRun:
         self.search_provider=search_provider or ('managed' if self.web_backends else 'none')
         if type(self.web_enabled) is not bool or self.search_provider not in ('ollama','managed','google','none'):raise ValueError('Invalid coding research configuration')
         if type(goal) is not bool:raise ValueError('Invalid goal setting')
+        if goal and resume_context is None and len(prompt)>16000:raise ValueError('Goal objectives must be at most 16,000 characters so they can be saved and resumed.')
         self.goal=goal;self.goal_status='active';self.goal_detail=''
         from .code_limits import goal_limits
         self.goal_budget=goal_limits(goal_budget)

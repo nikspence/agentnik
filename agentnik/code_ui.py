@@ -1114,6 +1114,7 @@ class CodeTab(QWidget):
             if continuation and not resume:return
             if not heavy or (not prompt.strip() and not ident and not self.attachments.paths and not self.documents):raise ValueError(self.tr('Choose a model and enter a coding task, attach a file, or select a track'))
             if not prompt.strip():prompt=self.tr('Work on the selected project track. Inspect the project and report progress against its task IDs.') if ident else self.tr('Consider the attached files for this coding task.')
+            if self.goal_enabled.isChecked() and len((resume or {}).get('task',prompt))>16000:raise ValueError(self.tr('Goal objectives must be at most 16,000 characters so they can be saved and resumed.'))
             context=self.session.get('coding_context') if self.use_context.isChecked() and not continuation else None
             if context:
                 from .context_compaction import coding_effective_context
@@ -1153,12 +1154,16 @@ class CodeTab(QWidget):
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
             run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.session.get('coding_goal_limits'))
+            if self.goal_enabled.isChecked():
+                secrets=[heavy.get('api_key','')]+[item.get('key','') for item in backends]
+                for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
+                if len(scrub((resume or {}).get('task',prompt),secrets))>16000:raise ValueError(self.tr('Goal objectives must be at most 16,000 characters so they can be saved and resumed.'))
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if not continuation and self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.session['coding_last_run_goal']=self.goal_enabled.isChecked()
         if self.goal_enabled.isChecked():
-            objective=(resume or {}).get('task',prompt);secrets=[heavy.get('api_key','')]+[item.get('key','') for item in backends]
-            self.session['coding_goal']={'objective':scrub(objective,secrets)[:16000],'status':'active','detail':''}
+            objective=(resume or {}).get('task',prompt)
+            self.session['coding_goal']={'objective':scrub(objective,secrets),'status':'active','detail':''}
             self.session['coding_goal_progress']={'steps':0,'seconds':0}
             self.session['coding_goal_run_limits']=dict(run.goal_budget)
             if not resume:self.session['coding_resume']={'task':self.session['coding_goal']['objective'],'evidence':'','images':list(run.images),'documents':scrub(copy.deepcopy(run.documents),secrets)}

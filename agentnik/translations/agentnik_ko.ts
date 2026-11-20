@@ -50,6 +50,7 @@
     </context>
     <context>
         <name>CodeTab</name>
+        <message><source>Goal objectives must be at most 16,000 characters so they can be saved and resumed.</source><translation>목표를 저장하고 계속할 수 있도록 목표는 16,000자 이하여야 합니다.</translation></message>
         <message><source>View legacy model settings…</source><translation>이전 모델 설정 보기…</translation></message>
         <message><source>Legacy model settings</source><translation>이전 모델 설정</translation></message>
         <message><source>These saved settings are retained for reference. Code uses the selected Model for the request and its subagents.</source><translation>저장된 이전 설정은 참고용으로 유지됩니다. Code는 요청과 하위 에이전트에 선택한 모델을 사용합니다.</translation></message>
