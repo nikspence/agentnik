@@ -1154,12 +1154,12 @@ class CodeTab(QWidget):
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
             run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.session.get('coding_goal_limits'))
+            secrets=[heavy.get('api_key','')]+[item.get('key','') for item in backends]
+            for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
             if self.goal_enabled.isChecked():
-                secrets=[heavy.get('api_key','')]+[item.get('key','') for item in backends]
-                for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
                 if len(scrub((resume or {}).get('task',prompt),secrets))>16000:raise ValueError(self.tr('Goal objectives must be at most 16,000 characters so they can be saved and resumed.'))
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
-        if not continuation and self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
+        if not continuation and self.composer.toPlainText().strip():self.remember_prompt(scrub(self.composer.toPlainText(),secrets))
         self.session['coding_last_run_goal']=self.goal_enabled.isChecked()
         if self.goal_enabled.isChecked():
             objective=(resume or {}).get('task',prompt)
