@@ -68,6 +68,8 @@ Goal and steering protocol fixtures now cover native Ollama, Responses, and Mess
 
 Steering delivery accounting now waits for a complete model response before recording delivery; an exhausted limit before submission is recorded as not delivered, while a failed submitted request is recorded as uncertain. Long steering text is split into bounded persisted activity entries. Offline tests cover these paths and keep uncertain messages out of automatic continuation evidence.
 
+Approval-race hardening checks queued steering before creating an approval and again at the shell dispatch boundary. Steering invalidates an approval even if a decision just arrived, without recording it as a permanent user rejection. A late approval UI event is cleared by a correlated invalidation. Mocked and offscreen tests cover these interleavings; operations already dispatched still require inspection before any retry.
+
 ## Approval and next steps
 
 The earlier no-execution simulation remains available for trying the UI. Its approvals cannot authorize real edits. Optional System One advice applies to shell approvals only; other operations show **Not checked**. Heavy/light model outputs and advisory results are not execution authority.

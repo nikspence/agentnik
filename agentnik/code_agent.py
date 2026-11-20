@@ -561,7 +561,7 @@ class CodingRun:
         self.unsupported_subagent_roles=set(unsupported_subagent_roles or ())
         if self.unsupported_subagent_roles-{'model'}:raise ValueError('Invalid subagent capability roles')
         self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self._git_credentials=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
-        self.shell_without_approval=False;self.shell_automatic_last=False
+        self.shell_without_approval=False;self.shell_automatic_last=False;self.answer_steered=False
         self.steering=[];self.accepting_steering=True
         self.usage={role:self._empty_usage() for role in ('Model','Subagent')}
         self.show_thinking=False
@@ -592,7 +592,10 @@ class CodingRun:
         with self.lock:
             if self.cancel.is_set() or not self.accepting_steering or len(self.steering)>=32:return False
             self.steering.append(message.strip())
-            if self.pending and self.answer is None:self.answer=False;self.decision.set()
+            if self.pending:
+                proposal=self.pending[1];self.answer=False;self.answer_steered=True;self._git_credentials=None
+                if proposal.get('operation') in MCP_APPROVAL_OPERATIONS:self.mcp_run_allowed.discard(proposal.get('server'))
+                self.decision.set()
             return True
 
     def set_shell_without_approval(self,enabled):
@@ -629,20 +632,23 @@ class CodingRun:
         fingerprint=hashlib.sha256(json.dumps({'run_id':self.run_id,'proposal':proposal},sort_keys=True).encode()).hexdigest()
         if fingerprint in self.denied:return False
         with self.lock:
+            if self.steering:return False
             automatic=(kind=='operation_proposal' and proposal.get('operation') in MCP_APPROVAL_OPERATIONS and proposal.get('server') in self.mcp_run_allowed)
+            if not automatic:self.pending=(fingerprint,proposal);self.answer=None;self.answer_steered=False;self.decision.clear()
         if automatic:
             runtime.check()
             emit({'kind':'output','text':'MCP server allowed for this run: '+proposal['server']+' · '+proposal['operation']+(' · '+proposal['tool'] if proposal.get('tool') else '')})
             return True
-        with self.lock:self.pending=(fingerprint,proposal);self.answer=None;self.decision.clear()
         emit({'kind':kind,'fingerprint':fingerprint,'proposal':proposal})
         try:
             while not self.decision.wait(.05):runtime.check()
             runtime.check()
             with self.lock:
                 allowed=self.answer is True
-                if not allowed:self.denied.add(fingerprint)
-                return allowed
+                steered=self.answer_steered
+                if not allowed and not steered:self.denied.add(fingerprint)
+            if steered:emit({'kind':'approval_invalidated','fingerprint':fingerprint})
+            return allowed
         finally:
             with self.lock:self.pending=None
 
@@ -651,7 +657,8 @@ class CodingRun:
         if fingerprint in self.denied:return False
         announced=False
         with self.lock:
-            self.pending=(fingerprint,proposal);self.answer=None;self.decision.clear()
+            if self.steering:return False
+            self.pending=(fingerprint,proposal);self.answer=None;self.answer_steered=False;self.decision.clear()
         try:
             while True:
                 runtime.check()
@@ -660,13 +667,14 @@ class CodingRun:
                     automatic=answer is None and self.shell_without_approval
                     if answer is not None or automatic:
                         self.shell_automatic_last=automatic
-                        if answer is False:self.denied.add(fingerprint)
+                        steered=self.answer_steered
+                        if answer is False and not steered:self.denied.add(fingerprint)
                         break
                     self.decision.clear()
                 if not announced:
                     emit({'kind':'operation_proposal','fingerprint':fingerprint,'proposal':proposal});announced=True
                 self.decision.wait(.05)
-            if announced and automatic:emit({'kind':'shell_approval_resolved','fingerprint':fingerprint})
+            if announced and (automatic or steered):emit({'kind':'approval_invalidated' if steered else 'shell_approval_resolved','fingerprint':fingerprint})
             return answer is True or automatic
         finally:
             with self.lock:self.pending=None
@@ -871,6 +879,8 @@ class CodingRun:
                 return allowed
             def check_project_mutation():
                 runtime.check();check_skill_versions();discover_arguments(args)
+                with self.lock:
+                    if self.steering:raise ProjectToolError('User steering is pending; reconsider this operation after reading it.')
                 if scrub(guidance.render(),secrets)!=seen_guidance:
                     sync_guidance()
                     raise GuidanceError('Repository guidance changed before the file operation. Review the updated instructions and reconsider the operation.')
@@ -1528,7 +1538,9 @@ class CodingRun:
                                 if str(files.path(args['path']))!=proposal['cwd'] or not cwd.is_dir():raise ValueError('Command working directory changed after review')
                                 # This locked decision is the dispatch boundary. Later changes affect the next command.
                                 with self.lock:
-                                    dispatch=not self.shell_automatic_last or self.shell_without_approval
+                                    if self.steering:allowed=False;dispatch=False
+                                    else:dispatch=not self.shell_automatic_last or self.shell_without_approval
+                                if not allowed:break
                                 if dispatch:break
                             if allowed:
                                 event('output',text='Running shell command in '+args['path']+':\n'+command)

@@ -1710,12 +1710,12 @@ class CodeTab(QWidget):
             if proposal.get('purpose')=='tests':text=self.tr('TEST RUN · Report format: {format}').format(format=proposal['test_format'])+'\n'+text
             self.approval.setPlainText(text);self.approval_panel.show();self.approve.setEnabled(True);self.reject.setEnabled(True);self.record('approval','Awaiting approval: '+operation+' '+proposal.get('path',''))
             if operation=='run_shell' and self.advice_connection:self.check_advice(proposal,self.pending_fingerprint)
-        elif kind=='shell_approval_resolved':
+        elif kind in ('shell_approval_resolved','approval_invalidated'):
             if self.pending_fingerprint==event.get('fingerprint'):
                 self.pending_fingerprint=None;self.advice_fingerprint=None
                 if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
                 self.approve.setEnabled(False);self.reject.setEnabled(False);self.approval_panel.hide();self.approval.clear();self.diff.clear();self.session['code_state']='running'
-                self.record('decision',self.tr('Shell command allowed by the current switch.'))
+                self.record('decision',self.tr('Pending approval invalidated by steering.') if kind=='approval_invalidated' else self.tr('Shell command allowed by the current switch.'))
         elif kind=='goal_status':
             if self.session.get('coding_goal'):
                 self.session['coding_goal']['detail']=event['detail'][:4000];self.refresh_goal_status();self.record('output',self.tr('Goal status (model reported): ')+event['status']+' · '+event['detail'])

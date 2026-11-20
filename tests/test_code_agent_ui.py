@@ -14,6 +14,26 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_late_approval_event_is_cleared_after_steering_invalidation(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        from agentnik.code_agent import CodingRun
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                run=CodingRun(dict(C,stream=False),str(project),'task');tab.job=run;tab.run_id=run.run_id
+                proposal={'operation':'run_shell','cwd':str(project),'path':'.','command':'echo test','shell':'shell','environment_keys':[],'max_seconds':10,'max_output_bytes':100}
+                tab.steering_input.setText('Change direction');tab.send_steering()
+                tab.receive({'run_id':run.run_id,'kind':'operation_proposal','fingerprint':'pending','proposal':proposal});self.assertEqual(tab.pending_fingerprint,'pending')
+                tab.receive({'run_id':run.run_id,'kind':'approval_invalidated','fingerprint':'pending'});self.assertIsNone(tab.pending_fingerprint);self.assertTrue(tab.approval_panel.isHidden())
+            finally:
+                tab.job=None
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_long_steering_activity_is_preserved_in_bounded_entries(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

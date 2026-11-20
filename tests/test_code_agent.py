@@ -88,6 +88,44 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_steering_before_approval_does_not_leave_a_pending_proposal(self):
+        from agentnik.tools import Runtime
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Task');events=[]
+            self.assertTrue(run.steer('Change direction'))
+            self.assertFalse(run.review_shell({'operation':'run_shell','command':'echo test'},events.append,Runtime()))
+            self.assertFalse(run.review({'operation':'git_stage'},events.append,Runtime(),kind='operation_proposal'))
+            self.assertEqual(events,[]);self.assertIsNone(run.pending)
+
+    def test_steering_after_approval_invalidates_without_permanent_denial(self):
+        from agentnik.tools import Runtime
+        for shell in (False,True):
+            with self.subTest(shell=shell),tempfile.TemporaryDirectory() as directory:
+                run=CodingRun(dict(C,stream=False),directory,'Task');events=[];proposal={'operation':'run_shell' if shell else 'git_stage','command':'echo test'}
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':
+                        self.assertTrue(run.decide(event['fingerprint'],True));self.assertTrue(run.steer('Wait for correction'))
+                review=run.review_shell if shell else lambda proposal,emit,runtime:run.review(proposal,emit,runtime,kind='operation_proposal')
+                self.assertFalse(review(proposal,emit,Runtime()));self.assertEqual(events[-1]['kind'],'approval_invalidated')
+                self.assertFalse(run.denied);self.assertIsNone(run.pending)
+
+    def test_steering_after_shell_review_prevents_dispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Task');run.set_shell_without_approval(True);events=[];bodies=[];reviewed=[False]
+            replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo test'})],finish='tool_calls'),False),Wire(chat('Adjusted'),False)]
+            original_review=run.review_shell;original_path=ProjectFiles.path
+            def review(*args):
+                result=original_review(*args);reviewed[0]=True;return result
+            def path(files,value,*args,**kwargs):
+                result=original_path(files,value,*args,**kwargs)
+                if reviewed[0]:reviewed[0]=False;self.assertTrue(run.steer('Do not run the command'))
+                return result
+            def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(run,'review_shell',side_effect=review),patch.object(ProjectFiles,'path',path),patch.object(core,'open_request',side_effect=send),patch('agentnik.shell.execute') as execute:
+                run.run(events.append);execute.assert_not_called()
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertIn('Do not run the command',json.dumps(bodies[-1]))
+
     def test_steering_failure_reports_delivery_uncertain(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Task');events=[];count=[0]
