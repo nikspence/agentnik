@@ -2039,6 +2039,12 @@ Connections are discovered from your environment and local servers.</source>
     </context>
     <context>
         <name>CodingLimitsDialog</name>
+        <message><source>Run or goal step time (seconds)</source><translation>실행 또는 목표 단계 시간 (초)</translation></message>
+        <message><source>Goal steps</source><translation>목표 단계 수</translation></message>
+        <message><source>Goal active time (seconds)</source><translation>목표 실행 시간 (초)</translation></message>
+        <message><source>Unlimited</source><translation>무제한</translation></message>
+        <message><source>Run limits are shared by the model, subagents, and web research. In goal mode they reset for each step; the separate goal limits cover the current run. Continuing a stopped goal starts fresh limits.</source><translation>실행 제한은 모델, 하위 에이전트 및 웹 조사가 공유합니다. 목표 모드에서는 단계마다 초기화되며, 별도의 목표 제한은 현재 실행에 적용됩니다. 중단된 목표를 계속하면 제한이 새로 시작됩니다.</translation></message>
+        <message><source>The model timeout covers waiting for the first token and the complete response. The run, step, or goal time limit can end a request sooner.</source><translation>모델 제한 시간에는 첫 토큰 대기와 전체 응답 생성이 포함됩니다. 실행, 단계 또는 목표 시간 제한에 따라 요청이 더 일찍 종료될 수 있습니다.</translation></message>
         <message>
             <source>Coding run limits</source>
             <translation>코딩 실행 제한</translation>

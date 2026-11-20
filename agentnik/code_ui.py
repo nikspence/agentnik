@@ -112,13 +112,13 @@ class CodingLimitsDialog(QDialog):
     def __init__(self,parent,values,goal_values=None):
         super().__init__(parent);self.setWindowTitle(self.tr('Coding run limits'))
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form);self.fields={}
-        labels={'rounds':self.tr('Tool rounds'),'requests':self.tr('Model requests'),'calls':self.tr('Tool calls'),'turn_seconds':self.tr('Total run time (seconds)'),'model_seconds':self.tr('Model call timeout (seconds)'),'context_bytes':self.tr('Retained context (bytes)')}
+        labels={'rounds':self.tr('Tool rounds'),'requests':self.tr('Model requests'),'calls':self.tr('Tool calls'),'turn_seconds':self.tr('Run or goal step time (seconds)'),'model_seconds':self.tr('Model call timeout (seconds)'),'context_bytes':self.tr('Retained context (bytes)')}
         for key,(_,minimum,maximum) in FIELDS.items():
             box=QSpinBox();box.setRange(minimum,maximum);box.setValue(coding_limits(values)[key]);form.addRow(labels[key],box);self.fields[key]=box
         self.goal_fields={}
         for key,label in (('steps',self.tr('Goal steps')),('seconds',self.tr('Goal active time (seconds)'))):
             box=QSpinBox();box.setRange(GOAL_FIELDS[key][1],GOAL_FIELDS[key][2]);box.setSpecialValueText(self.tr('Unlimited'));box.setValue(goal_limits(goal_values)[key]);form.addRow(label,box);self.goal_fields[key]=box
-        hint=QLabel(self.tr('Limits are shared by the model, subagents, and web research for each run.')+'\n'+self.tr('Each model timeout covers waiting for the first token and generating the complete response. Total run time can end a request sooner.'));hint.setWordWrap(True);layout.addWidget(hint)
+        hint=QLabel(self.tr('Run limits are shared by the model, subagents, and web research. In goal mode they reset for each step; the separate goal limits cover the current run. Continuing a stopped goal starts fresh limits.')+'\n'+self.tr('The model timeout covers waiting for the first token and the complete response. The run, step, or goal time limit can end a request sooner.'));hint.setWordWrap(True);layout.addWidget(hint)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.RestoreDefaults)
         buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject)
         buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults).clicked.connect(self.reset);layout.addWidget(buttons)
