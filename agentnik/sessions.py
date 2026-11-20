@@ -195,6 +195,7 @@ def validate_session(value, ident=None):
             require(isinstance(resume.get('images',[]),list) and all(isinstance(p,str) for p in resume.get('images',[])))
             try:validate_documents(resume.get('documents',[]))
             except ValueError:require(False)
+        if 'coding_resume_reviewed' in data:require(type(data['coding_resume_reviewed']) is bool)
         if 'coding_goal' in data:
             goal=data['coding_goal'];require(isinstance(goal,dict) and set(goal)=={'objective','status','detail'})
             require(isinstance(goal['objective'],str) and 0<len(goal['objective'])<=16000 and goal['status'] in ('active','completed','blocked','limited','paused','cancelled','failed','interrupted') and isinstance(goal['detail'],str) and len(goal['detail'])<=4000)

@@ -392,24 +392,27 @@ class CodeTab(QWidget):
         layout.addWidget(QLabel(self.tr('Compacted summary:')))
         summary=QPlainTextEdit(snapshot['summary'] if snapshot else '');layout.addWidget(summary)
         resume=self.session.get('coding_resume');resume_editor=None
-        if resume and self.session.get('code_state')=='limited':
+        state=self.session.get('code_state')
+        if self.session.get('coding_last_run_goal',True) and self.session.get('coding_goal',{}).get('status')==state and state in ('paused','blocked','interrupted','failed') and not self.session.get('coding_resume_reviewed'):
+            resume=self.build_goal_resume()
+        if resume and state in ('limited','paused','blocked','interrupted','failed'):
             layout.addWidget(QLabel(self.tr('Continue task and evidence (JSON; original attachments are also sent):')))
-            resume_editor=QPlainTextEdit(json.dumps({key:resume[key] for key in ('task','evidence')},ensure_ascii=False,indent=2));layout.addWidget(resume_editor)
+            resume_editor=QPlainTextEdit(json.dumps({key:resume[key] for key in ('task','evidence')},ensure_ascii=False,indent=2));resume_editor.setObjectName('continuationContext');layout.addWidget(resume_editor)
         row=QHBoxLayout();layout.addLayout(row)
         save=QPushButton(self.tr('Save context'));reset=QPushButton(self.tr('Use original context'));compact=QPushButton(self.tr('Compact now'))
         for control in (save,reset,compact):row.addWidget(control)
-        save.setEnabled(bool(context));compact.setEnabled(bool(context))
+        save.setEnabled(bool(context) or bool(resume_editor));compact.setEnabled(bool(context))
         def save_context():
             try:
-                value=json.loads(original.toPlainText())
+                secrets=self.draft_secrets();value=scrub(json.loads(original.toPlainText()),secrets)
                 from .context_compaction import coding_digest
-                coding_digest(value);text=summary.toPlainText().strip();new_snapshot=coding_snapshot(value,text) if text else None
+                coding_digest(value);text=scrub(summary.toPlainText().strip(),secrets);new_snapshot=coding_snapshot(value,text) if text else None
                 if resume_editor:
-                    resume_value=json.loads(resume_editor.toPlainText())
+                    resume_value=scrub(json.loads(resume_editor.toPlainText()),secrets)
                     if not isinstance(resume_value,dict) or set(resume_value)!={'task','evidence'} or not isinstance(resume_value['task'],str) or len(resume_value['task'])>16000 or not isinstance(resume_value['evidence'],str) or len(resume_value['evidence'])>24000:raise ValueError('Invalid continuation task or evidence')
             except (ValueError,TypeError) as exc:QMessageBox.warning(dialog,self.tr('Coding context'),str(exc));return
             self.session['coding_context']=value
-            if resume_editor:self.session['coding_resume']={**resume,**resume_value}
+            if resume_editor:self.session['coding_resume']={**resume,**resume_value};self.session['coding_resume_reviewed']=True
             if new_snapshot:self.session['coding_compaction']=new_snapshot
             else:self.session.pop('coding_compaction',None)
             self.use_context.setEnabled(True);self.store.save(self.session);self.updated.emit();dialog.accept()
@@ -1256,18 +1259,21 @@ class CodeTab(QWidget):
         details=QPlainTextEdit(text);details.setObjectName('goalDetailsText');details.setReadOnly(True);layout.addWidget(details)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
 
-    def capture_goal_resume(self):
+    def build_goal_resume(self):
         goal=self.session['coding_goal'];previous=self.session.get('coding_resume',{})
         recent=self.continuation_activity()
         secrets=self.draft_secrets();snapshot=self.continuation_snapshot(secrets)
         evidence=self.bounded_continuation_evidence('\n'.join(filter(None,[scrub(previous.get('evidence',''),secrets),scrub(recent,secrets),scrub(goal.get('detail',''),secrets),self.continuation_steering(secrets),snapshot,'Interrupted or uncertain actions must be inspected before any retry.'])))
-        self.session['coding_resume']={'task':goal['objective'],'evidence':evidence,'images':list(previous.get('images',[])),'documents':copy.deepcopy(previous.get('documents',[]))}
+        return {'task':goal['objective'],'evidence':evidence,'images':list(previous.get('images',[])),'documents':copy.deepcopy(previous.get('documents',[]))}
+
+    def capture_goal_resume(self):
+        self.session['coding_resume']=self.build_goal_resume();goal=self.session['coding_goal'];evidence=self.session['coding_resume']['evidence']
         self.session['coding_context']={'task':plain(goal['objective'])[:2048],'answer':plain(evidence)[-2048:]}
 
     def continue_coding(self):
         if self.job or not self.can_continue():return
         if self.session.get('coding_last_run_goal',True) and self.session.get('coding_goal',{}).get('status')==self.session.get('code_state') and self.session.get('code_state') in ('limited','paused','blocked','interrupted','failed'):
-            if self.session.get('code_state')!='limited' or not self.session.get('coding_resume'):self.capture_goal_resume()
+            if not self.session.get('coding_resume_reviewed') and (self.session.get('code_state')!='limited' or not self.session.get('coding_resume')):self.capture_goal_resume()
             self.goal_enabled.setChecked(True)
         if not self.session.get('coding_resume'):
             context=self.session['coding_context'];self.session['coding_resume']={'task':context['task'],'evidence':context['answer']}
@@ -1275,6 +1281,7 @@ class CodeTab(QWidget):
 
     def launch(self,run,notice):
         if isinstance(run,CodingRun):
+            self.session.pop('coding_resume_reviewed',None)
             run.set_shell_without_approval(self.shell_auto.isChecked())
             run.show_thinking=self.show_thinking.isChecked()
             self.session['coding_subagents']=[];self.refresh_subagents()
