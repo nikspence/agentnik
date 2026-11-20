@@ -260,7 +260,7 @@ class CodeTab(QWidget):
         self.coding_context_button=QPushButton(self.tr('Coding context…'));self.coding_context_button.clicked.connect(self.edit_coding_context)
         self.coding_auto_compact=QCheckBox(self.tr('Auto compact context'),self);self.coding_auto_compact.setToolTip(self.tr('Before a follow-up run, summarize a long previous task and answer using the selected Heavy model. This uses an additional model request.'));self.coding_auto_compact.setChecked(session.get('coding_auto_compact',True));self.coding_auto_compact.toggled.connect(self.save_coding_auto_compact);self.coding_auto_compact.hide()
         self.roles={}
-        bindings=dict(session.get('coding_models',{}));bindings['decision']=session.get('coding_decision_model',{});bindings['alternate']=session.get('coding_subagent_model',{});bindings['alternate2']=session.get('coding_subagent_model_2',{})
+        bindings=dict(session.get('coding_models',{}));bindings['heavy']=bindings.get('model',bindings.get('heavy',{}));bindings['decision']=session.get('coding_decision_model',{});bindings['alternate']=session.get('coding_subagent_model',{});bindings['alternate2']=session.get('coding_subagent_model_2',{})
         self.model_toggle=QPushButton(self.tr('Models…'))
         self.model_panel=QDialog(self);self.model_panel.setWindowTitle(self.tr('Coding models'));self.model_panel.resize(850,500);model_layout=QVBoxLayout(self.model_panel)
         self.model_toggle.clicked.connect(self.model_panel.exec)
@@ -483,7 +483,9 @@ class CodeTab(QWidget):
         model.setText(c.get('model',''));self.save_models()
 
     def save_models(self):
-        self.session['coding_models']={role:{'connection':self.roles[role][0].currentData(),'model':self.roles[role][1].text().strip()} for role in ('heavy','light')}
+        bindings=dict(self.session.get('coding_models',{}))
+        for role in ('heavy','light'):bindings[role]={'connection':self.roles[role][0].currentData(),'model':self.roles[role][1].text().strip()}
+        bindings['model']=dict(bindings['heavy']);self.session['coding_models']=bindings
         widgets=self.roles['alternate'];self.session['coding_subagent_model']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()}
         widgets=self.roles['alternate2'];self.session['coding_subagent_model_2']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()}
         widgets=self.roles['decision'];self.session['coding_decision_model']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()}

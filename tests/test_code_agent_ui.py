@@ -14,6 +14,28 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_model_binding_migrates_legacy_assignment_without_losing_light(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident)
+                session['coding_models']={'heavy':{'connection':'Old','model':'old-model'},'light':{'connection':'Other','model':'old-light'}}
+                store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                self.assertEqual(tab.roles['heavy'][1].text(),'old-model')
+                self.assertNotIn('model',tab.session['coding_models'])
+                tab.save_models();self.assertEqual(tab.session['coding_models']['model'],{'connection':'Old','model':'old-model'})
+                self.assertEqual(tab.session['coding_models']['light'],{'connection':'Other','model':'old-light'})
+                tab.session['coding_models']['model']={'connection':'New','model':'new-model'};store.save(tab.session)
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(session);reopened=window.tabs.currentWidget()
+                self.assertEqual(reopened.roles['heavy'][1].text(),'new-model');self.assertIn('unavailable',reopened.roles['heavy'][0].currentText())
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_shell_switch_can_release_a_pending_command(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

@@ -10,6 +10,8 @@ Remove the EGM-inspired independent document review functionality, including its
 
 Acceptance: offline and offscreen Qt tests cover migration and legacy sessions, a single model selection, same-model subagent requests across supported protocols, shared budgets and cancellation, removal of Light and EGM entry points, retained ordinary approvals and Spec & Plan, and no automatic requests on reopen. Qualify live behavior separately when authorized.
 
+Migration groundwork: Code sessions now accept a `model` binding and prefer it when present, while older Heavy assignments remain readable. Saving the current model controls records the new binding and retains legacy Light and alternate settings. This does not yet change the visible Heavy/Light controls or subagent routing; those are the next implementation slices. Older Agentnik versions may not understand sessions after the new binding is saved.
+
 ## Heavy and light models in one workflow
 
 Each Code pane has independent Heavy and Light connection/model assignments. Select any alias supported by the connection, including LiteLLM coding models, or use Choose model to retrieve its model list. Listing does not establish tool capability. Start with a tool-capable heavy model; the light role is optional and is not automatically chosen.
