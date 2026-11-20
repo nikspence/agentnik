@@ -71,6 +71,24 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_continuation_keeps_delivered_steering_independent_of_display_language(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                session['coding_goal']={'objective':'Goal','status':'paused','detail':''}
+                tab.record_steering('Translated delivery: ','Correction one',delivered=True);tab.record_steering('Steering delivered: ','Legacy correction')
+                tab.record_steering('Steering delivery uncertain: ','Uncertain correction');tab.capture_goal_resume()
+                evidence=session['coding_resume']['evidence'];self.assertIn('Correction one',evidence);self.assertIn('Legacy correction',evidence);self.assertNotIn('Uncertain correction',evidence)
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertTrue(any(item['kind']=='steering_delivered' for item in saved['code_activity']))
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_interrupted_goal_reopens_without_running_and_can_continue(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
@@ -161,7 +179,7 @@ class CodingWorkspace(unittest.TestCase):
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 run=CodingRun(dict(C,stream=False),str(project),'Task');tab.job=run;tab.run_id=run.run_id
                 with run.lock:run.steering_confirmed=['First'];run.steering_inflight=['Second'];run.steering_submitted=True;run.steering=['Third']
-                tab.cancel();texts=[item['text'] for item in session['code_activity'] if item['kind']=='steering']
+                tab.cancel();texts=[item['text'] for item in session['code_activity'] if item['kind'] in ('steering','steering_delivered')]
                 self.assertEqual(texts,['Steering delivered: First','Steering delivery uncertain: Second','Steering not delivered: Third'])
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()

@@ -496,9 +496,14 @@ class CodeTab(QWidget):
             self.approval_panel.hide();self.approval.clear();self.diff.clear();self.session['code_state']='running'
             self.record('decision',self.tr('Pending approval invalidated by steering.'))
 
-    def record_steering(self,prefix,message):
+    def record_steering(self,prefix,message,delivered=False):
         # Activity entries are bounded to 2,048 characters; preserve the full message.
-        for offset in range(0,len(message),1800):self.record('steering',prefix+message[offset:offset+1800])
+        for offset in range(0,len(message),1800):self.record('steering_delivered' if delivered else 'steering',prefix+message[offset:offset+1800])
+
+    def continuation_activity(self):
+        activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
+        prefixes=('Steering delivered: ',self.tr('Steering delivered: '))
+        return '\n'.join(item.get('text','') for item in activity[start:] if item.get('kind') in ('output','approval','decision','finished','steering_delivered') or (item.get('kind')=='steering' and item.get('text','').startswith(prefixes)))
 
     def save_web_enabled(self,enabled):
         self.session['coding_web_enabled']=enabled;self.store.save(self.session)
@@ -1190,8 +1195,7 @@ class CodeTab(QWidget):
 
     def capture_goal_resume(self):
         goal=self.session['coding_goal'];previous=self.session.get('coding_resume',{})
-        activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
-        recent='\n'.join(item.get('text','') for item in activity[start:] if item.get('kind') in ('output','approval','decision','finished') or (item.get('kind')=='steering' and item.get('text','').startswith(self.tr('Steering delivered: '))))
+        recent=self.continuation_activity()
         evidence='\n'.join(filter(None,[previous.get('evidence',''),recent,goal.get('detail',''),'Interrupted or uncertain actions must be inspected before any retry.']))[-24000:]
         self.session['coding_resume']={'task':goal['objective'],'evidence':evidence,'images':list(previous.get('images',[])),'documents':copy.deepcopy(previous.get('documents',[]))}
         self.session['coding_context']={'task':plain(goal['objective'])[:2048],'answer':plain(evidence)[-2048:]}
@@ -1543,7 +1547,7 @@ class CodeTab(QWidget):
             previous=self.session.get('coding_goal_progress',{'steps':0,'seconds':0})
             self.session['coding_goal_progress']={'steps':max(previous['steps'],event['steps']),'seconds':max(previous['seconds'],event['seconds'])};self.store.save(self.session)
         elif kind=='steering_delivered':
-            self.record_steering(self.tr('Steering delivered: '),event['text'])
+            self.record_steering(self.tr('Steering delivered: '),event['text'],delivered=True)
             if isinstance(self.job,CodingRun):self.job.acknowledge_steering(event['text'])
         elif kind=='steering_undelivered':self.record_steering(self.tr('Steering not delivered: '),event['text'])
         elif kind=='steering_uncertain':self.record_steering(self.tr('Steering delivery uncertain: '),event['text'])
@@ -1563,8 +1567,7 @@ class CodeTab(QWidget):
             if event.get('limited') and isinstance(self.job,CodingRun):
                 secrets=[self.job.connection.get('api_key','')]+[item.get('key','') for item in self.job.web_backends]
                 for bridge in self.job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
-                activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
-                recent='\n'.join(item.get('text','') for item in activity[start:] if item.get('kind') in ('output','approval','decision','finished') or (item.get('kind')=='steering' and item.get('text','').startswith(self.tr('Steering delivered: '))))
+                recent=self.continuation_activity()
                 previous=getattr(self.job,'resume_context',None) or {}
                 task=previous.get('task',self.job.prompt)
                 evidence='\n'.join(filter(None,[previous.get('evidence',''),recent,event['text'],json.dumps({'plan':self.session.get('coding_plan'),'sources':self.session.get('coding_sources',[])},ensure_ascii=True)]))
@@ -1651,7 +1654,7 @@ class CodeTab(QWidget):
     def pause_goal(self):
         if not isinstance(self.job,CodingRun) or not self.job.goal:return
         job=self.job;steering=job.stop()
-        for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message)
+        for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message,delivered=True)
         for message in steering['uncertain']:self.record_steering(self.tr('Steering delivery uncertain: '),message)
         for message in steering['undelivered']:self.record_steering(self.tr('Steering not delivered: '),message)
         self.session['coding_goal_progress']=job.goal_progress_snapshot();self.capture_goal_resume();self.session['coding_goal']['status']='paused';self.session['code_state']='paused'
@@ -1668,7 +1671,7 @@ class CodeTab(QWidget):
             self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
         job=self.job;steering=job.stop()
         if isinstance(job,CodingRun):
-            for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message)
+            for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message,delivered=True)
             for message in steering['uncertain']:self.record_steering(self.tr('Steering delivery uncertain: '),message)
             for message in steering['undelivered']:self.record_steering(self.tr('Steering not delivered: '),message)
         if isinstance(job,CodingRun) and job.goal and self.session.get('coding_goal'):self.session['coding_goal']['status']='cancelled';self.session['coding_goal_progress']=job.goal_progress_snapshot()
