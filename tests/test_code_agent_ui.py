@@ -164,6 +164,27 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_bounded_steering_survives_reopen_and_resets_for_new_task(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.record_steering('Steering delivered: ','a'*9000,delivered=True);tab.record_steering('Steering delivered: ','b'*9000,delivered=True)
+                self.assertTrue(session['coding_continuation_steering']['omitted']);self.assertEqual(len(session['coding_continuation_steering']['text']),14000)
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);window.close_tab(window.tabs.indexOf(tab))
+                with patch.object(core,'open_request') as request:window.open_session(saved);request.assert_not_called()
+                tab=window.tabs.currentWidget();context=tab.continuation_steering([]);self.assertIn('Earlier delivered steering omitted',context);self.assertIn('b'*9000,context)
+                tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.composer.setPlainText('New task')
+                with patch.object(tab,'launch') as launch:tab.start_coding();self.assertTrue(launch.called)
+                self.assertEqual(tab.session['coding_continuation_steering'],{'text':'','omitted':False})
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_interrupted_goal_reopens_without_running_and_can_continue(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
