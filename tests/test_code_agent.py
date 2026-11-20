@@ -88,6 +88,29 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_steering_failure_reports_delivery_uncertain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Task');events=[];count=[0]
+            def send(connection,url,body,timeout):
+                count[0]+=1
+                if count[0]==1:
+                    self.assertTrue(run.steer('Correction'));return Wire(chat('First answer'),False)
+                raise core.EndpointError(503,'private detail')
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'failed');self.assertEqual([e['text'] for e in events if e['kind']=='steering_uncertain'],['Correction'])
+            self.assertFalse(any(e['kind']=='steering_delivered' for e in events));self.assertNotIn('private detail',json.dumps(events))
+
+    def test_steering_limit_before_request_reports_not_delivered(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as directory:
+            limits=coding_limits();limits['context_bytes']=4096
+            run=CodingRun(dict(C,stream=False),directory,'Task',limits=limits);events=[];message='x'*8000
+            def send(connection,url,body,timeout):
+                self.assertTrue(run.steer(message));return Wire(chat('First answer'),False)
+            with patch.object(core,'open_request',side_effect=send) as transport:run.run(events.append)
+            self.assertEqual(transport.call_count,1);self.assertTrue(events[-1]['limited'])
+            self.assertEqual([e['text'] for e in events if e['kind']=='steering_undelivered'],[message]);self.assertFalse(any(e['kind']=='steering_delivered' for e in events))
+
     def test_removed_light_delegation_is_unavailable_with_legacy_connection(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Analyze',light=dict(C,model='legacy',stream=False));bodies=[];events=[]

@@ -463,12 +463,16 @@ class CodeTab(QWidget):
         message=scrub(text.strip(),secrets)
         if not job.steer(message):
             self.record('output',self.tr('Steering was not queued; the run may have ended or the message may exceed the limit.'));return
-        self.steering_input.clear();self.record('steering',self.tr('Steering queued: ')+message)
+        self.steering_input.clear();self.record_steering(self.tr('Steering queued: '),message)
         if self.pending_fingerprint:
             self.pending_fingerprint=None;self.advice_fingerprint=None
             if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
             self.approval_panel.hide();self.approval.clear();self.diff.clear();self.session['code_state']='running'
             self.record('decision',self.tr('Pending approval invalidated by steering.'))
+
+    def record_steering(self,prefix,message):
+        # Activity entries are bounded to 2,048 characters; preserve the full message.
+        for offset in range(0,len(message),1800):self.record('steering',prefix+message[offset:offset+1800])
 
     def save_web_enabled(self,enabled):
         self.session['coding_web_enabled']=enabled;self.store.save(self.session)
@@ -1717,7 +1721,9 @@ class CodeTab(QWidget):
         elif kind=='goal_status':
             if self.session.get('coding_goal'):
                 self.session['coding_goal']['detail']=event['detail'][:4000];self.record('output',self.tr('Goal status (model reported): ')+event['status']+' · '+event['detail'])
-        elif kind=='steering_delivered':self.record('steering',self.tr('Steering delivered: ')+event['text'])
+        elif kind=='steering_delivered':self.record_steering(self.tr('Steering delivered: '),event['text'])
+        elif kind=='steering_undelivered':self.record_steering(self.tr('Steering not delivered: '),event['text'])
+        elif kind=='steering_uncertain':self.record_steering(self.tr('Steering delivery uncertain: '),event['text'])
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='model_response':
             role=event.get('role','Model');model=event.get('model','')

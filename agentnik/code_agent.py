@@ -728,6 +728,7 @@ class CodingRun:
         def applied_event(label,path,diff=''):
             text='Applied project '+label+': '+path+('\n'+diff if diff else '')
             event('output',text=text[:1750]+('\n[diff excerpt truncated]' if len(text)>1750 else ''))
+        steering_batch=[];steering_submitted=False
         try:
             files=ProjectFiles(self.root);project=ProjectTools(files);c=self.connection;native=core.native_ollama(c);protocol=c.get('protocol','chat')
             available_tools=list(TOOLS)
@@ -890,13 +891,13 @@ class CodingRun:
             adapter=responses_tools if protocol=='responses' else ollama_tools if native else compat_tools
             for round_number in range(runtime.limits.rounds+1):
                 check_skill_versions();guidance.discover('.');sync_guidance()
-                with self.lock:steering=self.steering[:];self.steering.clear()
-                if steering and self.goal:self.goal_status='active'
-                for message in steering:
+                with self.lock:steering_batch=self.steering[:];self.steering.clear()
+                steering_submitted=False
+                if steering_batch and self.goal:self.goal_status='active'
+                for message in steering_batch:
                     message=scrub(message,secrets);runtime.charge('context_bytes',len(message.encode('utf-8')),runtime.limits.context_bytes)
                     if protocol=='responses':body['input'].append({'role':'user','content':message})
                     else:body['messages'].append({'role':'user','content':message})
-                    event('steering_delivered',text=message)
                 if round_number==0 and self.review_guard is not None:
                     from .independent_review import track_review_summary
                     try:current_reviews=track_review_summary(files,self.selected_track,self.review_guard['history'])
@@ -905,7 +906,10 @@ class CodingRun:
                 runtime.charge('requests',1,runtime.limits.requests);state={}
                 event('output',text='Heavy task: requesting '+c['model']+' through the selected connection.')
                 seen_guidance=guidance_payload
+                steering_submitted=bool(steering_batch)
                 assistant,calls=request('Heavy',adapter,c,body,state)
+                for message in steering_batch:event('steering_delivered',text=scrub(message,secrets))
+                steering_batch=[];steering_submitted=False
                 check_skill_versions()
                 context_request_size=None
                 if any(call.name=='get_context_usage' for call in calls):
@@ -1577,6 +1581,10 @@ class CodingRun:
             raise ValueError('Coding request limit reached')
         except Exception as exc:
             if not self.cancel.is_set():
+                with self.lock:pending_steering=self.steering[:];self.steering.clear()
+                for message in steering_batch:
+                    emit({'run_id':self.run_id,'kind':'steering_uncertain' if steering_submitted else 'steering_undelivered','text':scrub(message,secrets)})
+                for message in pending_steering:emit({'run_id':self.run_id,'kind':'steering_undelivered','text':scrub(message,secrets)})
                 status=' HTTP '+str(exc.status) if isinstance(exc,core.EndpointError) else ' '+type(exc).__name__
                 known_google_error=isinstance(exc,ResearchError) and str(exc) in ('Google Search returned no recognizable results or requires a browser challenge','Google Search returned an unsupported response','Google Search blocked the request or requires a browser challenge')
                 reason=('Web research' if research_action else 'Coding')+' stopped ('+(str(exc) if isinstance(exc,(LimitError,SkillChangedError,MovePartialError,DirectoryMoveError)) or known_google_error else status.strip())+'). Project changes already applied are retained.'

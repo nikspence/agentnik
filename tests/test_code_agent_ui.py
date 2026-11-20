@@ -14,6 +14,24 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_long_steering_activity_is_preserved_in_bounded_entries(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                message='x'*6000;prefix='Steering delivered: ';tab.record_steering(prefix,message)
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);parts=[item['text'][len(prefix):] for item in saved['code_activity'] if item['kind']=='steering']
+                self.assertEqual(''.join(parts),message);self.assertTrue(all(len(item['text'])<=2048 for item in saved['code_activity']))
+                session['coding_goal']={'objective':'Goal','status':'paused','detail':''};tab.record_steering('Steering delivery uncertain: ','uncertain instruction')
+                tab.capture_goal_resume();self.assertIn('x'*100,session['coding_resume']['evidence']);self.assertNotIn('uncertain instruction',session['coding_resume']['evidence'])
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_interrupted_goal_reopens_without_running_and_can_continue(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

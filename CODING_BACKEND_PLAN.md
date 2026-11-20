@@ -58,6 +58,8 @@ Goal continuation slice: pause, blocked and interrupted goals offer explicit con
 
 Goal and steering protocol fixtures now cover native Ollama, Responses, and Messages in addition to Chat Completions: a steering message received during a model request defers the proposed call, retains the correlated tool result, and reaches the next goal request before a model-reported completion. These are mocked, non-streaming checks, not live provider qualification; additional streaming, interruption and multi-call cases remain open.
 
+Steering delivery accounting now waits for a complete model response before recording delivery; an exhausted limit before submission is recorded as not delivered, while a failed submitted request is recorded as uncertain. Long steering text is split into bounded persisted activity entries. Offline tests cover these paths and keep uncertain messages out of automatic continuation evidence.
+
 ## Approval and next steps
 
 The earlier no-execution simulation remains available for trying the UI. Its approvals cannot authorize real edits. Optional System One advice applies to shell approvals only; other operations show **Not checked**. Heavy/light model outputs and advisory results are not execution authority.
