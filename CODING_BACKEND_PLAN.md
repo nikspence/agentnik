@@ -2,6 +2,14 @@
 
 Agentnik owns the coding loop and uses the same configured connections/models as chat. Codex is inspiration for interaction design only: no Codex executable, account, app-server, or CLI runtime is required. The abandoned external-protocol spike is preserved in Git history, not shipped as the active backend.
 
+## Planned simplification: one Model and subagents
+
+This direction supersedes the Heavy/Light, alternate-model and EGM review plans below; those sections describe existing or historical behavior until removal is implemented. Each Code request uses one selected **Model** and connection. Replace the Heavy and Light selectors and terminology with Model, remove Light delegation and alternate subagent model selection, and keep subagents using the same connection and model as their parent request. Subagents remain individually visible and cancellable, with bounded tasks, shared request/time/context budgets, existing transfer and tool permissions, and no automatic replay of uncertain work. Account for parent and child usage without implying different model roles. Keep the separate optional System One Decision selection for shell advice.
+
+Remove the EGM-inspired independent document review functionality, including its review tools, direct-review UI, review-specific settings, workflows and Spec & Plan integration. Preserve ordinary file/diff review, approvals, coding checklists and Spec & Plan itself. Preserve existing user data: define a non-destructive migration for saved Heavy assignments to Model, handle missing or invalid connections visibly, and retain legacy Light/alternate settings and review records safely for inspection or export without launching or silently rewriting them. Reopening old sessions must not start work. Update current user-facing guides, tool descriptions and validation records when implementation changes; distinguish historical evidence from the new behavior.
+
+Acceptance: offline and offscreen Qt tests cover migration and legacy sessions, a single model selection, same-model subagent requests across supported protocols, shared budgets and cancellation, removal of Light and EGM entry points, retained ordinary approvals and Spec & Plan, and no automatic requests on reopen. Qualify live behavior separately when authorized.
+
 ## Heavy and light models in one workflow
 
 Each Code pane has independent Heavy and Light connection/model assignments. Select any alias supported by the connection, including LiteLLM coding models, or use Choose model to retrieve its model list. Listing does not establish tool capability. Start with a tool-capable heavy model; the light role is optional and is not automatically chosen.
@@ -18,6 +26,16 @@ Project operations reject traversal, absolute/drive paths, symlinks/junctions, h
 
 The workflow shares limits of nine model requests (including light delegations), sixteen calls, 100 KB retained request context and five minutes per run, using the existing bounded protocol parsers. UI cancellation stops scheduling and invalidates approval; remote inference may still complete or be billed. Activity retains 32 bounded records; full pending diffs are for review and are not persisted as executable actions. Reopening a pending run marks interruption and never resumes requests or edits. An explicit per-run option sends the displayed, bounded last completed task and answer as plain messages; it does not replay provider-specific reasoning or tool exchanges. Each run creates fresh file observations and approvals.
 
+## Planned goal pursuit and steering
+
+Add an opt-in goal for sustained Code work. The user supplies an objective and can inspect its status and progress. While the goal is active, Code should assess the evidence after each step, choose the next useful step, and continue until the objective is actually complete, the user stops or pauses it, a genuine blocker requires input, or a configured limit is reached. A model's assertion alone is not proof of completion: report the work and validation performed, including failed or unrun checks. Keep ordinary Run available for bounded tasks, and keep the existing checklist and Spec & Plan tracks distinct from the goal while allowing their progress to inform it.
+
+Support user steering during both goal pursuit and ordinary active Code runs. Let the user submit messages without cancelling the run; display their delivery state and incorporate them at the next safe model continuation boundary, preserving their order. Treat a correction as steering the current task unless the user explicitly replaces or stops it. Preserve unsent drafts, keep panes independent, and make cancellation and pending approvals accessible. A steering message that changes the scope or invalidates a pending proposal must prevent that proposal from executing until it is reconsidered and, where required, freshly approved. Do not silently interrupt or replay an in-flight request, tool call, or uncertain side effect.
+
+Persist the goal, status, bounded progress and delivered steering as appropriate for inspection and explicit continuation. Reopening must not start work automatically; interrupted or uncertain operations require inspection rather than replay. Reuse existing connection assignments, scoped guidance, approvals, budgets and credential redaction. Make limits and the reason work stopped visible, and offer explicit continuation when a limit is reached without losing the original objective, relevant evidence or composer draft. Pause, resume, cancellation, completion and blocked states must be distinguishable; a goal must not be marked complete merely because a budget expired.
+
+Acceptance: offline model and storage tests cover multiple next steps, evidence-based completion, blockers, limits, explicit continuation, reopening, and no replay of uncertain actions. Test steering in normal and goal runs while a model request, tool batch or approval is pending, including ordering, stale approvals, cancellation, late events and independent panes. Offscreen Qt tests cover status, delivery feedback, controls and draft preservation; separately qualify live model behavior when authorized.
+
 ## Approval and next steps
 
 The earlier no-execution simulation remains available for trying the UI. Its approvals cannot authorize real edits. Optional System One advice applies to shell approvals only; other operations show **Not checked**. Heavy/light model outputs and advisory results are not execution authority.
@@ -31,6 +49,14 @@ Completed and failed runs report Heavy and Light request counts and provider-rep
 Single-file deletion requires a prior read, shows a deletion diff, and rechecks the content hash after approval. Directory creation is limited to one directory with an existing parent. Each action uses a separate approval and project path checks; recursive deletion is not provided as a filesystem tool.
 
 The shell executor binds approval to the exact command, shell, working directory and inherited environment snapshot. The preview discloses unrestricted user-level filesystem and network access; shell commands can execute Git or other programs. PowerShell on Windows runs in a kill-on-close process job; POSIX uses a process group, which does not contain detached processes. Command time and output are bounded, known keys are redacted, and cancellation retains completed effects. A Windows build-host smoke check covered PowerShell and child-process cancellation; POSIX and live model compatibility remain open. Stronger OS isolation, interactive command support, and MCP/Skills integration remain future work.
+
+### Planned shell approval switch
+
+Add a clearly labeled per-Code-pane switch that allows shell commands, including test commands using the shell executor, to run without individual approval. Default it off and disclose that commands run with the user's filesystem and network permissions. The user can turn it on or off before or during an ordinary run or goal pursuit. Show the current setting and record commands and their outcomes in activity, with existing secret redaction. The switch applies only to shell execution; other operation approvals remain unchanged.
+
+Apply changes immediately and synchronize them with command dispatch. Enabling the switch while a shell command is awaiting approval permits that pending command to proceed after the existing cancellation, guidance and execution checks; disabling it requires approval for commands not yet dispatched. A command already started is not undone or automatically cancelled by changing the switch. Preserve cancellation, command limits, environment handling, guidance checks and no-replay rules. Optional System One advice remains advisory and cannot override the switch or authorize execution. Reopening a session must not start a command or resume a run.
+
+Acceptance: offline and offscreen Qt tests cover the default, toggling before and during both kinds of run, a pending shell approval, dispatch races, disabling before dispatch, cancellation, test commands, independent panes, activity and redaction, and unchanged approvals for non-shell operations.
 
 ## Planned web research and adjustable run limits
 

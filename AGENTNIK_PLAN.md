@@ -169,6 +169,10 @@ A Windows preview may ship with clearly documented model/platform limits after i
 
 The user selected v0.2.0 as the next Windows release. Package/project metadata and release notes are synchronized at 0.2.0; the archive manifest records clean source and frozen-startup evidence. Preserve outstanding platform/native/license gates. For later releases, explicitly choose and synchronize the version in package metadata, artifacts, release notes, and tag. Do not overwrite v0.1.0 or silently retag it. Committing, pushing, tagging, and publishing remain separate requested actions.
 
+## Planned Code model and review simplification
+
+The current direction is one **Model** per Code request, with retained subagents using that same connection and model. Remove Heavy/Light and alternate-model delegation, and remove EGM-inspired independent document review functionality. Preserve ordinary approvals, Spec & Plan, user data and separately configured System One advice. Historical milestones and progress below describe the implementation at the time and are superseded where they conflict with this direction. See [the coding backend plan](CODING_BACKEND_PLAN.md#planned-simplification-one-model-and-subagents) for migration and acceptance criteria.
+
 ## 7. E — Repository-based Coding Agent
 
 ### E1: Passive repository registry and picker
