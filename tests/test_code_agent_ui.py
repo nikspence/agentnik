@@ -256,6 +256,33 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_edited_retained_steering_reaches_next_continuation(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog,QPlainTextEdit,QPushButton
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident)
+                session.update(code_state='paused',coding_goal={'objective':'Goal','status':'paused','detail':''},coding_last_run_goal=True,coding_resume={'task':'Goal','evidence':'Old correction'},coding_continuation_steering={'text':'Old correction','omitted':False})
+                store.save(session);window.open_session(session);tab=window.tabs.currentWidget();tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'))
+                def edit(dialog):
+                    dialog.findChild(QPlainTextEdit,'continuationContext').setPlainText(json.dumps({'task':'Goal','evidence':'Reviewed evidence'}))
+                    dialog.findChild(QPlainTextEdit,'continuationSteering').setPlainText('Revised correction')
+                    next(button for button in dialog.findChildren(QPushButton) if button.text()=='Save context').click();return QDialog.DialogCode.Accepted
+                with patch.object(QDialog,'exec',edit):tab.edit_coding_context()
+                replies=[Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Finished'})],finish='tool_calls'),False),Wire(chat('Done'),False)];bodies=[]
+                def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):
+                    tab.continue_coding();deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+                    app.processEvents()
+                self.assertIsNone(tab.job);self.assertIn('Revised correction',json.dumps(bodies[0]));self.assertNotIn('Old correction',json.dumps(bodies[0]))
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_legacy_delivered_steering_is_migrated_on_continuation(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

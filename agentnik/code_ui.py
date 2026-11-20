@@ -422,6 +422,8 @@ class CodeTab(QWidget):
                 if steering_editor:
                     steering_value=scrub(steering_editor.toPlainText(),secrets)
                     if len(steering_value)>14000:raise ValueError(self.tr('Retained steering must be at most 14,000 characters.'))
+                    if steering_value and steering_value!=steering_saved['text']:
+                        resume_value['evidence']=self.bounded_continuation_evidence('\n'.join(filter(None,[resume_value['evidence'],'User-reviewed retained steering:\n'+steering_value])))
             except (ValueError,TypeError) as exc:QMessageBox.warning(dialog,self.tr('Coding context'),str(exc));return
             self.session['coding_context']=value
             if resume_editor:self.session['coding_resume']={**resume,**resume_value};self.session['coding_resume_reviewed']=True
