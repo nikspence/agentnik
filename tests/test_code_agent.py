@@ -781,12 +781,13 @@ class ModelCoding(unittest.TestCase):
             self.assertIn('[redacted]',json.dumps(bodies[1]))
 
     def test_shell_switch_applies_before_and_during_approval(self):
-        for initial,tool in ((True,'run_shell'),(False,'run_tests')):
-            with self.subTest(initial=initial,tool=tool), tempfile.TemporaryDirectory() as directory:
+        for goal,initial,tool in ((False,True,'run_shell'),(False,False,'run_tests'),(True,True,'run_shell'),(True,False,'run_tests')):
+            with self.subTest(goal=goal,initial=initial,tool=tool), tempfile.TemporaryDirectory() as directory:
                 args={'path':'.','command':'echo hello'}
                 if tool=='run_tests':args['format']='auto'
                 replies=[Wire(chat(calls=[call(tool,args)],finish='tool_calls'),False),Wire(chat('Done'),False)]
-                run=CodingRun(dict(C,stream=False,api_key='model-secret'),directory,'Run a command');run.set_shell_without_approval(initial)
+                if goal:replies.extend([Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Command executed'})],finish='tool_calls'),False),Wire(chat('Done'),False)])
+                run=CodingRun(dict(C,stream=False,api_key='model-secret'),directory,'Run a command',goal=goal);run.set_shell_without_approval(initial)
                 events=[]
                 def emit(event):
                     events.append(event)

@@ -98,7 +98,7 @@ Apply changes immediately and synchronize them with command dispatch. Enabling t
 
 Acceptance: offline and offscreen Qt tests cover the default, toggling before and during both kinds of run, a pending shell approval, dispatch races, disabling before dispatch, cancellation, test commands, independent panes, activity and redaction, and unchanged approvals for non-shell operations.
 
-First slice implemented for ordinary Code runs: the per-pane switch starts off, may change during a run, and releases a pending shell approval when enabled. The synchronized dispatch decision rechecks the switch, commands and outcomes appear in redacted activity, and test commands use the same policy. Offline model and offscreen Qt tests cover initial enablement, a pending approval, disabling before dispatch, and command output redaction. Goal-mode coverage remains pending implementation.
+The per-pane switch starts off, may change during a run, and releases a pending shell approval when enabled. The synchronized dispatch decision rechecks the switch, commands and outcomes appear in redacted activity, and test commands use the same policy. Offline model and offscreen Qt tests cover initial enablement, a pending approval, disabling before dispatch, and command output redaction. Mocked goal runs additionally cover initial enablement for shell commands and enabling during test-command approval.
 
 ## Planned web research and adjustable run limits
 
