@@ -1542,7 +1542,9 @@ class CodeTab(QWidget):
         elif kind=='goal_progress':
             previous=self.session.get('coding_goal_progress',{'steps':0,'seconds':0})
             self.session['coding_goal_progress']={'steps':max(previous['steps'],event['steps']),'seconds':max(previous['seconds'],event['seconds'])};self.store.save(self.session)
-        elif kind=='steering_delivered':self.record_steering(self.tr('Steering delivered: '),event['text'])
+        elif kind=='steering_delivered':
+            self.record_steering(self.tr('Steering delivered: '),event['text'])
+            if isinstance(self.job,CodingRun):self.job.acknowledge_steering(event['text'])
         elif kind=='steering_undelivered':self.record_steering(self.tr('Steering not delivered: '),event['text'])
         elif kind=='steering_uncertain':self.record_steering(self.tr('Steering delivery uncertain: '),event['text'])
         elif kind=='output':self.record(kind,event['text'])
@@ -1649,6 +1651,7 @@ class CodeTab(QWidget):
     def pause_goal(self):
         if not isinstance(self.job,CodingRun) or not self.job.goal:return
         job=self.job;steering=job.stop()
+        for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message)
         for message in steering['undelivered']:self.record_steering(self.tr('Steering not delivered: '),message)
         for message in steering['uncertain']:self.record_steering(self.tr('Steering delivery uncertain: '),message)
         self.session['coding_goal_progress']=job.goal_progress_snapshot();self.capture_goal_resume();self.session['coding_goal']['status']='paused';self.session['code_state']='paused'
@@ -1665,6 +1668,7 @@ class CodeTab(QWidget):
             self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
         job=self.job;steering=job.stop()
         if isinstance(job,CodingRun):
+            for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message)
             for message in steering['undelivered']:self.record_steering(self.tr('Steering not delivered: '),message)
             for message in steering['uncertain']:self.record_steering(self.tr('Steering delivery uncertain: '),message)
         if isinstance(job,CodingRun) and job.goal and self.session.get('coding_goal'):self.session['coding_goal']['status']='cancelled';self.session['coding_goal_progress']=job.goal_progress_snapshot()

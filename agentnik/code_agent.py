@@ -565,7 +565,7 @@ class CodingRun:
         if self.unsupported_subagent_roles-{'model'}:raise ValueError('Invalid subagent capability roles')
         self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self._git_credentials=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
         self.shell_without_approval=False;self.shell_automatic_last=False;self.answer_steered=False
-        self.steering=[];self.steering_inflight=[];self.steering_submitted=False;self.accepting_steering=True
+        self.steering=[];self.steering_inflight=[];self.steering_confirmed=[];self.steering_submitted=False;self.accepting_steering=True
         self.usage={role:self._empty_usage() for role in ('Model','Subagent')}
         self.show_thinking=False
 
@@ -592,8 +592,13 @@ class CodingRun:
             self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
             undelivered=self.steering[:];self.steering.clear()
             inflight=self.steering_inflight[:];self.steering_inflight.clear()
+            delivered=self.steering_confirmed[:];self.steering_confirmed.clear()
             if not self.steering_submitted:undelivered=inflight+undelivered;inflight=[]
-            return {'undelivered':undelivered,'uncertain':inflight}
+            return {'undelivered':undelivered,'uncertain':inflight,'delivered':delivered}
+
+    def acknowledge_steering(self,message):
+        with self.lock:
+            if message in self.steering_confirmed:self.steering_confirmed.remove(message)
 
     def goal_progress_snapshot(self,freeze=False):
         with self.lock:
@@ -926,8 +931,9 @@ class CodingRun:
                 with self.lock:
                     runtime.check();self.steering_submitted=steering_submitted
                 assistant,calls=request('Model',adapter,c,body,state)
+                with self.lock:
+                    runtime.check();self.steering_confirmed.extend(steering_batch);self.steering_inflight=[];self.steering_submitted=False
                 for message in steering_batch:event('steering_delivered',text=scrub(message,secrets))
-                with self.lock:self.steering_inflight=[];self.steering_submitted=False
                 steering_batch=[];steering_submitted=False
                 check_skill_versions()
                 context_request_size=None

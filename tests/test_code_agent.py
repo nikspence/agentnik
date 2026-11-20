@@ -171,6 +171,24 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(events[-1]['status'],'failed');self.assertEqual([e['text'] for e in events if e['kind']=='steering_uncertain'],['Correction'])
             self.assertFalse(any(e['kind']=='steering_delivered' for e in events));self.assertNotIn('private detail',json.dumps(events))
 
+    def test_stop_preserves_confirmed_steering_until_acknowledged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Task');events=[];delivered=threading.Event();release=threading.Event();count=[0]
+            def send(connection,url,body,timeout):
+                count[0]+=1
+                if count[0]==1:self.assertTrue(run.steer('Correction'))
+                return Wire(chat('Response'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='steering_delivered':delivered.set();release.wait(5)
+            with patch.object(core,'open_request',side_effect=send):
+                worker=threading.Thread(target=run.run,args=(emit,));worker.start()
+                try:
+                    self.assertTrue(delivered.wait(5));outcome=run.stop()
+                    self.assertEqual(outcome['delivered'],['Correction']);self.assertEqual(outcome['uncertain'],[]);self.assertEqual(outcome['undelivered'],[])
+                finally:release.set();worker.join(5)
+            self.assertFalse(worker.is_alive())
+
     def test_steering_limit_before_request_reports_not_delivered(self):
         from agentnik.code_limits import coding_limits
         with tempfile.TemporaryDirectory() as directory:
