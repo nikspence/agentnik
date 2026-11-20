@@ -32,11 +32,11 @@ def context_usage(runtime,limits,connection,round_number,request_size,reported_i
     token_limit=connection.get('context_limit')
     if type(token_limit) is not int or token_limit<=0:token_limit=None
     if type(reported_input) not in (int,float) or isinstance(reported_input,bool) or not math.isfinite(reported_input) or reported_input<0:reported_input=None
-    return {'last_heavy_request':{**request_size,'reported_input_tokens':reported_input,'configured_context_limit_tokens':token_limit},
+    return {'last_model_request':{**request_size,'reported_input_tokens':reported_input,'configured_context_limit_tokens':token_limit},
             'run_budget':{'charged_context_bytes':runtime.context_bytes,'context_bytes_limit':limits.context_bytes,
                           'model_requests_used':runtime.requests,'model_requests_limit':limits.requests,
                           'tool_calls_used':runtime.calls,'tool_calls_limit':limits.calls,
                           'current_tool_round':round_number+1,'tool_rounds_limit':limits.rounds,
                           'elapsed_seconds':round(max(0,time.monotonic()-runtime.started),2),
                           'turn_seconds_limit':limits.turn_seconds},
-            'notice':'Request size is serialized JSON bytes, not tokens; component sizes exclude container framing and can include encoded images. Provider input tokens are for the last Heavy request only and may be unavailable. Charged context is a cumulative run budget, not the current model context window. Tool calls in the current batch are charged before execution. This snapshot excludes this tool result and later work.'}
+            'notice':'Request size is serialized JSON bytes, not tokens; component sizes exclude container framing and can include encoded images. Provider input tokens are for the last model request only and may be unavailable. Charged context is a cumulative step budget in goal mode and a cumulative run budget otherwise, not the current model context window. Tool calls in the current batch are charged before execution. This snapshot excludes this tool result and later work.'}
