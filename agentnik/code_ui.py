@@ -175,6 +175,9 @@ class CodeTab(QWidget):
         title=QLabel(session['project_name']);title.setTextFormat(Qt.TextFormat.PlainText);header.addWidget(title)
         path=QLabel(self.tr('Working directory snapshot: {path}').format(path=session['path_snapshot']));path.setTextFormat(Qt.TextFormat.PlainText);path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse);path.setToolTip(session['path_snapshot']);header.addWidget(path,1)
         self.track_selection_label=QLabel();self.track_selection_label.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.track_selection_label);self.refresh_selected_track()
+        goal_row=QHBoxLayout();layout.addLayout(goal_row)
+        self.goal_status_label=QLabel();self.goal_status_label.setObjectName('goalStatus');self.goal_status_label.setTextFormat(Qt.TextFormat.PlainText);self.goal_status_label.setWordWrap(True);goal_row.addWidget(self.goal_status_label,1)
+        self.goal_details_button=QPushButton(self.tr('Goal details…'));self.goal_details_button.setObjectName('goalDetails');self.goal_details_button.clicked.connect(self.show_goal_details);goal_row.addWidget(self.goal_details_button);self.refresh_goal_status()
         current=window.repositories.get(session['project_id'])
         note=''
         if not Path(session['path_snapshot']).is_dir():note+=' '+self.tr('The saved folder is missing or unavailable.')
@@ -1156,6 +1159,23 @@ class CodeTab(QWidget):
         if self.session.get('coding_last_run_goal',True) and self.session.get('coding_goal',{}).get('status')==state and state in ('limited','paused','blocked','interrupted'):return bool(self.session['coding_goal'].get('objective'))
         return state=='limited' and bool(self.session.get('coding_context'))
 
+    def refresh_goal_status(self):
+        goal=self.session.get('coding_goal')
+        if not goal:
+            self.goal_status_label.hide();self.goal_details_button.hide();return
+        status={'active':self.tr('Active'),'paused':self.tr('Paused'),'blocked':self.tr('Blocked'),'limited':self.tr('Limit reached'),'interrupted':self.tr('Interrupted'),'cancelled':self.tr('Cancelled'),'failed':self.tr('Failed'),'completed':self.tr('Completed (model reported)')}.get(goal['status'],goal['status'])
+        objective=goal['objective'].replace('\n',' ')
+        preview=objective[:160]+('…' if len(objective)>160 else '')
+        template=self.tr('Goal · {status}: {objective}') if self.session.get('coding_last_run_goal',True) else self.tr('Previous goal · {status}: {objective}')
+        self.goal_status_label.setText(template.format(status=status,objective=preview));self.goal_status_label.setToolTip(goal['objective']);self.goal_status_label.show();self.goal_details_button.show()
+
+    def show_goal_details(self):
+        goal=self.session.get('coding_goal')
+        if not goal:return
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Goal details'));dialog.resize(700,420);layout=QVBoxLayout(dialog)
+        details=QPlainTextEdit(self.tr('Objective:')+'\n'+goal['objective']+'\n\n'+self.tr('Status:')+' '+goal['status']+'\n\n'+self.tr('Latest detail (model reported):')+'\n'+goal['detail']);details.setObjectName('goalDetailsText');details.setReadOnly(True);layout.addWidget(details)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
+
     def capture_goal_resume(self):
         goal=self.session['coding_goal'];previous=self.session.get('coding_resume',{})
         activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
@@ -1183,6 +1203,7 @@ class CodeTab(QWidget):
             history.append({'run_id':run.run_id,'skills':[]});self.session['coding_skill_history']=history[-32:]
             self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
+        self.refresh_goal_status()
         self.steering_input.setEnabled(isinstance(run,CodingRun));self.steering_button.setEnabled(isinstance(run,CodingRun))
         self.goal_enabled.setEnabled(False)
         self.pause_goal_button.setEnabled(isinstance(run,CodingRun) and run.goal)
@@ -1697,7 +1718,7 @@ class CodeTab(QWidget):
                 self.record('decision',self.tr('Shell command allowed by the current switch.'))
         elif kind=='goal_status':
             if self.session.get('coding_goal'):
-                self.session['coding_goal']['detail']=event['detail'][:4000];self.record('output',self.tr('Goal status (model reported): ')+event['status']+' · '+event['detail'])
+                self.session['coding_goal']['detail']=event['detail'][:4000];self.refresh_goal_status();self.record('output',self.tr('Goal status (model reported): ')+event['status']+' · '+event['detail'])
         elif kind=='steering_delivered':self.record_steering(self.tr('Steering delivered: '),event['text'])
         elif kind=='steering_undelivered':self.record_steering(self.tr('Steering not delivered: '),event['text'])
         elif kind=='steering_uncertain':self.record_steering(self.tr('Steering delivery uncertain: '),event['text'])
@@ -1788,6 +1809,7 @@ class CodeTab(QWidget):
         if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
         self.advice_connection=None;self.advice_destination=''
         self.run_id=None;self.job=None;self.pending_fingerprint=None;self.advice_fingerprint=None
+        self.refresh_goal_status()
         self.steering_input.setEnabled(False);self.steering_button.setEnabled(False)
         self.goal_enabled.setEnabled(True)
         self.approval_panel.hide()

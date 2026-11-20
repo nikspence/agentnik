@@ -116,6 +116,8 @@ class Localization(unittest.TestCase):
                     ident=window.repositories.put(folder);session=window.repositories.session(ident)
                     session['coding_context']={'task':'Keep {user} text','answer':'Original answer'};store.save(session);window.open_session(session)
                     tab=window.tabs.currentWidget();self.assertEqual(tab.send.text(),'실행');self.assertEqual(tab.approve.text(),'제안된 단계 승인')
+                    session['coding_goal']={'objective':'Keep {goal} text','status':'paused','detail':'Evidence'};tab.refresh_goal_status()
+                    self.assertIn('일시 정지됨',tab.goal_status_label.text());self.assertIn('Keep {goal} text',tab.goal_status_label.text())
                     self.assertEqual(tab.session['coding_context']['task'],'Keep {user} text')
                     window.stats();self.assertIn('준비됨',window.statusBar().currentMessage());self.assertIn(session['project_name'],window.statusBar().currentMessage())
                     self.assertIn('model/{x}',tab.activity_text({'kind':'output','text':'Heavy task: requesting model/{x} through the selected connection.'}))

@@ -50,6 +50,17 @@
     </context>
     <context>
         <name>CodeTab</name>
+        <message><source>Goal details…</source><translation>목표 상세…</translation></message>
+        <message><source>Goal details</source><translation>목표 상세</translation></message>
+        <message><source>Goal · {status}: {objective}</source><translation>목표 · {status}: {objective}</translation></message>
+        <message><source>Previous goal · {status}: {objective}</source><translation>이전 목표 · {status}: {objective}</translation></message>
+        <message><source>Active</source><translation>진행 중</translation></message>
+        <message><source>Paused</source><translation>일시 정지됨</translation></message>
+        <message><source>Limit reached</source><translation>한도 도달</translation></message>
+        <message><source>Completed (model reported)</source><translation>완료 (모델 보고)</translation></message>
+        <message><source>Objective:</source><translation>목표:</translation></message>
+        <message><source>Status:</source><translation>상태:</translation></message>
+        <message><source>Latest detail (model reported):</source><translation>최근 세부 정보 (모델 보고):</translation></message>
         <message>
             <location filename="../code_ui.py" line="90" />
             <source>Working directory snapshot: {path}</source>
