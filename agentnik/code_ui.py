@@ -482,10 +482,10 @@ class CodeTab(QWidget):
         for server in self.store.config.get('mcp_servers',[]):
             mapping=server.get('env',{})
             if isinstance(mapping,dict):secrets.extend(os.environ.get(name,'') for name in mapping.values() if isinstance(name,str))
-        if isinstance(self.job,CodingRun):
+        if self.job is not None and isinstance(self.job,CodingRun):
             secrets.extend([self.job.connection.get('api_key','')]+[item.get('key','') for item in self.job.web_backends])
             for bridge in self.job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
-        return secrets
+        return list(dict.fromkeys(secret for secret in secrets if isinstance(secret,str) and secret))
 
     def save_steering_draft(self,text):
         secrets=self.draft_secrets()
@@ -494,8 +494,7 @@ class CodeTab(QWidget):
     def send_steering(self):
         job=self.job;text=self.steering_input.text()
         if not isinstance(job,CodingRun) or not text.strip():return
-        secrets=[job.connection.get('api_key','')]+[item.get('key','') for item in job.web_backends]
-        for bridge in job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
+        secrets=self.draft_secrets()
         message=scrub(text.strip(),secrets)
         if not job.steer(message):
             self.record('output',self.tr('Steering was not queued; the run may have ended or the message may exceed the limit.'));return
@@ -1165,8 +1164,9 @@ class CodeTab(QWidget):
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
             run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.session.get('coding_goal_limits'))
-            secrets=[heavy.get('api_key','')]+[item.get('key','') for item in backends]
+            secrets=self.draft_secrets()+[heavy.get('api_key','')]+[item.get('key','') for item in backends]
             for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
+            secrets=list(dict.fromkeys(secret for secret in secrets if isinstance(secret,str) and secret))
             if self.goal_enabled.isChecked():
                 if len(scrub((resume or {}).get('task',prompt),secrets))>16000:raise ValueError(self.tr('Goal objectives must be at most 16,000 characters so they can be saved and resumed.'))
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
@@ -1581,8 +1581,7 @@ class CodeTab(QWidget):
                 self.session['coding_goal']['status']='limited' if event.get('limited') else event['status']
                 if event['status']!='completed':self.session['coding_goal']['detail']=event['text'][:4000]
             if event.get('limited') and isinstance(self.job,CodingRun):
-                secrets=[self.job.connection.get('api_key','')]+[item.get('key','') for item in self.job.web_backends]
-                for bridge in self.job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
+                secrets=self.draft_secrets()
                 recent=self.continuation_activity()
                 previous=getattr(self.job,'resume_context',None) or {}
                 task=previous.get('task',self.job.prompt)
@@ -1592,7 +1591,7 @@ class CodeTab(QWidget):
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)
             if event['status']=='completed' and isinstance(self.job,CodingRun):
                 self.session.pop('coding_resume',None)
-                secrets=[self.job.connection.get('api_key','')]
+                secrets=self.draft_secrets()
                 original=(self.job.resume_context or {}).get('task',self.job.prompt)
                 context={'task':plain(scrub(original,secrets)),'answer':plain(event['text'])}
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)

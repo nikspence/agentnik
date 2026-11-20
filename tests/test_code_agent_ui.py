@@ -379,6 +379,28 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_completed_goal_context_redacts_other_known_credentials(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session)
+                with patch.object(store,'web_backend_specs',return_value=[{'key':'other-search-secret'}]):window.open_session(session)
+                tab=window.tabs.currentWidget();tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.goal_enabled.setChecked(True);tab.composer.setPlainText('Inspect other-search-secret')
+                replies=[Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Finished'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                with patch.object(core,'open_request',side_effect=replies):
+                    tab.start_coding();deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+                    app.processEvents()
+                self.assertIsNone(tab.job);self.assertEqual(session['coding_goal']['objective'],'Inspect [redacted]');self.assertEqual(session['coding_context']['task'],'Inspect [redacted]')
+                self.assertNotIn('other-search-secret',json.dumps(store.list_sessions()))
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_model_binding_migrates_legacy_assignment_without_losing_light(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
