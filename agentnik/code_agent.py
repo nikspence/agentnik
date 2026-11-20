@@ -532,7 +532,7 @@ MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_cal
 class CodingRun:
     def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None):
         from .code_artifacts import validate_notes, Artifacts
-        self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.project_memory=project_memory
+        self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.test_report_may_be_stale=False;self.project_memory=project_memory
         from .track_execution import validate_runtime_track,initial_progress
         self.selected_track=validate_runtime_track(selected_track) if selected_track else None;self.track_progress=initial_progress(self.selected_track) if self.selected_track else None
         self.connection=dict(connection);self.root=root;self.prompt=prompt;self.run_id=uuid.uuid4().hex
@@ -741,6 +741,7 @@ class CodingRun:
                 return v
             emit(dict(run_id=self.run_id,kind=kind,**scrub(data)))
         def applied_event(label,path,diff=''):
+            if self.latest_test_report is not None:self.test_report_may_be_stale=True
             text='Applied project '+label+': '+path+('\n'+diff if diff else '')
             event('output',text=text[:1750]+('\n[diff excerpt truncated]' if len(text)>1750 else ''))
         steering_batch=[];steering_submitted=False
@@ -1112,6 +1113,7 @@ class CodingRun:
                             response=search_cache.get(cache_key) if cacheable else None
                             cached=response is not None
                             if response is None:
+                                if self.latest_test_report is not None:self.test_report_may_be_stale=True
                                 response=mcp_bridge.request('call',{'tool':tool,'arguments':arguments},runtime)
                             else:
                                 verified=mcp_bridge.request('verify',{'tool':tool},runtime)
@@ -1419,6 +1421,7 @@ class CodingRun:
                             elif call.name in ('git_commit','git_stage','git_unstage','git_create_branch','git_commit_staged'):
                                 proposal=git.proposal(args['paths'],args['message']) if call.name=='git_commit' else git.local_proposal(call.name,**args)
                                 allowed=review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal');runtime.check()
+                                if allowed and self.latest_test_report is not None:self.test_report_may_be_stale=True
                                 result=git.apply(proposal,runtime.check) if allowed else {'applied':False,'operation':call.name}
                                 event('output',text='Git operation: '+json.dumps(result))
                                 if result.get('index_updated') is False:
@@ -1492,6 +1495,7 @@ class CodingRun:
                                 report=self.latest_test_report
                                 if report is None:validation='No structured test report was recorded in this run.'
                                 else:validation='Latest structured test report: '+report['outcome']+'; format '+report['format']+'; exit code '+str(report['exit_code'])+'. Parsed output is not independent verification.'
+                                if report is not None and self.test_report_may_be_stale:validation+=' A later operation may have changed the project; this report may be stale.'
                                 detail=detail[:max(0,4000-len(validation)-2)]+'\n\n'+validation
                             self.goal_status=status;self.goal_detail=detail;event('goal_status',status=status,detail=detail)
                             result={'status':status,'detail':detail,'notice':'This status is model-reported; completion requires evidence and does not grant permissions.'}
@@ -1587,9 +1591,10 @@ class CodingRun:
                                 if dispatch:break
                             if allowed:
                                 event('output',text='Running shell command in '+args['path']+':\n'+command)
+                                if self.latest_test_report is not None:self.test_report_may_be_stale=True
                                 result={'approved':True,**shell.execute(command,str(cwd),runtime,environment=environment,program=proposal['shell'])}
                                 if call.name=='run_tests':
-                                    result['test_report']=parse_report(result,args['format']);self.latest_test_report=scrub({**result['test_report'],'command':command,'path':args['path'],'exit_code':result['exit_code'],'completed_at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},secrets);event('output',text='Test report: '+json.dumps(result['test_report']))
+                                    result['test_report']=parse_report(result,args['format']);self.latest_test_report=scrub({**result['test_report'],'command':command,'path':args['path'],'exit_code':result['exit_code'],'completed_at':__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},secrets);self.test_report_may_be_stale=False;event('output',text='Test report: '+json.dumps(result['test_report']))
                                 event('output',text='Command finished with exit code '+str(result['exit_code'])+'.\n'+result['output'][:1800])
                             else:result={'approved':False,'operation':'run_shell'}
                         else:

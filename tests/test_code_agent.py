@@ -112,6 +112,15 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(events[-1]['status'],'completed',events)
             detail=next(event['detail'] for event in events if event['kind']=='goal_status');self.assertIn('Latest structured test report: failed',detail);self.assertIn('not independent verification',detail)
 
+    def test_goal_completion_flags_test_report_after_later_edit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True);run.set_shell_without_approval(True);events=[]
+            replies=[Wire(chat(calls=[call('run_tests',{'path':'.','command':'python -m unittest','format':'unittest'})],finish='tool_calls'),False),Wire(chat(calls=[call('write_file',{'path':'new.txt','content':'change'})],finish='tool_calls'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Done'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            result={'exit_code':0,'output':'Ran 1 test in 0.1s\n\nOK\n','truncated':False}
+            with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute',return_value=result):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);detail=next(e['detail'] for e in events if e['kind']=='goal_status')
+            self.assertIn('Latest structured test report: passed',detail);self.assertIn('report may be stale',detail)
+
     def test_steering_before_approval_does_not_leave_a_pending_proposal(self):
         from agentnik.tools import Runtime
         with tempfile.TemporaryDirectory() as directory:
