@@ -530,7 +530,7 @@ MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_cal
 
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False):
+    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None,goal_progress=None):
         from .code_artifacts import validate_notes, Artifacts
         self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.project_memory=project_memory
         from .track_execution import validate_runtime_track,initial_progress
@@ -557,6 +557,10 @@ class CodingRun:
         if type(self.web_enabled) is not bool or self.search_provider not in ('ollama','managed','google','none'):raise ValueError('Invalid coding research configuration')
         if type(goal) is not bool:raise ValueError('Invalid goal setting')
         self.goal=goal;self.goal_status='active';self.goal_detail=''
+        from .code_limits import goal_limits
+        self.goal_budget=goal_limits(goal_budget);progress=goal_progress or {'steps':0,'seconds':0}
+        if not isinstance(progress,dict) or set(progress)!={'steps','seconds'} or type(progress['steps']) is not int or progress['steps']<0 or type(progress['seconds']) not in (int,float) or not math.isfinite(progress['seconds']) or progress['seconds']<0:raise ValueError('Invalid goal progress')
+        self.goal_steps=progress['steps'];self.goal_elapsed=float(progress['seconds']);self.goal_started=None
         self.limits=coding_limits(limits);self.plan=None
         self.unsupported_subagent_roles=set(unsupported_subagent_roles or ())
         if self.unsupported_subagent_roles-{'model'}:raise ValueError('Invalid subagent capability roles')
@@ -586,6 +590,11 @@ class CodingRun:
 
     def stop(self):
         with self.lock:self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
+
+    def goal_progress_snapshot(self):
+        elapsed=self.goal_elapsed+(max(0,time.monotonic()-self.goal_started) if self.goal_started is not None else 0)
+        if self.goal_budget['seconds']:elapsed=min(elapsed,self.goal_budget['seconds'])
+        return {'steps':self.goal_steps,'seconds':elapsed}
 
     def steer(self,message):
         if not isinstance(message,str) or not message.strip() or len(message.encode('utf-8'))>16000:return False
@@ -681,6 +690,9 @@ class CodingRun:
 
     def run(self,emit):
         runtime=Runtime(self.cancel,Limits(argument_bytes=1000000,model_bytes=2000000,request_seconds=45,**{key:value for key,value in self.limits.items() if key!='model_seconds'}))
+        if self.goal:
+            self.goal_started=time.monotonic()
+            if self.goal_budget['seconds']:runtime.external_deadline=self.goal_started+max(0,self.goal_budget['seconds']-self.goal_elapsed)
         next_source=1;research_action=None;google_unavailable=False;search_access_blocked=False
         secrets=[self.connection.get('api_key','')]+[item.get('key','') for item in self.web_backends]
         for bridge in self.mcp_bridges:
@@ -693,6 +705,7 @@ class CodingRun:
                 runtime.check();totals['requests']+=1;totals['input_missing']+=1;totals['output_missing']+=1
             model_runtime=Runtime(self.cancel,replace(runtime.limits,request_seconds=self.limits['model_seconds']),self.run_id)
             model_runtime.started=runtime.started
+            model_runtime.external_deadline=runtime.external_deadline
             try:
                 result=model_runtime.wait(lambda:adapter.request(connection,body,model_runtime,lambda _:None,state))
             finally:model_runtime.closed=True
@@ -712,6 +725,7 @@ class CodingRun:
         def event(kind,**data):
             if kind!='finished':runtime.check()
             elif self.cancel.is_set():return
+            if kind=='finished' and self.goal:data['goal_progress']=self.goal_progress_snapshot()
             def scrub(v):
                 if isinstance(v,str):
                     for secret in secrets:
@@ -885,6 +899,7 @@ class CodingRun:
                     sync_guidance()
                     raise GuidanceError('Repository guidance changed before the file operation. Review the updated instructions and reconsider the operation.')
             sync_guidance()
+            if self.goal and self.goal_budget['steps'] and self.goal_steps>=self.goal_budget['steps']:raise LimitError('Coding goal step limit reached')
             adapter=responses_tools if protocol=='responses' else ollama_tools if native else compat_tools
             round_number=-1
             while True:
@@ -921,6 +936,9 @@ class CodingRun:
                         if round_number>=runtime.limits.rounds:raise LimitError('Coding tool round limit reached before steering could be delivered')
                         continue
                     if goal_continues:
+                        self.goal_steps+=1
+                        event('goal_progress',steps=self.goal_steps,seconds=self.goal_elapsed+time.monotonic()-self.goal_started)
+                        if self.goal_budget['steps'] and self.goal_steps>=self.goal_budget['steps']:raise LimitError('Coding goal step limit reached')
                         # A complete response without tool calls closes this goal step.
                         # Preserve and re-charge the retained request so repeated steps
                         # cannot grow the model context beyond its configured bound.
@@ -1168,7 +1186,7 @@ class CodingRun:
                                 light=models[model_role];protocol_light=light.get('protocol','chat');native_light=core.native_ollama(light)
                                 adapter_light=responses_tools if protocol_light=='responses' else ollama_tools if native_light else compat_tools
                                 started=time.monotonic();metrics={};requests=0;fallback=inspect and model_role in self.unsupported_subagent_roles;remembered=fallback;rejected=False
-                                child_runtime=Runtime(ChildCancellation(self.cancel,child_cancel),replace(runtime.limits,request_seconds=self.limits['model_seconds']),self.run_id);child_runtime.started=runtime.started
+                                child_runtime=Runtime(ChildCancellation(self.cancel,child_cancel),replace(runtime.limits,request_seconds=self.limits['model_seconds']),self.run_id);child_runtime.started=runtime.started;child_runtime.external_deadline=runtime.external_deadline
                                 def submitted_request():
                                     with self.lock:
                                         child_runtime.check()

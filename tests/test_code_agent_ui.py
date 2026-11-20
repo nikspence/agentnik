@@ -724,10 +724,10 @@ class CodingWorkspace(unittest.TestCase):
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
                 tab=window.tabs.currentWidget();values=coding_limits();values['rounds']=12;values['turn_seconds']=600;values['model_seconds']=480
                 with patch('agentnik.code_ui.CodingLimitsDialog') as dialog:
-                    dialog.return_value.exec.return_value=QDialog.DialogCode.Accepted;dialog.return_value.values.return_value=values
+                    dialog.return_value.exec.return_value=QDialog.DialogCode.Accepted;dialog.return_value.values.return_value=values;dialog.return_value.goal_values.return_value={'steps':4,'seconds':120}
                     tab.configure_limits()
-                self.assertEqual(store.list_sessions()[0]['coding_limits'],values)
-                dialog=CodingLimitsDialog(tab,values);self.assertEqual(dialog.fields['model_seconds'].value(),480);dialog.reset();self.assertEqual(dialog.values(),coding_limits());dialog.close()
+                self.assertEqual(store.list_sessions()[0]['coding_limits'],values);self.assertEqual(store.list_sessions()[0]['coding_goal_limits'],{'steps':4,'seconds':120})
+                dialog=CodingLimitsDialog(tab,values,{'steps':4,'seconds':120});self.assertEqual(dialog.fields['model_seconds'].value(),480);self.assertEqual(dialog.goal_fields['steps'].value(),4);dialog.reset();self.assertEqual(dialog.values(),coding_limits());self.assertEqual(dialog.goal_values(),{'steps':0,'seconds':0});dialog.close()
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(store.list_sessions()[0]);self.assertEqual(window.tabs.currentWidget().session['coding_limits'],values)
             finally:window.close();app.processEvents();store.db.close()
 

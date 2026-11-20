@@ -246,6 +246,24 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual(send.call_count,6);self.assertEqual(events[-1]['status'],'completed',events)
             self.assertEqual(sum(e['kind']=='output' and 'continuing to the next step' in e.get('text','') for e in events),2)
 
+    def test_goal_step_limit_stops_before_next_step_and_survives_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':2,'seconds':0});events=[]
+            with patch.object(core,'open_request',side_effect=[Wire(chat('Step one'),False),Wire(chat('Step two'),False)]) as send:run.run(events.append)
+            self.assertEqual(send.call_count,2);self.assertTrue(events[-1]['limited']);self.assertIn('goal step limit',events[-1]['text']);self.assertEqual(events[-1]['goal_progress']['steps'],2)
+            resumed=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':2,'seconds':0},goal_progress=events[-1]['goal_progress']);events=[]
+            with patch.object(core,'open_request') as send:resumed.run(events.append);send.assert_not_called()
+            self.assertIn('goal step limit',events[-1]['text'])
+
+    def test_goal_time_limit_interrupts_inflight_model_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Finish',goal=True,goal_budget={'steps':0,'seconds':1});events=[];release=threading.Event()
+            def delayed(*args,**kwargs):release.wait(3);return Wire(chat('Late answer'),False)
+            try:
+                with patch.object(core,'open_request',side_effect=delayed):run.run(events.append)
+                self.assertTrue(events[-1]['limited']);self.assertIn('goal time limit',events[-1]['text']);self.assertEqual(events[-1]['goal_progress']['seconds'],1)
+            finally:release.set()
+
     def test_goal_steering_and_tool_results_across_protocols(self):
         from test_research import Response,answer,call as native_call
         for protocol,url in [('responses','https://gateway.example/v1'),('messages','https://gateway.example/v1'),('chat','http://localhost:11434/v1')]:

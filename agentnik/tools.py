@@ -171,17 +171,22 @@ class Runtime:
         self.calls = self.retrieved_bytes = self.context_bytes = self.requests = 0
         self.closed = False
         self.expired = False
+        self.external_deadline = None
 
     def check(self):
         if self.closed: raise InterruptedError('Research run has ended')
         if self.cancel.is_set(): raise InterruptedError('Research cancelled')
+        if self.external_deadline is not None and time.monotonic()>=self.external_deadline:
+            raise LimitError('Coding goal time limit reached')
         if self.expired: raise LimitError('Research request time limit reached')
         if time.monotonic()-self.started >= self.limits.turn_seconds:
             raise LimitError('Research turn time limit reached')
 
     def timeout(self):
         self.check()
-        return min(self.limits.request_seconds,self.limits.turn_seconds-(time.monotonic()-self.started))
+        remaining=min(self.limits.request_seconds,self.limits.turn_seconds-(time.monotonic()-self.started))
+        if self.external_deadline is not None:remaining=min(remaining,self.external_deadline-time.monotonic())
+        return max(0,remaining)
 
     def wait(self, fn):
         """Bound caller latency; late daemon-worker results are discarded, not replayed."""

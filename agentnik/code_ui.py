@@ -21,7 +21,7 @@ from .decision_advice import parse_advice
 from .task_plan import validate_plan
 from .subagent_status import validate_record
 from .sessions import append_code_activity
-from .code_limits import FIELDS,coding_limits
+from .code_limits import FIELDS,coding_limits,GOAL_FIELDS,goal_limits
 from .selection_scroll import SelectionScroll
 from .web import public_url
 from . import core,routing
@@ -109,12 +109,15 @@ class CodeEvents(QObject):
 
 
 class CodingLimitsDialog(QDialog):
-    def __init__(self,parent,values):
+    def __init__(self,parent,values,goal_values=None):
         super().__init__(parent);self.setWindowTitle(self.tr('Coding run limits'))
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form);self.fields={}
         labels={'rounds':self.tr('Tool rounds'),'requests':self.tr('Model requests'),'calls':self.tr('Tool calls'),'turn_seconds':self.tr('Total run time (seconds)'),'model_seconds':self.tr('Model call timeout (seconds)'),'context_bytes':self.tr('Retained context (bytes)')}
         for key,(_,minimum,maximum) in FIELDS.items():
             box=QSpinBox();box.setRange(minimum,maximum);box.setValue(coding_limits(values)[key]);form.addRow(labels[key],box);self.fields[key]=box
+        self.goal_fields={}
+        for key,label in (('steps',self.tr('Goal steps')),('seconds',self.tr('Goal active time (seconds)'))):
+            box=QSpinBox();box.setRange(GOAL_FIELDS[key][1],GOAL_FIELDS[key][2]);box.setSpecialValueText(self.tr('Unlimited'));box.setValue(goal_limits(goal_values)[key]);form.addRow(label,box);self.goal_fields[key]=box
         hint=QLabel(self.tr('Limits are shared by the model, subagents, and web research for each run.')+'\n'+self.tr('Each model timeout covers waiting for the first token and generating the complete response. Total run time can end a request sooner.'));hint.setWordWrap(True);layout.addWidget(hint)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.RestoreDefaults)
         buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject)
@@ -122,8 +125,10 @@ class CodingLimitsDialog(QDialog):
 
     def reset(self):
         for key,value in coding_limits().items():self.fields[key].setValue(value)
+        for key,value in goal_limits().items():self.goal_fields[key].setValue(value)
 
     def values(self):return coding_limits({key:box.value() for key,box in self.fields.items()})
+    def goal_values(self):return goal_limits({key:box.value() for key,box in self.goal_fields.items()})
 
 
 
@@ -489,9 +494,9 @@ class CodeTab(QWidget):
 
     def configure_limits(self):
         if self.job:return
-        dialog=CodingLimitsDialog(self,coding_limits(self.session.get('coding_limits')))
+        dialog=CodingLimitsDialog(self,coding_limits(self.session.get('coding_limits')),self.session.get('coding_goal_limits'))
         if dialog.exec()==QDialog.DialogCode.Accepted:
-            self.session['coding_limits']=dialog.values();self.store.save(self.session)
+            self.session['coding_limits']=dialog.values();self.session['coding_goal_limits']=dialog.goal_values();self.store.save(self.session)
 
     def configure_search(self):
         if not self.job:SearchBackends(self,self.store).exec()
@@ -1128,13 +1133,14 @@ class CodeTab(QWidget):
                 files=ProjectFiles(self.session['path_snapshot']);limit=coding_limits(self.session.get('coding_limits'))['context_bytes'];selected=prepare_track(files,ident,secrets,limit)
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked())
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.session.get('coding_goal_limits'),goal_progress=self.session.get('coding_goal_progress') if resume and self.goal_enabled.isChecked() else None)
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if not continuation and self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.session['coding_last_run_goal']=self.goal_enabled.isChecked()
         if self.goal_enabled.isChecked():
             objective=(resume or {}).get('task',prompt);secrets=[heavy.get('api_key','')]+[item.get('key','') for item in backends]
             self.session['coding_goal']={'objective':scrub(objective,secrets)[:16000],'status':'active','detail':''}
+            if not resume:self.session['coding_goal_progress']={'steps':0,'seconds':0}
             if not resume:self.session['coding_resume']={'task':self.session['coding_goal']['objective'],'evidence':'','images':list(run.images),'documents':scrub(copy.deepcopy(run.documents),secrets)}
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval. Shell commands '+('run without approval' if self.shell_auto.isChecked() else 'require approval')+'. Repository content goes to the selected models.')
@@ -1515,6 +1521,8 @@ class CodeTab(QWidget):
         elif kind=='goal_status':
             if self.session.get('coding_goal'):
                 self.session['coding_goal']['detail']=event['detail'][:4000];self.refresh_goal_status();self.record('output',self.tr('Goal status (model reported): ')+event['status']+' · '+event['detail'])
+        elif kind=='goal_progress':
+            self.session['coding_goal_progress']={'steps':event['steps'],'seconds':event['seconds']};self.store.save(self.session)
         elif kind=='steering_delivered':self.record_steering(self.tr('Steering delivered: '),event['text'])
         elif kind=='steering_undelivered':self.record_steering(self.tr('Steering not delivered: '),event['text'])
         elif kind=='steering_uncertain':self.record_steering(self.tr('Steering delivery uncertain: '),event['text'])
@@ -1528,6 +1536,7 @@ class CodeTab(QWidget):
                 for start in range(0,len(value),1800):self.record('output',value[start:start+1800])
         elif kind=='finished':
             if isinstance(self.job,CodingRun) and self.job.goal and self.session.get('coding_goal'):
+                if 'goal_progress' in event:self.session['coding_goal_progress']=event['goal_progress']
                 self.session['coding_goal']['status']='limited' if event.get('limited') else event['status']
                 if event['status']!='completed':self.session['coding_goal']['detail']=event['text'][:4000]
             if event.get('limited') and isinstance(self.job,CodingRun):
@@ -1619,7 +1628,7 @@ class CodeTab(QWidget):
 
     def pause_goal(self):
         if not isinstance(self.job,CodingRun) or not self.job.goal:return
-        job=self.job;job.stop();self.capture_goal_resume();self.session['coding_goal']['status']='paused';self.session['code_state']='paused'
+        job=self.job;job.stop();self.session['coding_goal_progress']=job.goal_progress_snapshot();self.capture_goal_resume();self.session['coding_goal']['status']='paused';self.session['code_state']='paused'
         for bridge in job.mcp_bridges:bridge.close()
         self.stop_subagents('cancelled');self.finish();self.record('output',self.tr('Goal paused. Inspect uncertain actions before resuming.'))
         self.record('usage',job.usage_text())
@@ -1632,7 +1641,7 @@ class CodeTab(QWidget):
         if getattr(self,'_compaction_active',False):
             self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
         job=self.job;job.stop()
-        if isinstance(job,CodingRun) and job.goal and self.session.get('coding_goal'):self.session['coding_goal']['status']='cancelled'
+        if isinstance(job,CodingRun) and job.goal and self.session.get('coding_goal'):self.session['coding_goal']['status']='cancelled';self.session['coding_goal_progress']=job.goal_progress_snapshot()
         usage=job.usage_text() if isinstance(job,CodingRun) else None
         for bridge in getattr(self.job,'mcp_bridges',[]):bridge.close()
         self.stop_subagents('cancelled');self.session['code_state']='cancelled';self.finish()

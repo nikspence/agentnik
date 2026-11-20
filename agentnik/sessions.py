@@ -157,6 +157,14 @@ def validate_session(value, ident=None):
             from .code_limits import coding_limits
             try: coding_limits(data['coding_limits'])
             except ValueError: require(False)
+        if 'coding_goal_limits' in data:
+            from .code_limits import goal_limits
+            try:goal_limits(data['coding_goal_limits'])
+            except ValueError:require(False)
+        if 'coding_goal_progress' in data:
+            progress=data['coding_goal_progress'];require(isinstance(progress,dict) and set(progress)=={'steps','seconds'})
+            require(type(progress['steps']) is int and 0<=progress['steps']<=1000000000)
+            require(type(progress['seconds']) in (int,float) and math.isfinite(progress['seconds']) and 0<=progress['seconds']<=3153600000)
         if 'coding_plan' in data:
             from .task_plan import validate_plan
             try:validate_plan(data['coding_plan'])

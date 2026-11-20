@@ -15,6 +15,17 @@ PATCH_FILE_BYTES=10_000_000
 RANGE_TEXT_BYTES=64_000
 PATCH_TEXT_BYTES=64_000
 
+# Zero means unlimited. Goal time is active running time, excluding pauses.
+GOAL_FIELDS={'steps':(0,0,1000000),'seconds':(0,0,31536000)}
+
+
+def goal_limits(value=None):
+    if value is None:return {key:item[0] for key,item in GOAL_FIELDS.items()}
+    if not isinstance(value,dict) or set(value)!=set(GOAL_FIELDS):raise ValueError('Invalid goal limits')
+    for key,(_,low,high) in GOAL_FIELDS.items():
+        if type(value[key]) is not int or not low<=value[key]<=high:raise ValueError('Invalid goal limit: '+key)
+    return dict(value)
+
 
 def coding_limits(value=None):
     if value is None:
