@@ -23,13 +23,12 @@ class ReviewExport(unittest.TestCase):
         from agentnik.storage import Store
         from agentnik.code_agent import ProjectFiles
         from agentnik.track_execution import prepare_track
-        from agentnik.track_review_storage import prepare_append,apply_append,sidecar_path
+        from agentnik.track_review_storage import sidecar_path
         app=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             project=Path(root)/'project';shutil.copytree(Path(__file__).parent/'fixtures'/'tracks',project);files=ProjectFiles(project)
             record=snapshot();record['reviews'][0]['track_context']={'id':'sample_feature','digest':prepare_track(files,'sample_feature')['digest']}
-            apply_append(files,prepare_append(files,'sample_feature',record),lambda proposal:True)
-            sidecar=project/sidecar_path('sample_feature');original=sidecar.read_text(encoding='utf-8');target=Path(root)/'export.json'
+            sidecar=project/sidecar_path('sample_feature');sidecar.write_text(json.dumps({'version':1,'track_id':'sample_feature','snapshots':[record]}),encoding='utf-8');original=sidecar.read_text(encoding='utf-8');target=Path(root)/'export.json'
             store=Store(Path(root)/'data');window=Window(store);mode=['cancel']
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()

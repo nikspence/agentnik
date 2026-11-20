@@ -1,4 +1,4 @@
-"""Offline project-local review sidecar contract and approved writes."""
+"""Offline read-only project-local legacy review history."""
 import copy
 import json
 from pathlib import Path
@@ -8,7 +8,7 @@ import unittest
 
 from agentnik.code_agent import ProjectFiles
 from agentnik.track_execution import prepare_track
-from agentnik.track_review_storage import read_sidecar,prepare_append,prepare_remove,apply_append,validate_sidecar,sidecar_path
+from agentnik.track_review_storage import read_sidecar,validate_sidecar,sidecar_path
 from agentnik.independent_review import track_review_summary
 from agentnik.code_agent import CodingRun
 from agentnik import core
@@ -26,63 +26,29 @@ class TrackReviewStorage(unittest.TestCase):
         self.track=prepare_track(self.files,'sample_feature');self.path=sidecar_path('sample_feature')
         self.snapshot={'version':1,'id':'a'*32,'track_id':None,'reviews':[{'id':'b'*32+'-1','role':'design','model':'light','path':'spec.md','source_sha256':'c'*64,'payload_sha256':'d'*64,'evidence':[],'track_context':{'id':'sample_feature','digest':self.track['digest']},'pass_status':'completed','structured':{'status':'valid','findings':[]},'dispositions':{}}]}
 
-    def test_approval_and_append_preserve_existing_history(self):
+    def write_fixture(self, snapshots):
+        content={'version':1,'track_id':'sample_feature','snapshots':snapshots}
+        (self.root/self.path).write_text(json.dumps(content),encoding='utf-8')
+
+    def test_existing_history_is_read_without_rewriting(self):
+        self.assertEqual(read_sidecar(self.files,'sample_feature')['snapshots'],[])
+        self.assertFalse((self.root/self.path).exists())
         self.snapshot['reviews'][0]['rubric_version']=1
         self.snapshot['reviews'][0]['batch_approved_at']='2026-11-13T19:20:21Z'
-        self.snapshot['reviews'][0]['target_payload_sha256']='f'*64
         self.snapshot['reviews'][0]['endpoint']={'protocol':'chat','origin':'https://example.invalid'}
-        self.snapshot['reviews'][0]['measurements']={'input_tokens':10,'output_tokens':None,'elapsed_seconds':1.25}
-        self.assertEqual(read_sidecar(self.files,'sample_feature')['snapshots'],[])
-        prepared=prepare_append(self.files,'sample_feature',self.snapshot);self.assertFalse((self.root/self.path).exists());self.assertIn('reviews.json',prepared['proposal']['diff'])
-        self.assertEqual(apply_append(self.files,prepared,lambda proposal:False)['status'],'rejected');self.assertFalse((self.root/self.path).exists())
-        self.assertEqual(apply_append(self.files,prepared,lambda proposal:True)['status'],'completed')
-        self.assertEqual(read_sidecar(self.files,'sample_feature')['snapshots'][0],self.snapshot)
-        second=copy.deepcopy(self.snapshot);second['id']='e'*32
-        result=apply_append(self.files,prepare_append(self.files,'sample_feature',second),lambda proposal:True)
-        self.assertEqual(result['status'],'completed');self.assertEqual([item['id'] for item in read_sidecar(self.files,'sample_feature')['snapshots']],[self.snapshot['id'],second['id']])
-        with self.assertRaises(ValueError):prepare_append(self.files,'sample_feature',second)
+        self.write_fixture([self.snapshot]);before=(self.root/self.path).read_bytes()
+        self.assertEqual(read_sidecar(self.files,'sample_feature')['snapshots'],[self.snapshot])
+        self.assertEqual((self.root/self.path).read_bytes(),before)
 
-    def test_failed_reason_round_trips_to_project_history(self):
-        review=self.snapshot['reviews'][0];review['pass_status']='failed';review['structured']={'status':'not_available','findings':[]};review['reason']='Reviewer request failed; no retry was attempted.'
-        apply_append(self.files,prepare_append(self.files,'sample_feature',self.snapshot),lambda proposal:True)
-        self.assertEqual(read_sidecar(self.files,'sample_feature')['snapshots'][0],self.snapshot)
-
-    def test_conflicts_and_credential_or_foreign_track_rejected(self):
-        prepared=prepare_append(self.files,'sample_feature',self.snapshot)
-        def modify_track(proposal):
-            (self.root/'agentnik-plans/tracks/sample_feature/plan.md').write_text('changed',encoding='utf-8');return True
-        with self.assertRaises(ValueError):apply_append(self.files,prepared,modify_track)
-        self.assertFalse((self.root/self.path).exists())
-        with self.assertRaises(ValueError):prepare_append(self.files,'sample_feature',self.snapshot,secrets=['light'])
-        foreign=copy.deepcopy(self.snapshot);foreign['reviews'][0]['track_context']['id']='other'
-        with self.assertRaises(ValueError):prepare_append(self.files,'sample_feature',foreign)
+    def test_invalid_history_is_rejected_without_rewriting(self):
         for value in ({'version':2,'track_id':'sample_feature','snapshots':[]},{'version':1,'track_id':'other','snapshots':[]}):
             with self.assertRaises(ValueError):validate_sidecar(value,'sample_feature')
-
-    def test_sidecar_change_during_approval_stops_write(self):
-        apply_append(self.files,prepare_append(self.files,'sample_feature',self.snapshot),lambda proposal:True)
-        second=copy.deepcopy(self.snapshot);second['id']='e'*32;prepared=prepare_append(self.files,'sample_feature',second)
-        external=self.root/self.path
-        def change(proposal):external.write_text('external data',encoding='utf-8');return True
-        with self.assertRaises(ValueError):apply_append(self.files,prepared,change)
-        self.assertEqual(external.read_text(encoding='utf-8'),'external data')
-
-    def test_removing_one_snapshot_requires_approval_and_detects_conflicts(self):
-        apply_append(self.files,prepare_append(self.files,'sample_feature',self.snapshot),lambda proposal:True)
-        second=copy.deepcopy(self.snapshot);second['id']='e'*32;apply_append(self.files,prepare_append(self.files,'sample_feature',second),lambda proposal:True)
-        prepared=prepare_remove(self.files,'sample_feature',self.snapshot['id'])
-        self.assertIn('-      "id": "'+self.snapshot['id'],prepared['proposal']['diff'])
-        self.assertEqual(apply_append(self.files,prepared,lambda proposal:False)['status'],'rejected');self.assertEqual(len(read_sidecar(self.files,'sample_feature')['snapshots']),2)
-        self.assertEqual(apply_append(self.files,prepared,lambda proposal:True)['status'],'completed')
-        self.assertEqual([item['id'] for item in read_sidecar(self.files,'sample_feature')['snapshots']],[second['id']])
-        with self.assertRaises(ValueError):prepare_remove(self.files,'sample_feature',self.snapshot['id'])
-        prepared=prepare_remove(self.files,'sample_feature',second['id']);external=self.root/self.path
-        def change(proposal):external.write_text('external',encoding='utf-8');return True
-        with self.assertRaises(ValueError):apply_append(self.files,prepared,change)
-        self.assertEqual(external.read_text(encoding='utf-8'),'external')
+        self.write_fixture([self.snapshot]);path=self.root/self.path;path.write_text('{broken',encoding='utf-8')
+        with self.assertRaises(ValueError):read_sidecar(self.files,'sample_feature')
+        self.assertEqual(path.read_text(encoding='utf-8'),'{broken')
 
     def test_project_history_remains_separate_from_coding_requests(self):
-        apply_append(self.files,prepare_append(self.files,'sample_feature',self.snapshot),lambda proposal:True)
+        self.write_fixture([self.snapshot])
         summary=track_review_summary(self.files,self.track,[])
         self.assertEqual(len(summary['snapshots']),1);self.assertEqual(summary['snapshots'][0]['origin'],'project');self.assertEqual(summary['snapshots'][0]['snapshot_id'],self.snapshot['id'])
         duplicate=track_review_summary(self.files,self.track,[self.snapshot]);self.assertEqual([item['origin'] for item in duplicate['snapshots']],['session','project'])

@@ -22,7 +22,6 @@ class TrackExecution(unittest.TestCase):
         from PySide6.QtWidgets import QApplication,QDialog,QPushButton,QPlainTextEdit
         from agentnik.storage import Store
         from agentnik.ui import Window
-        from agentnik.track_review_storage import prepare_append,apply_append
         app=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             project=Path(root)/'project';shutil.copytree(FIXTURE,project);store=Store(Path(root)/'data');window=Window(store)
@@ -30,8 +29,7 @@ class TrackExecution(unittest.TestCase):
                 files=ProjectFiles(project);track=prepare_track(files,'sample_feature')
                 review={'id':'a'*32+'-1','role':'design','model':'legacy','path':'agentnik-plans/tracks/sample_feature/spec.md','source_sha256':'b'*64,'payload_sha256':'c'*64,'evidence':[],'track_context':{'id':track['id'],'digest':track['digest']},'pass_status':'completed','structured':{'status':'valid','findings':[]},'dispositions':{}}
                 snapshot={'version':1,'id':'d'*32,'track_id':None,'reviews':[review]}
-                apply_append(files,prepare_append(files,'sample_feature',snapshot),lambda proposal:True)
-                sidecar=project/'agentnik-plans/tracks/sample_feature/reviews.json';before=sidecar.read_bytes()
+                sidecar=project/'agentnik-plans/tracks/sample_feature/reviews.json';sidecar.write_text(json.dumps({'version':1,'track_id':'sample_feature','snapshots':[snapshot]}),encoding='utf-8');before=sidecar.read_bytes()
                 ident=window.repositories.put(project);session=window.repositories.session(ident);session['coding_review_history']=[snapshot];store.save(session);window.open_session(session);tab=window.tabs.currentWidget();seen=[]
                 def inspect(dialog):
                     seen.append(dialog.findChild(QPlainTextEdit,'projectReviewHistory').toPlainText())
