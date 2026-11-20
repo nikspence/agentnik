@@ -1142,6 +1142,7 @@ class CodeTab(QWidget):
             objective=(resume or {}).get('task',prompt);secrets=[heavy.get('api_key','')]+[item.get('key','') for item in backends]
             self.session['coding_goal']={'objective':scrub(objective,secrets)[:16000],'status':'active','detail':''}
             self.session['coding_goal_progress']={'steps':0,'seconds':0}
+            self.session['coding_goal_run_limits']=dict(run.goal_budget)
             if not resume:self.session['coding_resume']={'task':self.session['coding_goal']['objective'],'evidence':'','images':list(run.images),'documents':scrub(copy.deepcopy(run.documents),secrets)}
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval. Shell commands '+('run without approval' if self.shell_auto.isChecked() else 'require approval')+'. Repository content goes to the selected models.')
@@ -1167,8 +1168,9 @@ class CodeTab(QWidget):
         if not goal:return
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Goal details'));dialog.resize(700,420);layout=QVBoxLayout(dialog)
         progress=self.job.goal_progress_snapshot() if isinstance(self.job,CodingRun) and self.job.goal else self.session.get('coding_goal_progress',{'steps':0,'seconds':0})
-        limits=goal_limits(self.session.get('coding_goal_limits'));unlimited=self.tr('Unlimited')
-        steps=str(limits['steps']) if limits['steps'] else unlimited;seconds=str(limits['seconds']) if limits['seconds'] else unlimited
+        saved_limits=self.session.get('coding_goal_run_limits');limits=goal_limits(saved_limits) if saved_limits is not None else None;unlimited=self.tr('Unlimited')
+        steps=(str(limits['steps']) if limits['steps'] else unlimited) if limits else self.tr('Unknown')
+        seconds=(str(limits['seconds']) if limits['seconds'] else unlimited) if limits else self.tr('Unknown')
         usage=self.tr('Completed goal steps: {used} / {limit}\nActive goal time (seconds): {seconds:.1f} / {time_limit}').format(used=progress['steps'],limit=steps,seconds=progress['seconds'],time_limit=seconds)
         details=QPlainTextEdit(self.tr('Objective:')+'\n'+goal['objective']+'\n\n'+self.tr('Status:')+' '+goal['status']+'\n\n'+usage+'\n\n'+self.tr('Latest detail (model reported):')+'\n'+goal['detail']);details.setObjectName('goalDetailsText');details.setReadOnly(True);layout.addWidget(details)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()

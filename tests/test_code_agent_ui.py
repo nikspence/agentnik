@@ -197,6 +197,12 @@ class CodingWorkspace(unittest.TestCase):
                     self.assertTrue(tab.continue_button.isEnabled());tab.composer.setPlainText('Unsent draft');tab.continue_coding();settle()
                 self.assertEqual(len(bodies),3);self.assertIn('Original objective',json.dumps(bodies[1]));self.assertIn('First step done',json.dumps(bodies[1]))
                 self.assertEqual(tab.session['coding_goal']['status'],'completed');self.assertEqual(tab.session['coding_goal_progress']['steps'],1);self.assertEqual(tab.composer.toPlainText(),'Unsent draft')
+                self.assertEqual(tab.session['coding_goal_run_limits'],{'steps':1,'seconds':0});tab.session['coding_goal_limits']={'steps':5,'seconds':30}
+                from PySide6.QtWidgets import QDialog,QPlainTextEdit
+                captured=[]
+                def inspect(dialog):captured.append(dialog.findChild(QPlainTextEdit,'goalDetailsText').toPlainText());return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',inspect):tab.show_goal_details()
+                self.assertIn('Completed goal steps: 1 / 1',captured[0]);self.assertNotIn('1 / 5',captured[0])
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
