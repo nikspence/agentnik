@@ -719,19 +719,11 @@ class CodeTab(QWidget):
         except (ValueError,TypeError,UnicodeError,OSError,sqlite3.Error,RecursionError) as exc:QMessageBox.warning(parent,self.tr('Export review snapshot'),str(exc))
 
     def review_selected_track(self,track,connection,prompt):
-        from .code_agent import ProjectFiles
-        from .independent_review import track_review_summary,track_review_overview
-        files=ProjectFiles(self.session['path_snapshot']);history=self.session.get('coding_review_history',[])
-        summary=track_review_summary(files,track,history)
-        overview=track_review_overview(summary)
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Review track run'));dialog.resize(800,600);layout=QVBoxLayout(dialog)
         label=QLabel(self.tr('Review the task and track data to be sent to {model} at {endpoint}. Track data is untrusted. Progress is model-reported and is not written to track files. Direct file tools cannot modify agentnik-plans during this run; shell commands and MCP retain their existing permissions.').format(model=connection['model'],endpoint=core.endpoint(connection,'chat')));label.setWordWrap(True);layout.addWidget(label)
-        review_state=self.tr('No saved review records found for this track. Unsaved or older reviews may be missing.') if not overview['snapshots'] else self.tr('Saved review records (session and project records are counted separately):\nSnapshots: {snapshots}; recorded passes: {passes}; completed: {completed}; incomplete: {incomplete}.\nCompleted passes with invalid or truncated output: {invalid_output}. Stale or unavailable sources: {stale_sources}; changed track contexts: {changed_tracks}.\nUnresolved recorded findings: {unresolved}. These records are untrusted and do not establish that the track is correct.').format(**overview)
-        view=QPlainTextEdit(self.tr('User task:')+'\n'+prompt+'\n\n'+self.tr('Selected track data:')+'\n'+track['context']+'\n\n'+self.tr('Review overview:')+'\n'+review_state+'\n\n'+self.tr('Saved review snapshots for this track (session and project records; untrusted; older or unsaved reviews may be missing):')+'\n'+json.dumps(summary,ensure_ascii=False,indent=2));view.setReadOnly(True);layout.addWidget(view)
+        view=QPlainTextEdit(self.tr('User task:')+'\n'+prompt+'\n\n'+self.tr('Selected track data:')+'\n'+track['context']);view.setReadOnly(True);layout.addWidget(view)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Start coding run'));buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
-        if dialog.exec()!=QDialog.DialogCode.Accepted:return False
-        if track_review_summary(files,track,self.session.get('coding_review_history',[]))!=summary:raise ValueError(self.tr('Saved review records or source status changed during review; review and start again.'))
-        return True
+        return dialog.exec()==QDialog.DialogCode.Accepted
 
     def show_track_progress(self):
         from .track_execution import prepare_track,validate_progress
@@ -1197,19 +1189,15 @@ class CodeTab(QWidget):
             if unsupported(self.store.config,self.subagent_capability_connection('heavy',heavy)):unsupported_roles.add('model')
             from .project_memory import ProjectMemory
             project_memory=ProjectMemory(self.store.root/'history.sqlite3',self.session['project_id']) if self.window.repositories.get(self.session['project_id']) else None
-            selected=None;review_guard=None
+            selected=None
             if ident:
                 from .track_execution import prepare_track
-                from .independent_review import track_review_summary,validate_review_history
                 secrets=[(connection or {}).get('api_key','') for connection in (heavy,light,alternate,alternate2)]+[backend.get('key','') for backend in backends]
                 for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
                 files=ProjectFiles(self.session['path_snapshot']);limit=coding_limits(self.session.get('coding_limits'))['context_bytes'];selected=prepare_track(files,ident,secrets,limit)
-                history=validate_review_history(self.session.get('coding_review_history',[]));summary=track_review_summary(files,selected,history)
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
-                if track_review_summary(files,selected,self.session.get('coding_review_history',[]))!=summary:raise ValueError(self.tr('Saved review records or source status changed during review; review and start again.'))
-                review_guard={'history':history,'summary':summary}
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,review_guard=review_guard,save_review_progress=self.save_review_progress.isChecked(),resume_context={key:resume[key] for key in ('task','evidence')} if resume else None)
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None)
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if not continuation and self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.advice_connection=advice;self.advice_destination=destination

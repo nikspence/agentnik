@@ -51,7 +51,7 @@ class TrackExecution(unittest.TestCase):
                 def view_start_preview(dialog):seen.append(dialog.findChild(QPlainTextEdit).toPlainText());return QDialog.DialogCode.Rejected
                 with patch.object(QDialog,'exec',view_start_preview),patch.object(core,'open_request') as send:
                     self.assertFalse(other_tab.review_selected_track(track,CONNECTION,'Task'));send.assert_not_called()
-                self.assertIn('"origin": "project"',seen[-1]);self.assertIn('d'*32,seen[-1])
+                self.assertIn('Selected track data:',seen[-1]);self.assertNotIn('d'*32,seen[-1])
                 accept[0]=False
                 def remove_project(dialog):
                     if dialog.windowTitle()=='Review project change':
@@ -98,7 +98,7 @@ class TrackExecution(unittest.TestCase):
         overview=track_review_overview({'snapshots':[{'reviews':[base,failed,stale,invalid]},{'reviews':[copy.deepcopy(base)]}]})
         self.assertEqual(overview,{'snapshots':2,'passes':5,'completed':3,'incomplete':2,'invalid_output':1,'stale_sources':1,'changed_tracks':1,'unresolved':2})
 
-    def test_track_start_preview_displays_reviews_and_rejects_changed_summary(self):
+    def test_track_start_preview_shows_task_and_track_without_review_dependency(self):
         import os
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication,QDialog,QPlainTextEdit
@@ -113,14 +113,9 @@ class TrackExecution(unittest.TestCase):
                 def reject(dialog):seen.append(dialog.findChild(QPlainTextEdit).toPlainText());return QDialog.DialogCode.Rejected
                 with patch.object(QDialog,'exec',reject),patch.object(core,'open_request') as request:
                     self.assertFalse(tab.review_selected_track(track,CONNECTION,'Task'));request.assert_not_called()
-                self.assertIn('No saved review records found',seen.pop());self.assertFalse(tab.job)
-                record={'pass_status':'stale','source_status':'stale_or_unavailable','track_revision_status':'changed','structured':{'status':'not_available','findings':[]}}
-                with patch('agentnik.independent_review.track_review_summary',return_value={'snapshots':[{'reviews':[record]}]}),patch.object(QDialog,'exec',reject):self.assertFalse(tab.review_selected_track(track,CONNECTION,'Task'))
-                preview=seen.pop();self.assertIn('recorded passes: 1; completed: 0; incomplete: 1',preview);self.assertIn('Stale or unavailable sources: 1; changed track contexts: 1',preview);self.assertIn('do not establish that the track is correct',preview)
-                initial={'snapshots':[{'finding':'unresolved example'}]};changed={'snapshots':[{'finding':'changed'}]}
-                with patch('agentnik.independent_review.track_review_summary',side_effect=[initial,changed]),patch.object(QDialog,'exec',accept):
-                    with self.assertRaisesRegex(ValueError,'changed during review'):tab.review_selected_track(track,CONNECTION,'Task')
-                self.assertIn('unresolved example',seen[0]);self.assertIn('Saved review snapshots',seen[0])
+                preview=seen.pop();self.assertIn('User task:\nTask',preview);self.assertIn('Selected track data:',preview);self.assertFalse(tab.job)
+                with patch('agentnik.independent_review.track_review_summary',side_effect=ValueError('unavailable')),patch.object(QDialog,'exec',accept):
+                    self.assertTrue(tab.review_selected_track(track,CONNECTION,'Task'))
             finally:window.close();app.processEvents();store.db.close()
 
     def test_independent_review_records_track_context_and_detects_change(self):
@@ -210,10 +205,12 @@ class TrackExecution(unittest.TestCase):
                 with patch.object(tab,'review_selected_track',side_effect=change_during_review),patch.object(core,'open_request') as send,patch('agentnik.code_ui.QMessageBox.warning') as warning:
                     tab.start_coding();send.assert_not_called();self.assertIn('changed after review',str(warning.call_args))
                 spec.write_bytes(original)
+                legacy_reviews=path.parent/'reviews.json';legacy_reviews.write_text('legacy unreadable review data',encoding='utf-8')
                 def send(connection,url,body,timeout):bodies.append(body);return Wire(chat('Done'),False)
                 with patch.object(tab,'review_selected_track',return_value=True),patch.object(core,'open_request',side_effect=send):
                     tab.start_coding();deadline=time.monotonic()+5
                     while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.01)
                     app.processEvents()
                 self.assertIsNone(tab.job);self.assertTrue(bodies);self.assertEqual(session['track_progress']['track_id'],'sample_feature');self.assertEqual(path.read_bytes(),before)
+                self.assertEqual(legacy_reviews.read_text(encoding='utf-8'),'legacy unreadable review data')
             finally:window.close();app.processEvents();store.db.close()

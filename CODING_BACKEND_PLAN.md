@@ -16,6 +16,8 @@ Subagent routing groundwork: `delegate_subagents` runs parallel children on the 
 
 Code pane transition: normal Code runs now select one Model and do not configure legacy Light or alternate models. Their saved bindings are retained, but the old selectors and direct-review controls are hidden. The legacy backend and review integration still need removal, and older sections below describe historical behavior.
 
+Track-start transition: starting a selected Spec & Plan track no longer reads or gates on independent-review histories. The preview still shows the task, exact track context, model and endpoint, and track changes invalidate the start. Existing review records remain available and untouched, including unreadable project review files. Legacy review code remains to be removed separately.
+
 ## Heavy and light models in one workflow
 
 Each Code pane has independent Heavy and Light connection/model assignments. Select any alias supported by the connection, including LiteLLM coding models, or use Choose model to retrieve its model list. Listing does not establish tool capability. Start with a tool-capable heavy model; the light role is optional and is not automatically chosen.
