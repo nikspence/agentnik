@@ -131,8 +131,10 @@ class CodingWorkspace(unittest.TestCase):
                 with patch.object(core,'open_request',side_effect=delayed):
                     tab.start_coding();settle(started.is_set);self.assertTrue(tab.goal_checkpoint_timer.isActive());tab.checkpoint_goal_progress()
                     saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertGreater(saved['coding_goal_progress']['seconds'],0)
+                    tab.steering_input.setText('Queued correction');tab.send_steering()
                     tab.composer.setPlainText('Unsent next task');tab.steering_input.setText('Unsent steering');tab.pause_goal();self.assertIsNone(tab.job);self.assertFalse(tab.goal_checkpoint_timer.isActive());release.set();tab.worker.join(5);app.processEvents()
                 self.assertEqual(session['code_state'],'paused');self.assertEqual(session['coding_goal']['status'],'paused');self.assertTrue(tab.continue_button.isEnabled());self.assertIn('Paused',tab.goal_status_label.text())
+                self.assertIn('Steering not delivered: Queued correction',json.dumps(session['code_activity']));self.assertNotIn('Queued correction',session['coding_resume']['evidence'])
                 saved=next(row for row in store.list_sessions() if row['id']==session['id']);window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
                 self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
                 tab.session['coding_goal_progress']={'steps':3,'seconds':999};tab.session['coding_goal_limits']={'steps':1,'seconds':10};store.save(tab.session)

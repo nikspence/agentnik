@@ -588,7 +588,10 @@ class CodingRun:
         return 'Usage: '+'; '.join(parts) if parts else 'Usage: no model requests'
 
     def stop(self):
-        with self.lock:self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
+        with self.lock:
+            self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
+            undelivered=self.steering[:];self.steering.clear()
+            return undelivered
 
     def goal_progress_snapshot(self,freeze=False):
         with self.lock:

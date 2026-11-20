@@ -1641,7 +1641,9 @@ class CodeTab(QWidget):
 
     def pause_goal(self):
         if not isinstance(self.job,CodingRun) or not self.job.goal:return
-        job=self.job;job.stop();self.session['coding_goal_progress']=job.goal_progress_snapshot();self.capture_goal_resume();self.session['coding_goal']['status']='paused';self.session['code_state']='paused'
+        job=self.job;undelivered=job.stop()
+        for message in undelivered:self.record_steering(self.tr('Steering not delivered: '),message)
+        self.session['coding_goal_progress']=job.goal_progress_snapshot();self.capture_goal_resume();self.session['coding_goal']['status']='paused';self.session['code_state']='paused'
         for bridge in job.mcp_bridges:bridge.close()
         self.stop_subagents('cancelled');self.finish();self.record('output',self.tr('Goal paused. Inspect uncertain actions before resuming.'))
         self.record('usage',job.usage_text())
@@ -1653,7 +1655,9 @@ class CodeTab(QWidget):
             return
         if getattr(self,'_compaction_active',False):
             self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
-        job=self.job;job.stop()
+        job=self.job;undelivered=job.stop()
+        if isinstance(job,CodingRun):
+            for message in undelivered:self.record_steering(self.tr('Steering not delivered: '),message)
         if isinstance(job,CodingRun) and job.goal and self.session.get('coding_goal'):self.session['coding_goal']['status']='cancelled';self.session['coding_goal_progress']=job.goal_progress_snapshot()
         usage=job.usage_text() if isinstance(job,CodingRun) else None
         for bridge in getattr(self.job,'mcp_bridges',[]):bridge.close()
