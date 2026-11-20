@@ -137,6 +137,7 @@ class CodingWorkspace(unittest.TestCase):
                 ident=window.repositories.put(project);session=window.repositories.session(ident)
                 session.update(code_state='awaiting_approval',coding_goal={'objective':'Original goal','status':'active','detail':'Work started'},coding_last_run_goal=True,coding_resume={'task':'Original goal','evidence':'Earlier result'},draft='Draft next task')
                 session['code_activity']=[{'kind':'started','text':'Original run'},{'kind':'steering_delivered','text':'Translated prefix: Retained correction'},{'kind':'steering','text':'Steering delivery uncertain: Do not replay'}]
+                session['coding_plan']={'explanation':'Progress','steps':[{'step':'Check remaining work','status':'pending'}]};session['coding_sources']=[{'id':'S1','title':'Reference','url':'https://example.com/reference'}]
                 store.save(session)
                 with patch.object(core,'open_request') as send:window.open_session(session);send.assert_not_called()
                 tab=window.tabs.currentWidget();self.assertEqual(session['code_state'],'interrupted');self.assertEqual(session['coding_goal']['status'],'interrupted');self.assertIn('Interrupted',tab.goal_status_label.text());self.assertIn('Original goal',tab.goal_status_label.text())
@@ -144,6 +145,7 @@ class CodingWorkspace(unittest.TestCase):
                 with patch.object(tab,'start_coding') as start:tab.continue_coding();start.assert_called_once_with(True)
                 self.assertIn('Earlier result',session['coding_resume']['evidence']);self.assertIn('uncertain actions',session['coding_resume']['evidence'])
                 self.assertIn('Retained correction',session['coding_resume']['evidence']);self.assertNotIn('Do not replay',session['coding_resume']['evidence'])
+                self.assertIn('Check remaining work',session['coding_resume']['evidence']);self.assertIn('https://example.com/reference',session['coding_resume']['evidence'])
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()

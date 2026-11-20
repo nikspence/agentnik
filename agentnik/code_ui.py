@@ -1219,7 +1219,8 @@ class CodeTab(QWidget):
     def capture_goal_resume(self):
         goal=self.session['coding_goal'];previous=self.session.get('coding_resume',{})
         recent=self.continuation_activity()
-        evidence='\n'.join(filter(None,[previous.get('evidence',''),recent,goal.get('detail',''),'Interrupted or uncertain actions must be inspected before any retry.']))[-24000:]
+        snapshot=json.dumps({'plan':self.session.get('coding_plan'),'sources':self.session.get('coding_sources',[])},ensure_ascii=True)
+        evidence=scrub('\n'.join(filter(None,[previous.get('evidence',''),recent,goal.get('detail',''),snapshot,'Interrupted or uncertain actions must be inspected before any retry.'])),self.draft_secrets())[-24000:]
         self.session['coding_resume']={'task':goal['objective'],'evidence':evidence,'images':list(previous.get('images',[])),'documents':copy.deepcopy(previous.get('documents',[]))}
         self.session['coding_context']={'task':plain(goal['objective'])[:2048],'answer':plain(evidence)[-2048:]}
 
