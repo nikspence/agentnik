@@ -106,6 +106,32 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=[Wire(chat('First step'),False),Wire(chat('More remains'),False)]):run.run(events.append)
             self.assertEqual(events[-1]['status'],'failed');self.assertTrue(events[-1]['limited']);self.assertEqual(run.goal_status,'active')
 
+    def test_goal_steering_and_tool_results_across_protocols(self):
+        from test_research import Response,answer,call as native_call
+        for protocol,url in [('responses','https://gateway.example/v1'),('messages','https://gateway.example/v1'),('chat','http://localhost:11434/v1')]:
+            with self.subTest(protocol=protocol),tempfile.TemporaryDirectory() as directory:
+                Path(directory,'file.txt').write_text('content',encoding='utf-8')
+                args={'status':'completed','detail':'Reviewed result'}
+                if protocol=='responses':
+                    first=dict(function_call('read'),name='read_file',arguments=json.dumps({'path':'file.txt'}));done=dict(function_call('goal'),name='set_goal_status',arguments=json.dumps(args))
+                    replies=[Wire(response([first]),False),Wire(response([done]),False),Wire(response([message('Done')]),False)]
+                elif protocol=='messages':
+                    replies=[Wire(msg([{'type':'tool_use','id':'read','name':'read_file','input':{'path':'file.txt'}}],'tool_use'),False),Wire(msg([{'type':'tool_use','id':'goal','name':'set_goal_status','input':args}],'tool_use'),False),Wire(msg([{'type':'text','text':'Done'}]),False)]
+                else:
+                    replies=[Response([answer('',[native_call('read_file',{'path':'file.txt'})])]),Response([answer('',[native_call('set_goal_status',args)])]),Response([answer('Done')])]
+                run=CodingRun(dict(C,protocol=protocol,url=url,stream=False),directory,'Complete task',goal=True);bodies=[];events=[]
+                def send(connection,endpoint,body,timeout):
+                    bodies.append(json.loads(json.dumps(body)))
+                    if len(bodies)==1:self.assertTrue(run.steer('Use the revised scope'))
+                    return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(bodies),3)
+                second=bodies[1]['input' if protocol=='responses' else 'messages'];serialized=json.dumps(second)
+                self.assertIn('Use the revised scope',serialized);self.assertIn('reconsider this tool call',serialized)
+                if protocol=='responses':self.assertTrue(any(x.get('type')=='function_call_output' and x.get('call_id')=='read' for x in second))
+                elif protocol=='messages':self.assertTrue(any(x.get('role')=='user' and isinstance(x.get('content'),list) and any(block.get('tool_use_id')=='read' for block in x['content'] if isinstance(block,dict)) for x in second))
+                else:self.assertTrue(any(x.get('role')=='tool' and x.get('tool_call_id')=='call-0' for x in second))
+
     def test_steering_is_delivered_after_inflight_model_response(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Original task');events=[];bodies=[]

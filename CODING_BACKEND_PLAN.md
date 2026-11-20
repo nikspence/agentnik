@@ -50,6 +50,8 @@ Goal first slice: the opt-in Code setting continues after intermediate model res
 
 Goal continuation slice: pause, blocked and interrupted goals offer explicit continuation with the original objective, bounded activity and delivered steering. Pause stops scheduling, preserves the task composer and does not replay uncertain actions. An interrupted saved run becomes interrupted on reopen, and no request starts until Continue. Offscreen tests cover pause/reopen/continue and interruption; model-independent verification of completion, broader protocol and goal-steering coverage remain open.
 
+Goal and steering protocol fixtures now cover native Ollama, Responses, and Messages in addition to Chat Completions: a steering message received during a model request defers the proposed call, retains the correlated tool result, and reaches the next goal request before a model-reported completion. These are mocked, non-streaming checks, not live provider qualification; additional streaming, interruption and multi-call cases remain open.
+
 ## Approval and next steps
 
 The earlier no-execution simulation remains available for trying the UI. Its approvals cannot authorize real edits. Optional System One advice applies to shell approvals only; other operations show **Not checked**. Heavy/light model outputs and advisory results are not execution authority.
