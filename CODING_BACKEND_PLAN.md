@@ -18,7 +18,7 @@ Code pane transition: normal Code runs now select one Model and do not configure
 
 Track-start transition: starting a selected Spec & Plan track no longer reads or gates on independent-review histories. The preview still shows the task, exact track context, model and endpoint, and track changes invalidate the start. Existing review records remain available and untouched, including unreadable project review files. Legacy review code remains to be removed separately.
 
-The coding loop no longer defines or executes the five independent document-review tools, including when a legacy Light connection is supplied. Unknown calls return useful model feedback. Existing saved review readers and the retired direct-review implementation remain for a subsequent removal slice; saved records are not erased.
+The coding loop no longer defines or executes the five independent document-review tools, including when a legacy Light connection is supplied. Unknown calls return useful model feedback. The direct-review launcher and execution module are removed. Existing saved review readers remain and saved records are not erased; additional legacy review helpers and settings still need cleanup.
 
 The retired `delegate_light` tool and its separate request path are removed. Tests verify that legacy single-Light calls return an unavailable-tool error and that same-model children receive scoped guidance.
 

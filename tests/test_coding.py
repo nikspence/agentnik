@@ -38,14 +38,14 @@ class PromptHistory(unittest.TestCase):
 
     def test_saved_review_manifest_rejects_mismatched_terminal_record(self):
         from agentnik.ui import Window
-        from agentnik.direct_review import DirectReviewRun
+        from agentnik.code_agent import CodingRun
         app=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 connection={'url':'https://example.invalid/v1','protocol':'chat','model':'reviewer'}
-                run=DirectReviewRun(project,'spec.md',[{'role':'design','model':'light','paths':[]}],{'light':connection},save_progress=True);tab.job=run;tab.run_id=run.run_id;session['code_state']='running'
+                run=CodingRun(connection,project,'',save_review_progress=True);tab.job=run;tab.run_id=run.run_id;session['code_state']='running'
                 pending={'id':'a'*32+'-1','role':'design','model':'reviewer','path':'spec.md','source_sha256':'a'*64,'payload_sha256':'b'*64,'evidence':[],'track_context':None,'pass_status':'pending','structured':{'status':'not_available','findings':[]}}
                 tab.receive({'kind':'independent_review_manifest','run_id':run.run_id,'snapshot_id':'c'*32,'reviews':[pending]});self.assertTrue(run.manifest_saved)
                 altered=dict(pending,model='different',pass_status='completed',structured={'status':'valid','findings':[]})

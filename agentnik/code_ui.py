@@ -126,46 +126,6 @@ class CodingLimitsDialog(QDialog):
     def values(self):return coding_limits({key:box.value() for key,box in self.fields.items()})
 
 
-class DirectReviewDialog(QDialog):
-    def __init__(self,parent,models,default_path=''):
-        super().__init__(parent);self.setWindowTitle(self.tr('Independent document review'));self.resize(700,650)
-        layout=QVBoxLayout(self);note=QLabel(self.tr('Choose one to three independent passes. Each exact input and destination requires approval before requests start. Comprehension receives only the document; repository fit and drift require project evidence. Reviewers receive no coding conversation, Skills, guidance, or tools. Separate passes can use the same model or provider; a provider may retain input and charge for requests.'));note.setWordWrap(True);layout.addWidget(note)
-        form=QFormLayout();layout.addLayout(form);self.target=QLineEdit(default_path);self.target.setObjectName('directReviewTarget');form.addRow(self.tr('Project-relative document path'),self.target)
-        preset=QPushButton(self.tr('Use comprehension, requirements, and design preset'));preset.setObjectName('directReviewPreset');preset.setToolTip(self.tr('Changes the three pass roles and keeps the model and evidence selections. Each pass still requires approval.'));layout.addWidget(preset)
-        self.passes=[];self.evidence_fields=[]
-        for index in range(3):
-            row=QHBoxLayout();role=QComboBox();role.setObjectName('directReviewRole'+str(index));role.addItem(self.tr('Not selected'),'')
-            for label,value in [(self.tr('Comprehension'),'comprehension'),(self.tr('Requirements'),'requirements'),(self.tr('Design'),'design'),(self.tr('Repository fit'),'repository_fit'),(self.tr('Readiness'),'readiness'),(self.tr('Specification / evidence drift'),'drift')]:role.addItem(label,value)
-            model=QComboBox();model.setObjectName('directReviewModel'+str(index))
-            for key,connection in models.items():model.addItem(key+' · '+connection['model'],key)
-            if index==0:role.setCurrentIndex(1)
-            row.addWidget(role);row.addWidget(model);form.addRow(self.tr('Pass {number}').format(number=index+1),row);self.passes.append((role,model))
-            evidence=QPlainTextEdit();evidence.setObjectName('directReviewEvidence'+str(index));evidence.setMaximumHeight(58);evidence.setPlaceholderText(self.tr('Optional project-relative paths, one per line (up to three).'));form.addRow(self.tr('Pass {number} evidence').format(number=index+1),evidence);self.evidence_fields.append(evidence)
-            def update_enabled(_=None,r=role,m=model,e=evidence):
-                m.setEnabled(bool(r.currentData()));e.setEnabled(r.currentData() not in ('','comprehension'))
-            role.currentIndexChanged.connect(update_enabled);update_enabled()
-        def apply_preset():
-            for (role,_),value in zip(self.passes,('comprehension','requirements','design')):role.setCurrentIndex(role.findData(value))
-        preset.clicked.connect(apply_preset)
-        self.save_progress=QCheckBox(self.tr('Save pass progress to this session during the review'));self.save_progress.setObjectName('directReviewSaveProgress');self.save_progress.setToolTip(self.tr('Approved passes are saved before requests start. Unfinished passes reopen as interrupted. Finding dispositions are saved separately.'));layout.addWidget(self.save_progress)
-        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Prepare approvals'));buttons.accepted.connect(self.validate_and_accept);buttons.rejected.connect(self.reject);layout.addWidget(buttons)
-
-    def validate_and_accept(self):
-        try:self.values()
-        except ValueError as exc:QMessageBox.warning(self,self.tr('Independent review'),str(exc));return
-        self.accept()
-
-    def values(self):
-        target=self.target.text().strip();passes=[]
-        if not target:raise ValueError(self.tr('Enter a document path.'))
-        for (role,model),evidence in zip(self.passes,self.evidence_fields):
-            if not role.currentData():continue
-            paths=[] if role.currentData()=='comprehension' else [line.strip() for line in evidence.toPlainText().splitlines() if line.strip()]
-            if len(paths)>3 or len(set(paths))!=len(paths):raise ValueError(self.tr('Each pass accepts up to three distinct evidence paths.'))
-            if role.currentData() in ('drift','repository_fit') and not paths:raise ValueError(self.tr('Repository fit and drift checks require at least one project evidence file.'))
-            passes.append({'role':role.currentData(),'model':model.currentData(),'paths':paths})
-        if not passes:raise ValueError(self.tr('Choose at least one review pass.'))
-        return target,passes
 
 
 class CodingSourcesDialog(QDialog):
@@ -320,8 +280,6 @@ class CodeTab(QWidget):
         self.send=QPushButton(self.tr('Run'));self.send.clicked.connect(self.start_coding);run_row.addWidget(self.send)
         self.continue_button=QPushButton(self.tr('Continue'));self.continue_button.setObjectName('continueCodingRun');self.continue_button.setToolTip(self.tr('Start a fresh run using the saved task and recent activity. Review project state before repeating unfinished operations.'));self.continue_button.clicked.connect(self.continue_coding);run_row.addWidget(self.continue_button)
         self.continue_button.setEnabled(self.can_continue())
-        self.direct_review_button=QPushButton(self.tr('Independent review…'));self.direct_review_button.clicked.connect(self.start_direct_review);run_row.addWidget(self.direct_review_button)
-        self.direct_review_button.hide()
         self.cancel_button=QPushButton(self.tr('Cancel'));self.cancel_button.setEnabled(False);self.cancel_button.clicked.connect(self.cancel);run_row.addWidget(self.cancel_button)
         self.pause_goal_button=QPushButton(self.tr('Pause goal'));self.pause_goal_button.setEnabled(False);self.pause_goal_button.clicked.connect(self.pause_goal);run_row.addWidget(self.pause_goal_button)
         run_row.addWidget(self.model_toggle)
@@ -1136,33 +1094,6 @@ class CodeTab(QWidget):
             QMessageBox.warning(self,self.tr('MCP servers'),self.tr('Select at most five servers total.'));return
         self.mcp_extra_refs=[{'name':name,'sha256':server_fingerprint(item)} if item else old[name] for name,item in selected];self.save_mcp_selection()
 
-    def start_direct_review(self):
-        if self.job or self._closed:return
-        if not self.light_enabled.isChecked():QMessageBox.warning(self,self.tr('Independent review'),self.tr('Enable Light model delegation and configure a reviewer model first.'));return
-        try:
-            self.save_models();models={}
-            for role in ('light','alternate','alternate2'):
-                connection,model=self.roles[role]
-                if connection.currentData() and model.text().strip():models[role]=self.role_connection(role)
-            if not models:raise ValueError(self.tr('Configure a Light or alternate reviewer model.'))
-            ident=self.session.get('selected_track');default_path=('agentnik-plans/tracks/'+ident+'/spec.md') if ident else ''
-            dialog=DirectReviewDialog(self,models,default_path)
-            if dialog.exec()!=QDialog.DialogCode.Accepted:return
-            target,passes=dialog.values()
-            if dialog.save_progress.isChecked() and len(self.session.get('coding_review_history',[]))>=10:raise ValueError(self.tr('The session already has ten review snapshots. Delete one before saving progress.'))
-            from .code_agent import ProjectFiles
-            files=ProjectFiles(self.session['path_snapshot']);files.path(target)
-            for item in passes:
-                for path in item['paths']:files.path(path)
-            selected=None
-            secrets=[connection.get('api_key','') for connection in self.window.connections.values()]+[backend.get('key','') for backend in self.store.web_backend_specs()]
-            if ident:
-                from .track_execution import prepare_track
-                selected=prepare_track(files,ident,secrets,coding_limits(self.session.get('coding_limits'))['context_bytes'])
-            from .direct_review import DirectReviewRun
-            run=DirectReviewRun(self.session['path_snapshot'],target,passes,models,limits=self.session.get('coding_limits'),selected_track=selected,extra_secrets=secrets,save_progress=dialog.save_progress.isChecked())
-        except (OSError,ValueError,TypeError) as exc:QMessageBox.warning(self,self.tr('Independent review'),str(exc));return
-        self.launch(run,self.tr('Independent document review started. Each reviewer input and destination requires approval.'))
 
     def start_coding(self,continuation=False):
         if self.job or self._closed:return
@@ -1258,16 +1189,15 @@ class CodeTab(QWidget):
             run.show_thinking=self.show_thinking.isChecked()
             self.review_results.clear();self.review_dispositions.clear();self.review_progress_ids.clear();self.review_results_button.setEnabled(False)
             self.session['coding_subagents']=[];self.refresh_subagents()
-            if not getattr(run,'direct_review',False):
-                history=self.session.setdefault('coding_skill_history',[])
-                history.append({'run_id':run.run_id,'skills':[]});self.session['coding_skill_history']=history[-32:]
-                self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
+            history=self.session.setdefault('coding_skill_history',[])
+            history.append({'run_id':run.run_id,'skills':[]});self.session['coding_skill_history']=history[-32:]
+            self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
         self.steering_input.setEnabled(isinstance(run,CodingRun));self.steering_button.setEnabled(isinstance(run,CodingRun))
         self.goal_enabled.setEnabled(False)
         self.pause_goal_button.setEnabled(isinstance(run,CodingRun) and run.goal)
         self.continue_button.setEnabled(False)
-        self.send.setEnabled(False);self.direct_review_button.setEnabled(False);self.cancel_button.setEnabled(True)
+        self.send.setEnabled(False);self.cancel_button.setEnabled(True)
         self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.save_review_progress.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
@@ -1814,7 +1744,7 @@ class CodeTab(QWidget):
             if isinstance(self.job,CodingRun) and self.job.goal and self.session.get('coding_goal'):
                 self.session['coding_goal']['status']='limited' if event.get('limited') else event['status']
                 if event['status']!='completed':self.session['coding_goal']['detail']=event['text'][:4000]
-            if event.get('limited') and isinstance(self.job,CodingRun) and not getattr(self.job,'direct_review',False):
+            if event.get('limited') and isinstance(self.job,CodingRun):
                 secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in self.job.web_backends]
                 for bridge in self.job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
                 activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
@@ -1825,7 +1755,7 @@ class CodeTab(QWidget):
                 resume={'task':scrub(task,secrets)[:16000],'evidence':scrub(evidence,secrets)[-24000:],'images':list(self.job.images),'documents':scrub(copy.deepcopy(self.job.documents),secrets)};self.session['coding_resume']=resume
                 context={'task':plain(resume['task'])[:2048],'answer':plain(resume['evidence'])[-2048:]}
                 self.session['coding_context']=context;self.session.pop('coding_compaction',None)
-            if event['status']=='completed' and isinstance(self.job,CodingRun) and not getattr(self.job,'direct_review',False):
+            if event['status']=='completed' and isinstance(self.job,CodingRun):
                 self.session.pop('coding_resume',None)
                 secrets=[self.job.connection.get('api_key',''),(self.job.light or {}).get('api_key',''),(self.job.alternate or {}).get('api_key',''),(self.job.alternate2 or {}).get('api_key','')]
                 context={'task':plain(scrub(self.job.prompt,secrets)),'answer':plain(event['text'])}
@@ -1894,7 +1824,7 @@ class CodeTab(QWidget):
         self.approval_panel.hide()
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button,self.pause_goal_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
-        self.send.setEnabled(True);self.direct_review_button.setEnabled(True)
+        self.send.setEnabled(True)
         self.coding_context_button.setEnabled(True);self.coding_auto_compact.setEnabled(True);self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.save_review_progress.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         self.continue_button.setEnabled(self.can_continue())
@@ -1916,7 +1846,7 @@ class CodeTab(QWidget):
             self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
         job=self.job;job.stop()
         if isinstance(job,CodingRun) and job.goal and self.session.get('coding_goal'):self.session['coding_goal']['status']='cancelled'
-        usage=job.usage_text() if isinstance(job,CodingRun) and not getattr(job,'direct_review',False) else None
+        usage=job.usage_text() if isinstance(job,CodingRun) else None
         for bridge in getattr(self.job,'mcp_bridges',[]):bridge.close()
         self.stop_subagents('cancelled');self.session['code_state']='cancelled';self.finish()
         self.record('cancelled','Run cancelled. No further tool work will be scheduled; project changes already applied are retained.')

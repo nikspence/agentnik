@@ -7,7 +7,7 @@ import tempfile
 import threading
 import unittest
 
-from agentnik.code_agent import ProjectFiles, REVIEW_RUBRICS
+from agentnik.code_agent import ProjectFiles
 from agentnik.independent_review import prepare_snapshot, sources_unchanged, validate_result, validate_review_history, build_review_request, preflight_review_batch, execute_review_batch, parse_structured_findings, RUBRIC_VERSION
 from agentnik.project_tools import ProjectToolError
 from agentnik import core
@@ -174,12 +174,6 @@ class IndependentReviewSnapshots(unittest.TestCase):
                     with self.assertRaises(ValueError):build_review_request(connection,changed)
                 with self.assertRaises(ValueError):build_review_request(dict(connection,model='other'),proposal)
 
-    def test_version_one_rubrics_keep_exact_instruction_text(self):
-        from agentnik.independent_review import STRUCTURED_INSTRUCTIONS,DRIFT_REVIEW_INSTRUCTIONS,REPOSITORY_FIT_INSTRUCTIONS
-        expected={'comprehension':'e649e48be400fb096d9c34bb6b69cb120cbdd2229c423761cd1f73cb208acb3f','requirements':'724d70b25b6ce2f2ece2a40211f1589b4fb509c236d750b0186483c65fab16a8','design':'baf8665a82ad8898adafcf175344908424173ce169d792c2389826a07ec02402','readiness':'5a2f6e74072d11c300a50a81fb46c805282c834a41822d83756e5a4ed8cc3efc'}
-        self.assertEqual(RUBRIC_VERSION,1)
-        self.assertEqual({name:hashlib.sha256(text.encode('utf-8')).hexdigest() for name,text in REVIEW_RUBRICS.items()},expected)
-        self.assertEqual([hashlib.sha256(text.encode('utf-8')).hexdigest() for text in (STRUCTURED_INSTRUCTIONS,DRIFT_REVIEW_INSTRUCTIONS,REPOSITORY_FIT_INSTRUCTIONS)],['d41228d8e492e63335a5e71f0c033ce45dc814635bfc3ff034cdb36a88371ab8','7e0b0e29d0f7a07fd49c642b1ba231c6291bb49053a6533a7500937f910092ad','d322a94513bd9ad7ec8b3614dae8519525134a1c74c1b164d375a648a97242b1'])
 
     def test_result_contract_rejects_invalid_or_future_values(self):
         result={'version':1,'rubric_version':1,'status':'completed','role':'design','path':'spec.md','source_sha256':'a'*64,'evidence':[], 'model':'model','usage':{'input_tokens':None,'output_tokens':4},'elapsed_seconds':1.2,'analysis':'Untrusted finding','truncated':False,'notice':'Untrusted','payload_sha256':'b'*64}
