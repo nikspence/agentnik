@@ -565,7 +565,7 @@ class CodingRun:
         if self.unsupported_subagent_roles-{'model'}:raise ValueError('Invalid subagent capability roles')
         self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self._git_credentials=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
         self.shell_without_approval=False;self.shell_automatic_last=False;self.answer_steered=False
-        self.steering=[];self.accepting_steering=True
+        self.steering=[];self.steering_inflight=[];self.steering_submitted=False;self.accepting_steering=True
         self.usage={role:self._empty_usage() for role in ('Model','Subagent')}
         self.show_thinking=False
 
@@ -591,7 +591,9 @@ class CodingRun:
         with self.lock:
             self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
             undelivered=self.steering[:];self.steering.clear()
-            return undelivered
+            inflight=self.steering_inflight[:];self.steering_inflight.clear()
+            if not self.steering_submitted:undelivered=inflight+undelivered;inflight=[]
+            return {'undelivered':undelivered,'uncertain':inflight}
 
     def goal_progress_snapshot(self,freeze=False):
         with self.lock:
@@ -908,7 +910,8 @@ class CodingRun:
             while True:
                 round_number+=1
                 check_skill_versions();guidance.discover('.');sync_guidance()
-                with self.lock:steering_batch=self.steering[:];self.steering.clear()
+                with self.lock:
+                    steering_batch=self.steering[:];self.steering.clear();self.steering_inflight=steering_batch[:];self.steering_submitted=False
                 steering_submitted=False
                 if steering_batch and self.goal:self.goal_status='active'
                 for message in steering_batch:
@@ -919,8 +922,11 @@ class CodingRun:
                 event('output',text='Model task: requesting '+c['model']+' through the selected connection.')
                 seen_guidance=guidance_payload
                 steering_submitted=bool(steering_batch)
+                with self.lock:
+                    runtime.check();self.steering_submitted=steering_submitted
                 assistant,calls=request('Model',adapter,c,body,state)
                 for message in steering_batch:event('steering_delivered',text=scrub(message,secrets))
+                with self.lock:self.steering_inflight=[];self.steering_submitted=False
                 steering_batch=[];steering_submitted=False
                 check_skill_versions()
                 context_request_size=None

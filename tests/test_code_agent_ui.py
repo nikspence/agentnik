@@ -149,6 +149,33 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_pause_reports_inflight_steering_as_uncertain(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([]);first=threading.Event();second=threading.Event();release_first=threading.Event();release_second=threading.Event()
+        def settle(predicate):
+            deadline=time.monotonic()+5
+            while not predicate() and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+            self.assertTrue(predicate())
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.goal_enabled.setChecked(True);tab.composer.setPlainText('Goal')
+                def send(connection,url,body,timeout):
+                    if not first.is_set():first.set();release_first.wait(5);return Wire(chat('Step'),False)
+                    second.set();release_second.wait(5);return Wire(chat('Late'),False)
+                with patch.object(core,'open_request',side_effect=send):
+                    tab.start_coding();settle(first.is_set);tab.steering_input.setText('Change direction');tab.send_steering();release_first.set();settle(second.is_set)
+                    tab.pause_goal();release_second.set();tab.worker.join(5);app.processEvents()
+                self.assertIn('Steering delivery uncertain: Change direction',json.dumps(session['code_activity']))
+                self.assertNotIn('Change direction',session['coding_resume']['evidence']);self.assertEqual(session['code_state'],'paused')
+            finally:
+                release_first.set();release_second.set()
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_goal_step_limit_can_continue_with_same_fresh_limit(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
