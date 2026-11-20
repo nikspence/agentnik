@@ -50,6 +50,8 @@
     </context>
     <context>
         <name>CodeTab</name>
+        <message><source>Latest detail:</source><translation>최근 세부 정보:</translation></message>
+        <message><source>Retained delivered steering:</source><translation>유지된 전달 지시:</translation></message>
         <message><source>Goal objectives must be at most 16,000 characters so they can be saved and resumed.</source><translation>목표를 저장하고 계속할 수 있도록 목표는 16,000자 이하여야 합니다.</translation></message>
         <message><source>View legacy model settings…</source><translation>이전 모델 설정 보기…</translation></message>
         <message><source>Legacy model settings</source><translation>이전 모델 설정</translation></message>

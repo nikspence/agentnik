@@ -1250,7 +1250,10 @@ class CodeTab(QWidget):
         steps=(str(limits['steps']) if limits['steps'] else unlimited) if limits else self.tr('Unknown')
         seconds=(str(limits['seconds']) if limits['seconds'] else unlimited) if limits else self.tr('Unknown')
         usage=self.tr('Completed goal steps: {used} / {limit}\nActive goal time (seconds): {seconds:.1f} / {time_limit}').format(used=progress['steps'],limit=steps,seconds=progress['seconds'],time_limit=seconds)
-        details=QPlainTextEdit(self.tr('Objective:')+'\n'+goal['objective']+'\n\n'+self.tr('Status:')+' '+goal['status']+'\n\n'+usage+'\n\n'+self.tr('Latest detail (model reported):')+'\n'+goal['detail']);details.setObjectName('goalDetailsText');details.setReadOnly(True);layout.addWidget(details)
+        steering=self.continuation_steering(self.draft_secrets())
+        text=self.tr('Objective:')+'\n'+goal['objective']+'\n\n'+self.tr('Status:')+' '+goal['status']+'\n\n'+usage+'\n\n'+self.tr('Latest detail:')+'\n'+goal['detail']
+        if steering:text+='\n\n'+self.tr('Retained delivered steering:')+'\n'+steering
+        details=QPlainTextEdit(text);details.setObjectName('goalDetailsText');details.setReadOnly(True);layout.addWidget(details)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
 
     def capture_goal_resume(self):

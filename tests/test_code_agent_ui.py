@@ -405,10 +405,11 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertIn('Verified result',saved['coding_goal']['detail']);self.assertIn('No structured test report',saved['coding_goal']['detail'])
                 self.assertIn('model reported',tab.activity.toPlainText())
                 from PySide6.QtWidgets import QDialog,QPlainTextEdit
-                captured=[]
+                session['coding_continuation_steering']={'text':'Preserved correction','omitted':True};captured=[]
                 def inspect(dialog):captured.append(dialog.findChild(QPlainTextEdit,'goalDetailsText').toPlainText());return QDialog.DialogCode.Rejected
                 with patch.object(QDialog,'exec',inspect):tab.show_goal_details()
                 self.assertIn('Finish the feature',captured[0]);self.assertIn('Verified result',captured[0]);self.assertIn('Completed goal steps: 2 / Unlimited',captured[0]);self.assertIn('Active goal time (seconds):',captured[0])
+                self.assertIn('Preserved correction',captured[0]);self.assertIn('Earlier delivered steering omitted',captured[0])
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
