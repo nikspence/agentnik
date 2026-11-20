@@ -147,6 +147,31 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_goal_step_limit_can_continue_with_same_fresh_limit(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);session['coding_goal_limits']={'steps':1,'seconds':0};store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.goal_enabled.setChecked(True);tab.composer.setPlainText('Original objective')
+                replies=[Wire(chat('First step done'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Finished remaining work'})],finish='tool_calls'),False),Wire(chat('Done'),False)];bodies=[]
+                def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                def settle():
+                    deadline=time.monotonic()+5
+                    while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
+                    app.processEvents();self.assertIsNone(tab.job)
+                with patch.object(core,'open_request',side_effect=send):
+                    tab.start_coding();settle();self.assertEqual(tab.session['code_state'],'limited');self.assertEqual(tab.session['coding_goal_progress']['steps'],1)
+                    self.assertTrue(tab.continue_button.isEnabled());tab.composer.setPlainText('Unsent draft');tab.continue_coding();settle()
+                self.assertEqual(len(bodies),3);self.assertIn('Original objective',json.dumps(bodies[1]));self.assertIn('First step done',json.dumps(bodies[1]))
+                self.assertEqual(tab.session['coding_goal']['status'],'completed');self.assertEqual(tab.session['coding_goal_progress']['steps'],0);self.assertEqual(tab.composer.toPlainText(),'Unsent draft')
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_goal_mode_persists_model_reported_completion(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
