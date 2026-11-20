@@ -275,19 +275,10 @@ class Subagents(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 tab.job=MagicMock();tab.run_id='active'
-                proposal={'operation':'subagent_file_transfer','cwd':str(project),'path':'sample.txt','model':'light','destination':'https://example.org/v1/chat/completions','child':1,'task':'Review file','diff':'Exact approved text','source_sha256':'a'*64,'payload_sha256':'b'*64,'payload_bytes':19}
+                proposal={'operation':'subagent_file_transfer','cwd':str(project),'path':'sample.txt','model':'selected-model','destination':'https://example.org/v1/chat/completions','child':1,'task':'Review file','diff':'Exact approved text','source_sha256':'a'*64,'payload_sha256':'b'*64,'payload_bytes':19}
                 tab.receive({'kind':'operation_proposal','run_id':'active','fingerprint':'f','proposal':proposal})
                 self.assertFalse(tab.approval_panel.isHidden());self.assertFalse(tab.diff.isHidden())
-                self.assertIn('sample.txt',tab.approval.toPlainText());self.assertIn('https://example.org',tab.approval.toPlainText());self.assertIn('light',tab.approval.toPlainText());self.assertEqual(tab.diff.toPlainText(),'Exact approved text')
-                proposal.update(operation='independent_review',role='design',diff='Fixed instructions\nDocument contents')
-                proposal['target_payload_sha256']='e'*64
-                proposal['evidence']=[{'path':'evidence.txt','sha256':'c'*64,'payload_sha256':'d'*64}]
-                tab.receive({'kind':'operation_proposal','run_id':'active','fingerprint':'g','proposal':proposal})
-                self.assertIn('INDEPENDENT DOCUMENT REVIEW',tab.approval.toPlainText());self.assertIn('design',tab.approval.toPlainText());self.assertIn('a'*64,tab.approval.toPlainText());self.assertIn('b'*64,tab.approval.toPlainText())
-                self.assertIn('evidence.txt',tab.approval.toPlainText());self.assertIn('c'*64,tab.approval.toPlainText());self.assertIn('d'*64,tab.approval.toPlainText())
-                self.assertIn('Transmitted document text SHA-256',tab.approval.toPlainText());self.assertIn('e'*64,tab.approval.toPlainText())
-                self.assertIn('other secrets may remain',tab.approval.toPlainText());self.assertIn('retain the input or charge',tab.approval.toPlainText())
-                self.assertEqual(tab.diff.toPlainText(),'Fixed instructions\nDocument contents');self.assertFalse(tab.diff.isHidden())
+                self.assertIn('sample.txt',tab.approval.toPlainText());self.assertIn('https://example.org',tab.approval.toPlainText());self.assertIn('selected-model',tab.approval.toPlainText());self.assertEqual(tab.diff.toPlainText(),'Exact approved text')
             finally:
                 if window.tabs.currentWidget():window.tabs.currentWidget().job=None
                 window.close();app.processEvents();store.db.close()

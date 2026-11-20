@@ -283,13 +283,21 @@ class ModelCoding(unittest.TestCase):
         from agentnik.code_limits import coding_limits
         with tempfile.TemporaryDirectory() as directory:
             limits=coding_limits();limits['context_bytes']=4096
-            run=CodingRun(dict(C,stream=False),directory,'Finish',limits=limits,goal=True);events=[]
+            run=CodingRun(dict(C,stream=False),directory,'p'*2500,limits=limits,goal=True);events=[]
             def send(connection,url,body,timeout):
-                self.assertGreater(len(json.dumps(body).encode()),limits['context_bytes']);self.assertTrue(run.steer('Correction'))
-                return Wire(chat('Step done'),False)
+                self.assertTrue(run.steer('Correction'));return Wire(chat('a'*2500),False)
             with patch.object(core,'open_request',side_effect=send) as transport:run.run(events.append)
             self.assertEqual(transport.call_count,1);self.assertTrue(events[-1]['limited']);self.assertIn('context bytes limit',events[-1]['text'])
             self.assertEqual([e['text'] for e in events if e['kind']=='steering_undelivered'],['Correction']);self.assertFalse(any(e['kind']=='steering_delivered' for e in events))
+
+    def test_goal_small_context_limit_does_not_charge_fixed_tool_definitions_on_reset(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as directory:
+            limits=coding_limits();limits['context_bytes']=4096;events=[]
+            run=CodingRun(dict(C,stream=False),directory,'Finish',limits=limits,goal=True)
+            replies=[Wire(chat('Step done'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Finished'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            with patch.object(core,'open_request',side_effect=replies) as transport:run.run(events.append)
+            self.assertEqual(transport.call_count,3);self.assertEqual(events[-1]['status'],'completed',events)
 
     def test_goal_step_limit_reports_boundary_steering_undelivered(self):
         with tempfile.TemporaryDirectory() as directory:

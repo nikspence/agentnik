@@ -951,11 +951,14 @@ class CodingRun:
                         event('goal_progress',steps=self.goal_steps,seconds=self.goal_elapsed+time.monotonic()-self.goal_started)
                         if self.goal_budget['steps'] and self.goal_steps>=self.goal_budget['steps']:raise LimitError('Coding goal step limit reached')
                         # A complete response without tool calls closes this goal step.
-                        # Preserve and re-charge the retained request so repeated steps
-                        # cannot grow the model context beyond its configured bound.
+                        # Re-charge retained conversation and project instructions.
+                        # Fixed protocol tool definitions are not charged in the first
+                        # step and must not consume a fresh step's context budget.
                         runtime.check();runtime.started=time.monotonic()
                         runtime.calls=runtime.requests=runtime.retrieved_bytes=runtime.context_bytes=0
-                        runtime.charge('context_bytes',len(json.dumps(body,ensure_ascii=True).encode('utf-8')),runtime.limits.context_bytes)
+                        retained=body['input'] if protocol=='responses' else [item for item in body['messages'] if item.get('role')!='system']
+                        retained_bytes=len(json.dumps(retained,ensure_ascii=True).encode('utf-8'))+len(guidance_payload.encode('utf-8'))+len(skill_text.encode('utf-8'))
+                        runtime.charge('context_bytes',retained_bytes,runtime.limits.context_bytes)
                         round_number=-1
                         message='Continue the current goal. Assess the evidence and take the next useful step. If the entire goal is complete, or a real blocker requires input, call set_goal_status with supporting detail.'
                         runtime.charge('context_bytes',len(message.encode()),runtime.limits.context_bytes)
