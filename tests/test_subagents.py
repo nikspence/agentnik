@@ -68,7 +68,7 @@ class Subagents(unittest.TestCase):
         for approve in (False,True):
             with self.subTest(approve=approve),tempfile.TemporaryDirectory() as root:
                 Path(root,'a.txt').write_text('project evidence',encoding='utf-8');events=[];bodies=[];lock=threading.Lock()
-                run=CodingRun(dict(C,stream=False),root,'Analyze')
+                run=CodingRun(dict(C,stream=False),root,'Analyze');run.set_shell_without_approval(True)
                 def send(connection,url,body,timeout):
                     with lock:bodies.append(copy.deepcopy(body))
                     if 'Independent read-only coding analysis.' in json.dumps(body):return Wire(chat('Finding'),False)

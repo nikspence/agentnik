@@ -1010,31 +1010,35 @@ class ModelCoding(unittest.TestCase):
                 self.assertNotIn('model-secret',json.dumps(events));self.assertEqual(events[-1]['status'],'completed')
 
     def test_disabling_shell_switch_before_dispatch_requires_approval(self):
-        with tempfile.TemporaryDirectory() as directory:
-            replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo test'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
-            run=CodingRun(dict(C,stream=False),directory,'Run a command');run.set_shell_without_approval(True)
-            original=run.review_shell;events=[]
-            def review(*args):
-                result=original(*args)
-                if run.shell_automatic_last:run.set_shell_without_approval(False)
-                return result
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':run.decide(event['fingerprint'],False)
-            with patch.object(run,'review_shell',side_effect=review),patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute') as execute:
-                run.run(emit);execute.assert_not_called()
-            self.assertTrue(any(e['kind']=='operation_proposal' for e in events))
+        for goal in (False,True):
+            with self.subTest(goal=goal),tempfile.TemporaryDirectory() as directory:
+                replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo test'})],finish='tool_calls'),False)]
+                if goal:replies.append(Wire(chat(calls=[call('set_goal_status',{'status':'blocked','detail':'Command declined'})],finish='tool_calls'),False))
+                replies.append(Wire(chat('Done'),False))
+                run=CodingRun(dict(C,stream=False),directory,'Run a command',goal=goal);run.set_shell_without_approval(True)
+                original=run.review_shell;events=[]
+                def review(*args):
+                    result=original(*args)
+                    if run.shell_automatic_last:run.set_shell_without_approval(False)
+                    return result
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.decide(event['fingerprint'],False)
+                with patch.object(run,'review_shell',side_effect=review),patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute') as execute:
+                    run.run(emit);execute.assert_not_called()
+                self.assertTrue(any(e['kind']=='operation_proposal' for e in events));self.assertEqual(events[-1]['status'],'blocked' if goal else 'completed')
 
     def test_cancelling_pending_shell_is_not_released_by_switch(self):
-        with tempfile.TemporaryDirectory() as directory:
-            replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo test'})],finish='tool_calls'),False)]
-            run=CodingRun(dict(C,stream=False),directory,'Run a command');events=[]
-            def emit(event):
-                events.append(event)
-                if event['kind']=='operation_proposal':run.stop();run.set_shell_without_approval(True)
-            with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute') as execute:
-                run.run(emit);execute.assert_not_called()
-            self.assertTrue(any(e['kind']=='operation_proposal' for e in events))
+        for goal in (False,True):
+            with self.subTest(goal=goal),tempfile.TemporaryDirectory() as directory:
+                replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo test'})],finish='tool_calls'),False)]
+                run=CodingRun(dict(C,stream=False),directory,'Run a command',goal=goal);events=[]
+                def emit(event):
+                    events.append(event)
+                    if event['kind']=='operation_proposal':run.stop();run.set_shell_without_approval(True)
+                with patch.object(core,'open_request',side_effect=replies),patch('agentnik.shell.execute') as execute:
+                    run.run(emit);execute.assert_not_called()
+                self.assertTrue(any(e['kind']=='operation_proposal' for e in events))
 
     def test_project_edit_runs_before_rejected_shell_in_same_batch(self):
         with tempfile.TemporaryDirectory() as directory:
