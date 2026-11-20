@@ -410,6 +410,32 @@ class ModelCoding(unittest.TestCase):
                 self.assertTrue(any(item.get('type')=='function_call_output' and item.get('call_id')=='write' for item in items))
                 self.assertEqual([e['text'] for e in events if e['kind']=='steering_delivered'],['Do not write the file'])
 
+    def test_ollama_streaming_steering_defers_tool_call(self):
+        from test_research import Response,answer
+        for goal in (False,True):
+            with self.subTest(goal=goal),tempfile.TemporaryDirectory() as directory:
+                run=CodingRun(dict(C,url='http://localhost:11434/v1',stream=True),directory,'Original task',goal=goal);events=[];bodies=[]
+                class SteeringResponse(Response):
+                    def readline(self,size=-1):
+                        line=super().readline(size)
+                        if line and not getattr(self,'steered',False):
+                            self.steered=True;self_outer.assertTrue(run.steer('Do not write the file'))
+                        return line
+                self_outer=self
+                def tool_events(name,ident,args):
+                    encoded=json.dumps(args);middle=len(encoded)//2
+                    return [{'message':{'role':'assistant','tool_calls':[{'id':ident,'function':{'index':0,'name':name,'arguments':encoded[:middle]}}]},'done':False},
+                            {'message':{'role':'assistant','tool_calls':[{'id':ident,'function':{'index':0,'arguments':encoded[middle:]}}]},'done':True}]
+                replies=[SteeringResponse(tool_events('write_file','write',{'path':'new.txt','content':'wrong'}))]
+                if goal:replies.append(Response(tool_events('set_goal_status','goal',{'status':'completed','detail':'Adjusted as requested'})))
+                replies.append(Response([answer('Adjusted')]))
+                def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events);self.assertFalse(Path(directory,'new.txt').exists())
+                messages=bodies[1]['messages'];self.assertIn('Do not write the file',json.dumps(messages));self.assertIn('reconsider this tool call',json.dumps(messages))
+                self.assertTrue(any(m.get('role')=='tool' and m.get('tool_call_id')=='write' for m in messages))
+                self.assertEqual([e['text'] for e in events if e['kind']=='steering_delivered'],['Do not write the file'])
+
     def test_steering_is_delivered_after_inflight_model_response(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Original task');events=[];bodies=[]
