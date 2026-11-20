@@ -168,6 +168,7 @@ class CodeTab(QWidget):
     def __init__(self,window,session):
         super().__init__();self.window=window;self.store=window.store;self.session=session;self.job=None;self.model_jobs={};self._closed=False;self.run_id=None;self.pending_fingerprint=None;self.advice_fingerprint=None;self.advice_job=None;self.advice_connection=None;self.advice_destination=''
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
+        self.goal_checkpoint_timer=QTimer(self);self.goal_checkpoint_timer.setInterval(2000);self.goal_checkpoint_timer.timeout.connect(self.checkpoint_goal_progress)
         if session.get("code_state") in ("running","awaiting_approval"):
             session["code_state"]="interrupted"
             if session.get('coding_last_run_goal',True) and session.get('coding_goal',{}).get('status')=='active':session['coding_goal']['status']='interrupted'
@@ -1210,6 +1211,12 @@ class CodeTab(QWidget):
             try:run.run(signals.event.emit)
             except RuntimeError:pass
         self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
+        if isinstance(run,CodingRun) and run.goal:self.goal_checkpoint_timer.start()
+
+    def checkpoint_goal_progress(self):
+        job=self.job
+        if not isinstance(job,CodingRun) or not job.goal or job.goal_started is None:return
+        self.session['coding_goal_progress']=job.goal_progress_snapshot();self.store.save(self.session)
 
     def update_prompt_history_buttons(self):
         count=len(self.session.get('coding_prompt_history',[]))
@@ -1522,7 +1529,8 @@ class CodeTab(QWidget):
             if self.session.get('coding_goal'):
                 self.session['coding_goal']['detail']=event['detail'][:4000];self.refresh_goal_status();self.record('output',self.tr('Goal status (model reported): ')+event['status']+' · '+event['detail'])
         elif kind=='goal_progress':
-            self.session['coding_goal_progress']={'steps':event['steps'],'seconds':event['seconds']};self.store.save(self.session)
+            previous=self.session.get('coding_goal_progress',{'steps':0,'seconds':0})
+            self.session['coding_goal_progress']={'steps':max(previous['steps'],event['steps']),'seconds':max(previous['seconds'],event['seconds'])};self.store.save(self.session)
         elif kind=='steering_delivered':self.record_steering(self.tr('Steering delivered: '),event['text'])
         elif kind=='steering_undelivered':self.record_steering(self.tr('Steering not delivered: '),event['text'])
         elif kind=='steering_uncertain':self.record_steering(self.tr('Steering delivery uncertain: '),event['text'])
@@ -1606,6 +1614,7 @@ class CodeTab(QWidget):
             self.session['code_state']='running';self.record('decision',('Allowed MCP server for this run' if scope=='mcp_server_run' else 'Approved' if allowed else 'Rejected')+' proposal '+decision)
 
     def finish(self):
+        self.goal_checkpoint_timer.stop()
         started=getattr(self,'_run_started_at',None)
         if started is not None:
             self._run_started_at=None

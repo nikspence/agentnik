@@ -591,10 +591,12 @@ class CodingRun:
     def stop(self):
         with self.lock:self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
 
-    def goal_progress_snapshot(self):
-        elapsed=self.goal_elapsed+(max(0,time.monotonic()-self.goal_started) if self.goal_started is not None else 0)
-        if self.goal_budget['seconds']:elapsed=min(elapsed,self.goal_budget['seconds'])
-        return {'steps':self.goal_steps,'seconds':elapsed}
+    def goal_progress_snapshot(self,freeze=False):
+        with self.lock:
+            elapsed=self.goal_elapsed+(max(0,time.monotonic()-self.goal_started) if self.goal_started is not None else 0)
+            if self.goal_budget['seconds']:elapsed=min(elapsed,self.goal_budget['seconds'])
+            if freeze:self.goal_elapsed=elapsed;self.goal_started=None
+            return {'steps':self.goal_steps,'seconds':elapsed}
 
     def steer(self,message):
         if not isinstance(message,str) or not message.strip() or len(message.encode('utf-8'))>16000:return False
@@ -725,7 +727,8 @@ class CodingRun:
         def event(kind,**data):
             if kind!='finished':runtime.check()
             elif self.cancel.is_set():return
-            if kind=='finished' and self.goal:data['goal_progress']=self.goal_progress_snapshot()
+            if kind=='finished' and self.goal:
+                data['goal_progress']=self.goal_progress_snapshot(freeze=True)
             def scrub(v):
                 if isinstance(v,str):
                     for secret in secrets:

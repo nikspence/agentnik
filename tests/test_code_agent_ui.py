@@ -129,7 +129,9 @@ class CodingWorkspace(unittest.TestCase):
                 tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.composer.setPlainText('The original goal');tab.goal_enabled.setChecked(True)
                 def delayed(connection,url,body,timeout):started.set();release.wait(5);return Wire(chat('Late'),False)
                 with patch.object(core,'open_request',side_effect=delayed):
-                    tab.start_coding();settle(started.is_set);tab.composer.setPlainText('Unsent next task');tab.steering_input.setText('Unsent steering');tab.pause_goal();self.assertIsNone(tab.job);release.set();tab.worker.join(5);app.processEvents()
+                    tab.start_coding();settle(started.is_set);self.assertTrue(tab.goal_checkpoint_timer.isActive());tab.checkpoint_goal_progress()
+                    saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertGreater(saved['coding_goal_progress']['seconds'],0)
+                    tab.composer.setPlainText('Unsent next task');tab.steering_input.setText('Unsent steering');tab.pause_goal();self.assertIsNone(tab.job);self.assertFalse(tab.goal_checkpoint_timer.isActive());release.set();tab.worker.join(5);app.processEvents()
                 self.assertEqual(session['code_state'],'paused');self.assertEqual(session['coding_goal']['status'],'paused');self.assertTrue(tab.continue_button.isEnabled());self.assertIn('Paused',tab.goal_status_label.text())
                 saved=next(row for row in store.list_sessions() if row['id']==session['id']);window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
                 self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
