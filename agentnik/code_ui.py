@@ -251,6 +251,9 @@ class CodeTab(QWidget):
             model.editingFinished.connect(self.save_models)
         role_help=QLabel(self.tr('The selected Model handles the coding request and its subagents. Project files sent to subagents require approval; optional inspection tools access only approved snapshots. If the model explicitly rejects subagent tool calling, Agentnik retries without those tools.'))
         role_help.setWordWrap(True);model_layout.addWidget(role_help)
+        legacy_keys=('coding_subagent_model','coding_subagent_model_2','coding_light_enabled')
+        if any(key in session for key in legacy_keys) or any(key in session.get('coding_models',{}) for key in ('heavy','light')):
+            legacy_button=QPushButton(self.tr('View legacy model settings…'));legacy_button.setObjectName('legacyModelSettings');legacy_button.clicked.connect(self.show_legacy_model_settings);model_layout.addWidget(legacy_button)
         self.reset_subagent_capabilities=QPushButton(self.tr('Forget remembered subagent tool support'));self.reset_subagent_capabilities.setToolTip(self.tr('Clear remembered tool-calling rejections so selected subagent models can be tried again.'));self.reset_subagent_capabilities.clicked.connect(self.forget_subagent_capabilities);model_layout.addWidget(self.reset_subagent_capabilities)
         self.advice_enabled=QCheckBox(self.tr('Check shell approvals with Decision model'))
         self.advice_enabled.setChecked(session.get('coding_advice_enabled',False));self.advice_enabled.toggled.connect(self.save_advice_enabled);model_layout.addWidget(self.advice_enabled)
@@ -455,6 +458,16 @@ class CodeTab(QWidget):
         widgets=self.roles['heavy'];bindings['model']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()};self.session['coding_models']=bindings
         widgets=self.roles['decision'];self.session['coding_decision_model']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()}
         self.store.save(self.session)
+
+    def show_legacy_model_settings(self):
+        bindings=self.session.get('coding_models',{})
+        legacy={key:copy.deepcopy(bindings[key]) for key in ('heavy','light') if key in bindings}
+        for key in ('coding_subagent_model','coding_subagent_model_2','coding_light_enabled'):
+            if key in self.session:legacy[key]=copy.deepcopy(self.session[key])
+        dialog=QDialog(self.model_panel);dialog.setWindowTitle(self.tr('Legacy model settings'));dialog.resize(640,400);layout=QVBoxLayout(dialog)
+        note=QLabel(self.tr('These saved settings are retained for reference. Code uses the selected Model for the request and its subagents.'));note.setWordWrap(True);layout.addWidget(note)
+        view=QPlainTextEdit(json.dumps(legacy,ensure_ascii=False,indent=2));view.setObjectName('legacyModelSettingsText');view.setReadOnly(True);layout.addWidget(view)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
 
     def change_shell_approval(self,enabled):
         if isinstance(self.job,CodingRun):

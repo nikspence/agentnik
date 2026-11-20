@@ -276,6 +276,12 @@ class CodingWorkspace(unittest.TestCase):
                 session['coding_subagent_model']={'connection':'Other','model':'old-alternate'};store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 tab.composer.setPlainText('Inspect');tab.model_panel.show();app.processEvents()
                 self.assertFalse(tab.roles['heavy'][0].isHidden());self.assertEqual(set(tab.roles),{'heavy','decision'})
+                from PySide6.QtWidgets import QDialog,QPlainTextEdit,QPushButton
+                self.assertIsNotNone(tab.model_panel.findChild(QPushButton,'legacyModelSettings'));captured=[]
+                def inspect(dialog):
+                    view=dialog.findChild(QPlainTextEdit,'legacyModelSettingsText');self.assertTrue(view.isReadOnly());captured.append(view.toPlainText());return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',inspect),patch.object(core,'open_request') as request:tab.show_legacy_model_settings();request.assert_not_called()
+                self.assertIn('legacy',captured[0]);self.assertIn('old-alternate',captured[0])
                 with patch.object(tab,'launch') as launch:
                     tab.start_coding();run=launch.call_args.args[0]
                 self.assertEqual(run.connection['model'],'main')
