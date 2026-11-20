@@ -230,8 +230,21 @@ class ModelCoding(unittest.TestCase):
             from agentnik.code_limits import coding_limits
             limits=coding_limits();limits['rounds']=1
             run=CodingRun(dict(C,stream=False),directory,'Unfinished goal',limits=limits,goal=True);events=[]
-            with patch.object(core,'open_request',side_effect=[Wire(chat('First step'),False),Wire(chat('More remains'),False)]):run.run(events.append)
+            replies=[Wire(chat(calls=[call('get_plan',{})],finish='tool_calls'),False),Wire(chat(calls=[call('get_plan',{})],finish='tool_calls'),False)]
+            with patch.object(core,'open_request',side_effect=replies):run.run(events.append)
             self.assertEqual(events[-1]['status'],'failed');self.assertTrue(events[-1]['limited']);self.assertEqual(run.goal_status,'active')
+
+    def test_goal_steps_receive_fresh_request_and_round_budgets(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as directory:
+            limits=coding_limits();limits.update(requests=2,rounds=1,calls=1)
+            run=CodingRun(dict(C,stream=False),directory,'Complete task',limits=limits,goal=True);events=[]
+            replies=[]
+            for index in range(2):replies.extend([Wire(chat(calls=[call('get_plan',{},str(index))],finish='tool_calls'),False),Wire(chat('Step complete'),False)])
+            replies.extend([Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Reviewed'})],finish='tool_calls'),False),Wire(chat('Done'),False)])
+            with patch.object(core,'open_request',side_effect=replies) as send:run.run(events.append)
+            self.assertEqual(send.call_count,6);self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertEqual(sum(e['kind']=='output' and 'continuing to the next step' in e.get('text','') for e in events),2)
 
     def test_goal_steering_and_tool_results_across_protocols(self):
         from test_research import Response,answer,call as native_call

@@ -886,7 +886,9 @@ class CodingRun:
                     raise GuidanceError('Repository guidance changed before the file operation. Review the updated instructions and reconsider the operation.')
             sync_guidance()
             adapter=responses_tools if protocol=='responses' else ollama_tools if native else compat_tools
-            for round_number in range(runtime.limits.rounds+1):
+            round_number=-1
+            while True:
+                round_number+=1
                 check_skill_versions();guidance.discover('.');sync_guidance()
                 with self.lock:steering_batch=self.steering[:];self.steering.clear()
                 steering_submitted=False
@@ -919,7 +921,13 @@ class CodingRun:
                         if round_number>=runtime.limits.rounds:raise LimitError('Coding tool round limit reached before steering could be delivered')
                         continue
                     if goal_continues:
-                        if round_number>=runtime.limits.rounds:raise LimitError('Coding goal reached its round limit before completion')
+                        # A complete response without tool calls closes this goal step.
+                        # Preserve and re-charge the retained request so repeated steps
+                        # cannot grow the model context beyond its configured bound.
+                        runtime.check();runtime.started=time.monotonic()
+                        runtime.calls=runtime.requests=runtime.retrieved_bytes=runtime.context_bytes=0
+                        runtime.charge('context_bytes',len(json.dumps(body,ensure_ascii=True).encode('utf-8')),runtime.limits.context_bytes)
+                        round_number=-1
                         message='Continue the current goal. Assess the evidence and take the next useful step. If the entire goal is complete, or a real blocker requires input, call set_goal_status with supporting detail.'
                         runtime.charge('context_bytes',len(message.encode()),runtime.limits.context_bytes)
                         if protocol=='responses':body['input'].append({'role':'user','content':message})
