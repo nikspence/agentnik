@@ -16,25 +16,6 @@ from agentnik.storage import Store
 
 
 class PromptHistory(unittest.TestCase):
-    def test_review_terminal_events_cannot_change_approved_provenance(self):
-        import copy
-        from agentnik.ui import Window
-        app=QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
-            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
-            try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget();tab.job=object();tab.run_id='active'
-                pending={'id':'a'*32+'-1','role':'design','model':'reviewer','path':'spec.md','source_sha256':'a'*64,'target_payload_sha256':'b'*64,'payload_sha256':'c'*64,'evidence':[{'path':'evidence.txt','sha256':'d'*64,'payload_sha256':'e'*64}],'track_context':None,'rubric_version':1,'endpoint':{'protocol':'chat','origin':'https://example.invalid'},'batch_approved_at':'2026-11-13T19:20:21Z','pass_status':'pending','structured':{'status':'not_available','findings':[]}}
-                tab.receive({'kind':'independent_review_result','run_id':'active','review':pending})
-                completed=dict(pending,pass_status='completed',structured={'status':'valid','findings':[]})
-                changes={'role':'requirements','model':'different','path':'other.md','source_sha256':'f'*64,'target_payload_sha256':'f'*64,'payload_sha256':'f'*64,'evidence':[],'track_context':{'id':'other','digest':'f'*64},'endpoint':{'protocol':'messages','origin':'https://example.invalid'},'batch_approved_at':'2026-11-13T19:20:22Z'}
-                for key,value in changes.items():
-                    altered=copy.deepcopy(completed);altered[key]=value
-                    with self.subTest(field=key):
-                        tab.receive({'kind':'independent_review_result','run_id':'active','review':altered});self.assertEqual(tab.review_results[pending['id']],pending)
-                altered=copy.deepcopy(completed);del altered['target_payload_sha256'];tab.receive({'kind':'independent_review_result','run_id':'active','review':altered});self.assertEqual(tab.review_results[pending['id']],pending)
-                tab.receive({'kind':'independent_review_result','run_id':'active','review':completed});self.assertEqual(tab.review_results[pending['id']]['pass_status'],'completed')
-            finally:tab.job=None;window.close();app.processEvents();store.db.close()
 
 
     def test_parallel_review_findings_view_is_bounded_and_session_local(self):
@@ -46,42 +27,13 @@ class PromptHistory(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);app.processEvents();tab=window.tabs.currentWidget()
                 spec=project/'spec.md';spec.write_text('spec',encoding='utf-8');evidence=project/'source.txt';evidence.write_text('evidence',encoding='utf-8')
-                tab.job=object();tab.run_id='active';finding={'id':'finding-1','severity':'high','title':'Gap','rationale':'No test criterion','location':'spec.md:1','assumptions':'','verification':'Ask owner'}
-                review={'id':'a'*32+'-1','role':'repository_fit','model':'reviewer','path':'spec.md','source_sha256':hashlib.sha256(b'spec').hexdigest(),'payload_sha256':'c'*64,'evidence':[{'path':'source.txt','sha256':hashlib.sha256(b'evidence').hexdigest(),'payload_sha256':'d'*64}],'track_context':{'id':'missing_track','digest':'e'*64},'pass_status':'completed','structured':{'status':'valid','findings':[finding]}}
-                tab.receive({'run_id':'other','kind':'independent_review_result','review':review});self.assertFalse(tab.review_results)
-                tab.receive({'run_id':'active','kind':'independent_review_result','review':review});self.assertTrue(tab.review_results_button.isEnabled())
-                displayed=[]
+                finding={'id':'finding-1','severity':'high','title':'Gap','rationale':'No test criterion','location':'spec.md:1','assumptions':'','verification':'Ask owner'}
+                review={'id':'a'*32+'-1','role':'repository_fit','model':'reviewer','path':'spec.md','source_sha256':hashlib.sha256(b'spec').hexdigest(),'payload_sha256':'c'*64,'evidence':[{'path':'source.txt','sha256':hashlib.sha256(b'evidence').hexdigest(),'payload_sha256':'d'*64}],'track_context':{'id':'missing_track','digest':'e'*64},'pass_status':'completed','structured':{'status':'valid','findings':[finding]},'dispositions':{'finding-1':{'status':'contested','rationale':'Need clarification'}}}
+                failed=dict(review,id='a'*32+'-2',pass_status='failed',structured={'status':'not_available','findings':[]},dispositions={})
+                pending=dict(review,id='a'*32+'-3',pass_status='interrupted',structured={'status':'not_available','findings':[]},dispositions={})
+                session['coding_review_history']=[{'version':1,'id':'b'*32,'track_id':None,'reviews':[review,failed,pending]}];store.save(session)
+                evidence.unlink();saved=store.list_sessions()[0];displayed=[]
                 def inspect(dialog):displayed.append(dialog.findChild(QPlainTextEdit).toPlainText());return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',inspect):tab.show_review_results()
-                self.assertIn('No test criterion',displayed[0]);self.assertIn('Current source hashes match',displayed[0]);self.assertIn('Track run context changed or is unavailable',displayed[0]);self.assertNotIn('review_results',store.list_sessions()[0])
-                def set_disposition(dialog):
-                    box=dialog.findChild(QComboBox,'reviewDisposition');box.setCurrentIndex(box.findData('contested'))
-                    dialog.findChild(QLineEdit,'reviewDispositionReason').setText('Need clarification')
-                    dialog.findChild(QPushButton,'saveReviewDisposition').click();return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',set_disposition):tab.show_review_results()
-                self.assertEqual(tab.review_dispositions[(review['id'],'finding-1')],{'status':'contested','rationale':'Need clarification'})
-                with patch.object(QDialog,'exec',inspect):tab.show_review_results()
-                self.assertIn('contested',displayed[-1]);self.assertIn('Need clarification',displayed[-1])
-                evidence.write_text('changed',encoding='utf-8')
-                with patch.object(QDialog,'exec',inspect):tab.show_review_results()
-                self.assertIn('Stale or unavailable',displayed[-1]);self.assertIn('No test criterion',displayed[-1])
-                evidence.unlink()
-                with patch.object(QDialog,'exec',inspect):tab.show_review_results()
-                self.assertIn('Stale or unavailable',displayed[-1])
-                invalid=dict(review,id='d'*32+'-1',structured={'status':'valid','findings':[dict(finding,id='finding-9')]})
-                tab.receive({'run_id':'active','kind':'independent_review_result','review':invalid});self.assertEqual(len(tab.review_results),1)
-                failed=dict(review,id='a'*32+'-2',pass_status='failed',structured={'status':'not_available','findings':[]})
-                tab.receive({'run_id':'active','kind':'independent_review_result','review':failed});self.assertEqual(len(tab.review_results),2)
-                pending=dict(review,id='a'*32+'-3',pass_status='pending',structured={'status':'not_available','findings':[]})
-                tab.receive({'run_id':'active','kind':'independent_review_result','review':pending});tab.stop_subagents('cancelled')
-                self.assertEqual(tab.review_results[pending['id']]['pass_status'],'interrupted')
-                tab.job=None
-                def save_snapshot(dialog):dialog.findChild(QPushButton,'saveReviewSnapshot').click();return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',save_snapshot):tab.show_review_results()
-                saved=store.list_sessions()[0];self.assertEqual(saved['coding_review_history'][0]['reviews'][0]['dispositions']['finding-1']['status'],'contested')
-                self.assertEqual(saved['coding_review_history'][0]['reviews'][0]['track_context'],review['track_context'])
-                self.assertEqual(saved['coding_review_history'][0]['reviews'][1]['pass_status'],'failed')
-                self.assertEqual(saved['coding_review_history'][0]['reviews'][2]['pass_status'],'interrupted')
                 from agentnik.sessions import validate_session,SessionError
                 import copy
                 legacy=copy.deepcopy(saved);legacy['coding_review_history'][0]['reviews']=legacy['coding_review_history'][0]['reviews'][:1];legacy['coding_review_history'][0]['reviews'][0].pop('pass_status')
@@ -94,7 +46,7 @@ class PromptHistory(unittest.TestCase):
                 with self.assertRaises(SessionError):validate_session(broken)
                 broken=copy.deepcopy(saved);broken['coding_review_history']*=11
                 with self.assertRaises(SessionError):validate_session(broken)
-                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();tab=window.tabs.currentWidget();self.assertFalse(tab.review_results);self.assertTrue(tab.saved_reviews_button.isEnabled())
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();tab=window.tabs.currentWidget();self.assertTrue(tab.saved_reviews_button.isEnabled())
                 with patch.object(QDialog,'exec',inspect):tab.show_saved_reviews()
                 self.assertIn('Stale or unavailable',displayed[-1]);self.assertIn('Need clarification',displayed[-1]);self.assertIn('failed',displayed[-1]);self.assertIn('Track run context changed or is unavailable',displayed[-1])
                 def revise_saved(dialog):

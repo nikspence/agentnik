@@ -161,7 +161,7 @@ class CodingSourcesDialog(QDialog):
 class CodeTab(QWidget):
     updated=Signal()
     def __init__(self,window,session):
-        super().__init__();self.window=window;self.store=window.store;self.session=session;self.job=None;self.model_jobs={};self._closed=False;self.run_id=None;self.pending_fingerprint=None;self.advice_fingerprint=None;self.advice_job=None;self.advice_connection=None;self.advice_destination='';self.review_results={};self.review_dispositions={};self.review_progress_ids={}
+        super().__init__();self.window=window;self.store=window.store;self.session=session;self.job=None;self.model_jobs={};self._closed=False;self.run_id=None;self.pending_fingerprint=None;self.advice_fingerprint=None;self.advice_job=None;self.advice_connection=None;self.advice_destination=''
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
         if session.get("code_state") in ("running","awaiting_approval"):
             session["code_state"]="interrupted"
@@ -196,7 +196,6 @@ class CodeTab(QWidget):
         self.subagents_controls=QWidget();subagent_actions=QHBoxLayout(self.subagents_controls);subagent_actions.setContentsMargins(0,0,0,0)
         self.subagent_choice=QComboBox();self.subagent_choice.setAccessibleName(self.tr('Running subagent'));self.subagent_choice.setMinimumContentsLength(30);self.subagent_choice.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon);self.subagent_choice.setMaximumWidth(360);subagent_actions.addWidget(self.subagent_choice)
         self.stop_subagent_button=QPushButton(self.tr('Cancel subagent'));self.stop_subagent_button.clicked.connect(self.cancel_selected_subagent);subagent_actions.addWidget(self.stop_subagent_button);subagent_actions.addStretch();layout.addWidget(self.subagents_controls)
-        self.review_results_button=QPushButton(self.tr('Review findings…'));self.review_results_button.setEnabled(False);self.review_results_button.clicked.connect(self.show_review_results);subagent_actions.insertWidget(2,self.review_results_button)
         self.subagents_toggle.toggled.connect(self.subagents_view.setVisible);self.subagents_toggle.toggled.connect(self.subagents_controls.setVisible);self.subagents_view.hide();self.subagents_controls.hide();self.refresh_subagents()
         self.saved_reviews_button=QPushButton(self.tr('Saved review snapshots…'));self.saved_reviews_button.setEnabled(bool(session.get('coding_review_history')));self.saved_reviews_button.clicked.connect(self.show_saved_reviews);layout.addWidget(self.saved_reviews_button)
         activity_options=QHBoxLayout();layout.addLayout(activity_options)
@@ -344,8 +343,6 @@ class CodeTab(QWidget):
     def stop_subagents(self,status):
         for item in self.session.get('coding_subagents',[]):
             if item['status'] in ('queued','running'):item['status']=status
-        for review in self.review_results.values():
-            if review['pass_status']=='pending':review['pass_status']='interrupted'
         self.refresh_subagents()
 
     def choose_model(self,role):
@@ -1197,7 +1194,6 @@ class CodeTab(QWidget):
         if isinstance(run,CodingRun):
             run.set_shell_without_approval(self.shell_auto.isChecked())
             run.show_thinking=self.show_thinking.isChecked()
-            self.review_results.clear();self.review_dispositions.clear();self.review_progress_ids.clear();self.review_results_button.setEnabled(False)
             self.session['coding_subagents']=[];self.refresh_subagents()
             history=self.session.setdefault('coding_skill_history',[])
             history.append({'run_id':run.run_id,'skills':[]});self.session['coding_skill_history']=history[-32:]
@@ -1338,62 +1334,6 @@ class CodeTab(QWidget):
             QTimer.singleShot(0,restore_anchor)
         self.store.save(self.session);self.updated.emit()
 
-    def show_review_results(self):
-        if not self.review_results:return
-        from .code_agent import ProjectFiles
-        from .independent_review import sources_unchanged,track_context_matches
-        try:files=ProjectFiles(self.session['path_snapshot'])
-        except (ValueError,OSError):files=None
-        rows=[]
-        for review in self.review_results.values():
-            item=copy.deepcopy(review);sources=[(item['path'],item['source_sha256'])]+[(entry['path'],entry['sha256']) for entry in item['evidence']]
-            item['source_status']=self.tr('Current source hashes match the reviewed snapshots.') if files and sources_unchanged(files,sources) else self.tr('Stale or unavailable: a reviewed source changed or cannot be read.')
-            if item.get('track_context'):
-                item['track_status']=self.tr('Track run context matches its starting revision; this does not mean the full track was reviewed.') if files and track_context_matches(files,item['track_context']) else self.tr('Track run context changed or is unavailable; this does not mean the full track was reviewed.')
-            rows.append(item)
-        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Independent review findings'));dialog.resize(760,540)
-        layout=QVBoxLayout(dialog);notice=QLabel(self.tr('Untrusted reviewer suggestions, not verified facts. Locations are claims. Source hashes were checked when this view opened and can change afterwards. Dispositions do not approve implementation. Current results are temporary unless explicitly saved as a session snapshot.'));notice.setWordWrap(True);layout.addWidget(notice)
-        view=QPlainTextEdit();view.setReadOnly(True);layout.addWidget(view)
-        form=QFormLayout();layout.addLayout(form)
-        choice=QComboBox();choice.setObjectName('reviewFindingChoice');form.addRow(self.tr('Finding'),choice)
-        disposition=QComboBox();disposition.setObjectName('reviewDisposition')
-        for label,value in [(self.tr('Unresolved'),'unresolved'),(self.tr('Accepted'),'accepted'),(self.tr('Contested'),'contested'),(self.tr('Deferred'),'deferred')]:disposition.addItem(label,value)
-        form.addRow(self.tr('Disposition'),disposition)
-        reason=QLineEdit();reason.setObjectName('reviewDispositionReason');reason.setMaxLength(500);form.addRow(self.tr('Rationale (optional)'),reason)
-        apply_button=QPushButton(self.tr('Save disposition in this pane'));apply_button.setObjectName('saveReviewDisposition');layout.addWidget(apply_button)
-        for row in rows:
-            for finding in row['structured']['findings']:
-                choice.addItem(row['role']+' · '+row['model']+' · '+finding['id']+' · '+finding['title'][:100],(row['id'],finding['id']))
-        def refresh_view():
-            display=copy.deepcopy(rows)
-            for row in display:
-                for finding in row['structured']['findings']:
-                    finding['user_disposition']=copy.deepcopy(self.review_dispositions.get((row['id'],finding['id']),{'status':'unresolved','rationale':''}))
-            view.setPlainText(json.dumps(display,ensure_ascii=False,indent=2))
-        def select_finding():
-            current=choice.currentData();saved=self.review_dispositions.get(tuple(current),{'status':'unresolved','rationale':''}) if current else {'status':'unresolved','rationale':''}
-            disposition.setCurrentIndex(max(0,disposition.findData(saved['status'])));reason.setText(saved['rationale'])
-        def save_disposition():
-            current=choice.currentData()
-            if not current:return
-            self.review_dispositions[tuple(current)]={'status':disposition.currentData(),'rationale':reason.text()};refresh_view()
-        choice.currentIndexChanged.connect(select_finding);apply_button.clicked.connect(save_disposition)
-        for widget in (choice,disposition,reason,apply_button):widget.setEnabled(choice.count()>0)
-        select_finding();refresh_view()
-        save_snapshot=QPushButton(self.tr('Save review results to session'));save_snapshot.setObjectName('saveReviewSnapshot');save_snapshot.setEnabled(not self.job);layout.addWidget(save_snapshot)
-        save_snapshot.setToolTip(self.tr('Save recorded pass statuses, findings and dispositions to this session. An interrupted batch may have unrecorded passes. This does not modify track files or approve implementation.'))
-        def save_current_snapshot():
-            from .independent_review import validate_review_history
-            record={'version':1,'id':uuid.uuid4().hex,'track_id':None,'reviews':[]}
-            for review in self.review_results.values():
-                item=copy.deepcopy(review);item['dispositions']={finding['id']:copy.deepcopy(self.review_dispositions[(item['id'],finding['id'])]) for finding in item['structured']['findings'] if (item['id'],finding['id']) in self.review_dispositions};record['reviews'].append(item)
-            try:
-                history=validate_review_history([*self.session.get('coding_review_history',[]),record])
-                updated=copy.deepcopy(self.session);updated['coding_review_history']=history;self.store.save(updated);self.session['coding_review_history']=history
-            except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError) as exc:QMessageBox.warning(dialog,self.tr('Saved reviews'),str(exc));return
-            self.saved_reviews_button.setEnabled(True);self.updated.emit();save_snapshot.setEnabled(False)
-        save_snapshot.clicked.connect(save_current_snapshot)
-        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
 
     def show_saved_reviews(self):
         from .code_agent import ProjectFiles
@@ -1516,61 +1456,6 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
-        if kind=='independent_review_result':
-            from .independent_review import parse_structured_findings,validate_track_context,validate_review_measurements,validate_review_endpoint_identity,validate_review_batch_approved_at,review_provenance_matches,RUBRIC_VERSION
-            review=event.get('review')
-            required={'id','role','model','path','source_sha256','payload_sha256','evidence','structured','pass_status','track_context'}
-            if not isinstance(review,dict) or not required<=set(review) or set(review)-required-{'measurements','reason','rubric_version','endpoint','target_payload_sha256','batch_approved_at'}:return
-            if 'target_payload_sha256' in review and (not isinstance(review['target_payload_sha256'],str) or not re.fullmatch('[0-9a-f]{64}',review['target_payload_sha256'])):return
-            if 'rubric_version' in review and (type(review['rubric_version']) is not int or not 1<=review['rubric_version']<=RUBRIC_VERSION):return
-            try:
-                validate_track_context(review['track_context'])
-                if 'batch_approved_at' in review:validate_review_batch_approved_at(review['batch_approved_at'])
-                if 'endpoint' in review:validate_review_endpoint_identity(review['endpoint'])
-                if 'measurements' in review:
-                    if review['pass_status']!='completed':return
-                    validate_review_measurements(review['measurements'])
-            except (ValueError,TypeError):return
-            if review['pass_status'] not in ('pending','completed','failed','cancelled','stale','skipped'):return
-            if 'reason' in review and (review['pass_status'] in ('pending','completed') or not isinstance(review['reason'],str) or not 0<len(review['reason'])<=500):return
-            if not isinstance(review['id'],str) or not re.fullmatch(r'[0-9a-f]{32}-[1-3]',review['id']) or review['role'] not in ('comprehension','requirements','design','repository_fit','readiness','drift'):return
-            if any(not isinstance(review[key],str) or not 0<len(review[key])<=4096 for key in ('model','path')) or any(not isinstance(review[key],str) or not re.fullmatch('[0-9a-f]{64}',review[key]) for key in ('source_sha256','payload_sha256')):return
-            evidence=review['evidence']
-            if not isinstance(evidence,list) or len(evidence)>3:return
-            if any(not isinstance(item,dict) or set(item)!={'path','sha256','payload_sha256'} or not isinstance(item['path'],str) or not 0<len(item['path'])<=512 or any(not isinstance(item[key],str) or not re.fullmatch('[0-9a-f]{64}',item[key]) for key in ('sha256','payload_sha256')) for item in evidence):return
-            structured=review['structured']
-            if not isinstance(structured,dict) or set(structured)!={'status','findings'} or structured['status'] not in ('valid','invalid','truncated','too_large','not_available') or not isinstance(structured['findings'],list):return
-            if (review['pass_status']=='completed')==(structured['status']=='not_available'):return
-            if structured['status']=='valid':
-                findings=structured['findings']
-                if any(not isinstance(item,dict) or item.get('id')!='finding-'+str(index) for index,item in enumerate(findings,1)):return
-                raw=[{k:v for k,v in item.items() if k!='id'} for item in findings]
-                if parse_structured_findings(json.dumps({'version':1,'findings':raw},ensure_ascii=False))!=structured:return
-            elif structured['findings']:return
-            previous=self.review_results.get(review['id'])
-            if previous and (previous['pass_status']!='pending' or review['pass_status']=='pending'):return
-            if previous and not review_provenance_matches(previous,review):
-                if review['id'] in self.review_progress_ids:
-                    self.cancel();self.record('output',self.tr('Review progress could not be saved. The run was stopped; the last saved snapshot may show interrupted passes.'))
-                return
-            if len(self.review_results)>=32 and review['id'] not in self.review_results:return
-            if review['id'] in self.review_progress_ids:
-                from .independent_review import validate_review_history
-                try:
-                    history=validate_review_history(self.session.get('coding_review_history',[]));snapshot=next(item for item in history if item['id']==self.review_progress_ids[review['id']])
-                    index=next(index for index,item in enumerate(snapshot['reviews']) if item['id']==review['id'])
-                    saved_review=snapshot['reviews'][index]
-                    if not review_provenance_matches(saved_review,review):raise ValueError('Review provenance changed')
-                    if review['pass_status']!='pending':
-                        item=copy.deepcopy(review);item['dispositions']=saved_review['dispositions']
-                        if item!=saved_review:
-                            snapshot['reviews'][index]=item
-                            history=validate_review_history(history);updated=copy.deepcopy(self.session);updated['coding_review_history']=history;self.store.save(updated);self.session['coding_review_history']=history;self.updated.emit()
-                except (ValueError,TypeError,UnicodeError,sqlite3.Error,OSError,RecursionError,StopIteration):
-                    self.cancel();self.record('output',self.tr('Review progress could not be saved. The run was stopped; the last saved snapshot may show interrupted passes.'))
-                    return
-            self.review_results[review['id']]=copy.deepcopy(review);self.review_results_button.setEnabled(True)
-            return
         if kind=='track_progress':
             from .track_execution import validate_progress,projected_plan
             try:
