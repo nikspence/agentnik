@@ -33,6 +33,23 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_saved_drafts_redact_search_and_mcp_environment_secrets(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'AGENTNIK_TEST_MCP_TOKEN':'mcp-secret'}),patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store);store.config['mcp_servers']=[{'env':{'TOKEN':'AGENTNIK_TEST_MCP_TOKEN'}}]
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session)
+                with patch.object(store,'web_backend_specs',return_value=[{'key':'search-secret'}]):window.open_session(session)
+                tab=window.tabs.currentWidget();text='Use search-secret and mcp-secret';tab.composer.setPlainText(text);tab.steering_input.setText(text)
+                self.assertEqual(tab.composer.toPlainText(),text);self.assertEqual(tab.steering_input.text(),text)
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual(saved['draft'],'Use [redacted] and [redacted]');self.assertEqual(saved['coding_steering_draft'],'Use [redacted] and [redacted]')
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_late_approval_event_is_cleared_after_steering_invalidation(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
@@ -355,6 +372,7 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.goal_enabled.setChecked(True);tab.composer.setPlainText('Inspect fixture-secret')
+                self.assertEqual(session['draft'],'Inspect [redacted]');self.assertEqual(tab.composer.toPlainText(),'Inspect fixture-secret')
                 with patch.object(tab,'launch') as launch:tab.start_coding();self.assertTrue(launch.called)
                 self.assertEqual(session['coding_goal']['objective'],'Inspect [redacted]');self.assertEqual(session['coding_prompt_history'][-1],'Inspect [redacted]')
             finally:

@@ -1,6 +1,7 @@
 """Repository picker and Agentnik-owned coding pane."""
 from pathlib import Path
 import json
+import os
 import copy
 import re
 import sqlite3
@@ -167,6 +168,7 @@ class CodeTab(QWidget):
     updated=Signal()
     def __init__(self,window,session):
         super().__init__();self.window=window;self.store=window.store;self.session=session;self.job=None;self.model_jobs={};self._closed=False;self.run_id=None;self.pending_fingerprint=None;self.advice_fingerprint=None;self.advice_job=None;self.advice_connection=None;self.advice_destination=''
+        self._draft_search_secrets=[item.get('key','') for item in self.store.web_backend_specs()]
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
         self.goal_checkpoint_timer=QTimer(self);self.goal_checkpoint_timer.setInterval(2000);self.goal_checkpoint_timer.timeout.connect(self.checkpoint_goal_progress)
         if session.get("code_state") in ("running","awaiting_approval"):
@@ -474,11 +476,19 @@ class CodeTab(QWidget):
             self.job.set_shell_without_approval(enabled)
             self.record('output',self.tr('Shell commands without approval: {state}').format(state=self.tr('on') if enabled else self.tr('off')))
 
-    def save_steering_draft(self,text):
+    def draft_secrets(self):
         secrets=[connection.get('api_key','') for connection in self.window.connections.values()]
+        secrets.extend(self._draft_search_secrets)
+        for server in self.store.config.get('mcp_servers',[]):
+            mapping=server.get('env',{})
+            if isinstance(mapping,dict):secrets.extend(os.environ.get(name,'') for name in mapping.values() if isinstance(name,str))
         if isinstance(self.job,CodingRun):
             secrets.extend([self.job.connection.get('api_key','')]+[item.get('key','') for item in self.job.web_backends])
             for bridge in self.job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
+        return secrets
+
+    def save_steering_draft(self,text):
+        secrets=self.draft_secrets()
         self.session['coding_steering_draft']=scrub(text,secrets);self.store.save(self.session);self.updated.emit()
 
     def send_steering(self):
@@ -518,7 +528,8 @@ class CodeTab(QWidget):
             self.session['coding_limits']=dialog.values();self.session['coding_goal_limits']=dialog.goal_values();self.store.save(self.session)
 
     def configure_search(self):
-        if not self.job:SearchBackends(self,self.store).exec()
+        if not self.job:
+            SearchBackends(self,self.store).exec();self._draft_search_secrets=[item.get('key','') for item in self.store.web_backend_specs()]
 
     def update_sources_button(self):
         count=len(self.session.get('coding_sources',[]));self.sources_button.setText(self.tr('Sources ({count})').format(count=count));self.sources_button.setVisible(count>0)
@@ -1271,7 +1282,7 @@ class CodeTab(QWidget):
         self.store.save(self.session)
 
     def save_draft(self):
-        self.session['draft']=self.composer.toPlainText();self.session['draft_images']=list(self.attachments.paths);self.session['draft_documents']=copy.deepcopy(self.documents);self.store.save(self.session);self.updated.emit()
+        self.session['draft']=scrub(self.composer.toPlainText(),self.draft_secrets());self.session['draft_images']=list(self.attachments.paths);self.session['draft_documents']=copy.deepcopy(self.documents);self.store.save(self.session);self.updated.emit()
 
     def read_documents(self):
         from .document_ui import DocumentReader
