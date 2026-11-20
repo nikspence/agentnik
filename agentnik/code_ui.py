@@ -514,6 +514,9 @@ class CodeTab(QWidget):
 
     def record_steering(self,prefix,message,delivered=False):
         # Activity entries are bounded to 2,048 characters; preserve the full message.
+        if delivered:
+            previous=self.session.get('coding_continuation_steering',{'text':'','omitted':False})
+            text='\n'.join(filter(None,[previous['text'],message]));self.session['coding_continuation_steering']={'text':text[-14000:],'omitted':previous['omitted'] or len(text)>14000}
         for offset in range(0,len(message),1800):self.record('steering_delivered' if delivered else 'steering',prefix+message[offset:offset+1800])
 
     def continuation_activity(self):
@@ -522,13 +525,18 @@ class CodeTab(QWidget):
         return '\n'.join(item.get('text','') for item in activity[start:] if item.get('kind') in ('output','approval','decision','finished','steering_delivered') or (item.get('kind')=='steering' and item.get('text','').startswith(prefixes)))
 
     def continuation_steering(self,secrets):
-        activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
-        prefixes=('Steering delivered: ',self.tr('Steering delivered: '))
-        text=scrub('\n'.join(item.get('text','') for item in activity[start:] if item.get('kind')=='steering_delivered' or (item.get('kind')=='steering' and item.get('text','').startswith(prefixes))),secrets)
+        saved=self.session.get('coding_continuation_steering')
+        if saved is None:
+            activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
+            prefixes=('Steering delivered: ',self.tr('Steering delivered: '))
+            text='\n'.join(item.get('text','') for item in activity[start:] if item.get('kind')=='steering_delivered' or (item.get('kind')=='steering' and item.get('text','').startswith(prefixes)))
+            saved={'text':text[-14000:],'omitted':len(text)>14000}
+        text=scrub(saved['text'],secrets)
         if not text:return ''
         marker='[Earlier delivered steering omitted due to the size limit.]\n'
-        if len(text)>14000:text=marker+text[-(14000-len(marker)):]
-        return 'Delivered steering from this run:\n'+text
+        if len(text)>14000:text=text[-14000:];saved={'omitted':True}
+        if saved['omitted']:text=marker+text
+        return 'Delivered steering for this task:\n'+text
 
     def continuation_snapshot(self,secrets):
         sources=scrub(copy.deepcopy(self.session.get('coding_sources',[])),secrets)
@@ -1201,6 +1209,12 @@ class CodeTab(QWidget):
                 if len(scrub((resume or {}).get('task',prompt),secrets))>16000:raise ValueError(self.tr('Goal objectives must be at most 16,000 characters so they can be saved and resumed.'))
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if not continuation and self.composer.toPlainText().strip():self.remember_prompt(scrub(self.composer.toPlainText(),secrets))
+        if not continuation:self.session['coding_continuation_steering']={'text':'','omitted':False}
+        elif 'coding_continuation_steering' not in self.session:
+            legacy=self.continuation_steering(secrets);header='Delivered steering for this task:\n';legacy=legacy[len(header):] if legacy.startswith(header) else legacy
+            marker='[Earlier delivered steering omitted due to the size limit.]\n';omitted=legacy.startswith(marker)
+            if omitted:legacy=legacy[len(marker):]
+            self.session['coding_continuation_steering']={'text':legacy[-14000:],'omitted':omitted or len(legacy)>14000}
         self.session['coding_last_run_goal']=self.goal_enabled.isChecked()
         if self.goal_enabled.isChecked():
             objective=(resume or {}).get('task',prompt)

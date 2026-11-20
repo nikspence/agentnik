@@ -147,6 +147,23 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_delivered_steering_survives_later_continuation_activity(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                session['coding_goal']={'objective':'Goal','status':'paused','detail':''};tab.record_steering('Steering delivered: ','Keep this earlier correction',delivered=True)
+                tab.capture_goal_resume();session['code_activity']=[{'kind':'started','text':'Continued run'}]+[{'kind':'output','text':'x'*1800} for _ in range(20)]
+                tab.capture_goal_resume();evidence=session['coding_resume']['evidence'];self.assertLessEqual(len(evidence),24000);self.assertIn('Keep this earlier correction',evidence)
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertIn('Keep this earlier correction',saved['coding_continuation_steering']['text'])
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_interrupted_goal_reopens_without_running_and_can_continue(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
