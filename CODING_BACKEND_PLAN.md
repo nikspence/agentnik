@@ -14,7 +14,7 @@ Migration groundwork: Code sessions now accept a `model` binding and prefer it w
 
 Subagent routing groundwork: `delegate_subagents` runs parallel children on the parent request's connection and model without a Light assignment. It retains the existing bounded snapshots, approvals, cancellation and shared budgets, and records subagent usage separately. The legacy delegation tools and controls remain temporarily available until their removal; the single-model transition is not complete. Current evidence is mocked requests and offscreen UI tests, not live model compatibility.
 
-Code pane transition: normal Code runs now select one Model and do not configure legacy Light or alternate models. Their saved bindings are retained, but the old selectors and direct-review controls are hidden. The legacy backend and review integration still need removal, and older sections below describe historical behavior.
+Code pane transition: normal Code runs select one Model and do not configure legacy Light or alternate models. Their saved bindings are retained; the old selectors, delegation checkbox, review-progress setting and direct-review controls are removed. Additional legacy backend and review helpers still need cleanup, and older sections below describe historical behavior.
 
 Track-start transition: starting a selected Spec & Plan track no longer reads or gates on independent-review histories. The preview still shows the task, exact track context, model and endpoint, and track changes invalidate the start. Existing review records remain available and untouched, including unreadable project review files. Legacy review code remains to be removed separately.
 

@@ -26,17 +26,17 @@ class CodingCompactionTests(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 def models():
-                    dialog=self.app.activeModalWidget();self.assertIs(dialog,tab.model_panel);self.assertIs(tab.light_enabled.window(),dialog)
-                    tab.light_enabled.setChecked(False);dialog.accept()
+                    dialog=self.app.activeModalWidget();self.assertIs(dialog,tab.model_panel);self.assertIs(tab.roles['heavy'][0].window(),dialog)
+                    dialog.accept()
                 QTimer.singleShot(0,models);tab.model_toggle.click()
                 def context():
                     dialog=self.app.activeModalWidget();self.assertIs(tab.coding_auto_compact.window(),dialog)
                     tab.coding_auto_compact.setChecked(False);dialog.reject()
                 QTimer.singleShot(0,context);tab.edit_coding_context()
-                self.assertFalse(tab.session['coding_light_enabled']);self.assertFalse(tab.session['coding_auto_compact'])
+                self.assertFalse(tab.session['coding_auto_compact'])
                 self.assertTrue(tab.coding_auto_compact.isHidden())
                 QTimer.singleShot(0,lambda:self.app.activeModalWidget().reject());tab.edit_coding_context()
-                saved=store.list_sessions()[0];self.assertFalse(saved['coding_light_enabled']);self.assertFalse(saved['coding_auto_compact'])
+                saved=store.list_sessions()[0];self.assertFalse(saved['coding_auto_compact'])
             finally:window.close();self.app.processEvents();store.db.close()
 
     def test_summary_is_bound_to_original(self):
@@ -51,11 +51,11 @@ class CodingCompactionTests(unittest.TestCase):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);context={'task':'T'*1600,'answer':'A'*1600};session['coding_context']=context;store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                tab.composer.setPlainText('Next task');tab.use_context.setChecked(True);tab.light_enabled.setChecked(False)
+                tab.composer.setPlainText('Next task');tab.use_context.setChecked(True)
                 with patch.object(tab,'role_connection',return_value=CONNECTION),patch.object(core,'run_request',return_value={'text':'Important findings','thinking':'','metrics':{}}) as request,patch('agentnik.code_ui.CodingRun') as run,patch.object(tab,'launch') as launch:
                     tab.start_coding();deadline=time.monotonic()+4
                     while (tab.job or not launch.called) and time.monotonic()<deadline:self.app.processEvents();time.sleep(.005)
-                    self.assertEqual(request.call_count,1);launch.assert_called_once();self.assertEqual(run.call_args.args[4]['answer'],'Important findings')
+                self.assertEqual(request.call_count,1);launch.assert_called_once();self.assertEqual(run.call_args.kwargs['context']['answer'],'Important findings')
                 self.assertEqual(tab.session['coding_context'],context);saved=store.list_sessions()[0];self.assertEqual(saved['coding_compaction']['summary'],'Important findings')
             finally:window.close();self.app.processEvents();store.db.close()
 
@@ -64,7 +64,7 @@ class CodingCompactionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store);release=threading.Event();started=threading.Event()
             try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);session['coding_context']={'task':'T'*1600,'answer':'A'*1600};store.save(session);window.open_session(session);tab=window.tabs.currentWidget();tab.composer.setPlainText('Next');tab.use_context.setChecked(True);tab.light_enabled.setChecked(False)
+                ident=window.repositories.put(project);session=window.repositories.session(ident);session['coding_context']={'task':'T'*1600,'answer':'A'*1600};store.save(session);window.open_session(session);tab=window.tabs.currentWidget();tab.composer.setPlainText('Next');tab.use_context.setChecked(True)
                 def request(*args):started.set();release.wait(2);return {'text':'Late summary'}
                 with patch.object(tab,'role_connection',return_value=CONNECTION),patch.object(core,'run_request',side_effect=request),patch.object(tab,'launch') as launch:
                     tab.start_coding();self.assertTrue(started.wait(1));tab.cancel();release.set()
@@ -97,7 +97,7 @@ class CodingCompactionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
             try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);context={'task':'T'*1600,'answer':'A'*1600};session['coding_context']=context;store.save(session);window.open_session(session);tab=window.tabs.currentWidget();tab.composer.setPlainText('Follow up');tab.use_context.setChecked(True);tab.light_enabled.setChecked(False)
+                ident=window.repositories.put(project);session=window.repositories.session(ident);context={'task':'T'*1600,'answer':'A'*1600};session['coding_context']=context;store.save(session);window.open_session(session);tab=window.tabs.currentWidget();tab.composer.setPlainText('Follow up');tab.use_context.setChecked(True)
                 with patch.object(tab,'role_connection',return_value=CONNECTION),patch.object(core,'run_request',side_effect=ValueError('unavailable')),patch.object(tab,'launch') as launch:
                     tab.start_coding();deadline=time.monotonic()+3
                     while tab.job and time.monotonic()<deadline:self.app.processEvents();time.sleep(.005)

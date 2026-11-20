@@ -224,12 +224,12 @@ class CodeTab(QWidget):
         self.coding_context_button=QPushButton(self.tr('Coding context…'));self.coding_context_button.clicked.connect(self.edit_coding_context)
         self.coding_auto_compact=QCheckBox(self.tr('Auto compact context'),self);self.coding_auto_compact.setToolTip(self.tr('Before a follow-up run, summarize a long previous task and answer using the selected model. This uses an additional model request.'));self.coding_auto_compact.setChecked(session.get('coding_auto_compact',True));self.coding_auto_compact.toggled.connect(self.save_coding_auto_compact);self.coding_auto_compact.hide()
         self.roles={}
-        bindings=dict(session.get('coding_models',{}));bindings['heavy']=bindings.get('model',bindings.get('heavy',{}));bindings['decision']=session.get('coding_decision_model',{});bindings['alternate']=session.get('coding_subagent_model',{});bindings['alternate2']=session.get('coding_subagent_model_2',{})
+        bindings=dict(session.get('coding_models',{}));bindings['heavy']=bindings.get('model',bindings.get('heavy',{}));bindings['decision']=session.get('coding_decision_model',{})
         self.model_toggle=QPushButton(self.tr('Models…'))
         self.model_panel=QDialog(self);self.model_panel.setWindowTitle(self.tr('Coding models'));self.model_panel.resize(850,500);model_layout=QVBoxLayout(self.model_panel)
         self.model_toggle.clicked.connect(self.model_panel.exec)
-        for role in ('heavy','light','alternate','alternate2','decision'):
-            row=QHBoxLayout();model_layout.addLayout(row);role_label=QLabel({'heavy':self.tr('Model'),'light':self.tr('Light model'),'alternate':self.tr('Alternate subagent model (optional)'),'alternate2':self.tr('Second alternate subagent model (optional)'),'decision':self.tr('Decision model')}[role]);row.addWidget(role_label)
+        for role in ('heavy','decision'):
+            row=QHBoxLayout();model_layout.addLayout(row);role_label=QLabel({'heavy':self.tr('Model'),'decision':self.tr('Decision model')}[role]);row.addWidget(role_label)
             connection=QComboBox();connection.addItem(self.tr('Not configured'),'');
             for name in window.connections:connection.addItem(name,name)
             model=QLineEdit();model.setPlaceholderText(self.tr('Model alias (any supported coding model)'))
@@ -239,8 +239,6 @@ class CodeTab(QWidget):
             connection.setCurrentIndex(max(0,connection.findData(saved.get('connection',''))));model.setText(saved.get('model',''))
             row.addWidget(connection);row.addWidget(model,1);self.roles[role]=(connection,model)
             choose=QPushButton(self.tr('Choose model…'));choose.clicked.connect(lambda _,r=role:self.choose_model(r));row.addWidget(choose)
-            if role in ('light','alternate','alternate2'):
-                for widget in (role_label,connection,model,choose):widget.hide()
             connection.currentIndexChanged.connect(lambda _,r=role:self.role_changed(r))
             model.editingFinished.connect(self.save_models)
         role_help=QLabel(self.tr('The selected Model handles the coding request and its subagents. Project files sent to subagents require approval; optional inspection tools access only approved snapshots. If the model explicitly rejects subagent tool calling, Agentnik retries without those tools.'))
@@ -256,15 +254,10 @@ class CodeTab(QWidget):
         self.memory_button=QPushButton(self.tr('Project memory…'));self.memory_button.clicked.connect(self.edit_project_memory);more_options.addWidget(self.memory_button)
         self.notes_button=QPushButton(self.tr('Working notes…'));self.notes_button.clicked.connect(self.edit_working_notes);more_options.addWidget(self.notes_button)
         self.skills_history_button=QPushButton(self.tr('Skill history…'));self.skills_history_button.clicked.connect(self.show_skills_history);more_options.addWidget(self.skills_history_button)
-        self.light_enabled=QCheckBox(self.tr('Allow Light model delegation'));self.light_enabled.setToolTip(self.tr('Allow Light delegation, parallel analysis, and independent reviews. Heavy may choose either configured alternate for parallel tasks or reviews; alternates are not fallbacks. Each project file sent to a subagent requires approval; optional read, glob, and grep tools only inspect approved snapshots. Run limits are shared.'));self.light_enabled.setChecked(session.get('coding_light_enabled',True) is not False);model_layout.insertWidget(0,self.light_enabled)
-        self.light_enabled.toggled.connect(self.save_light_enabled)
-        self.light_enabled.hide()
         close_models=QPushButton(self.tr('Close'));close_models.clicked.connect(self.model_panel.accept);model_layout.addWidget(close_models)
         preferences=QHBoxLayout();layout.addLayout(preferences);preferences.addWidget(self.use_context)
         self.goal_enabled=QCheckBox(self.tr('Pursue as goal'));self.goal_enabled.setToolTip(self.tr('Keep taking the next step until the objective is complete, blocked, stopped, or a run limit is reached.'));self.goal_enabled.setChecked(session.get('coding_last_run_goal',True) and session.get('coding_goal',{}).get('status') in ('active','limited','paused','blocked','interrupted'));preferences.addWidget(self.goal_enabled)
         self.shell_auto=QCheckBox(self.tr('Run shell commands without approval'));self.shell_auto.setToolTip(self.tr('Shell and test commands run with your account permissions, including network access and files outside the project. This setting can be changed during a run.'));preferences.addWidget(self.shell_auto);self.shell_auto.toggled.connect(self.change_shell_approval)
-        self.save_review_progress=QCheckBox(self.tr('Save Heavy review progress'));self.save_review_progress.setToolTip(self.tr('Save approved Heavy-requested parallel batches and single structured reviews to this session before reviewer requests start. Unfinished passes reopen as interrupted.'));self.save_review_progress.setChecked(session.get('coding_save_review_progress',False));self.save_review_progress.toggled.connect(self.save_heavy_review_progress);preferences.addWidget(self.save_review_progress)
-        self.save_review_progress.hide()
         self.web_enabled=QCheckBox(self.tr('Allow web research'));self.web_enabled.setToolTip(self.tr('Search uses configured providers, then Firecrawl Keyless and Google fallback when eligible. Without configured providers, Firecrawl Keyless is first. Ollama search is used only for direct Ollama Cloud. Filtered public page reads may send the page URL to a retrieval provider.'))
         self.web_enabled.setChecked(session.get('coding_web_enabled',False));preferences.addWidget(self.web_enabled);preferences.addStretch()
         self.web_enabled.toggled.connect(self.save_web_enabled)
@@ -362,7 +355,7 @@ class CodeTab(QWidget):
             self.model_jobs.pop(role,None)
             if self._closed or self.job or self.roles[role][0].currentData()!=name:return
             choices=[value for value in names if isinstance(value,str) and len(value)<=512][:2000]
-            title={'heavy':self.tr('Choose model'),'light':self.tr('Choose Light model'),'alternate':self.tr('Choose alternate subagent model'),'alternate2':self.tr('Choose second alternate subagent model'),'decision':self.tr('Choose Decision model')}[role]
+            title={'heavy':self.tr('Choose model'),'decision':self.tr('Choose Decision model')}[role]
             model,ok=QInputDialog.getItem(self,title,self.tr('Model alias:'),choices,0,True)
             if ok:self.roles[role][1].setText(model);self.save_models()
         def failed(_):
@@ -430,7 +423,7 @@ class CodeTab(QWidget):
         except (ValueError,OSError) as exc:QMessageBox.warning(self,self.tr('Coding context'),str(exc));return
         token=uuid.uuid4().hex;self._compaction_token=token;self._compaction_active=True
         self.send.setEnabled(False);self.cancel_button.setEnabled(True);self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.composer.setReadOnly(True)
-        self.light_enabled.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False);self.use_context.setEnabled(False)
+        self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False);self.use_context.setEnabled(False)
         for choice,model in self.roles.values():choice.setEnabled(False);model.setEnabled(False)
         self.record('output','Compacting previous coding context before a run; the selected model receives the previous task and answer.')
         def done(result):
@@ -457,9 +450,6 @@ class CodeTab(QWidget):
         widgets=self.roles['decision'];self.session['coding_decision_model']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()}
         self.store.save(self.session)
 
-    def save_light_enabled(self,enabled):
-        self.session['coding_light_enabled']=enabled;self.store.save(self.session)
-
     def change_shell_approval(self,enabled):
         if isinstance(self.job,CodingRun):
             self.job.set_shell_without_approval(enabled)
@@ -479,9 +469,6 @@ class CodeTab(QWidget):
             if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
             self.approval_panel.hide();self.approval.clear();self.diff.clear();self.session['code_state']='running'
             self.record('decision',self.tr('Pending approval invalidated by steering.'))
-
-    def save_heavy_review_progress(self,enabled):
-        self.session['coding_save_review_progress']=enabled;self.store.save(self.session)
 
     def save_web_enabled(self,enabled):
         self.session['coding_web_enabled']=enabled;self.store.save(self.session)
@@ -556,7 +543,7 @@ class CodeTab(QWidget):
         if not name:return None
         c=dict(self.window.connections.get(name,{}));c['model']=self.roles[role][1].text().strip()
         if not c.get('url') or not c.get('model'):
-            raise ValueError({'heavy':self.tr('Choose a connection and model alias.'),'light':self.tr('Choose a connection and model alias for Light.'),'alternate':self.tr('Choose a connection and model alias for the alternate subagent.'),'alternate2':self.tr('Choose a connection and model alias for the second alternate subagent.'),'decision':self.tr('Choose a connection and model alias for Decision.')}[role])
+            raise ValueError({'heavy':self.tr('Choose a connection and model alias.'),'decision':self.tr('Choose a connection and model alias for Decision.')}[role])
         return c
 
     def refresh_skills_button(self):
@@ -1101,7 +1088,7 @@ class CodeTab(QWidget):
             from .code_agent import ProjectFiles
             from .project_skills import verify_skill_pins
             verify_skill_pins(ProjectFiles(self.session['path_snapshot']),self.session.get('coding_skills',[]),self.session.get('coding_skill_pins',{}))
-            self.save_models();heavy=self.role_connection('heavy');light=alternate=alternate2=None
+            self.save_models();heavy=self.role_connection('heavy')
             advice=self.role_connection('decision') if self.advice_enabled.isChecked() else None
             if self.advice_enabled.isChecked() and not advice:raise ValueError(self.tr('Choose a Decision model before enabling safety advice.'))
             destination=(self.roles['decision'][0].currentText()+' / '+advice['model']+' / '+core.endpoint(advice,'decision')) if advice else ''
@@ -1136,20 +1123,19 @@ class CodeTab(QWidget):
             from .mcp_code import CodingMCPBridge
             mcp_bridges=[CodingMCPBridge(server,self.store.config,self) for server in servers]
             from .subagent_capabilities import unsupported
-            role_models={'light':light,'alternate':alternate,'alternate2':alternate2}
-            unsupported_roles={role for role,connection in role_models.items() if connection and unsupported(self.store.config,self.subagent_capability_connection(role,connection))}
+            unsupported_roles=set()
             if unsupported(self.store.config,self.subagent_capability_connection('heavy',heavy)):unsupported_roles.add('model')
             from .project_memory import ProjectMemory
             project_memory=ProjectMemory(self.store.root/'history.sqlite3',self.session['project_id']) if self.window.repositories.get(self.session['project_id']) else None
             selected=None
             if ident:
                 from .track_execution import prepare_track
-                secrets=[(connection or {}).get('api_key','') for connection in (heavy,light,alternate,alternate2)]+[backend.get('key','') for backend in backends]
+                secrets=[heavy.get('api_key','')]+[backend.get('key','') for backend in backends]
                 for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
                 files=ProjectFiles(self.session['path_snapshot']);limit=coding_limits(self.session.get('coding_limits'))['context_bytes'];selected=prepare_track(files,ident,secrets,limit)
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,light,context,backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),alternate=alternate,alternate2=alternate2,skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked())
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.session.get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked())
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
         if not continuation and self.composer.toPlainText().strip():self.remember_prompt(self.composer.toPlainText())
         self.session['coding_last_run_goal']=self.goal_enabled.isChecked()
@@ -1198,7 +1184,7 @@ class CodeTab(QWidget):
         self.pause_goal_button.setEnabled(isinstance(run,CodingRun) and run.goal)
         self.continue_button.setEnabled(False)
         self.send.setEnabled(False);self.cancel_button.setEnabled(True)
-        self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.save_review_progress.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
+        self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
         self.use_context.setEnabled(False)
         for connection,model in self.roles.values():connection.setEnabled(False);model.setEnabled(False)
         self.diff.clear();self.approval.clear();self.record('started',notice)
@@ -1598,9 +1584,9 @@ class CodeTab(QWidget):
             self.session['coding_working_notes']=notes;self.store.save(self.session);self.updated.emit();return
         if kind=='subagent_tools_unsupported':
             role=event.get('role')
-            if role not in ('model','light','alternate','alternate2') or not isinstance(self.job,CodingRun):return
-            original=self.job.connection if role=='model' else getattr(self.job,role,None)
-            widget_role='heavy' if role=='model' else role
+            if role!='model' or not isinstance(self.job,CodingRun):return
+            original=self.job.connection
+            widget_role='heavy'
             try:current=self.role_connection(widget_role)
             except ValueError:return
             fields=('url','protocol','model','api_key','reasoning','stream','context_limit','_capability_scope')
@@ -1825,7 +1811,7 @@ class CodeTab(QWidget):
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button,self.pause_goal_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
         self.send.setEnabled(True)
-        self.coding_context_button.setEnabled(True);self.coding_auto_compact.setEnabled(True);self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.light_enabled.setEnabled(True);self.save_review_progress.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
+        self.coding_context_button.setEnabled(True);self.coding_auto_compact.setEnabled(True);self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.web_enabled.setEnabled(True);self.limits_button.setEnabled(True);self.search_settings.setEnabled(True);self.advice_enabled.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         self.continue_button.setEnabled(self.can_continue())
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)

@@ -154,7 +154,7 @@ class PromptHistory(unittest.TestCase):
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);window.show();app.processEvents()
                 tab=window.tabs.currentWidget()
                 image=store.attach(data=b'image');tab.attachments.set_paths([image]);tab.documents=[{'name':'notes.txt','text':'Example document'}];tab.refresh_documents();tab.save_draft()
-                tab.remember_prompt('first\nsecond line');tab.composer.setPlainText('second prompt');tab.light_enabled.setChecked(False)
+                tab.remember_prompt('first\nsecond line');tab.composer.setPlainText('second prompt')
                 with patch.object(tab,'role_connection',return_value={'model':'heavy','url':'http://localhost','protocol':'chat'}),patch('agentnik.code_ui.CodingRun') as run,patch.object(tab,'launch') as launch:
                     tab.start_coding();launch.assert_called_once();self.assertEqual(run.call_args.args[2],'second prompt')
                     self.assertEqual(run.call_args.kwargs['images'],[image]);self.assertEqual(run.call_args.kwargs['documents'][0]['name'],'notes.txt')

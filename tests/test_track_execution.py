@@ -175,7 +175,7 @@ class TrackExecution(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             project=Path(root)/'project';shutil.copytree(FIXTURE,project);store=Store(Path(root)/'data');store.config['connections']={'Heavy':dict(CONNECTION)};window=Window(store)
             try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget();combo,model=tab.roles['heavy'];combo.setCurrentIndex(combo.findData('Heavy'));model.setText('heavy');tab.light_enabled.setChecked(False)
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget();combo,model=tab.roles['heavy'];combo.setCurrentIndex(combo.findData('Heavy'));model.setText('heavy')
                 def choose():
                     dialog=app.activeModalWidget()
                     try:

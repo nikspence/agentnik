@@ -127,7 +127,7 @@ class CodingWorkspace(unittest.TestCase):
                 session['coding_models']={'heavy':{'connection':'Main','model':'main'},'light':{'connection':'Old','model':'legacy'}}
                 session['coding_subagent_model']={'connection':'Other','model':'old-alternate'};store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 tab.composer.setPlainText('Inspect');tab.model_panel.show();app.processEvents()
-                self.assertFalse(tab.roles['heavy'][0].isHidden());self.assertTrue(tab.roles['light'][0].isHidden());self.assertTrue(tab.roles['alternate'][0].isHidden())
+                self.assertFalse(tab.roles['heavy'][0].isHidden());self.assertEqual(set(tab.roles),{'heavy','decision'})
                 with patch.object(tab,'launch') as launch:
                     tab.start_coding();run=launch.call_args.args[0]
                 self.assertIsNone(run.light);self.assertIsNone(run.alternate);self.assertIsNone(run.alternate2)
@@ -353,7 +353,7 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertEqual(tab.mcp_choice.currentData(),'Local');self.assertEqual(tab.mcp_extra,['Remote'])
                 store.config['mcp_servers'][0]['command']='replacement';tab.refresh_mcp_servers()
                 self.assertIn('changed or unavailable',tab.mcp_choice.currentText())
-                tab.light_enabled.setChecked(False);tab.composer.setPlainText('task')
+                tab.composer.setPlainText('task')
                 with patch.object(tab,'role_connection',return_value={'model':'test','url':'http://localhost'}),patch.object(QMessageBox,'warning') as warning,patch.object(tab,'launch') as launch:
                     tab.start_coding();warning.assert_called_once();launch.assert_not_called();self.assertIn('changed or is unavailable',warning.call_args.args[2])
                 tab.mcp_choice.setCurrentIndex(tab.mcp_choice.findData('Local'))
@@ -591,9 +591,9 @@ class CodingWorkspace(unittest.TestCase):
                     self.assertTrue(run.call_args.kwargs['web_enabled'])
                     routing.save_defaults(store.config,'Gateway',connection,'Agentnik only','public_fetch')
                     with patch.object(store,'web_backend_specs',return_value=[{'id':'ollama-search','kind':'ollama','key':'secret'}]):
-                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual(run.call_args.args[5],[])
+                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual(run.call_args.kwargs['web_backends'],[])
                     with patch.object(store,'web_backend_specs',return_value=[{'id':'brave','kind':'brave','key':'brave-test-key'},{'id':'ollama','kind':'ollama','key':'ollama-test-key'}]):
-                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual([b['kind'] for b in run.call_args.args[5]],['brave'])
+                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual([b['kind'] for b in run.call_args.kwargs['web_backends']],['brave'])
                     tab.roles['heavy'][0].addItem('Ollama direct','Ollama direct');window.connections['Ollama direct']={'url':'https://ollama.com','protocol':'chat','model':'cloud'}
                     tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Ollama direct'))
                     with patch.object(store,'web_backend_specs',return_value=[{'id':'ollama-search','kind':'ollama','key':'secret'}]):
@@ -784,7 +784,6 @@ class CodingWorkspace(unittest.TestCase):
                 tab=window.tabs.currentWidget();app.processEvents()
                 for role,model in [('heavy','my-heavy-coder')]:
                     combo,field=tab.roles[role];combo.setCurrentIndex(combo.findData('Gateway'));field.setText(model)
-                tab.light_enabled.setChecked(False)
                 tab.composer.setPlainText('Create a test file')
                 replies=[Wire(chat(calls=[call('write_file',{'path':'test.txt','content':'approved content'})],finish='tool_calls'),False),Wire(chat('Created test.txt'),False)]
                 with patch.object(core,'open_request',side_effect=replies) as endpoint,patch('subprocess.Popen') as process:
@@ -796,7 +795,7 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertEqual(saved['coding_context']['task'],'Create a test file')
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents()
                 reopened=window.tabs.currentWidget();self.assertEqual(reopened.roles['heavy'][1].text(),'my-heavy-coder')
-                self.assertTrue(reopened.roles['light'][0].isHidden());self.assertTrue(reopened.light_enabled.isHidden());self.assertIsNone(reopened.job)
+                self.assertEqual(set(reopened.roles),{'heavy','decision'});self.assertIsNone(reopened.job)
                 self.assertIn('Created test.txt',reopened.session['coding_context']['answer']);self.assertFalse(reopened.use_context.isChecked())
                 reopened.use_context.setChecked(True);reopened.composer.setPlainText('Follow up');bodies=[]
                 def reply(c,url,body,timeout):bodies.append(body);return Wire(chat('Follow-up complete'),False)
