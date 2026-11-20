@@ -12,6 +12,8 @@ Acceptance: offline and offscreen Qt tests cover migration and legacy sessions, 
 
 Migration groundwork: Code sessions now accept a `model` binding and prefer it when present, while older Heavy assignments remain readable. Saving the current model controls records the new binding and retains legacy Light and alternate settings. This does not yet change the visible Heavy/Light controls or subagent routing; those are the next implementation slices. Older Agentnik versions may not understand sessions after the new binding is saved.
 
+Subagent routing groundwork: `delegate_subagents` runs parallel children on the parent request's connection and model without a Light assignment. It retains the existing bounded snapshots, approvals, cancellation and shared budgets, and records subagent usage separately. The legacy delegation tools and controls remain temporarily available until their removal; the single-model transition is not complete. Current evidence is mocked requests and offscreen UI tests, not live model compatibility.
+
 ## Heavy and light models in one workflow
 
 Each Code pane has independent Heavy and Light connection/model assignments. Select any alias supported by the connection, including LiteLLM coding models, or use Choose model to retrieve its model list. Listing does not establish tool capability. Start with a tool-capable heavy model; the light role is optional and is not automatically chosen.

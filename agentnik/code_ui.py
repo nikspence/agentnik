@@ -1197,6 +1197,7 @@ class CodeTab(QWidget):
             from .subagent_capabilities import unsupported
             role_models={'light':light,'alternate':alternate,'alternate2':alternate2}
             unsupported_roles={role for role,connection in role_models.items() if connection and unsupported(self.store.config,self.subagent_capability_connection(role,connection))}
+            if unsupported(self.store.config,self.subagent_capability_connection('heavy',heavy)):unsupported_roles.add('model')
             from .project_memory import ProjectMemory
             project_memory=ProjectMemory(self.store.root/'history.sqlite3',self.session['project_id']) if self.window.repositories.get(self.session['project_id']) else None
             selected=None;review_guard=None
@@ -1637,16 +1638,17 @@ class CodeTab(QWidget):
             self.session['coding_working_notes']=notes;self.store.save(self.session);self.updated.emit();return
         if kind=='subagent_tools_unsupported':
             role=event.get('role')
-            if role not in ('light','alternate','alternate2') or not isinstance(self.job,CodingRun):return
-            original=getattr(self.job,role,None)
-            try:current=self.role_connection(role)
+            if role not in ('model','light','alternate','alternate2') or not isinstance(self.job,CodingRun):return
+            original=self.job.connection if role=='model' else getattr(self.job,role,None)
+            widget_role='heavy' if role=='model' else role
+            try:current=self.role_connection(widget_role)
             except ValueError:return
             fields=('url','protocol','model','api_key','reasoning','stream','context_limit','_capability_scope')
             if not original or not current or any(original.get(key)!=current.get(key) for key in fields):return
-            name=self.roles[role][0].currentData();saved=self.store.config.get('connections',{}).get(name)
+            name=self.roles[widget_role][0].currentData();saved=self.store.config.get('connections',{}).get(name)
             if saved is not None and not saved.get('_capability_scope') and current.get('_capability_scope'):saved['_capability_scope']=current['_capability_scope']
             from .subagent_capabilities import remember
-            remember(self.store.config,self.subagent_capability_connection(role,current));self.store.flush();return
+            remember(self.store.config,self.subagent_capability_connection(widget_role,current));self.store.flush();return
         if kind in ('edit_proposal','operation_proposal'):self.approve_mcp_run.hide()
         if kind=='subagent':
             try:

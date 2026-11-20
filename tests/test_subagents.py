@@ -13,6 +13,39 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_subagents_use_parent_connection_without_light_configuration(self):
+        with tempfile.TemporaryDirectory() as root:
+            events=[];requests=[];parent_requests=0;lock=threading.Lock()
+            run=CodingRun(dict(C,stream=False,api_key='parent-key'),root,'Analyze')
+            def send(connection,url,body,timeout):
+                nonlocal parent_requests
+                with lock:requests.append((dict(connection),copy.deepcopy(body)))
+                messages=body.get('messages',[])
+                if any('Independent read-only coding analysis.' in str(message.get('content','')) for message in messages):
+                    return Wire(chat('Finding'),False)
+                parent_requests+=1
+                if parent_requests==1:return Wire(chat(calls=[call('delegate_subagents',{'tasks':json.dumps(['first','second'])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertEqual(len(requests),4)
+            self.assertTrue(all(request[0]['model']==C['model'] and request[0]['api_key']=='parent-key' for request in requests))
+            self.assertIn('Subagent: 2 request(s)',run.usage_text())
+            self.assertTrue(any(tool.get('function',{}).get('name')=='delegate_subagents' for tool in requests[0][1]['tools']))
+
+    def test_subagents_reject_alternate_model_selection(self):
+        with tempfile.TemporaryDirectory() as root:
+            events=[];requests=[];bodies=[];parent_requests=0
+            run=CodingRun(dict(C,stream=False),root,'Analyze',light=dict(C,model='light',stream=False),alternate=dict(C,model='alternate',stream=False))
+            def send(connection,url,body,timeout):
+                nonlocal parent_requests
+                requests.append(connection['model']);bodies.append(copy.deepcopy(body));parent_requests+=1
+                if parent_requests==1:return Wire(chat(calls=[call('delegate_subagents',{'tasks':json.dumps(['first',{'task':'second','model':'alternate'}])})],finish='tool_calls'),False)
+                return Wire(chat('Done'),False)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertEqual(requests,[C['model'],C['model']]);self.assertIn('omit the model field',json.dumps(bodies[-1]))
+
     def test_cancellation_counts_inflight_single_review(self):
         with tempfile.TemporaryDirectory() as root:
             (Path(root)/'spec.md').write_text('SPEC',encoding='utf-8');started=threading.Event();release=threading.Event()
