@@ -189,6 +189,20 @@ class ModelCoding(unittest.TestCase):
                 finally:release.set();worker.join(5)
             self.assertFalse(worker.is_alive())
 
+    def test_steering_acknowledgement_matches_redacted_delivery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False,api_key='secret-key'),directory,'Task');events=[];outcomes=[];count=[0]
+            def send(connection,url,body,timeout):
+                count[0]+=1
+                if count[0]==1:self.assertTrue(run.steer('Correction secret-key'))
+                return Wire(chat('Response'),False)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='steering_delivered':run.acknowledge_steering(event['text']);outcomes.append(run.stop())
+            with patch.object(core,'open_request',side_effect=send):run.run(emit)
+            self.assertEqual(outcomes[0]['delivered'],[]);self.assertNotIn('secret-key',json.dumps(events)+json.dumps(outcomes))
+            self.assertIn('[redacted]',next(event['text'] for event in events if event['kind']=='steering_delivered'))
+
     def test_steering_limit_before_request_reports_not_delivered(self):
         from agentnik.code_limits import coding_limits
         with tempfile.TemporaryDirectory() as directory:

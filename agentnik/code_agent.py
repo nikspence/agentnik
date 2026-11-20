@@ -917,7 +917,7 @@ class CodingRun:
                 round_number+=1
                 check_skill_versions();guidance.discover('.');sync_guidance()
                 with self.lock:
-                    steering_batch=self.steering[:];self.steering.clear();self.steering_inflight=steering_batch[:];self.steering_submitted=False
+                    steering_batch=[scrub(message,secrets) for message in self.steering];self.steering.clear();self.steering_inflight=steering_batch[:];self.steering_submitted=False
                 steering_submitted=False
                 if steering_batch and self.goal:self.goal_status='active'
                 for message in steering_batch:
