@@ -13,6 +13,30 @@ from test_compat_tools import chat
 from test_routing import Wire
 
 class Subagents(unittest.TestCase):
+    def test_same_model_routing_across_supported_protocols(self):
+        from agentnik import compat_tools,ollama_tools,responses_tools
+        from agentnik.tools import ToolCall
+        for protocol,url,adapter in [('chat','https://gateway.example/v1',compat_tools),('messages','https://gateway.example/v1',compat_tools),('responses','https://gateway.example/v1',responses_tools),('chat','http://localhost:11434/v1',ollama_tools)]:
+            with self.subTest(protocol=protocol,url=url),tempfile.TemporaryDirectory() as root:
+                connection=dict(C,protocol=protocol,url=url,stream=False,model='chosen-model',api_key='fixture-key');run=CodingRun(connection,root,'Analyze');events=[];requests=[];parent_bodies=[];parents=[0];lock=threading.Lock()
+                def request(selected,body,runtime,emit,state):
+                    is_child='Independent read-only coding analysis.' in json.dumps(body)
+                    with lock:requests.append((dict(selected),is_child))
+                    if is_child:
+                        state['text']='Finding';return ([{'type':'message','role':'assistant','content':[]}] if protocol=='responses' else {'role':'assistant','content':'Finding'}),[]
+                    parents[0]+=1;parent_bodies.append(copy.deepcopy(body))
+                    if parents[0]==1:
+                        assistant=([{'type':'function_call','call_id':'delegate','name':'delegate_subagents','arguments':'{}'}] if protocol=='responses' else {'role':'assistant','content':[] if protocol=='messages' else ''})
+                        return assistant,[ToolCall('delegate','delegate_subagents',{'tasks':json.dumps(['one','two'])},{'id':'delegate'})]
+                    state['text']='Done';return ([{'type':'message','role':'assistant','content':[]}] if protocol=='responses' else {'role':'assistant','content':'Done'}),[]
+                with patch.object(adapter,'request',side_effect=request):run.run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(requests),4);self.assertEqual(sum(child for _,child in requests),2)
+                self.assertTrue(all(selected['url']==url and selected['protocol']==protocol and selected['model']=='chosen-model' and selected['api_key']=='fixture-key' for selected,_ in requests))
+                continuation=parent_bodies[-1]['input' if protocol=='responses' else 'messages'];self.assertIn('Finding',json.dumps(continuation))
+                if protocol=='responses':self.assertEqual(sum(item.get('type')=='function_call_output' for item in continuation),1)
+                elif protocol=='messages':self.assertEqual(sum(block.get('type')=='tool_result' for item in continuation if isinstance(item.get('content'),list) for block in item['content'] if isinstance(block,dict)),1)
+                else:self.assertEqual(sum(item.get('role')=='tool' for item in continuation),1);self.assertFalse(any(item.get('role')=='user' and isinstance(item.get('content'),list) for item in continuation))
+
     def test_same_model_inspection_is_confined_to_approved_snapshots(self):
         from agentnik import compat_tools
         from agentnik.tools import ToolCall

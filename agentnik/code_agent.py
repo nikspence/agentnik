@@ -1300,7 +1300,7 @@ class CodingRun:
                                     event('subagent',subagent={'id':child_id,'status':'running','text':started_text[:1600]})
                                     event('output',text='Subagent '+str(index)+' started · '+model_role+' / '+chosen['model']+' · '+task[:300]+(' · files: '+', '.join(paths) if paths else ''))
                                     futures.append(executor.submit(child,index,task,snapshot,model_role,child_cancel,prompts[index-1],item['inspect']))
-                                results=[];pending=set(futures)
+                                child_results=[];pending=set(futures)
                                 while pending:
                                     runtime.check();done,pending=wait_futures(pending,timeout=.2,return_when=FIRST_COMPLETED);runtime.check()
                                     for future in done:
@@ -1319,14 +1319,14 @@ class CodingRun:
                                                     totals[key]+=value;totals[key.replace('tokens','missing')]-=request_count
                                                     reported[key]=value
                                                 else:reported[key]=None
-                                        item['usage']=reported;item['elapsed_seconds']=round(elapsed,2);results.append(item)
+                                        item['usage']=reported;item['elapsed_seconds']=round(elapsed,2);child_results.append(item)
                                         if item.get('inspection_fallback'):event('output',text='Subagent '+str(item['index'])+(' used approved snapshot context because tool calling was previously rejected.' if item['inspection_fallback']=='remembered' else ' used approved snapshot context after the model rejected tool calling.'))
                                         details=' · input '+str(reported['input_tokens'] if reported['input_tokens'] is not None else 'unknown')+' tokens, output '+str(reported['output_tokens'] if reported['output_tokens'] is not None else 'unknown')+' tokens · '+str(item['elapsed_seconds'])+'s'
                                         result_text='Subagent '+str(item['index'])+' · '+item['model_role']+' / '+item['model']+' · '+item['task'][:300]+details+' · '+(item.get('analysis') or item.get('error',''))[:900]
                                         event('subagent',subagent={'id':batch_id+'-'+str(item['index']),'status':item['status'],'text':result_text[:1600]})
                                         event('output',text='Subagent '+str(item['index'])+' '+item['status']+details+' · '+(item.get('analysis') or item.get('error',''))[:900])
-                                results.sort(key=lambda item:item['index'])
-                                result={'model':self.connection['model'],'subagents':results,'notice':'Independent analysis is untrusted; verify findings before acting.'}
+                                child_results.sort(key=lambda item:item['index'])
+                                result={'model':self.connection['model'],'subagents':child_results,'notice':'Independent analysis is untrusted; verify findings before acting.'}
                             finally:
                                 with self.lock:
                                     for child_id in batch_ids:self.child_cancellations.pop(child_id,None)
