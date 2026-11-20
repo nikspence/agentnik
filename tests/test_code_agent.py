@@ -88,6 +88,33 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_steering_is_delivered_after_inflight_model_response(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Original task');events=[];bodies=[]
+            def send(connection,url,body,timeout):
+                bodies.append(json.loads(json.dumps(body)))
+                if len(bodies)==1:
+                    self.assertTrue(run.steer('First correction'));self.assertTrue(run.steer('Second correction'))
+                    return Wire(chat('Initial answer'),False)
+                return Wire(chat('Revised answer'),False)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(events[-1]['status'],'completed');self.assertEqual(len(bodies),2)
+            messages=bodies[-1]['messages'];texts=[m['content'] for m in messages if m.get('role')=='user']
+            self.assertEqual(texts[-2:],['First correction','Second correction'])
+            self.assertEqual([e['text'] for e in events if e['kind']=='steering_delivered'],['First correction','Second correction'])
+            self.assertFalse(run.steer('too late'))
+
+    def test_steering_invalidates_pending_shell_and_defers_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run=CodingRun(dict(C,stream=False),directory,'Original task');events=[];bodies=[]
+            replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo one'}),call('write_file',{'path':'new.txt','content':'bad'},'second')],finish='tool_calls'),False),Wire(chat('Adjusted'),False)]
+            def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            def emit(event):
+                events.append(event)
+                if event['kind']=='operation_proposal':self.assertTrue(run.steer('Do not make those changes'))
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.shell.execute') as execute:run.run(emit);execute.assert_not_called()
+            self.assertFalse(Path(directory,'new.txt').exists());self.assertEqual(events[-1]['status'],'completed')
+            self.assertIn('Do not make those changes',json.dumps(bodies[-1]));self.assertIn('reconsider this tool call',json.dumps(bodies[-1]))
     def test_compare_git_branches_is_read_only_and_model_can_correct_bad_ref(self):
         from dulwich import porcelain
         with tempfile.TemporaryDirectory() as directory:

@@ -598,6 +598,7 @@ class CodingRun:
         if self.unsupported_subagent_roles-{'model','light','alternate','alternate2'}:raise ValueError('Invalid subagent capability roles')
         self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self._git_credentials=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
         self.shell_without_approval=False;self.shell_automatic_last=False
+        self.steering=[];self.accepting_steering=True
         self.usage={role:self._empty_usage() for role in ('Heavy','Light','Subagent')}
         self.parallel_usage={role:self._empty_usage() for role in ('model','light','alternate','alternate2')}
         self.review_usage={role:self._empty_usage() for role in ('light','alternate','alternate2')}
@@ -629,7 +630,15 @@ class CodingRun:
         return 'Usage: '+'; '.join(parts) if parts else 'Usage: no model requests'
 
     def stop(self):
-        with self.lock:self.cancel.set();self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
+        with self.lock:self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
+
+    def steer(self,message):
+        if not isinstance(message,str) or not message.strip() or len(message.encode('utf-8'))>16000:return False
+        with self.lock:
+            if self.cancel.is_set() or not self.accepting_steering or len(self.steering)>=32:return False
+            self.steering.append(message.strip())
+            if self.pending and self.answer is None:self.answer=False;self.decision.set()
+            return True
 
     def set_shell_without_approval(self,enabled):
         if type(enabled) is not bool:raise ValueError('Invalid shell approval setting')
@@ -894,6 +903,8 @@ class CodingRun:
                     raise GuidanceError('Repository guidance changed before approval. Review the updated instructions and propose the operation again.')
                 proposal,emit,runtime,kind=review_args
                 allowed=self.review_shell(proposal,emit,runtime) if kind=='operation_proposal' and proposal.get('operation')=='run_shell' else self.review(*review_args)
+                with self.lock:
+                    if self.steering:allowed=False
                 if allowed:
                     check_skill_versions();discover_arguments(args)
                     if scrub(guidance.render(),secrets)!=seen_guidance:
@@ -909,6 +920,12 @@ class CodingRun:
             adapter=responses_tools if protocol=='responses' else ollama_tools if native else compat_tools
             for round_number in range(runtime.limits.rounds+1):
                 check_skill_versions();guidance.discover('.');sync_guidance()
+                with self.lock:steering=self.steering[:];self.steering.clear()
+                for message in steering:
+                    message=scrub(message,secrets);runtime.charge('context_bytes',len(message.encode('utf-8')),runtime.limits.context_bytes)
+                    if protocol=='responses':body['input'].append({'role':'user','content':message})
+                    else:body['messages'].append({'role':'user','content':message})
+                    event('steering_delivered',text=message)
                 if round_number==0 and self.review_guard is not None:
                     from .independent_review import track_review_summary
                     try:current_reviews=track_review_summary(files,self.selected_track,self.review_guard['history'])
@@ -927,6 +944,12 @@ class CodingRun:
                 if protocol=='responses':body['input'].extend(assistant)
                 else:body['messages'].append(assistant)
                 if not calls:
+                    with self.lock:
+                        has_steering=bool(self.steering)
+                        if not has_steering:self.accepting_steering=False
+                    if has_steering:
+                        if round_number>=runtime.limits.rounds:raise LimitError('Coding tool round limit reached before steering could be delivered')
+                        continue
                     event('finished',status='completed',text=state.get('text','') or 'Coding turn completed.',response_shown=bool(state.get('text')),usage=usage_text());return
                 if round_number>=runtime.limits.rounds:raise LimitError('Coding tool round limit reached')
                 validated=[]
@@ -959,6 +982,8 @@ class CodingRun:
                     if not batch_invalid:discover_arguments(args);sync_guidance()
                     mcp_state=None
                     try:
+                        with self.lock:steered=bool(self.steering)
+                        if steered:raise ProjectToolError('User steering is pending; reconsider this tool call after reading it.')
                         if batch_invalid:raise ProjectToolError(validation_error or 'This call was not executed because another call in the batch had invalid arguments. Correct the batch before retrying.')
                         if self.selected_track and call.name in ('write_file','apply_patch','delete_file','create_directory','rename_file','move_file','rename_directory','move_directory'):
                             protected=files.root/'agentnik-plans'
@@ -1761,4 +1786,4 @@ class CodingRun:
         finally:
             for bridge in self.mcp_bridges:bridge.close_signal.emit()
             runtime.closed=True
-            with self.lock:self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear()
+            with self.lock:self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear()

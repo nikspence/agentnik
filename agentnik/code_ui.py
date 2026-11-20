@@ -246,6 +246,9 @@ class CodeTab(QWidget):
         self.history_up=QPushButton('↑');self.history_up.setAccessibleName(self.tr('Previous coding prompt'));self.history_up.setToolTip(self.tr('Previous coding prompt'));history_buttons.addWidget(self.history_up)
         self.history_down=QPushButton('↓');self.history_down.setAccessibleName(self.tr('Next coding prompt'));self.history_down.setToolTip(self.tr('Next coding prompt'));history_buttons.addWidget(self.history_down)
         self.composer=CodingComposer(session.get('draft',''));self.composer.setPlaceholderText(self.tr('Describe the coding task; repository files may be sent to the selected models'));self.composer.setMaximumHeight(90);composer_row.addWidget(self.composer,1)
+        steering_row=QHBoxLayout();layout.addLayout(steering_row)
+        self.steering_input=QLineEdit();self.steering_input.setPlaceholderText(self.tr('Steer the active coding run'));self.steering_input.setEnabled(False);steering_row.addWidget(self.steering_input,1)
+        self.steering_button=QPushButton(self.tr('Send steering'));self.steering_button.setEnabled(False);self.steering_button.clicked.connect(self.send_steering);self.steering_input.returnPressed.connect(self.send_steering);steering_row.addWidget(self.steering_button)
         from .ui import AttachmentBox
         self.attachments=AttachmentBox(self.store);self.attachments.set_paths(session.get('draft_images',[]));layout.addWidget(self.attachments)
         self.documents=copy.deepcopy(session.get('draft_documents',[]))
@@ -500,6 +503,21 @@ class CodeTab(QWidget):
         if isinstance(self.job,CodingRun):
             self.job.set_shell_without_approval(enabled)
             self.record('output',self.tr('Shell commands without approval: {state}').format(state=self.tr('on') if enabled else self.tr('off')))
+
+    def send_steering(self):
+        job=self.job;text=self.steering_input.text()
+        if not isinstance(job,CodingRun) or not text.strip():return
+        secrets=[job.connection.get('api_key',''),(job.light or {}).get('api_key',''),(job.alternate or {}).get('api_key',''),(job.alternate2 or {}).get('api_key','')]+[item.get('key','') for item in job.web_backends]
+        for bridge in job.mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
+        message=scrub(text.strip(),secrets)
+        if not job.steer(message):
+            self.record('output',self.tr('Steering was not queued; the run may have ended or the message may exceed the limit.'));return
+        self.steering_input.clear();self.record('steering',self.tr('Steering queued: ')+message)
+        if self.pending_fingerprint:
+            self.pending_fingerprint=None;self.advice_fingerprint=None
+            if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
+            self.approval_panel.hide();self.approval.clear();self.diff.clear();self.session['code_state']='running'
+            self.record('decision',self.tr('Pending approval invalidated by steering.'))
 
     def save_heavy_review_progress(self,enabled):
         self.session['coding_save_review_progress']=enabled;self.store.save(self.session)
@@ -1221,6 +1239,7 @@ class CodeTab(QWidget):
                 history.append({'run_id':run.run_id,'skills':[]});self.session['coding_skill_history']=history[-32:]
                 self.session['coding_sources']=[];self.session['coding_skill_revisions']=[];self.update_sources_button();self.session.pop('coding_plan',None);self.refresh_plan()
         self.job=run;self.run_id=run.run_id;self.pending_fingerprint=None;self.session['code_state']='running'
+        self.steering_input.setEnabled(isinstance(run,CodingRun));self.steering_button.setEnabled(isinstance(run,CodingRun))
         self.continue_button.setEnabled(False)
         self.send.setEnabled(False);self.direct_review_button.setEnabled(False);self.cancel_button.setEnabled(True)
         self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.light_enabled.setEnabled(False);self.save_review_progress.setEnabled(False);self.web_enabled.setEnabled(False);self.limits_button.setEnabled(False);self.search_settings.setEnabled(False);self.advice_enabled.setEnabled(False);self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False)
@@ -1753,6 +1772,7 @@ class CodeTab(QWidget):
                 if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
                 self.approve.setEnabled(False);self.reject.setEnabled(False);self.approval_panel.hide();self.approval.clear();self.diff.clear();self.session['code_state']='running'
                 self.record('decision',self.tr('Shell command allowed by the current switch.'))
+        elif kind=='steering_delivered':self.record('steering',self.tr('Steering delivered: ')+event['text'])
         elif kind=='output':self.record(kind,event['text'])
         elif kind=='model_response':
             role=event.get('role','Model');model=event.get('model','')
@@ -1837,6 +1857,7 @@ class CodeTab(QWidget):
         if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
         self.advice_connection=None;self.advice_destination=''
         self.run_id=None;self.job=None;self.pending_fingerprint=None;self.advice_fingerprint=None
+        self.steering_input.setEnabled(False);self.steering_button.setEnabled(False)
         self.approval_panel.hide()
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
