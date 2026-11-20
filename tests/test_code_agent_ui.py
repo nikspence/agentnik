@@ -126,6 +126,27 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_long_continuation_evidence_keeps_bounded_source_snapshot(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                session['coding_goal']={'objective':'Goal','status':'paused','detail':''};session['coding_resume']={'task':'Goal','evidence':'Earlier evidence'}
+                session['coding_plan']={'explanation':'Progress','steps':[{'step':'Finish remaining work','status':'pending'}]}
+                session['coding_sources']=[{'id':'S'+str(i),'title':'Reference','url':'https://example.com/'+('x'*1800)+str(i)} for i in range(1,33)]
+                session['code_activity']=[{'kind':'started','text':'Run'}]+[{'kind':'output','text':'x'*1800} for _ in range(20)]+[{'kind':'steering_delivered','text':'Steering delivered: Latest correction'}]
+                snapshot=tab.continuation_snapshot([]);parsed=json.loads(snapshot);self.assertLessEqual(len(snapshot),8000);self.assertGreater(parsed['sources_omitted'],0)
+                tab.capture_goal_resume();evidence=session['coding_resume']['evidence']
+                self.assertLessEqual(len(evidence),24000);self.assertTrue(evidence.startswith('[Earlier continuation evidence omitted'))
+                self.assertIn('Latest correction',evidence);self.assertIn('Finish remaining work',evidence);self.assertIn(snapshot,evidence)
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_interrupted_goal_reopens_without_running_and_can_continue(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
