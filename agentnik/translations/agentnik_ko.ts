@@ -2700,6 +2700,10 @@ Recommendation: {recommendation}</source>
             <source>MCP web_fetch failed; trying Agentnik-managed page fetch.</source>
             <translation>MCP web_fetch가 실패하여 Agentnik 관리형 페이지 가져오기를 시도합니다.</translation>
         </message>
+        <message>
+            <source>Project memory saved: {detail}</source>
+            <translation>프로젝트 메모리 저장됨: {detail}</translation>
+        </message>
     </context>
     <context>
         <name>CodingLimitsDialog</name>

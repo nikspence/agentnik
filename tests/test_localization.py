@@ -130,6 +130,7 @@ class Localization(unittest.TestCase):
                     self.assertEqual(tab.activity_text({'kind':'output','text':'Tool call: read_file {"path":"src/{name}.py"}'}),'도구 호출: read_file {"path":"src/{name}.py"}')
                     self.assertEqual(tab.activity_text({'kind':'output','text':'Tool result: read_file — rejected'}),'도구 결과: read_file — 거부됨')
                     self.assertEqual(tab.activity_text({'kind':'output','text':'Tool error detail: Invalid arguments'}),'도구 오류 세부 정보: Invalid arguments')
+                    self.assertEqual(tab.activity_text({'kind':'output','text':'Project memory saved: Build steps'}),'프로젝트 메모리 저장됨: Build steps')
                     self.assertEqual(tab.activity_text({'kind':'output','text':'Reading web page: https://example.test/{name}'}),'웹 페이지 읽는 중: https://example.test/{name}')
                     self.assertEqual(tab.activity_text({'kind':'finished','text':'Applied approved edit: text'}),'Applied approved edit: text')
                     usage='Usage: Heavy: 2 request(s), input 10 (known usage only), output unknown tokens; Light: 1 request(s), input 3, output 0 tokens'
