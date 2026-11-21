@@ -922,6 +922,35 @@ class ModelCoding(unittest.TestCase):
                 CodingRun(dict(C,stream=False),directory,'Research',mcp_bridge=bridge,web_enabled=True,search_provider='managed').run(events.append)
             fetch.assert_called_once();self.assertEqual(events[-1]['status'],'completed');self.assertIn('Page evidence',json.dumps(bodies[-1]));self.assertTrue(any('trying Agentnik-managed' in event.get('text','') for event in events));self.assertTrue(any(event.get('kind')=='source' for event in events))
 
+    def test_parallel_partial_fetch_falls_back_only_for_eligible_failed_urls(self):
+        from unittest.mock import Mock
+        from agentnik.tools import Source
+        schemas=json.loads((Path(__file__).parent/'fixtures'/'parallel_mcp_output_schemas.json').read_text(encoding='utf-8'))
+        tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema':{'type':'object'},'schema_status':'available','output_schema_status':'available','output_schema':schemas['web_fetch']}
+        result={'extract_id':'extract','session_id':'session','results':[{'url':'https://example.com/a','excerpts':['Original evidence']}],'errors':[{'url':'https://example.com/b','error_type':'not_found','http_status_code':404,'content':None},{'url':'https://example.com/c','error_type':'forbidden','http_status_code':403,'content':None}]}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Parallel','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[],'structuredContent':result}}]
+            args={'tool':'web_fetch','arguments':json.dumps({'urls':['https://example.com/a','https://example.com/b','https://example.com/c']})}
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args)],finish='tool_calls'),False),Wire(chat('Done'),False)];events=[];bodies=[]
+            def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+            def fetch(url,runtime):return [Source('',url,url,'Fallback evidence','now')]
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.code_agent.PageFetcher.fetch',side_effect=fetch) as managed:
+                CodingRun(dict(C,stream=False),directory,'Research',mcp_bridge=bridge,web_enabled=True,search_provider='managed').run(events.append)
+            managed.assert_called_once();self.assertEqual(managed.call_args.kwargs['url'],'https://example.com/b');self.assertIn('Original evidence',bodies[-1]);self.assertIn('Fallback evidence',bodies[-1]);self.assertEqual(events[-1]['status'],'completed')
+
+    def test_parallel_mcp_fetch_fallback_supports_multiple_urls(self):
+        from unittest.mock import Mock
+        from agentnik.tools import Source
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Parallel','command':'server','args':[],'enabled':True};bridge.request.return_value={'tool_details':[]}
+            args={'tool':'web_fetch','arguments':json.dumps({'urls':['https://example.com/a','https://example.com/b','https://example.com/a']})}
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args)],finish='tool_calls'),False),Wire(chat('Done'),False)];events=[];bodies=[]
+            def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+            def fetch(url,runtime):return [Source('',url,url,'Evidence','now')]
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.code_agent.PageFetcher.fetch',side_effect=fetch) as managed:
+                CodingRun(dict(C,stream=False),directory,'Research',mcp_bridge=bridge,web_enabled=True,search_provider='managed').run(events.append)
+            self.assertEqual(managed.call_count,2);self.assertIn('https://example.com/a',bodies[-1]);self.assertIn('https://example.com/b',bodies[-1]);self.assertEqual(events[-1]['status'],'completed')
+
     def test_mcp_fetch_explicit_server_error_falls_back_but_access_denial_does_not(self):
         from unittest.mock import Mock
         from agentnik.tools import Source
@@ -937,6 +966,43 @@ class ModelCoding(unittest.TestCase):
                 self.assertEqual(fetch.call_count,int(should_fetch));self.assertEqual(events[-1]['status'],'completed')
                 self.assertTrue(any(message in event.get('text','') for event in events))
 
+    def test_parallel_mcp_fetch_and_research_results_reach_model(self):
+        from unittest.mock import Mock
+        schemas=json.loads((Path(__file__).parent/'fixtures'/'parallel_mcp_output_schemas.json').read_text(encoding='utf-8'))
+        tools=[{'name':name,'description':'Parallel tool','description_clipped':False,'schema':{'type':'object'},'schema_status':'available','output_schema_status':'available','output_schema':schemas[name]} for name in ('web_fetch','web_research')]
+        fetch={'extract_id':'extract-test','results':[{'url':'https://example.com','excerpts':['Page evidence'],'acquired_at':'2026-11-20T00:00:00Z'}],'errors':[],'session_id':'session-test'}
+        report={'id':'response-test','output':[{'id':'search-test','action':{'type':'search'},'status':'completed','type':'web_search_call'}]}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Parallel','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':tools},{'call_result':{'content':[],'structuredContent':fetch}},{'call_result':{'content':[],'structuredContent':report}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'web_fetch','arguments':'{}'}),call('mcp_call',{'tool':'web_research','arguments':'{}'},'research')],finish='tool_calls'),False),Wire(chat('Done'),False)];events=[];bodies=[]
+            def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.code_agent.PageFetcher.fetch') as fallback:CodingRun(dict(C,stream=False),directory,'Research',mcp_bridge=bridge,web_enabled=True,search_provider='managed').run(events.append)
+            self.assertEqual(events[-1]['status'],'completed');self.assertIn('Page evidence',bodies[-1]);self.assertIn('response-test',bodies[-1]);fallback.assert_not_called()
+            self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','call','call'])
+
+    def test_mcp_fetch_completed_invalid_output_uses_managed_fetch(self):
+        from unittest.mock import Mock
+        from agentnik.tools import Source
+        tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema':{'type':'object','properties':{'url':{'type':'string'}},'required':['url']},'schema_status':'available','output_schema_status':'available','output_schema':{'type':'object','properties':{'count':{'type':'integer'}},'required':['count']}}
+        for body,should_fetch in [({'content':[{'type':'text','text':'Fetched page'}],'structuredContent':{'count':'wrong'}},True),({'content':[{'type':'text','text':'403 Forbidden'}],'structuredContent':{'count':'wrong'}},False)]:
+            with self.subTest(should_fetch=should_fetch),tempfile.TemporaryDirectory() as directory:
+                bridge=Mock();bridge.server={'name':'Parallel','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':[tool]},{'call_result':body}]
+                args={'tool':'web_fetch','arguments':'{"url":"https://example.com/page"}'};replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args)],finish='tool_calls'),False),Wire(chat('Done'),False)];events=[]
+                with patch.object(core,'open_request',side_effect=replies),patch('agentnik.code_agent.PageFetcher.fetch',return_value=[Source('','Example','https://example.com/page','Evidence','now')]) as fetch:
+                    CodingRun(dict(C,stream=False),directory,'Research',mcp_bridge=bridge,web_enabled=True,search_provider='managed').run(events.append)
+                self.assertEqual(fetch.call_count,int(should_fetch));self.assertEqual(events[-1]['status'],'completed');self.assertTrue(any('MCP structured result does not match' in e.get('text','') for e in events))
+
+    def test_missing_git_dependency_reports_error_and_allows_model_to_continue(self):
+        import builtins
+        original=builtins.__import__
+        def importing(name,*args,**kwargs):
+            if name=='git_service' or name=='agentnik.git_service':raise ModuleNotFoundError("No module named 'dulwich'",name='dulwich')
+            return original(name,*args,**kwargs)
+        with tempfile.TemporaryDirectory() as directory:
+            replies=[Wire(chat(calls=[call('git_log',{})],finish='tool_calls'),False),Wire(chat('Continued'),False)];events=[]
+            with patch.object(core,'open_request',side_effect=replies),patch('builtins.__import__',side_effect=importing):CodingRun(dict(C,stream=False),directory,'Inspect').run(events.append)
+            self.assertEqual(events[-1]['status'],'completed');self.assertTrue(any('required Python module is missing: dulwich' in e.get('text','') for e in events))
+
     def test_mcp_fetch_fallback_rejects_blocks_and_uncertain_failures(self):
         from agentnik.code_agent import mcp_fetch_fallback_url
         args={'tool':'web_fetch','arguments':'{"url":"https://example.com/page"}'}
@@ -945,7 +1011,18 @@ class ModelCoding(unittest.TestCase):
             self.assertIsNone(mcp_fetch_fallback_url({'result':{'isError':True,'content':[{'type':'text','text':detail}]}},args))
         self.assertEqual(mcp_fetch_fallback_url({'result':{'isError':True,'content':[{'type':'text','text':'Could not retrieve content'}]}},args),'https://example.com/page')
         self.assertIsNone(mcp_fetch_fallback_url({'error':'MCP session is unavailable; discover the server first.'},args))
+        cache_only={'tool':'web_fetch','arguments':json.dumps({'urls':['https://example.com'],'allow_live_fetch':False})}
+        self.assertIsNone(mcp_fetch_fallback_url({'error':'MCP tool not found on the selected server: web_fetch'},cache_only))
         self.assertIsNone(mcp_fetch_fallback_url({'error':'MCP tool not found on the selected server: web_fetch'},{'tool':'web_fetch','arguments':'{"url":"http://127.0.0.1"}'}))
+
+    def test_mcp_first_auto_discovers_before_builtin_tool(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Parallel','command':'server','args':[],'enabled':True};bridge.request.return_value={'tool_details':[]}
+            replies=[Wire(chat(calls=[call('project_overview',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat('Done'),False)];events=[];bodies=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Inspect',mcp_bridge=bridge).run(events.append)
+            self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover']);self.assertEqual(events[-1]['status'],'completed');self.assertNotIn('Discover all selected MCP',json.dumps(bodies));self.assertTrue(any('MCP server connected: Parallel' in e.get('text','') for e in events))
 
     def test_mcp_priority_controls_conflicting_builtin_code_tool(self):
         from unittest.mock import Mock

@@ -4,7 +4,7 @@ from referencing import Registry
 
 SCHEMA_URL='https://json-schema.org/draft/2020-12/schema'
 DRAFT7_URLS=('http://json-schema.org/draft-07/schema','https://json-schema.org/draft-07/schema')
-ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment'}
+ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment','format','discriminator'}
 KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','required','additionalProperties','items','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
 MAX_NODES=1000
 MAX_DEPTH=24
@@ -51,6 +51,17 @@ def validate_tool_arguments(schema,arguments):
         if not set(node).issubset(KEYWORDS):raise ValueError('The tool schema uses unsupported validation features.')
         if '$schema' in node and node is not schema:raise ValueError('The tool schema uses unsupported nested schema versions.')
         if 'enum' in node and (not isinstance(node['enum'],list) or len(node['enum'])>128):raise ValueError('The tool schema enumeration is too large.')
+        # format and OpenAPI discriminator are bounded annotations; the
+        # JSON Schema validator still enforces every oneOf/type constraint.
+        if 'format' in node and (not isinstance(node['format'],str) or not 1<=len(node['format'])<=128):raise ValueError('The tool schema format annotation is invalid.')
+        if 'discriminator' in node:
+            discriminator=node['discriminator']
+            if not isinstance(discriminator,dict) or set(discriminator)-{'propertyName','mapping'}:raise ValueError('The tool schema discriminator annotation is invalid.')
+            name=discriminator.get('propertyName');mapping=discriminator.get('mapping',{})
+            if not isinstance(name,str) or not 1<=len(name)<=128 or not isinstance(mapping,dict) or len(mapping)>128:raise ValueError('The tool schema discriminator annotation is invalid.')
+            for key,reference in mapping.items():
+                if not isinstance(key,str) or not 1<=len(key)<=128:raise ValueError('The tool schema discriminator annotation is invalid.')
+                resolve(reference)
         for namespace in ('$defs','definitions'):
             if namespace in node:
                 if node is not schema:raise ValueError('The tool schema uses unsupported nested definitions.')

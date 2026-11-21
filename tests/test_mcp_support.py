@@ -144,6 +144,28 @@ class MCPFoundation(unittest.TestCase):
         external=preview_tool({'inputSchema':{'type':'object'},'outputSchema':{'type':'object','$ref':'https://example.com/schema'}})
         with self.assertRaises(ValueError):validate_tool_result(external,{'structuredContent':{}})
 
+    def test_parallel_advertised_output_schemas_validate_realistic_results(self):
+        from agentnik.mcp_schema import validate_tool_result
+        schemas=json.loads((Path(__file__).parent/'fixtures'/'parallel_mcp_output_schemas.json').read_text(encoding='utf-8'))
+        fetch={'extract_id':'extract-test','results':[{'url':'https://example.com','excerpts':['Evidence'],'acquired_at':'2026-11-20T00:00:00Z'}],'errors':[],'session_id':'session-test'}
+        research={'id':'response-test','output':[{'id':'search-test','action':{'type':'search'},'status':'completed','type':'web_search_call'}]}
+        search={'search_id':'search-test','results':[],'session_id':'session-test'}
+        for name,result in [('web_search',search),('web_fetch',fetch),('web_research',research)]:
+            with self.subTest(tool=name):
+                tool={'output_schema_status':'available','output_schema':schemas[name]}
+                self.assertTrue(validate_tool_result(tool,{'content':[],'structuredContent':result}))
+                with self.assertRaises(ValueError):validate_tool_result(tool,{'content':[],'structuredContent':{}})
+        invalid={'id':'response-test','output':[{'id':'x','action':{'type':'unknown'},'status':'completed','type':'web_search_call'}]}
+        with self.assertRaisesRegex(ValueError,'does not match'):validate_tool_result({'output_schema_status':'available','output_schema':schemas['web_research']},{'structuredContent':invalid})
+
+    def test_schema_discriminator_is_bounded_metadata_without_external_refs(self):
+        from agentnik.mcp_schema import validate_tool_arguments
+        schema={'type':'object','$defs':{'item':{'type':'string'}},'properties':{'kind':{'$ref':'#/$defs/item','format':'date-time'}},'discriminator':{'propertyName':'kind','mapping':{'item':'#/$defs/item'}}}
+        self.assertTrue(validate_tool_arguments(schema,{'kind':'not-a-date'})) # format is an annotation under JSON Schema's default vocabulary.
+        for discriminator in ({'propertyName':'kind','mapping':{'item':'https://example.com/schema'}},{'propertyName':'kind','mapping':{'item':'#/$defs/missing'}},{'propertyName':7},{'propertyName':'kind','extra':True}):
+            with self.subTest(discriminator=discriminator),self.assertRaises(ValueError):validate_tool_arguments(dict(schema,discriminator=discriminator),{'kind':'x'})
+        with self.assertRaises(ValueError):validate_tool_arguments({'type':'object','properties':{'x':{'type':'string','format':[]}}},{'x':'x'})
+
     def test_argument_schema_validation_and_unsupported_features(self):
         from agentnik.mcp_schema import validate_tool_arguments
         schema={'type':'object','properties':{'query':{'type':'string'},'n':{'type':'integer','minimum':1}},'required':['query'],'additionalProperties':False}
