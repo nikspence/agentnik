@@ -520,6 +520,26 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertFalse(reopened.config['settings']['web_search_enabled']);self.assertTrue(reopened.config['settings']['decision_advice_enabled']);self.assertEqual(reopened.config['settings']['decision_model']['model'],'decision-model')
             finally:reopened.db.close()
 
+    def test_mcp_button_selects_and_orders_servers(self):
+        from PySide6.QtCore import Qt,QTimer
+        from PySide6.QtWidgets import QApplication,QListWidget,QPushButton
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
+            store.config['mcp_servers']=[{'name':name,'command':'example','args':[],'enabled':True} for name in ('Parallel','Postgres','Subledger')];window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                def choose():
+                    dialog=app.activeModalWidget();items=dialog.findChild(QListWidget,'codingMcpOrder')
+                    for i in range(items.count()):items.item(i).setCheckState(Qt.CheckState.Checked)
+                    items.setCurrentRow(2);dialog.findChild(QPushButton,'mcpMoveUp').click();dialog.findChild(QPushButton,'mcpMoveUp').click();dialog.accept()
+                QTimer.singleShot(0,choose);tab.mcp_button.click()
+                self.assertEqual([tab.mcp_primary_ref['name'],*[ref['name'] for ref in tab.mcp_extra_refs]],['Subledger','Parallel','Postgres'])
+                saved=next(item for item in store.list_sessions() if item['id']==session['id']);window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
+                self.assertEqual([tab.mcp_primary_ref['name'],*[ref['name'] for ref in tab.mcp_extra_refs]],['Subledger','Parallel','Postgres']);self.assertIn('3',tab.mcp_button.text())
+            finally:window.close();app.processEvents();store.db.close()
+
     def test_single_model_run_preserves_legacy_assignments(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

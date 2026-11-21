@@ -910,6 +910,43 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Query',mcp_bridge=bridge).run(events.append)
             self.assertEqual(events[-1]['status'],'completed');self.assertIn('x'*500000+'END',bodies[-1])
 
+    def test_failed_mcp_fetch_falls_back_to_managed_public_page(self):
+        from unittest.mock import Mock
+        from agentnik.tools import Source
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Parallel','command':'server','args':[],'enabled':True};bridge.request.return_value={'tool_details':[]}
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'web_fetch','arguments':'{"url":"https://example.com/page"}'})],finish='tool_calls'),False),Wire(chat('Done'),False)];events=[];bodies=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            source=Source('','Example','https://example.com/page','Page evidence','now')
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.code_agent.PageFetcher.fetch',return_value=[source]) as fetch:
+                CodingRun(dict(C,stream=False),directory,'Research',mcp_bridge=bridge,web_enabled=True,search_provider='managed').run(events.append)
+            fetch.assert_called_once();self.assertEqual(events[-1]['status'],'completed');self.assertIn('Page evidence',json.dumps(bodies[-1]));self.assertTrue(any('trying Agentnik-managed' in event.get('text','') for event in events));self.assertTrue(any(event.get('kind')=='source' for event in events))
+
+    def test_mcp_fetch_explicit_server_error_falls_back_but_access_denial_does_not(self):
+        from unittest.mock import Mock
+        from agentnik.tools import Source
+        detail={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema':{'type':'object','properties':{'url':{'type':'string'}},'required':['url']},'schema_status':'available'}
+        for message,should_fetch in [('Could not retrieve page',True),('403 Forbidden',False)]:
+            with self.subTest(message=message),tempfile.TemporaryDirectory() as directory:
+                bridge=Mock();bridge.server={'name':'Parallel','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'isError':True,'content':[{'type':'text','text':message}]}}]
+                args={'tool':'web_fetch','arguments':'{"url":"https://example.com/page"}'}
+                replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',args)],finish='tool_calls'),False),Wire(chat('Done'),False)];events=[]
+                source=Source('','Example','https://example.com/page','Evidence','now')
+                with patch.object(core,'open_request',side_effect=replies),patch('agentnik.code_agent.PageFetcher.fetch',return_value=[source]) as fetch:
+                    CodingRun(dict(C,stream=False),directory,'Research',mcp_bridge=bridge,web_enabled=True,search_provider='managed').run(events.append)
+                self.assertEqual(fetch.call_count,int(should_fetch));self.assertEqual(events[-1]['status'],'completed')
+                self.assertTrue(any(message in event.get('text','') for event in events))
+
+    def test_mcp_fetch_fallback_rejects_blocks_and_uncertain_failures(self):
+        from agentnik.code_agent import mcp_fetch_fallback_url
+        args={'tool':'web_fetch','arguments':'{"url":"https://example.com/page"}'}
+        self.assertEqual(mcp_fetch_fallback_url({'error':'MCP tool not found on the selected server: web_fetch'},args),'https://example.com/page')
+        for detail in ('403 Forbidden','Access denied','request timed out','The call may have completed; inspect server state before retrying.'):
+            self.assertIsNone(mcp_fetch_fallback_url({'result':{'isError':True,'content':[{'type':'text','text':detail}]}},args))
+        self.assertEqual(mcp_fetch_fallback_url({'result':{'isError':True,'content':[{'type':'text','text':'Could not retrieve content'}]}},args),'https://example.com/page')
+        self.assertIsNone(mcp_fetch_fallback_url({'error':'MCP session is unavailable; discover the server first.'},args))
+        self.assertIsNone(mcp_fetch_fallback_url({'error':'MCP tool not found on the selected server: web_fetch'},{'tool':'web_fetch','arguments':'{"url":"http://127.0.0.1"}'}))
+
     def test_mcp_priority_controls_conflicting_builtin_code_tool(self):
         from unittest.mock import Mock
         tool={'name':'calculate','description':'MCP calculator','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
@@ -937,8 +974,8 @@ class ModelCoding(unittest.TestCase):
             def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
             with patch.object(core,'open_request',side_effect=send):run.run(emit)
             approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual(approvals,[])
-            self.assertEqual([entry.args[0] for entry in first.request.call_args_list],['discover','call']);self.assertEqual([entry.args[0] for entry in second.request.call_args_list],['discover','call'])
-            self.assertTrue(any('exact selected MCP server' in m.get('content','') for m in bodies[-1]['messages'] if m.get('role')=='tool'));self.assertEqual(events[-1]['status'],'completed')
+            self.assertEqual([entry.args[0] for entry in first.request.call_args_list],['discover','call']);self.assertEqual([entry.args[0] for entry in second.request.call_args_list],['discover'])
+            self.assertIn('higher-priority server Database',json.dumps(bodies[-1]));self.assertTrue(any('exact selected MCP server' in m.get('content','') for m in bodies[-1]['messages'] if m.get('role')=='tool'));self.assertEqual(events[-1]['status'],'completed')
             first.close_signal.emit.assert_called_once();second.close_signal.emit.assert_called_once()
             schemas={tool['function']['name']:tool['function']['parameters']['required'] for tool in bodies[0]['tools'] if tool['function']['name'].startswith('mcp_')};self.assertTrue(all('server' in fields for fields in schemas.values()))
 
@@ -957,7 +994,7 @@ class ModelCoding(unittest.TestCase):
                     self.assertTrue(run.decide(event['fingerprint'],True,scope))
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual(approvals,[])
-            self.assertEqual(first.request.call_count,3);self.assertEqual(second.request.call_count,2);self.assertEqual(run.mcp_run_allowed,set());self.assertEqual(events[-1]['status'],'completed')
+            self.assertEqual(first.request.call_count,3);self.assertEqual(second.request.call_count,1);self.assertEqual(run.mcp_run_allowed,set());self.assertEqual(events[-1]['status'],'completed')
 
     def test_mcp_environment_values_are_excluded_from_model_results_and_calls(self):
         from unittest.mock import Mock

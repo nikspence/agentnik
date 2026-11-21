@@ -2668,6 +2668,38 @@ Recommendation: {recommendation}</source>
             <source>Tool error detail: {detail}</source>
             <translation>도구 오류 세부 정보: {detail}</translation>
         </message>
+        <message>
+            <source>MCP servers…</source>
+            <translation>MCP 서버…</translation>
+        </message>
+        <message>
+            <source>Choose and order MCP servers for this Code pane.</source>
+            <translation>이 코드 창의 MCP 서버를 선택하고 순서를 정하세요.</translation>
+        </message>
+        <message>
+            <source>A selected MCP server changed or is unavailable. Reselect it or remove it from MCP servers.</source>
+            <translation>선택한 MCP 서버가 변경되었거나 사용할 수 없습니다. MCP 서버에서 다시 선택하거나 제거하세요.</translation>
+        </message>
+        <message>
+            <source>MCP servers ({count})…</source>
+            <translation>MCP 서버 ({count})…</translation>
+        </message>
+        <message>
+            <source>Select up to five servers. The top server takes precedence when tool names conflict. Changes apply to the next run.</source>
+            <translation>서버를 최대 다섯 개 선택하세요. 도구 이름이 충돌하면 맨 위 서버가 우선합니다. 변경 사항은 다음 실행에 적용됩니다.</translation>
+        </message>
+        <message>
+            <source>Move up</source>
+            <translation>위로 이동</translation>
+        </message>
+        <message>
+            <source>Move down</source>
+            <translation>아래로 이동</translation>
+        </message>
+        <message>
+            <source>MCP web_fetch failed; trying Agentnik-managed page fetch.</source>
+            <translation>MCP web_fetch가 실패하여 Agentnik 관리형 페이지 가져오기를 시도합니다.</translation>
+        </message>
     </context>
     <context>
         <name>CodingLimitsDialog</name>

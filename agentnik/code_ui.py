@@ -255,11 +255,12 @@ class CodeTab(QWidget):
         self.goal_enabled=QCheckBox(self.tr('Pursue as goal'));self.goal_enabled.setToolTip(self.tr('Keep taking the next step until the objective is complete, blocked, stopped, or a run limit is reached.'));self.goal_enabled.setChecked(session.get('coding_last_run_goal',True) and session.get('coding_goal',{}).get('status') in ('active','limited','paused','blocked','interrupted','failed'));preferences.addWidget(self.goal_enabled)
         self.shell_auto=QCheckBox(self.tr('Run shell commands without approval'));self.shell_auto.setToolTip(self.tr('Shell and test commands run with your account permissions, including network access and files outside the project. This setting can be changed during a run.'));preferences.addWidget(self.shell_auto);self.shell_auto.toggled.connect(self.change_shell_approval)
         self.web_enabled=window.web_search;preferences.addStretch()
-        mcp_row=QHBoxLayout();layout.addLayout(mcp_row);mcp_row.addWidget(QLabel(self.tr('MCP server for this run:')))
-        self.mcp_choice=QComboBox();self.mcp_choice.setToolTip(self.tr('Optional MCP server for this run. MCP operations run without approval and may write data or perform other actions; tool results go to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
+        mcp_row=QHBoxLayout();layout.addLayout(mcp_row)
+        self.mcp_button=QPushButton(self.tr('MCP servers…'));self.mcp_button.setObjectName('codingMcpServers');self.mcp_button.setToolTip(self.tr('Choose and order MCP servers for this Code pane.'));self.mcp_button.clicked.connect(self.choose_mcp_servers);mcp_row.addWidget(self.mcp_button);mcp_row.addStretch()
+        self.mcp_choice=QComboBox();self.mcp_choice.setToolTip(self.tr('Optional MCP server for this run. MCP operations run without approval and may write data or perform other actions; tool results go to the selected model.'));self.mcp_choice.hide()
         saved_mcp=session.get('coding_mcp_selection',{});self.mcp_primary_ref=saved_mcp.get('primary');self.mcp_extra_refs=list(saved_mcp.get('extra',[]));self.mcp_extra=[ref['name'] for ref in self.mcp_extra_refs]
-        self.mcp_extra_button=QPushButton(self.tr('Additional servers…'));self.mcp_extra_button.clicked.connect(self.choose_additional_mcp);mcp_row.addWidget(self.mcp_extra_button)
-        self.mcp_refresh=QPushButton(self.tr('Refresh MCP'));self.mcp_refresh.clicked.connect(self.refresh_mcp_servers);mcp_row.addWidget(self.mcp_refresh);self.refresh_mcp_servers();self.mcp_choice.currentIndexChanged.connect(self.mcp_primary_changed)
+        self.mcp_extra_button=QPushButton(self.tr('Additional servers…'));self.mcp_extra_button.clicked.connect(self.choose_additional_mcp);self.mcp_extra_button.hide()
+        self.mcp_refresh=QPushButton(self.tr('Refresh MCP'));self.mcp_refresh.clicked.connect(self.refresh_mcp_servers);self.mcp_refresh.hide();self.refresh_mcp_servers();self.mcp_choice.currentIndexChanged.connect(self.mcp_primary_changed)
         more_options.addStretch();more_options.addWidget(self.coding_context_button);more_options.addWidget(self.skills_button);more_options.addWidget(self.tracks_button)
         self.sources_button=QPushButton();self.sources_button.clicked.connect(self.show_sources)
         run_row=QHBoxLayout();layout.addLayout(run_row)
@@ -430,7 +431,7 @@ class CodeTab(QWidget):
         except (ValueError,OSError) as exc:QMessageBox.warning(self,self.tr('Coding context'),str(exc));return
         token=uuid.uuid4().hex;self._compaction_token=token;self._compaction_active=True
         self.send.setEnabled(False);self.cancel_button.setEnabled(True);self.coding_context_button.setEnabled(False);self.coding_auto_compact.setEnabled(False);self.memory_button.setEnabled(False);self.notes_button.setEnabled(False);self.composer.setReadOnly(True)
-        self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False);self.use_context.setEnabled(False)
+        self.mcp_choice.setEnabled(False);self.mcp_refresh.setEnabled(False);self.mcp_extra_button.setEnabled(False);self.mcp_button.setEnabled(False);self.use_context.setEnabled(False)
         for choice,model in self.roles.values():choice.setEnabled(False);model.setEnabled(False)
         self.record('output','Compacting previous coding context before a run; the selected model receives the previous task and answer.')
         def done(result):
@@ -1079,6 +1080,7 @@ class CodeTab(QWidget):
     def save_mcp_selection(self):
         self.mcp_extra=[ref['name'] for ref in self.mcp_extra_refs]
         self.mcp_extra_button.setText(self.tr('Additional servers ({count})…').format(count=len(self.mcp_extra)))
+        self.mcp_button.setText(self.tr('MCP servers ({count})…').format(count=len(self.mcp_extra_refs)+(1 if self.mcp_primary_ref else 0)))
         self.session['coding_mcp_selection']={'primary':self.mcp_primary_ref,'extra':list(self.mcp_extra_refs)}
         self.store.save(self.session)
 
@@ -1105,6 +1107,35 @@ class CodeTab(QWidget):
                 self.mcp_choice.addItem(ref['name']+self.tr(' (changed or unavailable; reselect)'),dict(ref));self.mcp_choice.setCurrentIndex(self.mcp_choice.count()-1)
         self.mcp_choice.blockSignals(False)
         self.mcp_extra_button.setText(self.tr('Additional servers ({count})…').format(count=len(self.mcp_extra_refs)))
+        self.mcp_button.setText(self.tr('MCP servers ({count})…').format(count=len(self.mcp_extra_refs)+(1 if self.mcp_primary_ref else 0)))
+
+    def choose_mcp_servers(self):
+        from .mcp_support import server_fingerprint
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('MCP servers'));dialog.resize(560,440);layout=QVBoxLayout(dialog)
+        note=QLabel(self.tr('Select up to five servers. The top server takes precedence when tool names conflict. Changes apply to the next run.'));note.setWordWrap(True);layout.addWidget(note)
+        items=QListWidget();items.setObjectName('codingMcpOrder');layout.addWidget(items)
+        entries={entry['name']:entry for entry in self.store.config.get('mcp_servers',[])}
+        old=([self.mcp_primary_ref] if self.mcp_primary_ref else [])+list(self.mcp_extra_refs);ordered=[ref['name'] for ref in old]+[name for name in entries if name not in {ref['name'] for ref in old}]
+        for name in ordered:
+            current=entries.get(name);previous=next((ref for ref in old if ref['name']==name),None)
+            changed=bool(current and previous and previous['sha256']!=server_fingerprint(current))
+            item=QListWidgetItem(name+(self.tr(' (changed; confirm selection)') if changed else self.tr(' (unavailable; uncheck to remove)') if not current else ''))
+            item.setData(Qt.ItemDataRole.UserRole,name);item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable);item.setCheckState(Qt.CheckState.Checked if previous else Qt.CheckState.Unchecked);items.addItem(item)
+        actions=QHBoxLayout();layout.addLayout(actions)
+        def move(offset):
+            row=items.currentRow();target=row+offset
+            if 0<=row<items.count() and 0<=target<items.count():items.insertItem(target,items.takeItem(row));items.setCurrentRow(target)
+        up=QPushButton(self.tr('Move up'));up.setObjectName('mcpMoveUp');up.clicked.connect(lambda:move(-1));actions.addWidget(up)
+        down=QPushButton(self.tr('Move down'));down.setObjectName('mcpMoveDown');down.clicked.connect(lambda:move(1));actions.addWidget(down);actions.addStretch()
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        names=[items.item(i).data(Qt.ItemDataRole.UserRole) for i in range(items.count()) if items.item(i).checkState()==Qt.CheckState.Checked]
+        if len(names)>5:QMessageBox.warning(self,self.tr('MCP servers'),self.tr('Select at most five servers total.'));return
+        for name in names:
+            if name in entries:entries[name]['enabled']=True
+        refs=[{'name':name,'sha256':server_fingerprint(entries[name])} if name in entries else next(ref for ref in old if ref['name']==name) for name in names]
+        self.store.flush()
+        self.mcp_primary_ref=refs[0] if refs else None;self.mcp_extra_refs=refs[1:];self.save_mcp_selection();self.refresh_mcp_servers()
 
     def choose_additional_mcp(self):
         from .mcp_support import server_fingerprint
@@ -1163,7 +1194,7 @@ class CodeTab(QWidget):
             for ref in refs:
                 server=next((item for item in entries if item.get('name')==ref['name'] and item.get('enabled')),None)
                 if not server or server_fingerprint(server)!=ref['sha256']:
-                    raise ValueError(self.tr('A selected MCP server changed or is unavailable. Reselect it or remove it from Additional servers.'))
+                    raise ValueError(self.tr('A selected MCP server changed or is unavailable. Reselect it or remove it from MCP servers.'))
                 servers.append(server)
             from .mcp_code import CodingMCPBridge
             mcp_bridges=[CodingMCPBridge(server,self.store.config,self) for server in servers]
@@ -1355,6 +1386,7 @@ class CodeTab(QWidget):
                 'Goal remains active; continuing to the next step.':self.tr('Goal remains active; continuing to the next step.'),
                 'Invalid JSON tool arguments were replaced with an empty object in continuation history; the batch was not executed.':self.tr('Invalid JSON tool arguments were replaced with an empty object in continuation history; the batch was not executed.'),
                 'Web research returned no sources.':self.tr('Web research returned no sources.'),
+                'MCP web_fetch failed; trying Agentnik-managed page fetch.':self.tr('MCP web_fetch failed; trying Agentnik-managed page fetch.'),
                 'Google search is unavailable; direct public page reads remain available.':self.tr('Google search is unavailable; direct public page reads remain available.'),
                 'Search was blocked by an access restriction. Further searches are disabled for this run; existing sources and other work remain available.':self.tr('Search was blocked by an access restriction. Further searches are disabled for this run; existing sources and other work remain available.'),
             }
@@ -1721,7 +1753,7 @@ class CodeTab(QWidget):
         for button in (self.approve,self.reject,self.approve_mcp_run,self.cancel_button,self.pause_goal_button):button.setEnabled(False)
         self.approve_mcp_run.hide()
         self.send.setEnabled(True)
-        self.coding_context_button.setEnabled(True);self.coding_auto_compact.setEnabled(True);self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True)
+        self.coding_context_button.setEnabled(True);self.coding_auto_compact.setEnabled(True);self.memory_button.setEnabled(True);self.notes_button.setEnabled(True);self.mcp_choice.setEnabled(True);self.mcp_refresh.setEnabled(True);self.mcp_extra_button.setEnabled(True);self.mcp_button.setEnabled(True)
         self.use_context.setEnabled(bool(self.session.get('coding_context')))
         self.continue_button.setEnabled(self.can_continue())
         for connection,model in self.roles.values():connection.setEnabled(True);model.setEnabled(True)
