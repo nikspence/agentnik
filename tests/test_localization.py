@@ -51,6 +51,8 @@ class Localization(unittest.TestCase):
                         if translation.get('type') not in ('unfinished','vanished','obsolete'):
                             self.assertEqual(fields(message.findtext('source')),fields(translation.text),message.findtext('source'))
                 finally:self.app.removeTranslator(translator)
+        self.assertEqual(dict(localization.choices())['es-MX'],'Español (vista previa)')
+        self.assertEqual(dict(localization.choices())['fr-CA'],'Français (aperçu)')
         self.assertEqual(localization.locale_candidates('es_MX'),['es-MX'])
         self.assertEqual(localization.locale_candidates('fr_CA'),['fr-CA'])
 
