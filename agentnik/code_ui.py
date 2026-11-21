@@ -1361,6 +1361,8 @@ class CodeTab(QWidget):
             if text in fixed_output:return fixed_output[text]
             prefix='Tool call: '
             if text.startswith(prefix):return self.tr('Tool call: {detail}').format(detail=text[len(prefix):])
+            prefix='Tool error detail: '
+            if text.startswith(prefix):return self.tr('Tool error detail: {detail}').format(detail=text[len(prefix):])
             match=re.fullmatch(r'Tool result: (.+) — (returned|rejected|error)',text)
             if match:
                 outcomes={'returned':self.tr('returned'),'rejected':self.tr('rejected'),'error':self.tr('error')}

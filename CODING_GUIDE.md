@@ -65,7 +65,7 @@ Completed and failed runs show reported input and output token totals separately
 
 The **Repositories** manager can rename entries, locate a moved folder, or remove an entry from the list. Removing an entry leaves its files and history intact. Each Code pane keeps a snapshot of its original working directory. After relocating an entry, open a new Code pane to use the new location; an existing pane keeps its original path.
 
-Drafts, model assignments, and bounded activity are saved with the session. Reopening an interrupted run does not resume it or apply a pending edit. Connection credentials are managed through the existing connection settings rather than stored in role assignments.
+Drafts, model assignments, and bounded activity are saved with the session. Failed or rejected tool calls show a short error detail when available; known credentials are redacted, but arbitrary sensitive text in tool errors may still appear in activity. Reopening an interrupted run does not resume it or apply a pending edit. Connection credentials are managed through the existing connection settings rather than stored in role assignments.
 
 ## Troubleshooting
 

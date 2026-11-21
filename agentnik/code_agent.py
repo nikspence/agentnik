@@ -563,6 +563,23 @@ class ProjectFiles:
 MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_call_remote','mcp_list_resources','mcp_read_resource','mcp_list_resource_templates','mcp_read_resource_template','mcp_list_prompts','mcp_get_prompt'))
 
 
+def tool_error_detail(result,limit=500):
+    """Summarize an already-redacted tool error without exposing tool arguments."""
+    if not isinstance(result,dict):return ''
+    detail=result.get('error')
+    if not isinstance(detail,str) or not detail.strip():
+        nested=result.get('result') if isinstance(result.get('result'),dict) else result
+        detail=''
+        if nested.get('isError') is True:
+            for block in nested.get('content',[]):
+                if not isinstance(block,dict) or block.get('type')!='text':continue
+                audience=block.get('annotations',{}).get('audience') if isinstance(block.get('annotations',{}),dict) else []
+                if audience is not None and 'user' not in audience:continue
+                if isinstance(block.get('text'),str) and block['text'].strip():detail=block['text'];break
+    if not isinstance(detail,str):return ''
+    detail=' '.join(''.join(ch if ch.isprintable() else ' ' for ch in detail).split())
+    return detail if len(detail)<=limit else detail[:limit]+'…'
+
 class CodingRun:
     def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None,hosted_search=False,mcp_priority='first'):
         from .code_artifacts import validate_notes, Artifacts
@@ -1191,7 +1208,8 @@ class CodingRun:
                         elif call.name=='mcp_call':
                             if mcp_tools is None:raise ProjectToolError('Discover the MCP server before requesting a tool.')
                             tool=next((item for item in mcp_tools if item['name']==args['tool']),None)
-                            if not tool or tool['schema_status']!='available' or tool['description_clipped'] or tool.get('output_schema_status','available')!='available':raise ProjectToolError('MCP tool is unavailable or has incomplete metadata.')
+                            if not tool:raise ProjectToolError('MCP tool not found on the selected server: '+args['tool'][:200])
+                            if tool['schema_status']!='available' or tool['description_clipped'] or tool.get('output_schema_status','available')!='available':raise ProjectToolError('MCP tool metadata is incomplete; the call was not sent.')
                             if tool.get('task_support')=='required':raise ProjectToolError('This MCP tool requires task execution, which is not supported.')
                             try:
                                 if len(args['arguments'].encode('utf-8'))>16000:raise ValueError()
@@ -1718,6 +1736,9 @@ class CodingRun:
                     outcome=('rejected' if batch_invalid or isinstance(result,dict) and (result.get('approved') is False or result.get('applied') is False) else
                              'error' if isinstance(result,dict) and (result.get('error') or result.get('isError') or isinstance(nested,dict) and nested.get('isError')) else 'returned')
                     event('output',text='Tool result: '+call.name+' — '+outcome)
+                    if outcome in ('error','rejected'):
+                        detail=tool_error_detail(result)
+                        if detail:event('output',text='Tool error detail: '+detail)
                     if call.name in ('run_tests','run_shell') and isinstance(result.get('output'),str) and len(result['output'])>2000:
                         try:result['output_artifact']=self.artifacts.add(result['output'],call.name);result['output']=result['output'][:500]
                         except ValueError:pass

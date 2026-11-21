@@ -822,6 +822,33 @@ class ModelCoding(unittest.TestCase):
             text=next(e['text'] for e in events if e.get('kind')=='output' and 'user-directed content' in e.get('text',''))
             self.assertIn('[redacted]',text);self.assertIn('[Content truncated]',text);self.assertNotIn('private-key-fixture',text);self.assertLess(len(text),2000)
 
+    def test_tool_error_details_report_mcp_failures_and_redact_secrets(self):
+        from unittest.mock import Mock
+        detail={'name':'web_search','description':'Search','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Search','command':'server','args':[],'enabled':True};bridge.environment_values={'TOKEN':'env-secret-fixture'}
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'isError':True,'content':[{'type':'text','text':'Failure with env-secret-fixture and model-secret-fixture '+('x'*800)}]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'web_fetch','arguments':'{}'}),call('mcp_call',{'tool':'web_search','arguments':'{}'},'search')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            events=[];run=CodingRun(dict(C,stream=False,api_key='model-secret-fixture'),directory,'Search',mcp_bridge=bridge)
+            with patch.object(core,'open_request',side_effect=replies):run.run(events.append)
+            text=[e['text'] for e in events if e.get('text','').startswith('Tool error detail: ')]
+            self.assertEqual(len(text),2);self.assertIn('MCP tool not found on the selected server: web_fetch',text[0]);self.assertIn('[redacted]',text[1]);self.assertTrue(text[1].endswith('…'));self.assertLessEqual(len(text[1]),521)
+            self.assertNotIn('env-secret-fixture',json.dumps(events));self.assertNotIn('model-secret-fixture',json.dumps(events));self.assertEqual(events[-1]['status'],'completed')
+
+    def test_rejected_invalid_batch_shows_error_reason(self):
+        with tempfile.TemporaryDirectory() as directory:
+            replies=[Wire(chat(calls=[call('calculate',{'bad':'value'})],finish='tool_calls'),False),Wire(chat('Done'),False)];events=[]
+            with patch.object(core,'open_request',side_effect=replies):CodingRun(dict(C,stream=False),directory,'Calculate').run(events.append)
+            self.assertTrue(any(e.get('text')=='Tool result: calculate — rejected' for e in events))
+            self.assertTrue(any(e.get('text','').startswith('Tool error detail: ') for e in events));self.assertEqual(events[-1]['status'],'completed')
+
+    def test_tool_error_summary_respects_mcp_audience_and_limits(self):
+        from agentnik.code_agent import tool_error_detail
+        self.assertEqual(tool_error_detail({'result':{'isError':True,'content':[{'type':'text','text':'assistant-only','annotations':{'audience':['assistant']}}]}}),'')
+        self.assertEqual(tool_error_detail({'result':{'isError':True,'content':[{'type':'text','text':'Visible\nerror'}]}}),'Visible error')
+        self.assertEqual(tool_error_detail({'error':'  Invalid\narguments  '}),'Invalid arguments')
+        self.assertEqual(tool_error_detail({'result':{'isError':True,'content':[]}}),'')
+
     def test_mcp_search_errors_are_not_cached(self):
         from unittest.mock import Mock
         detail={'name':'search','description':'Search','description_clipped':False,'schema':{'type':'object','properties':{'query':{'type':'string'}},'required':['query']},'schema_status':'available','annotations':{'readOnlyHint':True}}

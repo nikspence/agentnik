@@ -2664,6 +2664,10 @@ Recommendation: {recommendation}</source>
             <source>Test report: {detail}</source>
             <translation>테스트 보고서: {detail}</translation>
         </message>
+        <message>
+            <source>Tool error detail: {detail}</source>
+            <translation>도구 오류 세부 정보: {detail}</translation>
+        </message>
     </context>
     <context>
         <name>CodingLimitsDialog</name>
