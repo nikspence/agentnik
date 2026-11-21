@@ -72,7 +72,7 @@ class Localization(unittest.TestCase):
                 try:
                     window.new_session('chat','Example');tab=window.tabs.currentWidget()
                     self.assertEqual(tab.send_button.text(),'전송');self.assertEqual(tab.cancel_button.text(),'취소')
-                    self.assertEqual(tab.web_access.text(),'웹 접근');self.assertEqual(tab.reasoning.placeholderText(),'추론 수준')
+                    self.assertEqual(tab.web_access.text(),'웹');self.assertEqual(tab.reasoning.placeholderText(),'추론 수준')
                     tab.composer.setPlainText('User text');tab.save_draft();self.assertEqual(store.list_sessions()[0]['draft'],'User text')
                     tab.session['messages']=[{'role':'user','text':'Earlier prompt'}];tab.composer.clear();tab.render()
                     message=tab.findChildren(MessageBubble)[0]

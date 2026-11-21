@@ -4976,6 +4976,14 @@ Connections are discovered from your environment and local servers.</source>
             <source>Enable selected MCP servers for new Chat and Code runs.</source>
             <translation>새 채팅 및 코드 실행에서 선택한 MCP 서버를 활성화합니다.</translation>
         </message>
+        <message>
+            <source>Web</source>
+            <translation>웹</translation>
+        </message>
+        <message>
+            <source>MCP</source>
+            <translation>MCP</translation>
+        </message>
     </context>
     <context>
         <name>SettingsDialog</name>
@@ -5142,6 +5150,10 @@ Connections are discovered from your environment and local servers.</source>
         <message>
             <source>Conflicting MCP tools</source>
             <translation>충돌하는 MCP 도구</translation>
+        </message>
+        <message>
+            <source>Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web starts off.</source>
+            <translation>이전 탭별 웹, 제한 및 Decision 설정은 기록에 남지만 더 이상 사용되지 않습니다. 여기에서 전역 설정을 구성하세요. 웹은 기본적으로 꺼져 있습니다.</translation>
         </message>
     </context>
 </TS>

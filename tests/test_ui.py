@@ -36,7 +36,7 @@ class Desktop(unittest.TestCase):
                 bars=window.findChildren(QToolBar);self.assertEqual(len(bars),2)
                 right=bars[1];self.assertTrue(right.geometry().y()>bars[0].geometry().y() or right.geometry().x()>bars[0].geometry().x())
                 self.assertEqual([action.text() for action in bars[0].actions()[1:]],['☰ History','☆ Prompts','＋ Chat','＋ Code','Repositories','Connections','MCP servers'])
-                self.assertEqual(right.actions()[0],window.settings_action);self.assertEqual([right.widgetForAction(action) for action in right.actions()[1:]],[window.font_smaller,window.font_larger,window.web_search,window.mcp_access]);self.assertEqual(window.web_search.text(),'Web Access')
+                self.assertEqual(right.actions()[0],window.settings_action);self.assertEqual([right.widgetForAction(action) for action in right.actions()[1:]],[window.font_smaller,window.font_larger,window.web_search,window.mcp_access]);self.assertEqual(window.web_search.text(),'Web');self.assertEqual(window.mcp_access.text(),'MCP')
                 self.assertTrue(window.font_smaller.isVisible());self.assertTrue(window.font_larger.isVisible());self.assertTrue(window.web_search.isVisible());self.assertTrue(right.widgetForAction(window.settings_action).isVisible())
                 from PySide6.QtCore import Qt
                 from PySide6.QtTest import QTest

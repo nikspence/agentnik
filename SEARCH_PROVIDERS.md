@@ -1,6 +1,6 @@
 # Managed search providers
 
-Agentnik runs search as an application tool, independently of the model's inference provider. A local or gateway model can use these tools if it supports Agentnik's configured managed tool protocol. Turn on the global Web Access switch for Chat and Code. Models must support tool calling; no per-model enablement is required. System One Decision queries do not acquire search tools.
+Agentnik runs search as an application tool, independently of the model's inference provider. A local or gateway model can use these tools if it supports Agentnik's configured managed tool protocol. Turn on the global Web switch for Chat and Code. Models must support tool calling; no per-model enablement is required. System One Decision queries do not acquire search tools.
 
 ## Setup
 
@@ -24,7 +24,7 @@ Brave Search omits individual result URLs that fail public-address validation; i
 
 ## Routing, limits, and disclosure
 
-Chat and Code use **configured profiles → Firecrawl Keyless → Google scrape**. With no configured profiles, keyless Firecrawl is first. If an explicit keyless profile is present, its chosen position is preserved and no duplicate is appended. The five configured-profile budget is unchanged; at most two built-in fallback entries can extend the chain, so each logical search considers at most seven entries. These defaults do not persist new settings or start requests by themselves: Web Access and the model's tool call are still required.
+Chat and Code use **configured profiles → Firecrawl Keyless → Google scrape**. With no configured profiles, keyless Firecrawl is first. If an explicit keyless profile is present, its chosen position is preserved and no duplicate is appended. The five configured-profile budget is unchanged; at most two built-in fallback entries can extend the chain, so each logical search considers at most seven entries. These defaults do not persist new settings or start requests by themselves: Web and the model's tool call are still required.
 
 Eligible explicit rejections (authentication, rate/quota limits, known unsupported operations, or temporary HTTP 503) can advance services. Access restrictions, malformed replies, timeout/disconnection, cancellation, and uncertain submissions stop fallback. Empty results are passed back without another service call. A rate-limited or authentication-rejected profile is skipped for the rest of that run. Short Retry-After guidance can be honored within the wait budget; long guidance prevents retrying that service but does not prevent moving to a different configured/fallback provider. Google challenges stop automatic search; Code can still read known public URLs. Fallback events and source provenance are visible; Chat and Code use the global search priority and retain the selected inference model.
 
