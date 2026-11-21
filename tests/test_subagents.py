@@ -385,10 +385,10 @@ class Subagents(unittest.TestCase):
                 self.assertTrue(unsupported(load_config(store.config_path),tab.role_connection('heavy')))
                 self.assertIn('_capability_scope',store.config['connections']['Primary']);tab.job=None
                 with patch.object(tab,'launch') as launch:
-                    tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,{'model'})
+                    tab.composer.setPlainText('Review');tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,{'model'})
                 tab.forget_subagent_capabilities();self.assertFalse(unsupported(load_config(store.config_path),tab.role_connection('heavy')))
                 with patch.object(tab,'launch') as launch:
-                    tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,set())
+                    tab.composer.setPlainText('Review');tab.start_coding();self.assertEqual(launch.call_args.args[0].unsupported_subagent_roles,set())
             finally:tab.job=None;window.close();app.processEvents();store.db.close()
 
 

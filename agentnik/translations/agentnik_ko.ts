@@ -432,6 +432,14 @@ Command:
             <translation>다음 코딩 프롬프트</translation>
         </message>
         <message>
+            <source>Steer</source>
+            <translation>방향 조정</translation>
+        </message>
+        <message>
+            <source>Earlier unsent steering draft:</source>
+            <translation>이전에 보내지 않은 방향 조정 초안:</translation>
+        </message>
+        <message>
             <location filename="../code_ui.py" line="221" />
             <source>Steer the active coding run</source>
             <translation>활성 코딩 실행을 조종하세요</translation>

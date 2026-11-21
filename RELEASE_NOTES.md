@@ -1,4 +1,17 @@
-# Agentnik v0.9.1
+# Agentnik v0.9.2
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.9.1
+
+- **Code composer:** Run clears the submitted prompt and becomes Steer during a run. Unsent text stays in the composer when the run ends or a goal continues.
+- **MCP and tools:** Enable and order multiple MCP servers, control tool conflict precedence, and use managed fetch as a fallback when MCP fetch fails. Improved Parallel MCP compatibility and tool error visibility; project memory no longer requires approval.
+- **Global settings:** Centralized web access, search priority, run limits, appearance, and shell advice settings. TLS certificate verification is on by default, with relaxation applied globally.
+- **Interface and cleanup:** Simplified model configuration, removed the Decision query builder and legacy review snapshots, adjusted the startup window size, and refreshed documentation and Korean coverage.
+
+Offline tests use mocked endpoints and offscreen Qt. Build-host startup evidence is recorded in BUILD-MANIFEST.json. Windows clean-machine testing was reported complete for an unspecified build and workflow; this release has not been separately qualified on a clean machine. macOS/Linux, signing and a complete bundled-library license review remain open.
+
+## Earlier release: v0.9.1
 
 Windows clean-machine testing was subsequently reported complete by the user; the exact build and workflow scope were not specified. Qualification notes below describe the evidence available at each release.
 

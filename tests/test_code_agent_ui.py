@@ -23,12 +23,30 @@ class CodingWorkspace(unittest.TestCase):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
             try:
                 ident=window.repositories.put(project);first=window.repositories.session(ident);second=window.repositories.session(ident);store.save(first);store.save(second)
-                window.open_session(first);first_tab=window.tabs.currentWidget();first_tab.steering_input.setText('First draft')
-                window.open_session(second);second_tab=window.tabs.currentWidget();second_tab.steering_input.setText('Second draft')
-                saved={row['id']:row for row in store.list_sessions()};self.assertEqual(saved[first['id']]['coding_steering_draft'],'First draft');self.assertEqual(saved[second['id']]['coding_steering_draft'],'Second draft')
+                window.open_session(first);first_tab=window.tabs.currentWidget();first_tab.composer.setPlainText('First draft')
+                window.open_session(second);second_tab=window.tabs.currentWidget();second_tab.composer.setPlainText('Second draft')
+                saved={row['id']:row for row in store.list_sessions()};self.assertEqual(saved[first['id']]['draft'],'First draft');self.assertEqual(saved[second['id']]['draft'],'Second draft')
                 window.close_tab(window.tabs.indexOf(first_tab))
                 with patch.object(core,'open_request') as request:window.open_session(saved[first['id']]);request.assert_not_called()
-                self.assertEqual(window.tabs.currentWidget().steering_input.text(),'First draft');self.assertEqual(second_tab.steering_input.text(),'Second draft')
+                self.assertEqual(window.tabs.currentWidget().composer.toPlainText(),'First draft');self.assertEqual(second_tab.composer.toPlainText(),'Second draft')
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
+    def test_legacy_steering_draft_is_preserved_with_existing_composer_draft(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident)
+                session['draft']='Existing task';session['coding_steering_draft']='Unsent steering';store.save(session)
+                window.open_session(session);tab=window.tabs.currentWidget()
+                self.assertIn('Existing task',tab.composer.toPlainText());self.assertIn('Unsent steering',tab.composer.toPlainText())
+                saved=next(row for row in store.list_sessions() if row['id']==session['id'])
+                self.assertNotIn('coding_steering_draft',saved);self.assertEqual(saved['draft'],tab.composer.toPlainText())
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
@@ -43,9 +61,9 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session)
                 with patch.object(store,'web_backend_specs',return_value=[{'key':'search-secret'}]):window.open_session(session)
-                tab=window.tabs.currentWidget();text='Use search-secret and mcp-secret';tab.composer.setPlainText(text);tab.steering_input.setText(text)
-                self.assertEqual(tab.composer.toPlainText(),text);self.assertEqual(tab.steering_input.text(),text)
-                saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual(saved['draft'],'Use [redacted] and [redacted]');self.assertEqual(saved['coding_steering_draft'],'Use [redacted] and [redacted]')
+                tab=window.tabs.currentWidget();text='Use search-secret and mcp-secret';tab.composer.setPlainText(text)
+                self.assertEqual(tab.composer.toPlainText(),text);self.assertEqual(tab.composer.toPlainText(),text)
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertEqual(saved['draft'],'Use [redacted] and [redacted]')
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
@@ -62,9 +80,9 @@ class CodingWorkspace(unittest.TestCase):
                 with patch.object(store,'web_backend_specs',return_value=[{'key':'first-secret'}]):window.open_session(session)
                 tab=window.tabs.currentWidget();store.config['web_backends']=[{'id':'changed','kind':'brave','name':'Changed','credential_id':'new-id'}]
                 with patch.object(store,'web_backend_specs',return_value=[{'key':'second-secret'}]) as specs:
-                    tab.composer.setPlainText('Use second-secret');tab.steering_input.setText('Avoid second-secret')
+                    tab.composer.setPlainText('Use second-secret')
                     self.assertEqual(specs.call_count,1)
-                self.assertEqual(session['draft'],'Use [redacted]');self.assertEqual(session['coding_steering_draft'],'Avoid [redacted]')
+                self.assertEqual(session['draft'],'Use [redacted]')
             finally:
                 store.config['web_backends']=[]
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
@@ -82,7 +100,7 @@ class CodingWorkspace(unittest.TestCase):
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 run=CodingRun(dict(C,stream=False),str(project),'task');tab.job=run;tab.run_id=run.run_id
                 proposal={'operation':'run_shell','cwd':str(project),'path':'.','command':'echo test','shell':'shell','environment_keys':[],'max_seconds':10,'max_output_bytes':100}
-                tab.steering_input.setText('Change direction');tab.send_steering()
+                tab.composer.setPlainText('Change direction');tab.send_steering()
                 tab.receive({'run_id':run.run_id,'kind':'operation_proposal','fingerprint':'pending','proposal':proposal});self.assertEqual(tab.pending_fingerprint,'pending')
                 tab.receive({'run_id':run.run_id,'kind':'approval_invalidated','fingerprint':'pending'});self.assertIsNone(tab.pending_fingerprint);self.assertTrue(tab.approval_panel.isHidden())
             finally:
@@ -324,19 +342,19 @@ class CodingWorkspace(unittest.TestCase):
                 tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.composer.setPlainText('The original goal');tab.goal_enabled.setChecked(True)
                 def delayed(connection,url,body,timeout):started.set();release.wait(5);return Wire(chat('Late'),False)
                 with patch.object(core,'open_request',side_effect=delayed):
-                    tab.start_coding();settle(started.is_set);self.assertTrue(tab.goal_checkpoint_timer.isActive());tab.checkpoint_goal_progress()
+                    tab.send.click();settle(started.is_set);self.assertEqual(tab.composer.toPlainText(),'');self.assertEqual(tab.send.text(),'Steer');self.assertTrue(tab.send.isEnabled());self.assertTrue(tab.goal_checkpoint_timer.isActive());tab.checkpoint_goal_progress()
                     saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertGreater(saved['coding_goal_progress']['seconds'],0)
-                    tab.steering_input.setText('Queued correction');tab.send_steering()
-                    tab.composer.setPlainText('Unsent next task');tab.steering_input.setText('Unsent steering');tab.pause_goal();self.assertIsNone(tab.job);self.assertFalse(tab.goal_checkpoint_timer.isActive());release.set();tab.worker.join(5);app.processEvents()
+                    tab.composer.setPlainText('Queued correction');tab.send_steering()
+                    tab.composer.setPlainText('Unsent steering');tab.pause_goal();self.assertIsNone(tab.job);self.assertEqual(tab.send.text(),'Run');self.assertFalse(tab.goal_checkpoint_timer.isActive());release.set();tab.worker.join(5);app.processEvents()
                 self.assertEqual(session['code_state'],'paused');self.assertEqual(session['coding_goal']['status'],'paused');self.assertTrue(tab.continue_button.isEnabled());self.assertIn('Paused',tab.goal_status_label.text())
                 self.assertIn('Steering not delivered: Queued correction',json.dumps(session['code_activity']));self.assertNotIn('Queued correction',session['coding_resume']['evidence'])
                 saved=next(row for row in store.list_sessions() if row['id']==session['id']);window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
-                self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
+                self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Unsent steering')
                 tab.session['coding_goal_progress']={'steps':3,'seconds':999};store.config['settings']['coding_goal_limits']={'steps':1,'seconds':10};store.save(tab.session)
                 replies=[Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Checked result'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
                 def answer(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
                 with patch.object(core,'open_request',side_effect=answer):tab.continue_coding();settle(lambda:tab.job is None)
-                self.assertIn('The original goal',json.dumps(bodies[0]));self.assertNotIn('Unsent next task',json.dumps(bodies[0]));self.assertNotIn('Unsent steering',json.dumps(bodies[0]));self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
+                self.assertIn('The original goal',json.dumps(bodies[0]));self.assertNotIn('Unsent next task',json.dumps(bodies[0]));self.assertNotIn('Unsent steering',json.dumps(bodies[0]));self.assertEqual(tab.composer.toPlainText(),'Unsent steering')
                 self.assertEqual(tab.session['coding_goal']['status'],'completed');self.assertIn('Completed (model reported)',tab.goal_status_label.text())
                 self.assertEqual(tab.session['coding_goal_progress']['steps'],1);self.assertLess(tab.session['coding_goal_progress']['seconds'],10)
                 self.assertEqual(tab.session['coding_context']['task'],'The original goal')
@@ -381,7 +399,7 @@ class CodingWorkspace(unittest.TestCase):
                     if not first.is_set():first.set();release_first.wait(5);return Wire(chat('Step'),False)
                     second.set();release_second.wait(5);return Wire(chat('Late'),False)
                 with patch.object(core,'open_request',side_effect=send):
-                    tab.start_coding();settle(first.is_set);tab.steering_input.setText('Change direction');tab.send_steering();release_first.set();settle(second.is_set)
+                    tab.start_coding();settle(first.is_set);tab.composer.setPlainText('Change direction');tab.send_steering();release_first.set();settle(second.is_set)
                     tab.pause_goal();release_second.set();tab.worker.join(5);app.processEvents()
                 self.assertIn('Steering delivery uncertain: Change direction',json.dumps(session['code_activity']))
                 self.assertNotIn('Change direction',session['coding_resume']['evidence']);self.assertEqual(session['code_state'],'paused')
@@ -481,13 +499,13 @@ class CodingWorkspace(unittest.TestCase):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                tab.composer.setPlainText('Unsent next task');run=CodingRun(dict(C,stream=False,api_key='secret-key'),str(project),'task');bodies=[]
+                run=CodingRun(dict(C,stream=False,api_key='secret-key'),str(project),'task');bodies=[]
                 replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo hello'})],finish='tool_calls'),False),Wire(chat('Adjusted'),False)]
                 def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
                 with patch.object(core,'open_request',side_effect=send),patch('agentnik.shell.execute') as execute:
                     tab.launch(run,'Started');settle(lambda:bool(tab.pending_fingerprint))
-                    tab.steering_input.setText('Use another approach secret-key');self.assertNotIn('secret-key',json.dumps(session));tab.send_steering();settle(lambda:tab.job is None);execute.assert_not_called()
-                self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertIn('Use another approach [redacted]',json.dumps(bodies[-1]))
+                    tab.composer.setPlainText('Use another approach secret-key');self.assertNotIn('secret-key',json.dumps(session));self.assertEqual(tab.send.text(),'Steer');tab.send.click();self.assertEqual(tab.composer.toPlainText(),'');tab.composer.setPlainText('Unsent next task');settle(lambda:tab.job is None);execute.assert_not_called()
+                self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.send.text(),'Run');self.assertEqual(session['draft'],'Unsent next task');self.assertNotIn('Unsent next task',json.dumps(bodies));self.assertIn('Use another approach [redacted]',json.dumps(bodies[-1]))
                 self.assertNotIn('secret-key',json.dumps(session));self.assertIn('Steering delivered',tab.activity.toPlainText())
                 self.assertIn('Tool call: run_shell',tab.activity.toPlainText());self.assertIn('Tool result: run_shell',tab.activity.toPlainText())
                 saved=next(row for row in store.list_sessions() if row['id']==session['id'])
@@ -1063,13 +1081,13 @@ class CodingWorkspace(unittest.TestCase):
                     self.assertTrue(run.call_args.kwargs['web_enabled'])
                     store.config['settings']['research_access_policy']='public_fetch'
                     with patch.object(store,'web_backend_specs',return_value=[{'id':'ollama-search','kind':'ollama','key':'secret'}]):
-                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual(run.call_args.kwargs['web_backends'],[])
+                        tab.composer.setPlainText('Research API');tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual(run.call_args.kwargs['web_backends'],[])
                     with patch.object(store,'web_backend_specs',return_value=[{'id':'brave','kind':'brave','key':'brave-test-key'},{'id':'ollama','kind':'ollama','key':'ollama-test-key'}]):
-                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual([b['kind'] for b in run.call_args.kwargs['web_backends']],['brave'])
+                        tab.composer.setPlainText('Research API');tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual([b['kind'] for b in run.call_args.kwargs['web_backends']],['brave'])
                     tab.roles['heavy'][0].addItem('Ollama direct','Ollama direct');window.connections['Ollama direct']={'url':'https://ollama.com','protocol':'chat','model':'cloud'}
                     tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Ollama direct'))
                     with patch.object(store,'web_backend_specs',return_value=[{'id':'ollama-search','kind':'ollama','key':'secret'}]):
-                        tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed')
+                        tab.composer.setPlainText('Research API');tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed')
                 self.assertIsNone(tab.job)
             finally:window.close();app.processEvents();store.db.close()
 
@@ -1185,7 +1203,7 @@ class CodingWorkspace(unittest.TestCase):
                 saved=next(s for s in store.list_sessions() if s['id']==session['id'])
                 self.assertEqual(saved['code_state'],'failed');self.assertNotIn('private error',json.dumps(saved))
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents()
-                self.assertEqual(window.tabs.currentWidget().composer.toPlainText(),'Analyze')
+                self.assertEqual(window.tabs.currentWidget().composer.toPlainText(),'');self.assertIn('Analyze',window.tabs.currentWidget().session['coding_prompt_history'])
                 self.assertIn('Coding stopped',window.tabs.currentWidget().activity.toPlainText())
             finally:window.close();app.processEvents();store.db.close()
 
