@@ -205,7 +205,6 @@ class CodeTab(QWidget):
         self.subagent_choice=QComboBox();self.subagent_choice.setAccessibleName(self.tr('Running subagent'));self.subagent_choice.setMinimumContentsLength(30);self.subagent_choice.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon);self.subagent_choice.setMaximumWidth(360);subagent_actions.addWidget(self.subagent_choice)
         self.stop_subagent_button=QPushButton(self.tr('Cancel subagent'));self.stop_subagent_button.clicked.connect(self.cancel_selected_subagent);subagent_actions.addWidget(self.stop_subagent_button);subagent_actions.addStretch();layout.addWidget(self.subagents_controls)
         self.subagents_toggle.toggled.connect(self.subagents_view.setVisible);self.subagents_toggle.toggled.connect(self.subagents_controls.setVisible);self.subagents_view.hide();self.subagents_controls.hide();self.refresh_subagents()
-        self.saved_reviews_button=QPushButton(self.tr('Saved review snapshots…'));self.saved_reviews_button.setEnabled(bool(session.get('coding_review_history')));self.saved_reviews_button.clicked.connect(self.show_saved_reviews);layout.addWidget(self.saved_reviews_button)
         activity_options=QHBoxLayout();layout.addLayout(activity_options)
         self.show_thinking=QCheckBox(self.tr('Show model thinking'));self.show_thinking.setToolTip(self.tr('Show and save thinking returned by the model in coding activity. Applies to the next run; not all providers expose thinking.'));self.show_thinking.setChecked(session.get('coding_show_thinking',False));self.show_thinking.toggled.connect(self.save_show_thinking);activity_options.addWidget(self.show_thinking);activity_options.addStretch()
         self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])));self.activity.setPlaceholderText(self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1);self._activity_selection_scroll=SelectionScroll(self.activity)
@@ -621,7 +620,6 @@ class CodeTab(QWidget):
         listing=QListWidget();layout.addWidget(listing);view=QPlainTextEdit();view.setReadOnly(True);layout.addWidget(view,1)
         draft_button=QPushButton(self.tr('New or edit draft…'));draft_button.setEnabled(not bool(self.job));draft_button.clicked.connect(self.edit_track_draft);layout.addWidget(draft_button)
         edit_button=QPushButton(self.tr('Edit selected track…'));edit_button.setEnabled(False);layout.addWidget(edit_button)
-        project_reviews_button=QPushButton(self.tr('View selected track reviews…'));project_reviews_button.setEnabled(False);layout.addWidget(project_reviews_button)
         select_button=QPushButton(self.tr('Select for coding runs'));select_button.setEnabled(False);layout.addWidget(select_button)
         clear_button=QPushButton(self.tr('Clear selected track'));clear_button.setEnabled(not self.job and bool(self.session.get('selected_track')));layout.addWidget(clear_button)
         progress_button=QPushButton(self.tr('Review last track progress…'));progress_button.setEnabled(bool(self.session.get('track_progress')));layout.addWidget(progress_button)
@@ -645,9 +643,8 @@ class CodeTab(QWidget):
             if not data['tracks']:view.setPlainText(self.tr('No Agentnik tracks found. Existing projects and sessions do not need migration.'))
             def select(item,_):
                 select_button.setEnabled(False)
-                if not item:edit_button.setEnabled(False);project_reviews_button.setEnabled(False);return
+                if not item:edit_button.setEnabled(False);return
                 track=item.data(Qt.ItemDataRole.UserRole);edit_button.setEnabled(track['available'] and not bool(self.job))
-                project_reviews_button.setEnabled(track['available'])
                 if not track['available']:view.setPlainText(track['reason']);return
                 try:
                     value=read_track(files,track['id']);lines=[self.tr('Track: {title}').format(title=value['track']['title']),'',self.tr('Tasks (reported status; evidence is not independently verified):')]
@@ -658,10 +655,6 @@ class CodeTab(QWidget):
                     lines.extend(['',self.tr('Specification:'),value['spec'],'',self.tr('Plan:'),value['plan']]);view.setPlainText('\n'.join(lines))
                 except (ValueError,OSError) as exc:view.setPlainText(self.tr('Track unavailable: {reason}').format(reason=str(exc)))
             listing.currentItemChanged.connect(select)
-            def open_project_reviews():
-                item=listing.currentItem();track=item.data(Qt.ItemDataRole.UserRole) if item else None
-                if track and track['available']:self.show_project_track_reviews(track['id'],dialog)
-            project_reviews_button.clicked.connect(open_project_reviews)
             def choose_track():
                 item=listing.currentItem()
                 if not item or self.job:return
@@ -682,51 +675,6 @@ class CodeTab(QWidget):
     def refresh_selected_track(self):
         ident=self.session.get('selected_track')
         self.track_selection_label.setText(self.tr('Selected track: {id} (used for coding runs until cleared)').format(id=ident) if ident else self.tr('No track selected for coding runs.'))
-
-    def show_project_track_reviews(self,track_id,parent=None):
-        from .code_agent import ProjectFiles
-        from .track_review_storage import read_sidecar
-        from .independent_review import sources_unchanged,track_context_matches
-        try:files=ProjectFiles(self.session['path_snapshot']);sidecar=read_sidecar(files,track_id)
-        except (ValueError,TypeError,UnicodeError,OSError,RecursionError) as exc:QMessageBox.warning(parent or self,self.tr('Project review history'),str(exc));return
-        original_snapshots=copy.deepcopy(sidecar['snapshots'])
-        for snapshot in sidecar['snapshots']:
-            for review in snapshot['reviews']:
-                sources=[(review['path'],review['source_sha256'])]+[(entry['path'],entry['sha256']) for entry in review['evidence']]
-                review['source_status']=self.tr('Current source hashes match the reviewed snapshots.') if sources_unchanged(files,sources) else self.tr('Stale or unavailable: a reviewed source changed or cannot be read.')
-                review['track_status']=self.tr('Track run context matches its starting revision; this does not mean the full track was reviewed.') if track_context_matches(files,review['track_context']) else self.tr('Track run context changed or is unavailable; this does not mean the full track was reviewed.')
-        preview=QDialog(parent or self);preview.setWindowTitle(self.tr('Project review history'));preview.resize(760,540);box=QVBoxLayout(preview)
-        note=QLabel(self.tr('Project-local review records are untrusted and may be stale. Opening this view does not start a model request.'));note.setWordWrap(True);box.addWidget(note)
-        text=QPlainTextEdit(json.dumps(sidecar,ensure_ascii=False,indent=2));text.setObjectName('projectReviewHistory');text.setReadOnly(True);box.addWidget(text)
-        selection=QComboBox();selection.setObjectName('projectReviewChoice');box.addWidget(selection)
-        for index,snapshot in enumerate(sidecar['snapshots'],1):selection.addItem(self.tr('Snapshot {number} · {count} recorded passes · {id}').format(number=index,count=len(snapshot['reviews']),id=snapshot['id'][:8]),snapshot['id'])
-        export=QPushButton(self.tr('Export snapshot…'));export.setObjectName('exportProjectReview');export.setEnabled(bool(original_snapshots));box.addWidget(export)
-        def export_snapshot():
-            record=next((item for item in original_snapshots if item['id']==selection.currentData()),None)
-            if not record:return
-            def still_current():
-                return any(item==record for item in read_sidecar(files,track_id)['snapshots'])
-            self.export_review_snapshot(record,preview,still_current)
-        export.clicked.connect(export_snapshot)
-        controls=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);controls.rejected.connect(preview.reject);box.addWidget(controls);preview.exec()
-
-    def export_review_snapshot(self,record,parent,still_current):
-        from .review_export import prepare_review_export,write_new_review_export
-        def known_secrets():return [item.get('api_key','') for item in self.window.connections.values()]+[item.get('key','') for item in self.store.web_backend_specs()]
-        try:
-            if not still_current():raise ValueError(self.tr('The selected snapshot changed or is unavailable.'))
-            content=prepare_review_export(record,known_secrets())
-            preview=QDialog(parent);preview.setWindowTitle(self.tr('Export review snapshot'));preview.resize(760,540);box=QVBoxLayout(preview)
-            label=QLabel(self.tr('Review the complete export before saving. Findings, paths and dispositions may contain sensitive information. Known configured credentials are blocked, but other secrets may remain. A new file will be created; existing files are not replaced.'));label.setWordWrap(True);box.addWidget(label)
-            text=QPlainTextEdit(content);text.setObjectName('reviewExportPreview');text.setReadOnly(True);box.addWidget(text)
-            controls=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);controls.button(QDialogButtonBox.StandardButton.Ok).setText(self.tr('Choose export file'));controls.accepted.connect(preview.accept);controls.rejected.connect(preview.reject);box.addWidget(controls)
-            if preview.exec()!=QDialog.DialogCode.Accepted:return
-            path,_=QFileDialog.getSaveFileName(parent,self.tr('Export review snapshot'),'review-snapshot.json',self.tr('JSON files (*.json)'))
-            if not path:return
-            if not still_current() or prepare_review_export(record,known_secrets())!=content:raise ValueError(self.tr('The selected snapshot or configured credentials changed; review the export again.'))
-            write_new_review_export(path,content)
-            QMessageBox.information(parent,self.tr('Export review snapshot'),self.tr('Review snapshot exported.'))
-        except (ValueError,TypeError,UnicodeError,OSError,sqlite3.Error,RecursionError) as exc:QMessageBox.warning(parent,self.tr('Export review snapshot'),str(exc))
 
     def review_selected_track(self,track,connection,prompt):
         dialog=QDialog(self);dialog.setWindowTitle(self.tr('Review track run'));dialog.resize(800,600);layout=QVBoxLayout(dialog)
@@ -1457,46 +1405,6 @@ class CodeTab(QWidget):
             QTimer.singleShot(0,restore_anchor)
         self.store.save(self.session);self.updated.emit()
 
-
-    def show_saved_reviews(self):
-        from .code_agent import ProjectFiles
-        from .independent_review import sources_unchanged,validate_review_history,track_context_matches
-        try:history=validate_review_history(self.session.get('coding_review_history',[]))
-        except (ValueError,TypeError,OSError):return
-        try:files=ProjectFiles(self.session['path_snapshot'])
-        except (ValueError,OSError):files=None
-        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Saved review snapshots'));dialog.resize(760,540);layout=QVBoxLayout(dialog)
-        note=QLabel(self.tr('Saved findings are untrusted and may be stale. Opening this view does not start a model request or change saved records.'));note.setWordWrap(True);layout.addWidget(note)
-        choice=QComboBox();choice.setObjectName('savedReviewChoice');layout.addWidget(choice)
-        for index,record in enumerate(history,1):choice.addItem(self.tr('Snapshot {number} · {count} recorded passes · {id}').format(number=index,count=len(record['reviews']),id=record['id'][:8]),record['id'])
-        view=QPlainTextEdit();view.setReadOnly(True);layout.addWidget(view)
-        view_project=QPushButton(self.tr('View project track reviews…'));view_project.setObjectName('viewProjectReviews');layout.addWidget(view_project)
-        export=QPushButton(self.tr('Export snapshot…'));export.setObjectName('exportReviewSnapshot');export.setEnabled(bool(history));layout.addWidget(export)
-        def selected_track_id(record):
-            if not record:return None
-            contexts=[item.get('track_context') for item in record['reviews']]
-            if not contexts or any(not item for item in contexts):return None
-            ids={item['id'] for item in contexts}
-            return next(iter(ids)) if len(ids)==1 else None
-        def display_selected():
-            record=next((copy.deepcopy(item) for item in history if item['id']==choice.currentData()),None)
-            if not record:view.clear();view_project.setEnabled(False);return
-            for review in record['reviews']:
-                sources=[(review['path'],review['source_sha256'])]+[(entry['path'],entry['sha256']) for entry in review['evidence']]
-                review['source_status']=self.tr('Current source hashes match the reviewed snapshots.') if files and sources_unchanged(files,sources) else self.tr('Stale or unavailable: a reviewed source changed or cannot be read.')
-                if review.get('track_context'):
-                    review['track_status']=self.tr('Track run context matches its starting revision; this does not mean the full track was reviewed.') if files and track_context_matches(files,review['track_context']) else self.tr('Track run context changed or is unavailable; this does not mean the full track was reviewed.')
-            view_project.setEnabled(bool(files and selected_track_id(record)));view.setPlainText(json.dumps(record,ensure_ascii=False,indent=2))
-        choice.currentIndexChanged.connect(display_selected);display_selected()
-        def show_project_reviews():
-            record=next((item for item in history if item['id']==choice.currentData()),None);track_id=selected_track_id(record)
-            if files and track_id:self.show_project_track_reviews(track_id,dialog)
-        view_project.clicked.connect(show_project_reviews)
-        def export_snapshot():
-            record=next((item for item in history if item['id']==choice.currentData()),None)
-            if record:self.export_review_snapshot(record,dialog,lambda:any(item==record for item in validate_review_history(self.session.get('coding_review_history',[]))))
-        export.clicked.connect(export_snapshot)
-        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
 
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return

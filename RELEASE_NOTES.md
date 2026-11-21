@@ -18,7 +18,7 @@ Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agent
 
 ## Changes since v0.8.10
 
-- **One coding model:** Code uses one selected model for the parent request and its subagents. Light and alternate-model delegation and EGM-style independent review have been removed. Existing model settings and review records remain available for reference.
+- **One coding model:** Code uses one selected model for the parent request and its subagents. Light and alternate-model delegation and EGM-style independent review have been removed. Existing model settings remain available for reference.
 - **Goals and steering:** Code can pursue a goal over successive steps and accept steering during goal and ordinary runs. Step budgets reset at each step; separate goal step and active-time limits can be unlimited, and continuing a stopped goal starts fresh limits. Completion is model-reported and should be reviewed.
 - **Shell approval:** a switch can allow shell and test commands without individual approval. It is off by default and can be changed before or during a run; commands run with the user's account permissions.
 

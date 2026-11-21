@@ -18,7 +18,7 @@ from agentnik.storage import Store
 class PromptHistory(unittest.TestCase):
 
 
-    def test_parallel_review_findings_view_is_bounded_and_session_local(self):
+    def test_legacy_review_data_is_preserved_without_ui(self):
         from agentnik.ui import Window
         from PySide6.QtWidgets import QDialog,QPlainTextEdit,QComboBox,QLineEdit,QPushButton,QMessageBox
         app=QApplication.instance() or QApplication([])
@@ -32,8 +32,7 @@ class PromptHistory(unittest.TestCase):
                 failed=dict(review,id='a'*32+'-2',pass_status='failed',structured={'status':'not_available','findings':[]},dispositions={})
                 pending=dict(review,id='a'*32+'-3',pass_status='interrupted',structured={'status':'not_available','findings':[]},dispositions={})
                 session['coding_review_history']=[{'version':1,'id':'b'*32,'track_id':None,'reviews':[review,failed,pending]}];store.save(session)
-                evidence.unlink();saved=store.list_sessions()[0];displayed=[]
-                def inspect(dialog):displayed.append(dialog.findChild(QPlainTextEdit).toPlainText());return QDialog.DialogCode.Rejected
+                evidence.unlink();saved=store.list_sessions()[0]
                 from agentnik.sessions import validate_session,SessionError
                 import copy
                 legacy=copy.deepcopy(saved);legacy['coding_review_history'][0]['reviews']=legacy['coding_review_history'][0]['reviews'][:1];legacy['coding_review_history'][0]['reviews'][0].pop('pass_status')
@@ -46,15 +45,7 @@ class PromptHistory(unittest.TestCase):
                 with self.assertRaises(SessionError):validate_session(broken)
                 broken=copy.deepcopy(saved);broken['coding_review_history']*=11
                 with self.assertRaises(SessionError):validate_session(broken)
-                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();tab=window.tabs.currentWidget();self.assertTrue(tab.saved_reviews_button.isEnabled())
-                with patch.object(QDialog,'exec',inspect):tab.show_saved_reviews()
-                self.assertIn('Stale or unavailable',displayed[-1]);self.assertIn('Need clarification',displayed[-1]);self.assertIn('failed',displayed[-1]);self.assertIn('Track run context changed or is unavailable',displayed[-1])
-                def readonly(dialog):
-                    self.assertIsNone(dialog.findChild(QPushButton,'saveReviewRevision'))
-                    self.assertIsNone(dialog.findChild(QPushButton,'publishReviewSnapshot'))
-                    self.assertIsNone(dialog.findChild(QPushButton,'deleteSavedReview'))
-                    return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',readonly):tab.show_saved_reviews()
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents();tab=window.tabs.currentWidget();self.assertFalse(hasattr(tab,'saved_reviews_button'))
                 self.assertEqual(store.list_sessions()[0]['coding_review_history'],saved['coding_review_history'])
             finally:window.close();app.processEvents();store.db.close()
 

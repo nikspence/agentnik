@@ -2,7 +2,7 @@
 
 Agentnik's Code pane uses your configured model connections to inspect and change files in a selected local project. See [validation](VALIDATION.md) for user-reported live coding results and their scope.
 
-Each Code run uses one selected Model. Its subagents use the same connection and model. Earlier model bindings remain stored but do not control a run; saved review records remain available.
+Each Code run uses one selected Model. Its subagents use the same connection and model. Earlier model bindings remain stored but do not control a run.
 
 ## Start a task
 

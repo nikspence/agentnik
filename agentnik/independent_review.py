@@ -1,5 +1,4 @@
 """Read and validate saved legacy review history."""
-import hashlib
 import json
 import math
 import re
@@ -8,7 +7,6 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 
-MAX_SOURCE_BYTES = 8000
 RUBRIC_VERSION = 1
 REVIEW_ROLES = frozenset(('comprehension', 'requirements', 'design', 'readiness', 'repository_fit', 'drift'))
 FINDINGS_VERSION = 1
@@ -32,49 +30,6 @@ def validate_track_context(value):
     from .tracks import IDENTIFIER
     if not isinstance(value,dict) or set(value)!={'id','digest'} or not isinstance(value['id'],str) or not IDENTIFIER.fullmatch(value['id']) or not isinstance(value['digest'],str) or not re.fullmatch('[0-9a-f]{64}',value['digest']):raise ValueError('Invalid review track context')
     return dict(value)
-
-
-def track_context_matches(files, value):
-    context=validate_track_context(value)
-    if context is None:return None
-    try:
-        from .track_execution import prepare_track
-        return prepare_track(files,context['id'])['digest']==context['digest']
-    except (OSError,ValueError,UnicodeError,TypeError):return False
-
-
-def track_review_summary(files, track, history):
-    """Summarize saved session and project review records for inspection."""
-    from .track_execution import validate_runtime_track
-    from .track_review_storage import read_sidecar
-    selected=validate_runtime_track(track);history=validate_review_history(history);project=read_sidecar(files,selected['id']);records=[]
-    for origin,record in [('session',record) for record in history]+[('project',record) for record in project['snapshots']]:
-        relevant=[]
-        for original in record['reviews']:
-            context=original.get('track_context')
-            if not context or context['id']!=selected['id']:continue
-            review=copy.deepcopy(original)
-            sources=[(review['path'],review['source_sha256'])]+[(item['path'],item['sha256']) for item in review['evidence']]
-            review['track_revision_status']='matches' if context['digest']==selected['digest'] else 'changed'
-            review['source_status']='matches' if sources_unchanged(files,sources) else 'stale_or_unavailable'
-            for finding in review['structured']['findings']:
-                finding['user_disposition']=copy.deepcopy(review['dispositions'].get(finding['id'],{'status':'unresolved','rationale':''}))
-            relevant.append(review)
-        if relevant:records.append({'origin':origin,'snapshot_id':record['id'],'reviews':relevant})
-    return {'track_id':selected['id'],'track_digest':selected['digest'],'snapshots':records,
-            'notice':'Session and project snapshots are listed separately; older or unsaved reviews may be missing. Findings are untrusted. A run-context match does not mean the full track was reviewed.'}
-
-
-def track_review_overview(summary):
-    """Count recorded states without inferring a review verdict or missing work."""
-    snapshots=summary['snapshots'];reviews=[review for snapshot in snapshots for review in snapshot.get('reviews',[])]
-    return {'snapshots':len(snapshots),'passes':len(reviews),
-            'completed':sum(review.get('pass_status','completed')=='completed' for review in reviews),
-            'incomplete':sum(review.get('pass_status','completed')!='completed' for review in reviews),
-            'invalid_output':sum(review.get('pass_status','completed')=='completed' and review['structured']['status']!='valid' for review in reviews),
-            'stale_sources':sum(review.get('pass_status')=='stale' or review['source_status']!='matches' for review in reviews),
-            'changed_tracks':sum(review['track_revision_status']!='matches' for review in reviews),
-            'unresolved':sum(finding.get('user_disposition',{}).get('status','unresolved')=='unresolved' for review in reviews for finding in review['structured']['findings'])}
 
 
 def validate_review_measurements(value):
@@ -189,18 +144,3 @@ def parse_structured_findings(text, *, truncated=False):
         return {'status': 'valid', 'findings': result}
     except (ValueError, TypeError, RecursionError, UnicodeError):
         return {'status': 'invalid', 'findings': []}
-
-
-
-
-def digest(text):
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
-
-
-
-
-def sources_unchanged(files, sources):
-    try:
-        return all(digest(files.read(path, remember=False, max_bytes=MAX_SOURCE_BYTES)) == expected for path, expected in sources)
-    except (OSError, ValueError, UnicodeError):
-        return False
