@@ -1176,6 +1176,18 @@ class ModelCoding(unittest.TestCase):
             self.assertIn('Every field must be a string',json.dumps(bodies[1]))
             self.assertIn('not executed',json.dumps(bodies[1]))
             self.assertEqual(events[-1]['status'],'completed')
+            activity=[event['text'] for event in events if event['kind']=='output']
+            self.assertIn('Tool call: read_file',activity)
+            self.assertIn('Tool result: read_file — rejected',activity)
+            self.assertIn('Tool result: write_file — returned',activity)
+
+    def test_tool_activity_omits_file_content_and_bounds_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events=[];long_path='a'*250
+            replies=[Wire(chat(calls=[call('read_file',{'path':long_path}),call('write_file',{'path':'new.txt','content':'private body'},'write')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            with patch.object(core,'open_request',side_effect=replies):CodingRun(dict(C,stream=False),directory,'Task').run(events.append)
+            calls=[event['text'] for event in events if event['kind']=='output' and event['text'].startswith('Tool call:')]
+            self.assertEqual(len(calls),2);self.assertIn('…',calls[0]);self.assertNotIn(long_path,calls[0]);self.assertNotIn('private body',json.dumps(calls))
 
     def test_malformed_call_is_not_replayed_as_invalid_json(self):
         for protocol in ('responses','chat'):
@@ -1299,8 +1311,25 @@ class ModelCoding(unittest.TestCase):
 
     def test_coding_limits_reject_invalid_values(self):
         from agentnik.code_limits import coding_limits
-        for bad in ({},{**coding_limits(),'calls':0},{**coding_limits(),'requests':True},{**coding_limits(),'turn_seconds':99999},{**coding_limits(),'model_seconds':0},{**coding_limits(),'model_seconds':True},{**coding_limits(),'model_seconds':3601}):
+        for bad in ({},{**coding_limits(),'calls':0},{**coding_limits(),'requests':True},{**coding_limits(),'turn_seconds':99999},{**coding_limits(),'model_seconds':0},{**coding_limits(),'model_seconds':True},{**coding_limits(),'model_seconds':7201}):
             with self.assertRaises(ValueError):coding_limits(bad)
+
+    def test_more_than_128_tool_calls_can_run_with_increased_limit(self):
+        from agentnik.code_limits import coding_limits
+        for protocol in ('chat','responses','messages'):
+            with self.subTest(protocol=protocol),tempfile.TemporaryDirectory() as directory:
+                limits=coding_limits();limits.update(calls=256,rounds=128,requests=256);events=[]
+                if protocol=='chat':
+                    calls=[call('get_plan',{},'call-'+str(index)) for index in range(129)]
+                    replies=[Wire(chat(calls=calls,finish='tool_calls'),False),Wire(chat('Done'),False)]
+                elif protocol=='responses':
+                    calls=[dict(function_call('call-'+str(index)),name='get_plan',arguments='{}') for index in range(129)]
+                    replies=[Wire(response(calls),False),Wire(response([message('Done')]),False)]
+                else:
+                    calls=[{'type':'tool_use','id':'call-'+str(index),'name':'get_plan','input':{}} for index in range(129)]
+                    replies=[Wire(msg(calls,'tool_use'),False),Wire(msg([{'type':'text','text':'Done'}]),False)]
+                with patch.object(core,'open_request',side_effect=replies):CodingRun(dict(C,protocol=protocol,stream=False),directory,'Task',limits=limits).run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events[-1]);self.assertEqual(sum(event.get('text')=='Tool result: get_plan — returned' for event in events),129)
 
     def test_shared_request_budget_stops_before_followup_model_call(self):
         from agentnik.code_limits import coding_limits

@@ -1,4 +1,4 @@
-# Chat, decisions, and history
+# Chat and history
 
 ## Chat: independent conversations with local and cloud models
 
@@ -19,21 +19,13 @@ Open **＋ Chat** to start an independent session. Tabs remain separate even whe
 - Resize the composer; Agentnik remembers its height. Drafts and attachments remain available after failed or cancelled requests.
 - Web, MCP, and session controls sit below the conversation, with run status in the status bar.
 
-## Decision: structured System One queries
+## System One and earlier Decision sessions
 
-Open **＋ Decision** to use Ollama's structured `/v1/systemone` API with a compatible decision model. Build one request containing shared state/context, optional JSON state, multiple images, and multiple named questions:
-
-| Question | Configuration and display |
-| --- | --- |
-| Yes / No | Probability of yes and no |
-| Multiple choice | 2–26 unique labels with descriptions; probability bars and an optional pie chart |
-| Ordered score | 2–10 descriptions ordered from lowest to highest; returned scoring legend when available |
-
-Images can be attached, dropped, or pasted into the state field. Image-only queries receive a short supplied state. Completed runs preserve the submitted form and raw response; **Restore query to form** makes an older query editable. Confidence is displayed separately from probability. Selecting a Decision tab requires a compatible decision model and endpoint.
+Code can use a configured System One model for optional shell command advice. Earlier Decision sessions open read-only, and the Prompts panel can display saved Decision prompts even without a saved session. For new System One queries with varying states, images, and questions, use [Promptnik](https://github.com/nikspence/promptnik).
 
 ## Prompts, history, and everyday controls
 
-- Save chat drafts or complete decision forms with **Save prompt**, or star a past message/run. Give the prompt a name or accept the default. Search the collapsible Prompts panel and restore a prompt with **Copy to tab** or a double-click. Saved prompts survive restarts and history clearing.
+- Save chat drafts with **Save prompt**, or star a past message. Give the prompt a name or accept the default. Search the collapsible Prompts panel and restore a prompt with **Copy to tab** or a double-click. Saved prompts survive restarts and history clearing.
 - Search, rename, delete, and export saved sessions. Clear all history requires confirmation. Drafts and form edits save automatically; malformed or newer-version records remain preserved as unavailable sessions.
 - Images are copied into application storage and shared by content hash, so history survives moved originals. JSON session exports include local attachment paths rather than bundled image files or credentials.
 - View reported input/output tokens, current input context, effective context limit when known, elapsed time, and available processing/generation rates. Missing measurements remain unknown; thinking time is an estimate when available.

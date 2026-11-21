@@ -3,19 +3,21 @@
 ![Agentnik logo](agentnik/assets/agentnik-light.svg#gh-light-mode-only)
 ![Agentnik logo](agentnik/assets/agentnik-dark.svg#gh-dark-mode-only)
 
-**Code, chat, research, and make structured decisions with your choice of local or cloud models.** Agentnik is a Python/Qt desktop application for Windows, macOS, and Linux. It brings model connections, conversations, projects, and research into one workspace, using Ollama, LiteLLM gateways, and compatible provider endpoints.
+**Code, chat, and research with your choice of local or cloud models.** Agentnik is a Python/Qt desktop application for Windows, macOS, and Linux. It brings model connections, conversations, projects, and research into one workspace, using Ollama, LiteLLM gateways, and compatible provider endpoints.
 
 ## What you can do
 
 - **Code with your model:** work in local repositories or folders using Agentnik's own coding loop. Choose a model, delegate bounded analysis to subagents using that model, inspect and edit files, run shell commands and tests with a configurable approval switch, and use structured Git tools. [Coding features](CODE_FEATURES.md) · [Coding guide](CODING_GUIDE.md)
 - **Plan with specifications and tracks:** the built-in **Spec & Plan** workflow follows a Conductor-style approach: draft requirements, a specification and a task plan, review project changes, then start a selected track. Persistent project context, editable drafts, task IDs and progress reconciliation keep larger changes organized. [Spec & Plan guide](CODING_GUIDE.md#spec--plan-track-preview) · [Track format](TRACK_FORMAT.md)
 - **Extend workflows with Skills and MCP:** select repository or user Skills and connect local or remote MCP servers. Code can use supported tools, text resources, templates and prompts; Chat offers an opt-in MCP tool preview. MCP tools can write or perform external actions without approval. [Skills and MCP](CODE_FEATURES.md) · [Chat tools](CHAT_AND_DECISIONS.md)
-- **Chat with images and documents:** keep conversations in independent tabs with Markdown, streaming, visible thinking, saved prompts, history and token statistics. Attach images and supported documents in Chat or Code, and use local calculator and data-analysis tools. [Chat and decisions](CHAT_AND_DECISIONS.md) · [Coding guide](CODING_GUIDE.md)
+- **Chat with images and documents:** keep conversations in independent tabs with Markdown, streaming, visible thinking, saved prompts, history and token statistics. Attach images and supported documents in Chat or Code, and use local calculator and data-analysis tools. [Chat and history](CHAT_AND_DECISIONS.md) · [Coding guide](CODING_GUIDE.md)
 - **Research the web:** combine managed search and public-page retrieval, or use hosted search on eligible OpenAI Responses connections. Sources, citations, activity and fallback are visible; configured search providers can also supply place, image and entity results. [Research guide](RESEARCH_GUIDE.md) · [Search providers](SEARCH_PROVIDERS.md)
-- **Make structured decisions:** use the separate Ollama System One API for yes/no, multiple-choice and ordered-score questions, with shared context and multiple images. Decision sessions preserve their own questions and criteria independently of ordinary chat. [Chat and decisions](CHAT_AND_DECISIONS.md)
+- **Get shell command advice:** optionally use an Ollama System One decision model to advise on shell-command approvals in Code. [Coding guide](CODING_GUIDE.md)
 - **Choose connections and keep local history:** use native Ollama or compatible Responses, Chat Completions and Messages endpoints, including LiteLLM gateways and supported cloud connections. Manage credentials, persistent sessions and attachments, prompt history, context compaction, themes and language settings. [Connections and local data](CONNECTIONS.md) · [Feature inventory](FEATURES.md)
 
 Spec & Plan is a native Agentnik feature inspired by Conductor. It uses Agentnik's own track format and configured models; upstream plugin or track compatibility is not claimed. Reported progress requires user judgment.
+
+For testing System One Decision models with varying states, images, and questions, we recommend [Promptnik](https://github.com/nikspence/promptnik).
 
 Research and coding workflows include preview features. Model listings do not establish support for tools, images, research or System One. See [validation](VALIDATION.md) for observed behavior and remaining platform and compatibility checks.
 
@@ -40,7 +42,7 @@ These welcome screens were rendered offline with temporary data. Research screen
 ## Documentation and development
 
 - [Coding features](CODE_FEATURES.md) and [coding guide](CODING_GUIDE.md): model selection, project tools, Spec & Plan, Skills, and MCP.
-- [Chat and decisions](CHAT_AND_DECISIONS.md): attachments, System One, prompts, history, and controls.
+- [Chat and history](CHAT_AND_DECISIONS.md): attachments, prompts, history, and controls.
 - [Research guide](RESEARCH_GUIDE.md) and [search providers](SEARCH_PROVIDERS.md): routes, configuration, sources, and limits.
 - [Connections and local data](CONNECTIONS.md): endpoints, credentials, discovery, and storage.
 - [Features](FEATURES.md), [validation](VALIDATION.md), and [development and builds](DEVELOPMENT_VALIDATION.md): feature inventory, evidence, offline checks, and release tooling.

@@ -72,16 +72,32 @@ class Desktop(unittest.TestCase):
                 manager=Connections(w); self.assertEqual(manager.list.count(),1); manager.close()
                 w.new_session('chat','local'); chat=w.tabs.currentWidget(); self.assertIsInstance(chat,SessionTab)
                 chat.composer.setPlainText('draft'); chat.save_draft()
-                w.new_session('decision','local'); decision=w.tabs.currentWidget(); self.assertEqual(len(decision.questions),1)
-                question=decision.questions[0]; question.kind.setCurrentIndex(1); question.instructions.setPlainText('Which?'); question.add_option(['a','First']); question.add_option(['b','Second']); decision.state.setPlainText('State'); decision.save_draft()
+                legacy=store.new_session('decision','local',store.config['connections']['local']);legacy['form']['state']='Preserved state';store.save(legacy)
+                store.save_prompt('decision',legacy['form'],'Saved decision');w.open_session(legacy);decision=w.tabs.currentWidget()
+                self.assertTrue(decision.view.isReadOnly());self.assertIn('Preserved state',decision.view.toPlainText());self.assertIn('Saved decision',decision.view.toPlainText())
                 self.assertEqual(len(store.list_sessions()),2)
-                decision.restore(decision.form_value()); self.assertEqual(decision.questions[0].table.rowCount(),2)
+                w.new_session('decision','local');self.assertEqual(len(store.list_sessions()),2)
                 raw={'answers':{'q':{'type':'choice','choice':'a','probabilities':{'a':.8,'b':.2},'confidence':.6}}}
                 chart=DecisionResult(raw); chart.resize(650,400); chart.show(); self.app.processEvents(); self.assertFalse(chart.grab().isNull()); chart.close()
                 w.toggle_history(); self.assertFalse(w.sidebar.isVisible()); w.toggle_history()
                 w.delete_ids([decision.session['id']]); self.assertEqual(len(store.list_sessions()),1)
                 self.assertEqual(chat.composer.toPlainText(),'draft')
                 w.close(); self.app.processEvents(); store.db.close()
+    def test_saved_decision_prompts_remain_read_only_without_a_session(self):
+        from PySide6.QtWidgets import QDialog,QPlainTextEdit,QPushButton
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        with tempfile.TemporaryDirectory() as root,patch('agentnik.core.discover',return_value={}),patch('agentnik.core.environment_connections',return_value={}):
+            store=Store(root);legacy=store.new_session('decision','local',{});legacy['form']['state']='Preserved prompt';store.save_prompt('decision',legacy['form'],'Old prompt')
+            window=Window(store)
+            try:
+                self.assertFalse(any('＋ Decision' in action.text() for action in window.findChildren(__import__('PySide6.QtGui',fromlist=['QAction']).QAction)))
+                self.assertTrue(any(button.text()=='View saved Decision prompts…' for button in window.findChildren(QPushButton)))
+                def inspect(dialog):
+                    view=dialog.findChild(QPlainTextEdit,'legacyDecisionPrompts');self.assertTrue(view.isReadOnly());self.assertIn('Preserved prompt',view.toPlainText());return QDialog.DialogCode.Rejected
+                with patch.object(QDialog,'exec',inspect):window.show_legacy_decision_prompts()
+                self.assertEqual(len(store.list_prompts('decision')),1);self.assertEqual(store.list_sessions(),[])
+            finally:window.close();self.app.processEvents();store.db.close()
     def test_job_delivery_uses_gui_thread(self):
         from PySide6.QtCore import QThread
         from agentnik.ui import Job
@@ -254,28 +270,6 @@ class Desktop(unittest.TestCase):
             finally:
                 w.close(); self.app.processEvents(); store.db.close()
 
-    def test_decision_state_accepts_images_and_text(self):
-        from PySide6.QtCore import QMimeData, QUrl
-        from PySide6.QtGui import QImage, QColor
-        from agentnik.storage import Store
-        from agentnik.ui import Window
-        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]):
-            store=Store(root); w=Window(store)
-            try:
-                w.connections={'test':{'url':'http://localhost:11434/v1','protocol':'chat','model':'test'}}
-                w.new_session('decision','test'); tab=w.tabs.currentWidget(); w.show(); self.app.processEvents()
-                image=QImage(24,24,QImage.Format.Format_RGB32); image.fill(QColor('red'))
-                path=Path(root)/'input.png'; self.assertTrue(image.save(str(path)))
-                dropped=QMimeData(); dropped.setUrls([QUrl.fromLocalFile(str(path))]); tab.state.insertFromMimeData(dropped)
-                self.assertEqual(len(tab.attachments.paths),1); self.assertEqual(tab.state.toPlainText(),'')
-                pasted=QMimeData(); pasted.setImageData(image); tab.state.insertFromMimeData(pasted)
-                self.assertEqual(len(tab.attachments.paths),2)
-                text=QMimeData(); text.setText('{"status":"ok"}'); tab.state.insertFromMimeData(text)
-                self.assertEqual(tab.state.toPlainText(),'{"status":"ok"}')
-                tab.json_state.setChecked(True); tab.save_draft()
-                saved=store.list_sessions()[0]['form']; self.assertTrue(saved['json_state']); self.assertEqual(len(saved['images']),2)
-            finally:
-                w.close(); self.app.processEvents(); store.db.close()
 
     def test_prompts_panel_saves_filters_and_copies_both_types(self):
         from agentnik.storage import Store
@@ -294,12 +288,6 @@ class Desktop(unittest.TestCase):
                 w.new_session('chat','second'); second=w.tabs.currentWidget(); self.app.processEvents()
                 w.prompts_list.setCurrentRow(0); w.copy_selected_prompt()
                 self.assertEqual(second.composer.toPlainText(),'Find the truck'); self.assertEqual(second.attachments.paths,[image])
-                w.new_session('decision','first'); decision=w.tabs.currentWidget(); self.app.processEvents()
-                self.assertEqual(w.prompts_list.count(),0); w.prompts_search.clear()
-                decision.state.setPlainText('Check quality'); q=decision.questions[0]; q.instructions.setPlainText('Which category?'); q.kind.setCurrentIndex(1); q.add_option(['good','Good']); q.add_option(['bad','Bad']); decision.star_current.click()
-                self.assertEqual(w.prompts_list.count(),1); w.prompts_search.setText('category'); self.assertEqual(w.prompts_list.count(),1)
-                w.new_session('decision','second'); other=w.tabs.currentWidget(); self.app.processEvents(); w.prompts_list.setCurrentRow(0); w.copy_selected_prompt()
-                self.assertEqual(other.state.toPlainText(),'Check quality'); self.assertEqual(other.questions[0].value()['choices'],[['good','Good'],['bad','Bad']])
                 w.prompts_search.clear(); w.tabs.setCurrentWidget(second); self.app.processEvents(); self.assertEqual(w.prompts_list.count(),2)
                 w.delete_ids([first.session['id']]); self.assertTrue(Path(image).exists())
                 w.toggle_prompts(); self.assertTrue(w.prompts_panel.isHidden()); w.toggle_prompts(); self.assertFalse(w.prompts_panel.isHidden())

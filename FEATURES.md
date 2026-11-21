@@ -1,7 +1,7 @@
 # Agentnik Features
 
 ## Conversations
-- Independent **＋ Chat** and **＋ Decision** tabs; each tab keeps its own session, even when tabs share a connection.
+- Independent **＋ Chat** tabs; each tab keeps its own session, even when tabs share a connection.
 - Chat protocols: native Ollama, OpenAI-compatible Chat Completions, Responses, and Anthropic Messages.
 - Streaming enabled by default; can be disabled per endpoint.
 - Optional reasoning-effort control for models that support it.
@@ -19,7 +19,7 @@
 - Korean localization preview selectable from the language selector.
 
 ## Image attachments
-- Attach, drag-and-drop, or paste images into chat and decision forms.
+- Attach, drag-and-drop, or paste images into chat.
 - Preview tray in request order; double-click a thumbnail to open the stored copy.
 - PNG, JPEG, WebP, and GIF accepted; files are copied into app storage and shared by content hash.
 - Drafts and attachments survive a failed or cancelled request.
@@ -37,20 +37,17 @@
 - Direct-first page retrieval with visible provider fallback for recognized network-filter/TLS/reset failures; strict navigation and private destination checks remain enforced.
 - Inline clickable citations from provider annotations and validated managed `[S1]` references.
 
-## System One query builder
-- Form with shared state/context, optional JSON-state toggle, image attachments, and multiple named questions.
-- Question types: **Yes/No**, **Multiple choice** (2–26 labels), and **Ordered score** (2–10 levels).
-- All questions sent in one `/v1/systemone` request; image-only queries get a supplied short state.
-- Results preserved with the submitted form and raw response; **Restore query to form** reopens older queries.
-- Probability bars, optional pie chart for multiple choice, and confidence shown separately from probability.
+## System One shell advice
+- Optional advisory checks for shell commands in Code use a separately configured System One decision model. Advice never grants approval.
+- Earlier Decision sessions and saved prompts are preserved in a read-only history view. Use Promptnik to create and test System One queries.
 
 ## Saved prompts
-- **★ Save prompt** for chat drafts and decision forms; star past messages or runs to save them.
+- **★ Save prompt** for chat drafts; star past messages to save them.
 - Collapsible, searchable **Prompts** panel per tab type; **Copy to tab** (or double-click) restores a prompt.
 - Saved prompts persist across restarts independently of history and survive history clearing.
 
 ## History and statistics
-- Persistent chat and decision sessions with search, rename, delete, and confirmed **Clear all**.
+- Persistent chat sessions and read-only earlier Decision sessions with search, rename, delete, and confirmed **Clear all**.
 - Graceful handling of malformed or newer-version records (**Unavailable saved session**) while preserving their payload.
 - Automatic saving of drafts and form edits; session export to JSON (no bundled images or credentials).
 - Status bar with latest input-context tokens, effective context limit, and cumulative reported tokens.

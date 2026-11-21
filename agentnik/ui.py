@@ -434,6 +434,7 @@ class SessionStatus(QLabel):
 class SessionTab(QWidget):
     updated = Signal()
     def __init__(self, window, session):
+        if session.get('mode')!='chat':raise ValueError('Only chat sessions can be opened as editable conversations')
         super().__init__(); self.window = window; self.store = window.store; self.session = session; self.job = None; self.loading = True; self._closed = False
         self.credentials = {}; self.questions = []; self.partial = None
         interrupted = session.pop('research_pending',None)
@@ -994,6 +995,17 @@ class SessionTab(QWidget):
                 self.save_draft(); Path(path).write_text(json.dumps(self.session,indent=2)+'\n',encoding='utf-8')
             except Exception as exc: error(self,exc)
 
+class LegacyDecisionTab(QWidget):
+    """Read-only access to decision history saved by earlier releases."""
+    updated=Signal()
+    def __init__(self,window,session):
+        super().__init__();self.session=session;self.job=None;self._closed=False
+        layout=QVBoxLayout(self);label=QLabel(self.tr('This saved Decision session is read-only. Use Promptnik to create and test System One queries.'));label.setWordWrap(True);layout.addWidget(label)
+        self.view=QPlainTextEdit();self.view.setObjectName('legacyDecisionHistory');self.view.setReadOnly(True)
+        self.view.setPlainText(json.dumps({'form':session.get('form'),'runs':session.get('runs',[]),'saved_prompts':window.store.list_prompts('decision')},ensure_ascii=False,indent=2));layout.addWidget(self.view)
+    def save_draft(self):pass
+    def cancel(self):pass
+
 class Window(QMainWindow):
     def __init__(self,store):
         super().__init__(); self.store = store; self.repositories=RepositoryRegistry(store); self.local = {}; self.connections = {}; self.setWindowTitle('Agentnik'); self.resize(1320,850)
@@ -1001,7 +1013,7 @@ class Window(QMainWindow):
         self._system_palette = QPalette(QApplication.palette())
         toolbar = self.addToolBar('Agentnik'); toolbar.setMovable(False)
         self.brand = QLabel(); self.brand.setContentsMargins(2,0,12,0); toolbar.addWidget(self.brand)
-        for text, fn in [(self.tr('☰ History'),self.toggle_history),(self.tr('☆ Prompts'),self.toggle_prompts),(self.tr('＋ Chat'),lambda:self.new_session('chat')),(self.tr('＋ Decision'),lambda:self.new_session('decision')),(self.tr('＋ Code'),self.new_code),(self.tr('Repositories'),self.manage_repositories),(self.tr('Connections'),self.manage_connections),(self.tr('MCP servers'),self.manage_mcp_servers)]:
+        for text, fn in [(self.tr('☰ History'),self.toggle_history),(self.tr('☆ Prompts'),self.toggle_prompts),(self.tr('＋ Chat'),lambda:self.new_session('chat')),(self.tr('＋ Code'),self.new_code),(self.tr('Repositories'),self.manage_repositories),(self.tr('Connections'),self.manage_connections),(self.tr('MCP servers'),self.manage_mcp_servers)]:
             action = QAction(text,self); action.triggered.connect(fn); toolbar.addAction(action)
         self.tls_action=QAction(self.tr('TLS: relaxed') if tls.relaxed() else self.tr('TLS settings'),self);self.tls_action.triggered.connect(self.configure_tls);toolbar.addAction(self.tls_action)
         toolbar.addSeparator(); toolbar.addWidget(QLabel(self.tr('Theme: '))); self.theme = QComboBox(); self.theme.addItems(['System','Light','Dark']); toolbar.addWidget(self.theme); self.theme.setCurrentText(store.config['settings'].get('theme','System')); self.theme.currentTextChanged.connect(self.apply_theme)
@@ -1024,6 +1036,7 @@ class Window(QMainWindow):
         self.prompts_list = QListWidget(); self.prompts_list.setTextElideMode(Qt.TextElideMode.ElideRight); self.prompts_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.prompts_list.itemDoubleClicked.connect(lambda _:self.copy_selected_prompt()); prompts.addWidget(self.prompts_list,1)
         prompt_buttons = QHBoxLayout(); prompts.addLayout(prompt_buttons)
         button(self.tr('Copy to tab'),self.copy_selected_prompt,prompt_buttons); button(self.tr('Remove'),self.remove_selected_prompt,prompt_buttons)
+        if store.list_prompts('decision'):button(self.tr('View saved Decision prompts…'),self.show_legacy_decision_prompts,prompts)
         self.split.addWidget(self.prompts_panel); self.split.setSizes([250,820,250])
         self.prompts_panel.setVisible(store.config['settings'].get('prompts_visible',True))
         self.sidebar.setVisible(store.config['settings'].get('history_visible',True)); self.reload_connections(); self.refresh_history(); self.apply_theme()
@@ -1034,7 +1047,7 @@ class Window(QMainWindow):
         QShortcut(QKeySequence('Ctrl+B'),self,activated=self.toggle_history)
         self.empty = QWidget(); welcome = QVBoxLayout(self.empty); welcome.addStretch()
         self.welcome_brand = QLabel(); self.welcome_brand.setAlignment(Qt.AlignmentFlag.AlignCenter); welcome.addWidget(self.welcome_brand)
-        hint = QLabel(self.tr('Open a chat or decision tab to begin.\nConnections are discovered from your environment and local servers.')); hint.setAlignment(Qt.AlignmentFlag.AlignCenter); hint.setWordWrap(True); welcome.addWidget(hint); welcome.addStretch()
+        hint = QLabel(self.tr('Open a chat or Code tab to begin.\nConnections are discovered from your environment and local servers.')); hint.setAlignment(Qt.AlignmentFlag.AlignCenter); hint.setWordWrap(True); welcome.addWidget(hint); welcome.addStretch()
         self.tabs.addTab(self.empty,self.tr('Welcome')); self.update_branding()
         QApplication.styleHints().colorSchemeChanged.connect(self.system_theme_changed)
     def configure_tls(self):
@@ -1124,6 +1137,11 @@ class Window(QMainWindow):
         self.sidebar.setVisible(not self.sidebar.isVisible()); self.store.config['settings']['history_visible'] = not self.sidebar.isHidden(); self.store.flush()
     def toggle_prompts(self):
         self.prompts_panel.setVisible(self.prompts_panel.isHidden()); self.store.config['settings']['prompts_visible'] = not self.prompts_panel.isHidden(); self.store.flush()
+    def show_legacy_decision_prompts(self):
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Saved Decision prompts'));dialog.resize(700,520);layout=QVBoxLayout(dialog)
+        label=QLabel(self.tr('Earlier Decision prompts are read-only. Use Promptnik for new System One queries.'));label.setWordWrap(True);layout.addWidget(label)
+        view=QPlainTextEdit(json.dumps(self.store.list_prompts('decision'),ensure_ascii=False,indent=2));view.setObjectName('legacyDecisionPrompts');view.setReadOnly(True);layout.addWidget(view)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
     def refresh_prompts(self,*_):
         if not hasattr(self,'prompts_list'): return
         current = self.prompts_list.currentItem(); selected = current.data(Qt.ItemDataRole.UserRole) if current else None
@@ -1164,6 +1182,7 @@ class Window(QMainWindow):
         if prompt and confirm(self,self.tr('Remove this saved prompt?')):
             self.store.delete_prompt(prompt['id']); self.prompts_changed()
     def new_session(self,mode,name=None):
+        if mode!='chat':return
         if not self.connections:
             self.manage_connections()
             if not self.connections: return
@@ -1175,8 +1194,8 @@ class Window(QMainWindow):
         if session.get('_unavailable'): return error(self,self.tr('This saved session cannot be opened with the current version. Its original data is preserved in history.sqlite3. Repair or restore the record, or use a compatible Agentnik version.'))
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
-            if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id'] == session['id']: self.tabs.setCurrentIndex(i); return
-        tab = CodeTab(self,session) if session['mode']=='code' else SessionTab(self,session); tab.updated.connect(self.session_updated)
+            if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)) and tab.session['id'] == session['id']: self.tabs.setCurrentIndex(i); return
+        tab = CodeTab(self,session) if session['mode']=='code' else LegacyDecisionTab(self,session) if session['mode']=='decision' else SessionTab(self,session); tab.updated.connect(self.session_updated)
         if hasattr(self,'empty') and self.tabs.indexOf(self.empty) >= 0: self.tabs.removeTab(self.tabs.indexOf(self.empty))
         self.tabs.setCurrentIndex(self.tabs.addTab(tab,session['title'])); self.stats()
     def open_item(self,item):
@@ -1194,11 +1213,11 @@ class Window(QMainWindow):
         self.refresh_history()
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
-            if isinstance(tab,(SessionTab,CodeTab)): self.tabs.setTabText(i,tab.session['title'])
+            if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)): self.tabs.setTabText(i,tab.session['title'])
         self.stats()
     def close_tab(self,index):
         tab = self.tabs.widget(index)
-        if isinstance(tab,(SessionTab,CodeTab)):
+        if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)):
             if tab.job: return error(self,self.tr('Cancel the running request and wait for it to finish before closing this tab.'))
             tab.save_draft()
             tab._closed = True
@@ -1213,16 +1232,16 @@ class Window(QMainWindow):
             session['title'] = name.strip()
             for i in range(self.tabs.count()):
                 tab = self.tabs.widget(i)
-                if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id']==session['id']: tab.session['title']=name.strip()
+                if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)) and tab.session['id']==session['id']: tab.session['title']=name.strip()
             self.store.save(session); self.session_updated()
     def delete_ids(self,ids):
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
-            if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id'] in ids and tab.job:
+            if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)) and tab.session['id'] in ids and tab.job:
                 return error(self,self.tr('Cancel running requests before deleting their sessions.'))
         for i in reversed(range(self.tabs.count())):
             tab = self.tabs.widget(i)
-            if isinstance(tab,(SessionTab,CodeTab)) and tab.session['id'] in ids: tab._closed = True; self.tabs.removeTab(i); tab.deleteLater()
+            if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)) and tab.session['id'] in ids: tab._closed = True; self.tabs.removeTab(i); tab.deleteLater()
         self.store.delete(ids); self.refresh_history(); self.stats()
     def delete(self):
         item = self.history.currentItem()
@@ -1251,7 +1270,7 @@ class Window(QMainWindow):
         if running and not confirm(self,self.tr('Requests are running. Close Agentnik and stop receiving responses?')): event.ignore(); return
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
-            if isinstance(tab,(SessionTab,CodeTab)): tab.cancel(); tab.save_draft(); tab._closed = True
+            if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)): tab.cancel(); tab.save_draft(); tab._closed = True
         event.accept()
 
 def main():

@@ -2,12 +2,12 @@
 
 # key: (default, minimum, maximum)
 FIELDS = {
-    'rounds': (48, 1, 64),
-    'requests': (50, 1, 128),
-    'calls': (96, 1, 128),
-    'turn_seconds': (3600, 10, 3600),
-    'model_seconds': (300, 10, 3600),
-    'context_bytes': (2000000, 4096, 8000000),
+    'rounds': (48, 1, 128),
+    'requests': (50, 1, 256),
+    'calls': (96, 1, 256),
+    'turn_seconds': (3600, 10, 7200),
+    'model_seconds': (300, 10, 7200),
+    'context_bytes': (2000000, 4096, 16000000),
 }
 
 FULL_TEXT_BYTES=128_000
@@ -16,7 +16,7 @@ RANGE_TEXT_BYTES=64_000
 PATCH_TEXT_BYTES=64_000
 
 # Zero means unlimited. Goal time is active running time, excluding pauses.
-GOAL_FIELDS={'steps':(0,0,1000000),'seconds':(0,0,31536000)}
+GOAL_FIELDS={'steps':(0,0,2000000),'seconds':(0,0,63072000)}
 
 
 def goal_limits(value=None):

@@ -100,7 +100,7 @@ class ResearchDesktop(unittest.TestCase):
                 w.new_session('chat','test'); second=w.tabs.currentWidget()
                 self.assertFalse(first.web_access.isChecked()); self.assertFalse(second.web_access.isChecked())
                 first.web_access.setChecked(True); self.assertFalse(second.web_access.isChecked())
-                w.new_session('decision','test'); self.assertFalse(hasattr(w.tabs.currentWidget(),'web_access'))
+                legacy=store.new_session('decision','test',dict(C));store.save(legacy);w.open_session(legacy);self.assertFalse(hasattr(w.tabs.currentWidget(),'web_access'))
             finally: w.close(); self.app.processEvents(); store.db.close()
 
     def test_managed_completion_sources_reopen_and_credential_free_export(self):

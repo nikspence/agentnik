@@ -20,7 +20,7 @@ def request(c,body,runtime,emit,state):
         state['metrics'].update(core.usage_metrics(dict(data,usage=state['provider_usage'])))
     def block_index(data):
         index=data.get('index')
-        if type(index) is not int or not 0<=index<64: raise ResearchError('Invalid content/tool index')
+        if type(index) is not int or not 0<=index<max(64,runtime.limits.calls): raise ResearchError('Invalid content/tool index')
         return index
     with core.open_request(c,core.endpoint(c),body,timeout=runtime.timeout()) as response:
         for data in bounded_events(response,runtime):
@@ -86,7 +86,7 @@ def request(c,body,runtime,emit,state):
                     blocks={i:copy.deepcopy(b) for i,b in enumerate(data['content'])}; closed=set(blocks)
                     finish=data.get('stop_reason'); stopped=True
                 elif typ not in ('ping',): raise ResearchError('Unexpected Messages event')
-                if len(blocks)>64: raise LimitError('Content block limit reached')
+                if len(blocks)>max(64,runtime.limits.calls): raise LimitError('Content block limit reached')
                 for b in blocks.values():
                     if b.get('type') not in ('text','thinking','redacted_thinking','tool_use'): raise ResearchError('Unregistered server content block')
                 state['text']=''.join(b.get('text','') for _,b in sorted(blocks.items()) if b.get('type')=='text')

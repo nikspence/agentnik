@@ -1054,6 +1054,12 @@ class CodingRun:
                 for call,args,validation_error in validated:
                     runtime.check();check_skill_versions()
                     if not batch_invalid:discover_arguments(args);sync_guidance()
+                    display_args={}
+                    if isinstance(args,dict):
+                        for key in ('path','destination','name','server','tool','query','url','command'):
+                            value=args.get(key)
+                            if isinstance(value,str):display_args[key]=value[:200]+('…' if len(value)>200 else '')
+                    event('output',text='Tool call: '+call.name+((' '+json.dumps(display_args,ensure_ascii=False)) if display_args else ''))
                     mcp_state=None
                     try:
                         with self.lock:steered=bool(self.steering)
@@ -1671,6 +1677,10 @@ class CodingRun:
                         result={'error':('Git operation unavailable or conflicted. Inspect repository state, configured identity, selected paths, and existing staged changes.' if call.name.startswith('git_') else 'File operation unavailable or conflicted. Read/inspect the path before proposing another edit.')}
                     if mcp_state is not None:mcp_state.update(tools=mcp_tools,resources=mcp_resources,prompts=mcp_prompts,templates=mcp_templates)
                     result=scrub(result,secrets)
+                    nested=result.get('result') if isinstance(result,dict) else None
+                    outcome=('rejected' if batch_invalid or isinstance(result,dict) and (result.get('approved') is False or result.get('applied') is False) else
+                             'error' if isinstance(result,dict) and (result.get('error') or result.get('isError') or isinstance(nested,dict) and nested.get('isError')) else 'returned')
+                    event('output',text='Tool result: '+call.name+' — '+outcome)
                     if call.name in ('run_tests','run_shell') and isinstance(result.get('output'),str) and len(result['output'])>2000:
                         try:result['output_artifact']=self.artifacts.add(result['output'],call.name);result['output']=result['output'][:500]
                         except ValueError:pass

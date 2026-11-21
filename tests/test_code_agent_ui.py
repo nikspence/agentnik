@@ -489,6 +489,9 @@ class CodingWorkspace(unittest.TestCase):
                     tab.steering_input.setText('Use another approach secret-key');self.assertNotIn('secret-key',json.dumps(session));tab.send_steering();settle(lambda:tab.job is None);execute.assert_not_called()
                 self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertIn('Use another approach [redacted]',json.dumps(bodies[-1]))
                 self.assertNotIn('secret-key',json.dumps(session));self.assertIn('Steering delivered',tab.activity.toPlainText())
+                self.assertIn('Tool call: run_shell',tab.activity.toPlainText());self.assertIn('Tool result: run_shell',tab.activity.toPlainText())
+                saved=next(row for row in store.list_sessions() if row['id']==session['id'])
+                self.assertIn('Tool call: run_shell',json.dumps(saved['code_activity']))
             finally:
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
@@ -508,11 +511,7 @@ class CodingWorkspace(unittest.TestCase):
                 tab.composer.setPlainText('Inspect');tab.model_panel.show();app.processEvents()
                 self.assertFalse(tab.roles['heavy'][0].isHidden());self.assertEqual(set(tab.roles),{'heavy','decision'})
                 from PySide6.QtWidgets import QDialog,QPlainTextEdit,QPushButton
-                self.assertIsNotNone(tab.model_panel.findChild(QPushButton,'legacyModelSettings'));captured=[]
-                def inspect(dialog):
-                    view=dialog.findChild(QPlainTextEdit,'legacyModelSettingsText');self.assertTrue(view.isReadOnly());captured.append(view.toPlainText());return QDialog.DialogCode.Rejected
-                with patch.object(QDialog,'exec',inspect),patch.object(core,'open_request') as request:tab.show_legacy_model_settings();request.assert_not_called()
-                self.assertIn('legacy',captured[0]);self.assertIn('old-alternate',captured[0])
+                self.assertIsNone(tab.model_panel.findChild(QPushButton,'legacyModelSettings'))
                 with patch.object(tab,'launch') as launch:
                     tab.start_coding();run=launch.call_args.args[0]
                 self.assertEqual(run.connection['model'],'main')
@@ -1068,6 +1067,11 @@ class CodingWorkspace(unittest.TestCase):
                     tab.configure_limits()
                 self.assertEqual(store.list_sessions()[0]['coding_limits'],values);self.assertEqual(store.list_sessions()[0]['coding_goal_limits'],{'steps':4,'seconds':120})
                 dialog=CodingLimitsDialog(tab,values,{'steps':4,'seconds':120});self.assertEqual(dialog.fields['model_seconds'].value(),480);self.assertEqual(dialog.goal_fields['steps'].value(),4);dialog.reset();self.assertEqual(dialog.values(),coding_limits());self.assertEqual(dialog.goal_values(),{'steps':0,'seconds':0});dialog.close()
+                dialog=CodingLimitsDialog(tab,values,{'steps':4,'seconds':120})
+                for key,maximum in {'rounds':128,'requests':256,'calls':256,'turn_seconds':7200,'model_seconds':7200,'context_bytes':16000000}.items():
+                    self.assertEqual(dialog.fields[key].maximum(),maximum);dialog.fields[key].setValue(maximum)
+                for key,maximum in {'steps':2000000,'seconds':63072000}.items():self.assertEqual(dialog.goal_fields[key].maximum(),maximum);dialog.goal_fields[key].setValue(maximum)
+                self.assertEqual(dialog.values()['calls'],256);self.assertEqual(dialog.goal_values()['steps'],2000000);dialog.close()
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(store.list_sessions()[0]);self.assertEqual(window.tabs.currentWidget().session['coding_limits'],values)
             finally:window.close();app.processEvents();store.db.close()
 

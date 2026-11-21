@@ -81,7 +81,7 @@ class Accumulator:
 
     def index(self,data):
         index=data.get('output_index',0)
-        if type(index) is not int or not 0<=index<64: raise LimitError('Responses output item limit reached')
+        if type(index) is not int or not 0<=index<max(64,self.runtime.limits.calls): raise LimitError('Responses output item limit reached')
         return index
 
     def search(self,ident,detail):
@@ -181,7 +181,7 @@ class Accumulator:
                 self.state['metrics'].update({k:v for k,v in core.usage_metrics(dict(response,usage=self.state['provider_usage'])).items() if type(v) in (int,float) and math.isfinite(v) and v>=0})
             if 'output' in response:
                 output=response['output']
-                if not isinstance(output,list) or len(output)>64: raise LimitError('Responses output item limit reached')
+                if not isinstance(output,list) or len(output)>max(64,self.runtime.limits.calls): raise LimitError('Responses output item limit reached')
                 if terminal or output or not self.parts:
                     previous_items=self.items
                     self.items={}; self.parts={}; self.annotations={}; self.thoughts={}
