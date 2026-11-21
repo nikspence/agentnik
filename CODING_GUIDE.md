@@ -74,7 +74,7 @@ Drafts, model assignments, and bounded activity are saved with the session. Reop
 - If a project is unavailable, use **Locate folder** in the repository manager and open a new pane. Check the working directory shown in the pane before running.
 - If an edit conflicts, inspect the current file and have the agent read the current content before trying again. Earlier changes are not rolled back.
 
-For implementation boundaries and upcoming work, see [CODING_BACKEND_PLAN.md](CODING_BACKEND_PLAN.md). For setup, connection settings, and the rest of the application, see [README.md](README.md).
+For upcoming work, see [the roadmap](AGENTNIK_PLAN.md). For setup, connection settings, and the rest of the application, see [README.md](README.md).
 
 
 ## Structured Git tools — local operations

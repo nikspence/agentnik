@@ -62,4 +62,4 @@ Choose a compatible System One Decision connection and model, then enable **Chec
 
 The approval view shows **SAFE**, **WARNING**, **RISKY**, **PRIVACY**, or **DANGER**, with confidence when supplied. Failed, invalid, or timed-out checks show **UNKNOWN**. The category guide explains the recommendation; you approve or reject commands when approval is required; commands allowed by the switch do not request advice. Advice currently covers shell commands, and compatibility with a real decision model remains unverified for this integration.
 
-See the [coding guide](CODING_GUIDE.md) for setup and operation, and the [coding backend plan](CODING_BACKEND_PLAN.md) for remaining work.
+See the [coding guide](CODING_GUIDE.md) for setup and operation, and the [roadmap](AGENTNIK_PLAN.md) for remaining work.

@@ -9,8 +9,8 @@
 
 - **Code with your model:** work in local repositories or folders using Agentnik's own coding loop. Choose a model, delegate bounded analysis to subagents using that model, inspect and edit files, run shell commands and tests with a configurable approval switch, and use structured Git tools. [Coding features](CODE_FEATURES.md) · [Coding guide](CODING_GUIDE.md)
 - **Plan with specifications and tracks:** the built-in **Spec & Plan** workflow follows a Conductor-style approach: draft requirements, a specification and a task plan, review project changes, then start a selected track. Persistent project context, editable drafts, task IDs and progress reconciliation keep larger changes organized. [Spec & Plan guide](CODING_GUIDE.md#spec--plan-track-preview) · [Track format](TRACK_FORMAT.md)
-- **Extend workflows with Skills and MCP:** select repository or user Skills and connect local or remote MCP servers. Code can use supported tools, text resources, templates and prompts; Chat offers an opt-in MCP tool preview. MCP tools can write or perform external actions without approval. [Skills and MCP](CODE_FEATURES.md) · [Chat tools](CHAT_AND_DECISIONS.md)
-- **Chat with images and documents:** keep conversations in independent tabs with Markdown, streaming, visible thinking, saved prompts, history and token statistics. Attach images and supported documents in Chat or Code, and use local calculator and data-analysis tools. [Chat and history](CHAT_AND_DECISIONS.md) · [Coding guide](CODING_GUIDE.md)
+- **Extend workflows with Skills and MCP:** select repository or user Skills and connect local or remote MCP servers. Code can use supported tools, text resources, templates and prompts; Chat offers an opt-in MCP tool preview. MCP tools can write or perform external actions without approval. [Skills and MCP](CODE_FEATURES.md) · [Chat tools](CHAT_GUIDE.md)
+- **Chat with images and documents:** keep conversations in independent tabs with Markdown, streaming, visible thinking, saved prompts, history and token statistics. Attach images and supported documents in Chat or Code, and use local calculator and data-analysis tools. [Chat and history](CHAT_GUIDE.md) · [Coding guide](CODING_GUIDE.md)
 - **Research the web:** combine managed search and public-page retrieval, or use hosted search on eligible OpenAI Responses connections. Sources, citations, activity and fallback are visible; configured search providers can also supply place, image and entity results. [Research guide](RESEARCH_GUIDE.md) · [Search providers](SEARCH_PROVIDERS.md)
 - **Get shell command advice:** optionally use an Ollama System One decision model to advise on shell-command approvals in Code. [Coding guide](CODING_GUIDE.md)
 - **Choose connections and keep local history:** use native Ollama or compatible Responses, Chat Completions and Messages endpoints, including LiteLLM gateways and supported cloud connections. Manage credentials, persistent sessions and attachments, prompt history, context compaction, themes and language settings. [Connections and local data](CONNECTIONS.md) · [Feature inventory](FEATURES.md)
@@ -46,11 +46,11 @@ These welcome screens were rendered offline with temporary data. Research screen
 ## Documentation and development
 
 - [Coding features](CODE_FEATURES.md) and [coding guide](CODING_GUIDE.md): model selection, project tools, Spec & Plan, Skills, and MCP.
-- [Chat and history](CHAT_AND_DECISIONS.md): attachments, prompts, history, and controls.
+- [Chat and history](CHAT_GUIDE.md): attachments, prompts, history, and controls.
 - [Research guide](RESEARCH_GUIDE.md) and [search providers](SEARCH_PROVIDERS.md): routes, configuration, sources, and limits.
 - [Connections and local data](CONNECTIONS.md): endpoints, credentials, discovery, and storage.
 - [Features](FEATURES.md), [validation](VALIDATION.md), and [development and builds](DEVELOPMENT_VALIDATION.md): feature inventory, evidence, offline checks, and release tooling.
-- [Project plan](AGENTNIK_PLAN.md) and [coding backend plan](CODING_BACKEND_PLAN.md): historical decisions and remaining work. The plans include historical milestones; use the guides and validation records for current behavior and evidence.
+- [Project roadmap](AGENTNIK_PLAN.md): remaining work and qualification priorities.
 
 Ordinary tests use temporary storage and do not issue live inference. Build and validate on each target OS. Pillow is needed to rebuild branding assets, not to run Agentnik. See [DISCLAIMER.md](DISCLAIMER.md) for responsibility and use information.
 
