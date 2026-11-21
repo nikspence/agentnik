@@ -12,7 +12,7 @@ import math
 import time
 
 from PySide6.QtCore import Qt, Signal, QObject, QTimer, QByteArray, QBuffer, QIODevice, QEvent, QCoreApplication, QSize, QRectF
-from PySide6.QtGui import QAction, QColor, QPainter, QPixmap, QIcon, QDesktopServices, QPalette, QShortcut, QKeySequence, QTextCursor
+from PySide6.QtGui import QAction, QColor, QPainter, QPixmap, QIcon, QDesktopServices, QPalette, QShortcut, QKeySequence, QTextCursor, QCursor, QGuiApplication
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QPushButton, QLineEdit, QPlainTextEdit, QTextBrowser, QComboBox, QCheckBox,
@@ -1063,7 +1063,7 @@ class SettingsDialog(QDialog):
 
 class Window(QMainWindow):
     def __init__(self,store):
-        super().__init__(); self.store = store; self.repositories=RepositoryRegistry(store); self.local = {}; self.connections = {}; self.setWindowTitle('Agentnik'); self.resize(1320,850)
+        super().__init__(); self.store = store; self.repositories=RepositoryRegistry(store); self.local = {}; self.connections = {}; self.setWindowTitle('Agentnik')
         tls.configure(store.config['settings'].get('relaxed_tls',False))
         self._system_palette = QPalette(QApplication.palette())
         toolbar = self.addToolBar('Agentnik'); toolbar.setMovable(False)
@@ -1101,6 +1101,24 @@ class Window(QMainWindow):
         hint = QLabel(self.tr('Open a chat or Code tab to begin.\nConnections are discovered from your environment and local servers.')); hint.setAlignment(Qt.AlignmentFlag.AlignCenter); hint.setWordWrap(True); welcome.addWidget(hint); welcome.addStretch()
         self.tabs.addTab(self.empty,self.tr('Welcome')); self.update_branding()
         QApplication.styleHints().colorSchemeChanged.connect(self.system_theme_changed)
+        self.fit_initial_screen(toolbar,controls)
+    def fit_initial_screen(self,toolbar,controls):
+        screen=QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(1320,850);return
+        area=screen.availableGeometry()
+        if area.width()<=0 or area.height()<=0:
+            self.resize(1320,850);return
+        width=max(1,min(1320,area.width()-32));height=max(1,min(850,area.height()-64))
+        self.ensurePolished();self.layout().activate()
+        if self.minimumSizeHint().width()>width:
+            toolbar.setMinimumWidth(0);self.insertToolBarBreak(controls)
+            if controls.minimumWidth()>width:controls.setMinimumWidth(width)
+            for pane in (self.sidebar,self.tabs,self.prompts_panel):
+                pane.setMinimumWidth(0);pane.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Preferred)
+            self.layout().invalidate();self.layout().activate();self.setMinimumWidth(0)
+        self.resize(width,height)
+        self.move(area.x()+max(0,(area.width()-width)//2),area.y()+max(0,(area.height()-height)//2))
     def configure_settings(self):
         if SettingsDialog(self).exec()==QDialog.DialogCode.Accepted:self.statusBar().showMessage(self.tr('Settings saved. Language and TLS changes apply after restart.'))
     def save_global_web_search(self,enabled):

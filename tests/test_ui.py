@@ -34,7 +34,7 @@ class Desktop(unittest.TestCase):
             try:
                 window.resize(1320,850);window.show();self.app.processEvents()
                 bars=window.findChildren(QToolBar);self.assertEqual(len(bars),2)
-                right=bars[1];self.assertGreater(right.geometry().x(),bars[0].geometry().x())
+                right=bars[1];self.assertTrue(right.geometry().y()>bars[0].geometry().y() or right.geometry().x()>bars[0].geometry().x())
                 self.assertEqual([action.text() for action in bars[0].actions()[1:]],['☰ History','☆ Prompts','＋ Chat','＋ Code','Repositories','Connections','MCP servers'])
                 self.assertEqual(right.actions()[0],window.settings_action);self.assertEqual([right.widgetForAction(action) for action in right.actions()[1:]],[window.font_smaller,window.font_larger,window.web_search,window.mcp_access]);self.assertEqual(window.web_search.text(),'Web Access')
                 self.assertTrue(window.font_smaller.isVisible());self.assertTrue(window.font_larger.isVisible());self.assertTrue(window.web_search.isVisible());self.assertTrue(right.widgetForAction(window.settings_action).isVisible())
@@ -47,6 +47,16 @@ class Desktop(unittest.TestCase):
                 self.assertNotEqual(store.config['settings'].get('theme'),'Dark');self.assertNotEqual(store.config['settings'].get('language'),'en')
                 dialog=SettingsDialog(window);dialog.theme.setCurrentIndex(dialog.theme.findData('Dark'));dialog.language.setCurrentIndex(dialog.language.findData('en'));dialog.mcp_priority.setCurrentIndex(dialog.mcp_priority.findData('last'));dialog.accept()
                 self.assertEqual(store.config['settings']['theme'],'Dark');self.assertEqual(store.config['settings']['language'],'en');self.assertEqual(store.config['settings']['mcp_priority'],'last');self.assertEqual(window.brand_variant,'dark')
+            finally:window.close();self.app.processEvents();store.db.close()
+
+    def test_initial_window_frame_fits_available_screen(self):
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        with tempfile.TemporaryDirectory() as root,patch('agentnik.core.discover',return_value={}),patch('agentnik.core.environment_connections',return_value={}):
+            store=Store(root);window=Window(store)
+            try:
+                window.show();self.app.processEvents();area=window.screen().availableGeometry()
+                self.assertTrue(area.contains(window.frameGeometry()),(area,window.frameGeometry()))
             finally:window.close();self.app.processEvents();store.db.close()
 
     def test_model_count_only_appears_in_status_bar(self):
