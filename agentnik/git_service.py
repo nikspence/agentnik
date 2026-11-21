@@ -62,7 +62,9 @@ def fetch_client(url,check,timeout,credentials=None):
 
 
 class GitService:
-    def __init__(self, files):
+    def __init__(self, files, author=None):
+        from .repositories import validate_git_author
+        self.author=validate_git_author(author)
         self.files = files
         self.root = files.root
 
@@ -361,6 +363,11 @@ class GitService:
         if len(data)>32000 or b'\x00' in data: raise ValueError('Git base is oversized or binary')
         return data.decode('utf-8')
 
+    def identity(self,repo):
+        if self.author:return (self.author['name']+' <'+self.author['email']+'>').encode('utf-8')
+        config=repo.get_config_stack()
+        return config.get((b'user',),b'name')+b' <'+config.get((b'user',),b'email')+b'>'
+
     def proposal(self, paths, message):
         paths = self.paths(paths)
         if not message.strip() or len(message.encode())>2000: raise ValueError('Invalid commit message')
@@ -369,8 +376,7 @@ class GitService:
             index = repo.open_index()
             if index.commit(repo.object_store)!=repo[repo.head()].tree: raise ValueError('Existing staged changes must be handled first')
             if (Path(repo.controldir())/'MERGE_HEAD').exists(): raise ValueError('Merge in progress')
-            config = repo.get_config_stack()
-            identity = config.get((b'user',),b'name')+b' <'+config.get((b'user',),b'email')+b'>'
+            identity = self.identity(repo)
             snapshots = {}; diffs=[]
             for path in paths:
                 target=self.files.path(path)
@@ -461,8 +467,7 @@ class GitService:
                 staged={key for key in set(base)|set(index) if base.get(key)!=( (index[key].mode,index[key].sha) if key in index else None)}
                 if staged!={self.key(path) for path in paths}:raise ValueError('Explicit paths must include every staged change')
                 if not message.strip() or len(message.encode())>2000:raise ValueError('Invalid commit message')
-                config=repo.get_config_stack()
-                identity=config.get((b'user',),b'name')+b' <'+config.get((b'user',),b'email')+b'>'
+                identity=self.identity(repo)
                 proposal.update(message=message,identity=identity.decode('utf-8'))
             return proposal
 

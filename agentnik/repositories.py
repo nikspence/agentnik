@@ -1,14 +1,28 @@
 """Local project registry; removing entries never modifies project files."""
 import os
+import re
 from pathlib import Path
 import time
 import uuid
+
+
+def validate_git_author(author):
+    if author is None:return None
+    if not isinstance(author,dict) or set(author)!={'name','email'}:raise ValueError('Enter both a Git author name and email, or leave both blank')
+    name,email=author['name'],author['email']
+    if not isinstance(name,str) or not isinstance(email,str):raise ValueError('Invalid Git author')
+    name=name.strip();email=email.strip()
+    if not name and not email:return None
+    if not name or not email or len(name)>200 or len(email)>254 or any(ord(c)<32 or ord(c)==127 or c in '<>' for c in name+email) or not re.fullmatch(r'[^\s@<>]+@[^\s@<>]+',email):
+        raise ValueError('Enter both a valid Git author name and email, or leave both blank')
+    return {'name':name,'email':email}
 
 
 class RepositoryRegistry:
     def __init__(self,store):
         self.store=store
         store.db.execute('CREATE TABLE IF NOT EXISTS repositories (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, updated REAL NOT NULL)')
+        store.db.execute('CREATE TABLE IF NOT EXISTS repository_git_authors (repository_id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL)')
         store.db.commit()
 
     @staticmethod
@@ -42,7 +56,19 @@ class RepositoryRegistry:
         if not name or len(name)>160: raise ValueError('Use a project name of 1–160 characters')
         self.store.db.execute('UPDATE repositories SET name=?,updated=? WHERE id=?',(name,time.time(),ident));self.store.db.commit()
 
+    def git_author(self,ident):
+        row=self.store.db.execute('SELECT name,email FROM repository_git_authors WHERE repository_id=?',(ident,)).fetchone()
+        return validate_git_author({'name':row[0],'email':row[1]}) if row else None
+
+    def set_git_author(self,ident,author):
+        if self.get(ident) is None:raise ValueError('Project entry no longer exists')
+        author=validate_git_author(author)
+        if author:self.store.db.execute('INSERT OR REPLACE INTO repository_git_authors VALUES (?,?,?)',(ident,author['name'],author['email']))
+        else:self.store.db.execute('DELETE FROM repository_git_authors WHERE repository_id=?',(ident,))
+        self.store.db.commit()
+
     def remove(self,ident):
+        self.store.db.execute('DELETE FROM repository_git_authors WHERE repository_id=?',(ident,))
         self.store.db.execute('DELETE FROM repositories WHERE id=?',(ident,));self.store.db.commit()
 
     def session(self,ident):

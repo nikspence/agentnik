@@ -624,11 +624,13 @@ def mcp_fetch_fallback_url(result,args,completed_mcp_result=None):
     return urls[0] if urls and len(urls)==1 else None
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None,hosted_search=False,mcp_priority='first'):
+    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None,hosted_search=False,mcp_priority='first',git_author=None):
         from .code_artifacts import validate_notes, Artifacts
         self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.test_report_may_be_stale=False;self.project_memory=project_memory
         from .track_execution import validate_runtime_track,initial_progress
         self.selected_track=validate_runtime_track(selected_track) if selected_track else None;self.track_progress=initial_progress(self.selected_track) if self.selected_track else None
+        from .repositories import validate_git_author
+        self.git_author=validate_git_author(git_author)
         self.connection=dict(connection);self.root=root;self.prompt=prompt;self.run_id=uuid.uuid4().hex
         from .document_reader import validate_documents
         import copy
@@ -1552,7 +1554,7 @@ class CodingRun:
                             except ModuleNotFoundError as exc:
                                 missing=exc.name if isinstance(exc.name,str) and re.fullmatch(r'[A-Za-z0-9_.]{1,100}',exc.name) else 'unknown'
                                 raise ProjectToolError('Git tools are unavailable because a required Python module is missing: '+missing+'. Install the project requirements in the Python environment running Agentnik.') from None
-                            git=GitService(files)
+                            git=GitService(files,self.git_author)
                             if call.name=='git_remote_branches':result=git.remote_branches(runtime.check)
                             elif call.name in ('git_compare_refs','git_changed_files','git_diff_refs'):
                                 try:
