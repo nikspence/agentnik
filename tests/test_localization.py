@@ -26,6 +26,34 @@ class Localization(unittest.TestCase):
             self.assertIsNone(localization.install(self.app,'system',directory,['en-US','ko-KR']))
             self.assertIn(('ko','한국어 (미리보기)'),localization.choices(directory))
 
+    def test_preview_catalogs_load_and_preserve_format_fields(self):
+        import string
+        import xml.etree.ElementTree as ET
+        from PySide6.QtCore import QCoreApplication
+        formatter=string.Formatter()
+        def fields(text):return sorted(field for _,field,_,_ in formatter.parse(text or '') if field is not None)
+        for code in ('es-MX','fr-CA','zh-Hans','zh-Hant','de'):
+            with self.subTest(locale=code):
+                self.assertIn(code,dict(localization.choices()))
+                translator=localization.install(self.app,code);self.assertIsNotNone(translator)
+                try:
+                    self.assertNotEqual(QCoreApplication.translate('CodeTab','Run'),'Run')
+                    from agentnik.code_ui import RepositoryPicker
+                    from agentnik.repositories import RepositoryRegistry
+                    with tempfile.TemporaryDirectory() as tmp:
+                        store=Store(tmp)
+                        try:
+                            picker=RepositoryPicker(None,RepositoryRegistry(store),select=False)
+                            self.assertNotEqual(picker.windowTitle(),'Repositories');picker.close()
+                        finally:store.db.close()
+                    for message in ET.parse(localization.CATALOG_DIR/('agentnik_'+code+'.ts')).findall('.//message'):
+                        translation=message.find('translation')
+                        if translation.get('type') not in ('unfinished','vanished','obsolete'):
+                            self.assertEqual(fields(message.findtext('source')),fields(translation.text),message.findtext('source'))
+                finally:self.app.removeTranslator(translator)
+        self.assertEqual(localization.locale_candidates('es_MX'),['es-MX'])
+        self.assertEqual(localization.locale_candidates('fr_CA'),['fr-CA'])
+
     def test_korean_catalog_loads_and_translates_visible_picker(self):
         from agentnik.code_ui import RepositoryPicker
         from agentnik.repositories import RepositoryRegistry

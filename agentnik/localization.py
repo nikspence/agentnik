@@ -2,8 +2,9 @@
 from pathlib import Path
 from PySide6.QtCore import QLocale, QTranslator
 
-CATALOGS = {'ko':'한국어 (미리보기)', 'es':'Español', 'de':'Deutsch', 'fr':'Français',
-            'zh-Hans':'简体中文', 'zh-Hant':'繁體中文'}
+CATALOGS = {'ko':'한국어 (미리보기)', 'es-MX':'Español (México, vista previa)',
+            'fr-CA':'Français (Canada, aperçu)', 'zh-Hans':'简体中文（预览）',
+            'zh-Hant':'繁體中文（預覽）', 'de':'Deutsch (Vorschau)'}
 CATALOG_DIR = Path(__file__).parent / 'translations'
 
 
@@ -14,6 +15,8 @@ def choices(directory=CATALOG_DIR):
 
 def locale_candidates(tag):
     parts=tag.replace('_','-').split('-');language=parts[0].lower()
+    if language in ('es','fr'):
+        return ['es-MX' if language=='es' else 'fr-CA']
     if language=='zh':
         hints={p.lower() for p in parts[1:]}
         return ['zh-Hant' if hints & {'hant','tw','hk','mo'} else 'zh-Hans']

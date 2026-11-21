@@ -31,7 +31,7 @@ Code can use a configured System One model for optional shell command advice. Ea
 - View reported input/output tokens, current input context, effective context limit when known, elapsed time, and available processing/generation rates. Missing measurements remain unknown; thinking time is an estimate when available.
 - Choose light, dark, or system theme in **Settings**; adjust font size from 8–32 points with **A− / A+**. Sidebar visibility and composer sizing are remembered.
 - Use **Ctrl+Enter** to send, **Ctrl+B** to toggle history, and **Ctrl+N** for a new chat.
-- Select the **Korean preview** in **Settings** and restart to try translated controls. English remains the fallback; other planned languages and full Korean coverage are still in progress.
+- Select a language preview in **Settings** and restart to try translated controls. Korean, Mexican Spanish, Canadian French, Simplified and Traditional Chinese, and German are available. The new catalogs use machine translation and need human review, including regional wording and safety-sensitive text. English remains the fallback for untranslated strings.
 
 Background requests keep the interface responsive and tabs independent. Cancellation stops accepting results and scheduling more work; remote processing or billing may continue until the server stops. A shared worker limit bounds background work.
 
