@@ -43,17 +43,21 @@ class PageRetrieval(unittest.TestCase):
                 with self.assertRaises(web.FilteredPageError):PageFetcher(specs,direct).fetch('https://example.com/',Runtime())
                 provider.assert_not_called()
 
-    def test_direct_public_tls_is_relaxed_and_provider_tls_remains_verified(self):
-        self.assertFalse(web.PublicWeb().transport.verify_tls)
-        for adapter in (web.PublicTransport(),web.GoogleWeb().transport,web.OllamaWeb('key').transport,web.FirecrawlWeb('key').transport,web.FirecrawlKeylessWeb().transport):
-            self.assertTrue(adapter.verify_tls)
-        sock=MagicMock();wrapped=MagicMock();observed=[]
+    def test_direct_public_reads_use_the_shared_tls_policy(self):
+        from agentnik import tls
+        sock=MagicMock();observed=[]
         def wrap(context,socket,server_hostname=None):
-            observed.append((context.verify_mode,context.check_hostname,server_hostname));return wrapped
-        with patch.object(web.socket,'socket',return_value=sock),patch.object(ssl.SSLContext,'wrap_socket',wrap):
-            web.PinnedConnection('https://example.com/',PUBLIC,5,verify_tls=False).connect()
-            web.PinnedConnection('https://example.com/',PUBLIC,5).connect()
-        self.assertEqual(observed,[(ssl.CERT_NONE,False,'example.com'),(ssl.CERT_REQUIRED,True,'example.com')])
+            observed.append((context.verify_mode,context.check_hostname,server_hostname));return MagicMock()
+        try:
+            with patch.object(web.socket,'socket',return_value=sock),patch.object(ssl.SSLContext,'wrap_socket',wrap):
+                for relaxed in (False,True):
+                    tls.configure(relaxed)
+                    for adapter in (web.PublicWeb().transport,web.GoogleWeb().transport,web.OllamaWeb('key').transport):
+                        with patch.object(web,'resolve_public',return_value=('https://example.com/',PUBLIC)),patch.object(web.PinnedConnection,'request',autospec=True,side_effect=lambda connection,*args,**kwargs:connection.connect()),patch.object(web.PinnedConnection,'getresponse') as response:
+                            response.return_value.status=200;response.return_value.getheader.return_value='text/plain'
+                            with patch.object(web,'read_bounded',return_value=b'ok'):adapter.request('https://example.com/',Runtime())
+            self.assertEqual(observed,[(ssl.CERT_REQUIRED,True,'example.com')]*3+[(ssl.CERT_NONE,False,'example.com')]*3)
+        finally:tls.configure(False)
 
     def test_policy_private_addresses_and_uncertain_failures_never_use_provider(self):
         for error in (AccessError('Private redirect'),core.EndpointError(403,'{}'),TimeoutError()):

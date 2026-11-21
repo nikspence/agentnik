@@ -1052,7 +1052,7 @@ class Window(QMainWindow):
         QApplication.styleHints().colorSchemeChanged.connect(self.system_theme_changed)
     def configure_tls(self):
         dlg=QDialog(self);dlg.setWindowTitle(self.tr('TLS settings'));layout=QVBoxLayout(dlg)
-        notice=QLabel(self.tr('Relaxing TLS disables certificate and hostname verification for model endpoints, search and retrieval providers, and remote MCP servers. A network intermediary can impersonate services, read credentials and requests, and alter responses. Use only when you accept this risk. Direct public page reads already use relaxed TLS. Restart Agentnik to apply changes.'));notice.setWordWrap(True);layout.addWidget(notice)
+        notice=QLabel(self.tr('Relaxing TLS disables certificate and hostname verification for model endpoints, direct public page reads, search and retrieval providers, and remote MCP servers. A network intermediary can impersonate services, read credentials and requests, and alter responses. Use only when you accept this risk. Restart Agentnik to apply changes.'));notice.setWordWrap(True);layout.addWidget(notice)
         checkbox=QCheckBox(self.tr('Relax TLS verification globally'));checkbox.setChecked(self.store.config['settings'].get('relaxed_tls',False));layout.addWidget(checkbox)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dlg.accept);buttons.rejected.connect(dlg.reject);layout.addWidget(buttons)
         if dlg.exec()==QDialog.DialogCode.Accepted:

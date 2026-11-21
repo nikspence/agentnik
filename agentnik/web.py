@@ -9,7 +9,6 @@ import ipaddress
 import json
 import re
 import socket
-import ssl
 import time
 from urllib.parse import urljoin, urlsplit, urlunsplit, urlencode, parse_qs
 from .tools import AccessError, LimitError, ResearchError, Source, utc_now
@@ -71,8 +70,8 @@ def resolve_public(url,runtime):
 
 
 class PinnedConnection(http.client.HTTPConnection):
-    def __init__(self,url,addresses,timeout,verify_tls=True):
-        self.destination=urlsplit(url); self.addresses=addresses;self.verify_tls=verify_tls
+    def __init__(self,url,addresses,timeout):
+        self.destination=urlsplit(url); self.addresses=addresses
         super().__init__(self.destination.hostname,self.destination.port or (443 if self.destination.scheme=='https' else 80),timeout=timeout)
 
     def connect(self):
@@ -96,9 +95,7 @@ class PinnedConnection(http.client.HTTPConnection):
                 if remaining<=0: raise TimeoutError('Public connection deadline reached')
                 sock.settimeout(remaining)
                 if self.destination.scheme=='https':
-                    context=ssl.create_default_context()
-                    if not self.verify_tls or tls.relaxed():
-                        context.check_hostname=False;context.verify_mode=ssl.CERT_NONE
+                    context=tls.context()
                     sock=context.wrap_socket(sock,server_hostname=self.destination.hostname)
                 self.sock=sock; return
             except Exception:
@@ -133,11 +130,10 @@ def read_bounded(response,connection,runtime):
 
 class PublicTransport:
     """No proxies, cookies, provider credentials, automatic redirects, or compression."""
-    def __init__(self,verify_tls=True):self.verify_tls=verify_tls
     def request(self,url,runtime,body=None,headers=None,redirects=True):
         for hop in range(runtime.limits.redirects+1):
             url,addresses=resolve_public(url,runtime)
-            c=PinnedConnection(url,addresses,runtime.timeout(),verify_tls=self.verify_tls)
+            c=PinnedConnection(url,addresses,runtime.timeout())
             p=urlsplit(url); path=p.path+('?' +p.query if p.query else '')
             request_headers={'Accept-Encoding':'identity','User-Agent':'Agentnik/'+__version__}
             request_headers.update(headers or {})
@@ -238,7 +234,7 @@ def excerpt(text,size):
 
 class PublicWeb:
     """Read public pages without any search credential."""
-    def __init__(self,transport=None,include_links=False):self.transport=transport or PublicTransport(verify_tls=False);self.include_links=include_links
+    def __init__(self,transport=None,include_links=False):self.transport=transport or PublicTransport();self.include_links=include_links
     def fetch(self,url,runtime):
         final,ctype,payload=self.transport.request(url,runtime)
         if filter_page(payload):raise FilteredPageError('Direct page response is a network web-filter block page')

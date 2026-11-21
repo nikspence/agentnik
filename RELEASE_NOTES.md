@@ -1,5 +1,7 @@
 # Agentnik v0.9.1
 
+Windows clean-machine testing was subsequently reported complete by the user; the exact build and workflow scope were not specified. Qualification notes below describe the evidence available at each release.
+
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
 ## Changes since v0.9.0

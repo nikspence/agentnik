@@ -252,7 +252,7 @@ class TransportContracts(unittest.TestCase):
 
     def test_pinned_connection_uses_vetted_ip_and_original_tls_hostname(self):
         sock=MagicMock(); context=MagicMock()
-        with patch.object(web.socket,'socket',return_value=sock),patch.object(web.ssl,'create_default_context',return_value=context),patch.object(socket,'getaddrinfo') as dns:
+        with patch.object(web.socket,'socket',return_value=sock),patch.object(web.tls,'context',return_value=context),patch.object(socket,'getaddrinfo') as dns:
             connection=web.PinnedConnection('https://example.com/',PUBLIC,2); connection.connect()
         sock.connect.assert_called_once_with(PUBLIC[0][-1]); dns.assert_not_called()
         context.wrap_socket.assert_called_once_with(sock,server_hostname='example.com')

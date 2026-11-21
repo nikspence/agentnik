@@ -69,14 +69,14 @@ class AddressFailover(unittest.TestCase):
         addresses=PUBLIC+[(socket.AF_INET,socket.SOCK_STREAM,6,'',('8.8.8.8',443))]
         first=MagicMock();second=MagicMock();first.connect.side_effect=ConnectionRefusedError('first unreachable')
         context=MagicMock()
-        with patch.object(web.socket,'socket',side_effect=[first,second]),patch.object(web.ssl,'create_default_context',return_value=context),patch.object(web.socket,'getaddrinfo') as dns:
+        with patch.object(web.socket,'socket',side_effect=[first,second]),patch.object(web.tls,'context',return_value=context),patch.object(web.socket,'getaddrinfo') as dns:
             c=web.PinnedConnection('https://example.com/',addresses,5);c.connect()
         first.close.assert_called_once();second.connect.assert_called_once_with(addresses[1][-1]);dns.assert_not_called()
         context.wrap_socket.assert_called_once_with(second,server_hostname='example.com')
 
     def test_certificate_error_is_terminal_and_closes_socket(self):
         sock=MagicMock();context=MagicMock();context.wrap_socket.side_effect=ssl.SSLCertVerificationError('bad certificate')
-        with patch.object(web.socket,'socket',return_value=sock) as create,patch.object(web.ssl,'create_default_context',return_value=context):
+        with patch.object(web.socket,'socket',return_value=sock) as create,patch.object(web.tls,'context',return_value=context):
             with self.assertRaises(ssl.SSLCertVerificationError):web.PinnedConnection('https://example.com/',PUBLIC*2,5).connect()
         self.assertEqual(create.call_count,1);sock.close.assert_called_once()
 
