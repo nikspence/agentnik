@@ -18,8 +18,8 @@ def defaults_key(name,c):
 
 
 def connection_defaults(config,name,c):
-    value=config.get('research_defaults',{}).get(defaults_key(name,c),{})
-    return {'policy':value.get('policy','Provider first'),'access_policy':value.get('access_policy','public_fetch')}
+    settings=config.get('settings',{})
+    return {'policy':settings.get('research_policy','Provider first'),'access_policy':settings.get('research_access_policy','public_fetch')}
 
 
 def save_defaults(config,name,c,policy,access_policy):
@@ -36,7 +36,7 @@ def eligible(route,c,config,backends,access_policy):
         if c.get('protocol','chat') not in core.PROTOCOLS: return 'Unsupported managed protocol'
         field='managed_tools'
     state=research.capability(config,c,field).state
-    if state not in ('configured','verified'): return f'{field}: {state}; configure this endpoint/model explicitly'
+    if state=='unsupported': return f'{field}: unsupported (previously rejected)'
     if route=='managed' and not any(search_ready(b) for b in search_chain(backends)): return 'No eligible managed search backend is configured'
     return ''
 
@@ -58,7 +58,7 @@ def aggregate(values,runtime):
     return metrics
 
 
-def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=None,run_id=None,backend=None):
+def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=None,run_id=None,backend=None,mcp=None):
     runtime=Runtime(cancel,limits,run_id); c=copy.deepcopy(c); messages=copy.deepcopy(messages)
     if policy not in POLICIES or access_policy not in ACCESS_POLICIES: raise ValueError('Invalid research policy')
     specs=copy.deepcopy(backends if backends is not None else [{'id':'ollama-search','kind':'ollama','name':'Ollama search','key':key}])
@@ -84,7 +84,7 @@ def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=N
     try:
         for route in order:
             runtime.check()
-            reason=eligible(route,c,config,specs,access_policy)
+            reason=('MCP First requires managed tools to check name conflicts' if route=='hosted' and mcp and config.get('mcp_priority','first')=='first' else eligible(route,c,config,specs,access_policy))
             if reason:
                 attempts.append({'route':route,'status':'skipped','reason':reason,'started_at':utc_now(),'ended_at':utc_now()})
                 notice('route_skipped',route+': '+reason); continue
@@ -94,9 +94,9 @@ def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=N
                 if len(attempts)>=runtime.limits.attempts: raise LimitError('Research attempt limit reached')
                 if route=='managed':
                     service=backend or OrderedSearch(specs,allow_fallback=True)
-                    last=research.run_managed(c,messages,key,lambda v:emit(merged(v)),cancel,backend=service,runtime=runtime,local_tools=bool(config.get('local_tools')))
+                    last=research.run_managed(c,messages,key,lambda v:emit(merged(v)),cancel,backend=service,runtime=runtime,local_tools=bool(config.get('local_tools')),mcp=mcp,mcp_priority=config.get('mcp_priority','first'))
                 else:
-                    last=hosted.run_hosted(c,messages,key,lambda v:emit(merged(v)),cancel,runtime=runtime)
+                    last=research.run_managed(c,messages,key,lambda v:emit(merged(v)),cancel,runtime=runtime,local_tools=True,web_tools=False,mcp=mcp,hosted_web=True,mcp_priority=config.get('mcp_priority','first')) if config.get('local_tools') else hosted.run_hosted(c,messages,key,lambda v:emit(merged(v)),cancel,runtime=runtime)
                 state=last['research']; capability_state=state.get('capability_state')
                 if capability_state in ('verified','unsupported'):
                     updates.append({'field':'hosted_search' if route=='hosted' else 'managed_tools','state':capability_state,
@@ -125,8 +125,6 @@ def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=N
                 break
             notice('route_switch' if route!=order[-1] else 'route_stopped',route+' did not complete; '+('considering the next eligible route' if route!=order[-1] else 'policy permits no further route'))
         last=empty(); last['error']='No eligible research route completed; review the recorded reasons and settings'
-        if any(a.get('route')=='managed' and a.get('status')=='skipped' and 'managed_tools: unknown' in a.get('reason','') for a in attempts):
-            last['error']+='. In Web settings, enable managed tool requests for this endpoint/model if it supports tool calls.'
         return merged(last)
     except Exception as exc:
         value=last or empty(); value['status']='failed'; value['error']=str(exc)[:1000]

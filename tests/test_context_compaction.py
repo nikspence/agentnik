@@ -43,7 +43,9 @@ class ChatCompactionUiTests(unittest.TestCase):
                 def request(connection,mode,body,emit,cancel):
                     calls.append(body)
                     return {'text':'Compact result' if len(calls)==1 else 'Next answer','thinking':'','metrics':{},'raw':{}}
-                with patch.object(core,'run_request',side_effect=request):
+                def researched(connection,messages,key,emit,cancel,**kwargs):
+                    calls.append(core.chat_body(connection,messages));return {'text':'Next answer','thinking':'','metrics':{},'status':'ok','research':{'status':'completed','route':'managed','sources':[],'events':[],'exchanges':[]}}
+                with patch.object(core,'run_request',side_effect=request),patch('agentnik.research.run',side_effect=researched):
                     tab.compact_chat_context();deadline=time.monotonic()+3
                     while tab.job and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
                     self.assertIsNone(tab.job);self.assertEqual(tab.session['chat_compaction']['summary'],'Compact result')
@@ -72,7 +74,9 @@ class ChatCompactionUiTests(unittest.TestCase):
                 tab.composer.setPlainText('New prompt');calls=[]
                 def request(connection,mode,body,emit,cancel):
                     calls.append(body);return {'text':'Summary' if len(calls)==1 else 'Final','thinking':'','metrics':{},'raw':{}}
-                with patch.object(core,'run_request',side_effect=request):
+                def researched(connection,messages,key,emit,cancel,**kwargs):
+                    calls.append(messages);return {'text':'Final','thinking':'','metrics':{},'status':'ok','research':{'status':'completed','route':'managed','sources':[],'events':[],'exchanges':[]}}
+                with patch.object(core,'run_request',side_effect=request),patch('agentnik.research.run',side_effect=researched):
                     tab.submit();deadline=time.monotonic()+4
                     while (tab.job or len(calls)<2) and time.monotonic()<deadline:app.processEvents();time.sleep(.005)
                 self.assertEqual(len(calls),2);self.assertIn('Summarize',str(calls[0]));self.assertIn('Summary',str(calls[1]));self.assertNotIn('Old Old',str(calls[1]))

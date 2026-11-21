@@ -41,8 +41,12 @@ def load_config(path):
         if 'language' in settings and (not isinstance(settings['language'],str) or not 1<=len(settings['language'])<=32): raise ValueError()
         for field in ('font_size','composer_height'):
             if field in settings and (type(settings[field]) is not int or settings[field]<=0): raise ValueError()
-        for field in ('prompts_visible','history_visible','relaxed_tls','web_search_enabled','decision_advice_enabled'):
+        for field in ('prompts_visible','history_visible','relaxed_tls','web_search_enabled','decision_advice_enabled','mcp_access_enabled'):
             if field in settings and type(settings[field]) is not bool: raise ValueError()
+        if 'research_scope_salt' in settings and (not isinstance(settings['research_scope_salt'],str) or len(settings['research_scope_salt'])!=32 or any(c not in '0123456789abcdef' for c in settings['research_scope_salt'])):raise ValueError()
+        if settings.get('mcp_priority','first') not in ('first','last'):raise ValueError()
+        if settings.get('research_policy','Provider first') not in ('Provider first','Agentnik first'):raise ValueError()
+        if settings.get('research_access_policy','public_fetch') not in ('public_fetch','strict_public'):raise ValueError()
         from .code_limits import coding_limits,goal_limits
         from .tools import chat_limits
         if 'coding_limits' in settings:coding_limits(settings['coding_limits'])

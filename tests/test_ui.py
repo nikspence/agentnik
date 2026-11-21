@@ -35,11 +35,18 @@ class Desktop(unittest.TestCase):
                 window.resize(1320,850);window.show();self.app.processEvents()
                 bars=window.findChildren(QToolBar);self.assertEqual(len(bars),2)
                 right=bars[1];self.assertGreater(right.geometry().x(),bars[0].geometry().x())
+                self.assertEqual([action.text() for action in bars[0].actions()[1:]],['☰ History','☆ Prompts','＋ Chat','＋ Code','Repositories','Connections','MCP servers'])
+                self.assertEqual(right.actions()[0],window.settings_action);self.assertEqual([right.widgetForAction(action) for action in right.actions()[1:]],[window.font_smaller,window.font_larger,window.web_search,window.mcp_access]);self.assertEqual(window.web_search.text(),'Web Access')
                 self.assertTrue(window.font_smaller.isVisible());self.assertTrue(window.font_larger.isVisible());self.assertTrue(window.web_search.isVisible());self.assertTrue(right.widgetForAction(window.settings_action).isVisible())
+                from PySide6.QtCore import Qt
+                from PySide6.QtTest import QTest
+                self.assertFalse(window.web_search.isChecked());QTest.mouseClick(window.web_search,Qt.MouseButton.LeftButton);self.assertTrue(store.config['settings']['web_search_enabled'])
+                window.web_search.setFocus();QTest.keyClick(window.web_search,Qt.Key.Key_Space);self.assertFalse(store.config['settings']['web_search_enabled'])
+                self.assertTrue(window.mcp_access.isChecked());window.mcp_access.click();self.assertFalse(store.config['settings']['mcp_access_enabled']);window.mcp_access.click();self.assertTrue(store.config['settings']['mcp_access_enabled'])
                 dialog=SettingsDialog(window);dialog.theme.setCurrentIndex(dialog.theme.findData('Dark'));dialog.language.setCurrentIndex(dialog.language.findData('en'));dialog.reject()
                 self.assertNotEqual(store.config['settings'].get('theme'),'Dark');self.assertNotEqual(store.config['settings'].get('language'),'en')
-                dialog=SettingsDialog(window);dialog.theme.setCurrentIndex(dialog.theme.findData('Dark'));dialog.language.setCurrentIndex(dialog.language.findData('en'));dialog.accept()
-                self.assertEqual(store.config['settings']['theme'],'Dark');self.assertEqual(store.config['settings']['language'],'en');self.assertEqual(window.brand_variant,'dark')
+                dialog=SettingsDialog(window);dialog.theme.setCurrentIndex(dialog.theme.findData('Dark'));dialog.language.setCurrentIndex(dialog.language.findData('en'));dialog.mcp_priority.setCurrentIndex(dialog.mcp_priority.findData('last'));dialog.accept()
+                self.assertEqual(store.config['settings']['theme'],'Dark');self.assertEqual(store.config['settings']['language'],'en');self.assertEqual(store.config['settings']['mcp_priority'],'last');self.assertEqual(window.brand_variant,'dark')
             finally:window.close();self.app.processEvents();store.db.close()
 
     def test_model_count_only_appears_in_status_bar(self):
@@ -177,6 +184,7 @@ class Desktop(unittest.TestCase):
         from PySide6.QtWidgets import QPushButton
         from agentnik.storage import Store
         from agentnik.ui import Window, MessageBubble
+        from agentnik import core
         with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]), patch('agentnik.core.run_request') as request:
             store=Store(root); w=Window(store)
             try:
@@ -199,11 +207,13 @@ class Desktop(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True): edit.click()
                 tab.composer.setPlainText('Edited prompt')
                 request.return_value={'text':'New answer','thinking':'','metrics':{},'raw':{}}
-                tab.submit()
-                deadline=time.monotonic()+3
-                while tab.job and time.monotonic()<deadline: self.app.processEvents(); time.sleep(.01)
-                self.assertIsNone(tab.job); request.assert_called_once()
-                wire=request.call_args.args[2]['messages']
+                result={'text':'New answer','thinking':'','metrics':{},'status':'ok','research':{'status':'completed','route':'managed','sources':[],'events':[],'exchanges':[]}}
+                with patch('agentnik.research.run',return_value=result) as managed:
+                    tab.submit()
+                    deadline=time.monotonic()+3
+                    while tab.job and time.monotonic()<deadline: self.app.processEvents(); time.sleep(.01)
+                self.assertIsNone(tab.job); managed.assert_called_once()
+                wire=core.chat_body(c,managed.call_args.args[1])['messages']
                 self.assertEqual([m['role'] for m in wire],['user','assistant','user'])
                 self.assertEqual(wire[2]['content'][0]['text'],'Edited prompt')
                 self.assertEqual(tab.session['messages'][:2],original)
@@ -216,6 +226,7 @@ class Desktop(unittest.TestCase):
         from PySide6.QtWidgets import QPushButton
         from agentnik.storage import Store
         from agentnik.ui import Window, MessageBubble
+        from agentnik import core
         with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]):
             store=Store(root); w=Window(store)
             try:
@@ -291,6 +302,7 @@ class Desktop(unittest.TestCase):
     def test_prompts_panel_saves_filters_and_copies_both_types(self):
         from agentnik.storage import Store
         from agentnik.ui import Window, MessageBubble
+        from agentnik import core
         with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]), patch('agentnik.ui.confirm',return_value=True), patch('agentnik.ui.QInputDialog.getText',return_value=('',True)):
             store=Store(root); store.config['connections']={'first':{'url':'http://localhost:11434/v1','model':'one'},'second':{'url':'http://localhost:11434/v1','model':'two'}}; w=Window(store)
             try:

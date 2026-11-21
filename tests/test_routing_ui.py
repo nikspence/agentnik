@@ -30,30 +30,33 @@ class RouteDesktop(unittest.TestCase):
         while not predicate() and time.monotonic()<deadline: self.app.processEvents(); time.sleep(.005)
         self.assertTrue(predicate()); self.app.processEvents()
 
-    def test_connection_defaults_chat_override_and_legacy_settings_persist(self):
+    def test_global_search_preferences_apply_across_tabs_and_preserve_legacy_data(self):
+        from agentnik.ui import SettingsDialog
         with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
-            store=Store(root); w=Window(store); w.connections={'test':dict(C)}; store.config['connections']={'test':dict(C)}
+            store=Store(root);store.config['connections']={'test':dict(C)};w=Window(store)
             try:
-                w.new_session('chat','test'); first=w.tabs.currentWidget(); self.app.processEvents()
-                self.assertIsNone(first.route_policy.currentData()); self.assertFalse(first.web_access.isChecked())
-                dlg=WebSettings(first,C); dlg.allow_hosted.setChecked(True); dlg.allow.setChecked(True)
-                dlg.default_policy.setCurrentText('Agentnik first'); dlg.access_policy.setCurrentIndex(dlg.access_policy.findData('strict_public'))
-                with patch('agentnik.ui.WebSettings',return_value=dlg),patch.object(dlg,'exec',return_value=QDialog.DialogCode.Accepted),patch('agentnik.ui.error',side_effect=lambda parent,exc:(_ for _ in ()).throw(exc)): first.configure_web()
-                defaults=routing.connection_defaults(store.config,'test',C)
-                self.assertEqual(defaults,{'policy':'Agentnik first','access_policy':'strict_public'})
-                self.assertEqual(research.capability(store.config,first.active_connection(),'hosted_search').state,'configured')
-                first.route_policy.setCurrentText('Provider only'); first.save_draft()
-                w.new_session('chat','test'); second=w.tabs.currentWidget(); self.assertIsNone(second.route_policy.currentData())
-                self.assertEqual(first.route_policy.currentData(),'Provider only')
-                legacy=store.new_session('chat','test',C); legacy['research_options']={'enabled':True,'route':'managed'}
-                w.open_session(legacy); legacy_tab=w.tabs.currentWidget(); self.app.processEvents()
-                self.assertEqual(legacy_tab.route_policy.currentData(),'Agentnik only'); self.assertFalse(legacy_tab.web_access.isChecked()); self.assertTrue(legacy_tab.session['research_options']['enabled'])
-                self.assertEqual(json.loads(store.config_path.read_text())['research_defaults'],store.config['research_defaults'])
-                repointed=dict(C,url='https://other.example/v1')
-                self.assertEqual(routing.connection_defaults(store.config,'test',repointed)['policy'],'Provider first')
-                unsupported=WebSettings(first,dict(C,url='https://gateway.example/v1'))
-                self.assertFalse(unsupported.allow_hosted.isEnabled())
-            finally: w.close(); self.app.processEvents(); store.db.close()
+                w.new_session('chat','test');first=w.tabs.currentWidget()
+                legacy=store.new_session('chat','test',C);legacy['research_options']={'enabled':True,'route':'managed','policy':'Provider only'};w.open_session(legacy);second=w.tabs.currentWidget()
+                self.assertFalse(hasattr(first,'route_policy'));self.assertFalse(second.web_access.isChecked());self.assertEqual(second.session['research_options']['policy'],'Provider only')
+                dialog=SettingsDialog(w);dialog.research_policy.setCurrentIndex(dialog.research_policy.findData('Agentnik first'));dialog.research_access.setCurrentIndex(dialog.research_access.findData('strict_public'));dialog.accept()
+                self.assertEqual(routing.connection_defaults(store.config,'test',C),{'policy':'Agentnik first','access_policy':'strict_public'})
+                self.assertEqual(routing.connection_defaults(store.config,'other',dict(C,model='other')),{'policy':'Agentnik first','access_policy':'strict_public'})
+                settings=json.loads(store.config_path.read_text())['settings'];self.assertEqual(settings['research_policy'],'Agentnik first')
+            finally:w.close();self.app.processEvents();store.db.close()
+
+    def test_discovered_connection_capability_scope_survives_restart_and_changes_with_key(self):
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={'env:test':dict(C,api_key='first-secret')}):
+            store=Store(root);window=Window(store)
+            try:
+                first=dict(window.connections['env:test']);research.set_capability(store.config,first,'unsupported','Explicit rejection','hosted_search');store.flush()
+            finally:window.close();self.app.processEvents();store.db.close()
+            store=Store(root);window=Window(store)
+            try:
+                second=window.connections['env:test'];self.assertEqual(first['_capability_scope'],second['_capability_scope']);self.assertEqual(research.capability(store.config,second,'hosted_search').state,'unsupported')
+                with patch.object(core,'environment_connections',return_value={'env:test':dict(C,api_key='second-secret')}):window.reload_connections()
+                self.assertNotEqual(first['_capability_scope'],window.connections['env:test']['_capability_scope']);self.assertEqual(research.capability(store.config,window.connections['env:test'],'hosted_search').state,'unknown')
+                self.assertNotIn('first-secret',store.config_path.read_text())
+            finally:window.close();self.app.processEvents();store.db.close()
 
     def test_provider_only_needs_no_managed_key_and_renders_clickable_annotation(self):
         events=[{'type':'response.completed','response':response([search_call(),message(annotations=[citation()])])}]
@@ -61,7 +64,7 @@ class RouteDesktop(unittest.TestCase):
             store=Store(root); research.set_capability(store.config,C,'configured','user','hosted_search'); w=Window(store); w.connections={'test':dict(C)}; store.config['connections']={'test':dict(C)}
             try:
                 w.new_session('chat','test'); tab=w.tabs.currentWidget(); w.show(); self.app.processEvents()
-                tab.route_policy.setCurrentText('Provider only'); tab.web_access.setChecked(True); tab.composer.setPlainText('Find current evidence'); tab.submit()
+                tab.web_access.setChecked(True); tab.composer.setPlainText('Find current evidence'); tab.submit()
                 self.settle(lambda:tab.job is None)
                 self.assertEqual(tab.session['messages'][-1]['status'],'ok'); send.assert_called_once()
                 self.assertEqual(research.capability(store.config,tab.active_connection(),'hosted_search').state,'verified')
@@ -89,7 +92,7 @@ class RouteDesktop(unittest.TestCase):
             store=Store(root); research.set_capability(store.config,C,'configured','user','hosted_search'); store.config['connections']={'test':dict(C)}; w=Window(store)
             try:
                 w.new_session('chat','test'); tab=w.tabs.currentWidget(); w.show(); self.app.processEvents()
-                tab.route_policy.setCurrentText('Provider only'); tab.web_access.setChecked(True); tab.composer.setPlainText('Stream evidence'); tab.submit()
+                tab.web_access.setChecked(True); tab.composer.setPlainText('Stream evidence'); tab.submit()
                 self.settle(lambda:waiting.is_set() and 'href="https://example.com/"' in tab.live_bubble.text.toHtml())
                 self.assertIsNotNone(tab.job)
                 release.set(); self.settle(lambda:tab.job is None)
@@ -98,7 +101,7 @@ class RouteDesktop(unittest.TestCase):
 
     def test_strict_default_prevents_requests_and_preserves_draft(self):
         with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]),patch.object(core,'open_request') as send:
-            store=Store(root); routing.save_defaults(store.config,'test',C,'Provider first','strict_public'); w=Window(store); w.connections={'test':dict(C)}; store.config['connections']={'test':dict(C)}
+            store=Store(root); store.config['settings']['research_access_policy']='strict_public'; w=Window(store); w.connections={'test':dict(C)}; store.config['connections']={'test':dict(C)}
             try:
                 w.new_session('chat','test'); tab=w.tabs.currentWidget(); self.app.processEvents()
                 tab.web_access.setChecked(True); tab.composer.setPlainText('Keep draft'); tab.submit(); self.settle(lambda:tab.job is None)

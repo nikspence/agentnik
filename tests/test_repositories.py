@@ -83,7 +83,7 @@ class WorkspaceUI(unittest.TestCase):
                 picker=RepositoryPicker(window,window.repositories);picker.search.setText('not-present');self.assertEqual(picker.items.count(),0)
                 picker.search.setText('Project');self.assertEqual(picker.items.count(),1);picker.choose();self.assertEqual(picker.selected_id,ident)
                 for theme in ('Light','Dark'):
-                    window.theme.setCurrentText(theme)
+                    store.config['settings']['theme']=theme;window.apply_theme()
                     session=window.repositories.session(ident);store.save(session);window.open_session(session)
                     tab=window.tabs.currentWidget();self.assertIsInstance(tab,CodeTab)
                     tab.composer.setPlainText('Draft '+theme);window.show();app.processEvents()

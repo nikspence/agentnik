@@ -509,9 +509,6 @@ class CodingWorkspace(unittest.TestCase):
                 window.web_search.setChecked(True);self.assertTrue(code.web_enabled.isChecked());self.assertTrue(chat.web_access.isChecked())
                 settings=SettingsDialog(window);settings.decision_connection.setCurrentIndex(settings.decision_connection.findData('Main'));settings.decision_model.setText('decision-model');settings.advice.setChecked(True);settings.accept()
                 code.roles['heavy'][0].setCurrentIndex(code.roles['heavy'][0].findData('Main'));code.roles['heavy'][1].setText('model');code.composer.setPlainText('Inspect')
-                window.tabs.setCurrentWidget(code)
-                with patch('agentnik.ui.WebSettings') as research_dialog:
-                    research_dialog.return_value.exec.return_value=0;settings.connection_research();research_dialog.assert_called_once()
                 with patch.object(code,'launch') as launch,patch('agentnik.code_ui.QMessageBox.warning',side_effect=AssertionError):
                     code.start_coding();run=launch.call_args.args[0]
                 self.assertTrue(run.web_enabled);window.web_search.setChecked(False);self.assertTrue(run.web_enabled)
@@ -799,6 +796,10 @@ class CodingWorkspace(unittest.TestCase):
                 with self.assertRaises(ValueError):validate_session(invalid)
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
                 self.assertEqual(tab.mcp_choice.currentData(),'Local');self.assertEqual(tab.mcp_extra,['Remote'])
+                tab.composer.setPlainText('task');window.mcp_access.setChecked(False)
+                with patch.object(tab,'role_connection',return_value={'model':'test','url':'http://localhost','protocol':'chat'}),patch('agentnik.code_ui.CodingRun') as run,patch.object(tab,'launch'):
+                    tab.start_coding();self.assertEqual(run.call_args.kwargs['mcp_bridges'],[])
+                self.assertEqual(tab.mcp_choice.currentData(),'Local');self.assertEqual(tab.mcp_extra,['Remote']);window.mcp_access.setChecked(True)
                 store.config['mcp_servers'][0]['command']='replacement';tab.refresh_mcp_servers()
                 self.assertIn('changed or unavailable',tab.mcp_choice.currentText())
                 tab.composer.setPlainText('task')
@@ -1026,7 +1027,7 @@ class CodingWorkspace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
             connection={'url':'https://gateway.example/v1','protocol':'chat','model':'heavy','stream':False}
-            store.config['connections']={'Gateway':connection};routing.save_defaults(store.config,'Gateway',connection,'Agentnik only','strict_public')
+            store.config['connections']={'Gateway':connection};store.config['settings']['research_access_policy']='strict_public'
             window=Window(store)
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
@@ -1040,7 +1041,7 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.code_ui.CodingRun') as run,patch.object(tab,'launch'):
                     tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'none')
                     self.assertTrue(run.call_args.kwargs['web_enabled'])
-                    routing.save_defaults(store.config,'Gateway',connection,'Agentnik only','public_fetch')
+                    store.config['settings']['research_access_policy']='public_fetch'
                     with patch.object(store,'web_backend_specs',return_value=[{'id':'ollama-search','kind':'ollama','key':'secret'}]):
                         tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'managed');self.assertEqual(run.call_args.kwargs['web_backends'],[])
                     with patch.object(store,'web_backend_specs',return_value=[{'id':'brave','kind':'brave','key':'brave-test-key'},{'id':'ollama','kind':'ollama','key':'ollama-test-key'}]):

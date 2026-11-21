@@ -72,7 +72,7 @@ class Localization(unittest.TestCase):
                 try:
                     window.new_session('chat','Example');tab=window.tabs.currentWidget()
                     self.assertEqual(tab.send_button.text(),'전송');self.assertEqual(tab.cancel_button.text(),'취소')
-                    self.assertEqual(tab.web_access.text(),'웹 검색');self.assertEqual(tab.reasoning.placeholderText(),'추론 수준')
+                    self.assertEqual(tab.web_access.text(),'웹 접근');self.assertEqual(tab.reasoning.placeholderText(),'추론 수준')
                     tab.composer.setPlainText('User text');tab.save_draft();self.assertEqual(store.list_sessions()[0]['draft'],'User text')
                     tab.session['messages']=[{'role':'user','text':'Earlier prompt'}];tab.composer.clear();tab.render()
                     message=tab.findChildren(MessageBubble)[0]
@@ -202,11 +202,7 @@ class Localization(unittest.TestCase):
                         self.assertIn('공개',dialog.access_policy.currentText());self.assertEqual(dialog.access_policy.currentData(),'strict_public')
                         self.assertEqual(dialog.default_policy.currentText(),'제공자 우선');self.assertEqual(dialog.default_policy.currentData(),'Provider first')
                         dialog.default_policy.setCurrentIndex(dialog.default_policy.findData('Agentnik only'))
-                        routing.save_defaults(store.config,'Example',connection,dialog.default_policy.currentData(),dialog.access_policy.currentData())
-                        defaults=routing.connection_defaults(store.config,'Example',connection)
-                        self.assertEqual(defaults['policy'],'Agentnik only');self.assertEqual(defaults['access_policy'],'strict_public')
-                        tab.route_policy.setCurrentIndex(tab.route_policy.findData('Provider only'));tab.save_draft()
-                        self.assertEqual(tab.session['research_options']['policy'],'Provider only')
+                        self.assertEqual(dialog.default_policy.currentData(),'Agentnik only')
                         self.assertFalse(dialog.allow.isChecked())
                         details=ResearchDetails({'route':'managed','status':'completed','sources':[],'events':[],'unverified_annotations':1})
                         self.assertIn('Agentnik 관리형',details.toggle.text());self.assertIn('확인할 수 없습니다',details.excerpts.toPlainText());details.close()

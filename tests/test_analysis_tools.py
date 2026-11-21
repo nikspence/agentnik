@@ -56,6 +56,43 @@ class AnalysisTools(unittest.TestCase):
         results=[json.loads(m['content']) for m in bodies[1]['messages'] if m['role']=='tool']
         self.assertEqual(results[0]['data']['value'],42);self.assertEqual(results[1]['data']['rows'],5)
 
+    def test_hosted_search_and_local_calculator_share_chat_turn(self):
+        from test_routing import C as HOSTED,response,message,search_call
+        tool={'type':'function_call','id':'fc-1','call_id':'call-1','name':'calculate','arguments':'{"expression":"6*7"}','status':'completed'}
+        replies=[Wire(response([search_call(),tool]),False),Wire(response([message('42')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):
+            result=research.run(dict(HOSTED,stream=False),[{'role':'user','text':'Find and calculate'}],'',lambda _:None,threading.Event(),config={'local_tools':True,'web_enabled':True},policy='Provider first',backends=[],access_policy='public_fetch')
+        self.assertEqual(result['status'],'ok',result.get('error'));self.assertEqual(result['research']['route'],'hosted')
+        self.assertIn({'type':'web_search'},bodies[0]['tools']);self.assertTrue(any(t.get('name')=='calculate' for t in bodies[0]['tools']))
+        self.assertTrue(any(item.get('type')=='function_call_output' and '42' in item.get('output','') for item in bodies[1]['input']))
+        self.assertTrue(any(source.get('url')=='https://example.com/' for source in result['research']['sources']))
+
+    def test_mcp_last_uses_local_calculator_without_connecting_server(self):
+        class MCP:
+            secret_values=();tools=None;definitions=()
+            def invoke(self,*args):raise AssertionError('MCP should not run')
+        replies=[Wire(chat(calls=[call('calculate',{'expression':'6*7'})],finish='tool_calls'),False),Wire(chat('42'),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):
+            result=research.run({'url':'https://example.org/v1','model':'test','protocol':'chat','stream':False},[{'role':'user','text':'Calculate'}],'',lambda _:None,threading.Event(),config={'local_tools':True,'web_enabled':False,'mcp_priority':'last'},mcp=MCP())
+        self.assertEqual(result['status'],'ok',result.get('error'));self.assertIn('42',json.dumps(bodies[1]))
+
+    def test_selected_mcp_tool_takes_precedence_over_local_calculator(self):
+        class MCP:
+            secret_values=();tools=None
+            definitions=()
+            def validate_call(self,name,args):return None
+            def invoke(self,name,args,runtime):
+                if name=='mcp_discover':self.tools=[{'name':'calculate'}];return {'tools':self.tools}
+                self.called=json.loads(args['request']);return {'result':{'content':[{'type':'text','text':'MCP result'}]}}
+        mcp=MCP();bodies=[];replies=[Wire(chat(calls=[call('calculate',{'expression':'6*7'})],finish='tool_calls'),False),Wire(chat('MCP result'),False)]
+        def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send),patch('agentnik.analysis_tools.calculate',side_effect=AssertionError('local tool must not run')):
+            result=research.run_managed({'url':'https://example.org/v1','model':'test','protocol':'chat','stream':False},[{'role':'user','text':'Calculate'}],'',lambda _:None,threading.Event(),local_tools=True,web_tools=False,mcp=mcp)
+        self.assertEqual(result['status'],'ok',result.get('error'));self.assertEqual(mcp.called,{'tool':'calculate','arguments':{'expression':'6*7'}})
+        self.assertIn('MCP result',json.dumps(bodies[1]))
+
     def test_messages_responses_and_native_continuation(self):
         variants=[('messages',[Wire(msg([{'type':'tool_use','id':'a','name':'calculate','input':{'expression':'2+2'}}],'tool_use'),False),Wire(msg([{'type':'text','text':'4'}]),False)]),('responses',[Wire({'output':[{'type':'function_call','call_id':'a','name':'calculate','arguments':'{"expression":"2+2"}'}],'status':'completed'},False),Wire({'output':[{'type':'message','role':'assistant','content':[{'type':'output_text','text':'4'}]}],'status':'completed'},False)]),('native',[Response([answer(calls=[native_call('calculate',{'expression':'2+2'})])],False),Response([answer('4')],False)])]
         for protocol,replies in variants:
@@ -87,10 +124,8 @@ class AnalysisUi(unittest.TestCase):
             store=Store(root);store.config['connections']={'local':{'url':'http://localhost:11434/v1','model':'test'}};window=Window(store)
             try:
                 window.new_session('chat','local');tab=window.tabs.currentWidget()
-                self.assertFalse(tab.local_tools.isChecked());self.assertFalse(tab.web_access.isChecked())
-                tab.local_tools.setChecked(True);session=next(s for s in store.list_sessions() if s['id']==tab.session['id'])
-                self.assertTrue(session['research_options']['local_tools']);self.assertFalse(session['research_options']['enabled'])
-                tab.busy(True);self.assertFalse(tab.local_tools.isEnabled());tab.busy(False);self.assertTrue(tab.local_tools.isEnabled())
+                self.assertFalse(hasattr(tab,'local_tools'));self.assertFalse(tab.web_access.isChecked())
+                session=next(s for s in store.list_sessions() if s['id']==tab.session['id'])
                 from agentnik.ui import SessionTab
-                reopened=SessionTab(window,session);self.assertTrue(reopened.local_tools.isChecked());self.assertFalse(reopened.web_access.isChecked());reopened._closed=True;reopened.close()
+                reopened=SessionTab(window,session);self.assertFalse(hasattr(reopened,'local_tools'));self.assertFalse(reopened.web_access.isChecked());reopened._closed=True;reopened.close()
             finally:window.close();self.app.processEvents();store.db.close()

@@ -2971,6 +2971,30 @@ Choose No to export connection settings without keys.</source>
             <source>Export connections</source>
             <translation>연결 내보내기</translation>
         </message>
+        <message>
+            <source>Research settings…</source>
+            <translation>조사 설정…</translation>
+        </message>
+        <message>
+            <source>Research settings</source>
+            <translation>조사 설정</translation>
+        </message>
+        <message>
+            <source>Select one connection to configure research.</source>
+            <translation>조사를 구성할 연결 하나를 선택하세요.</translation>
+        </message>
+        <message>
+            <source>Model alias for research capabilities:</source>
+            <translation>조사 기능을 설정할 모델 별칭:</translation>
+        </message>
+        <message>
+            <source>Enter a model alias.</source>
+            <translation>모델 별칭을 입력하세요.</translation>
+        </message>
+        <message>
+            <source>Research defaults and scoped capabilities saved.</source>
+            <translation>조사 기본값과 범위별 기능이 저장되었습니다.</translation>
+        </message>
     </context>
     <context>
         <name>DecisionResult</name>
@@ -4900,6 +4924,18 @@ Connections are discovered from your environment and local servers.</source>
             <source>Settings saved. Language and TLS changes apply after restart.</source>
             <translation>설정이 저장되었습니다. 언어 및 TLS 변경은 다시 시작한 후 적용됩니다.</translation>
         </message>
+        <message>
+            <source>Web Access</source>
+            <translation>웹 접근</translation>
+        </message>
+        <message>
+            <source>MCP Access</source>
+            <translation>MCP 접근</translation>
+        </message>
+        <message>
+            <source>Enable selected MCP servers for new Chat and Code runs.</source>
+            <translation>새 채팅 및 코드 실행에서 선택한 MCP 서버를 활성화합니다.</translation>
+        </message>
     </context>
     <context>
         <name>SettingsDialog</name>
@@ -5034,6 +5070,38 @@ Connections are discovered from your environment and local servers.</source>
         <message>
             <source>Language</source>
             <translation>언어</translation>
+        </message>
+        <message>
+            <source>Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web Access starts off.</source>
+            <translation>이전 탭별 웹, 제한 및 Decision 설정은 기록에 남지만 더 이상 사용되지 않습니다. 여기에서 전역 설정을 구성하세요. 웹 접근은 기본적으로 꺼져 있습니다.</translation>
+        </message>
+        <message>
+            <source>Search priority</source>
+            <translation>검색 우선순위</translation>
+        </message>
+        <message>
+            <source>Public page reads; external search navigation disclosed</source>
+            <translation>공개 페이지 읽기; 외부 검색 탐색에 정보 제공</translation>
+        </message>
+        <message>
+            <source>Enforce public-only navigation everywhere</source>
+            <translation>모든 곳에서 공개 전용 탐색 적용</translation>
+        </message>
+        <message>
+            <source>Navigation policy</source>
+            <translation>탐색 정책</translation>
+        </message>
+        <message>
+            <source>MCP First</source>
+            <translation>MCP 우선</translation>
+        </message>
+        <message>
+            <source>MCP Last</source>
+            <translation>MCP 후순위</translation>
+        </message>
+        <message>
+            <source>Conflicting MCP tools</source>
+            <translation>충돌하는 MCP 도구</translation>
         </message>
     </context>
 </TS>

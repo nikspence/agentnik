@@ -36,7 +36,7 @@ class ResearchSettings(unittest.TestCase):
             store=Store(directory)
             c=dict(C,_capability_scope='opaque-scope')
             for field in ('managed_tools','hosted_search'): research.set_capability(store.config,c,'configured','Explicitly enabled',field)
-            routing.save_defaults(store.config,'test',c,'Agentnik only','strict_public')
+            routing.save_defaults(store.config,'test',c,'Agentnik only','strict_public');store.config['settings']['research_access_policy']='strict_public'
             store.flush();store.db.close()
             store=Store(directory)
             try:

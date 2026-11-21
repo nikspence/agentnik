@@ -291,6 +291,17 @@ for line in sys.stdin:
                 self.assertEqual(tab.session['messages'][-1]['text'],'Follow-up');self.assertIn('x'*500000+'END',bodies[-1])
             finally:window.close();self.app.processEvents();store.db.close()
 
+    def test_global_mcp_switch_preserves_selection_and_excludes_server(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            store=Store(folder);store.config['mcp_servers']=[{'name':'Local','command':sys.executable,'args':[],'enabled':True}];store.flush();window=Window(store);window.connections={'test':dict(C)}
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget();tab.mcp_choice.setCurrentIndex(1);selected=tab.mcp_choice.currentData();window.mcp_access.setChecked(False);tab.composer.setPlainText('Question')
+                result={'text':'Done','thinking':'','metrics':{},'status':'ok','research':{'status':'completed','route':'managed','sources':[],'events':[],'exchanges':[]}}
+                with patch('agentnik.chat_mcp.ChatMCP') as controller,patch('agentnik.research.run',return_value=result) as run:
+                    tab.submit();self.settle(lambda:tab.job is None);controller.assert_not_called();self.assertIsNone(run.call_args.kwargs['mcp'])
+                self.assertEqual(tab.mcp_choice.currentData(),selected);window.mcp_access.setChecked(True);self.assertEqual(tab.mcp_choice.currentData(),selected)
+            finally:window.close();self.app.processEvents();store.db.close()
+
     def test_stale_selection_and_strict_navigation_do_not_submit(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
             store=Store(folder);server={'name':'Local','command':sys.executable,'args':[],'enabled':True};store.config['mcp_servers']=[server];store.flush()
@@ -302,7 +313,7 @@ for line in sys.stdin:
                     tab.submit();self.assertIn('changed',str(warning.call_args.args[1]));send.assert_not_called()
                 tab.refresh_chat_mcp();tab.mcp_choice.setCurrentIndex(1)
                 from agentnik import routing
-                routing.save_defaults(store.config,'test',C,'Agentnik only','strict_public')
+                store.config['settings']['research_access_policy']='strict_public'
                 with patch('agentnik.ui.error') as warning,patch.object(core,'open_request') as send:
                     tab.submit();self.assertIn('Strict public-only',str(warning.call_args.args[1]));send.assert_not_called()
             finally:window.close();self.app.processEvents();store.db.close()

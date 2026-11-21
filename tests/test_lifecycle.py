@@ -103,7 +103,7 @@ class QtLifecycle(unittest.TestCase):
             store=Store(directory);store.config['connections']={'test':c};window=Window(store)
             try:
                 for theme,visible in [('Light',False),('Dark',True)]:
-                    window.theme.setCurrentText(theme);window.new_session('chat','test');tab=window.tabs.currentWidget();app.processEvents()
+                    store.config['settings']['theme']=theme;window.apply_theme();window.new_session('chat','test');tab=window.tabs.currentWidget();app.processEvents()
                     tab.pending={'role':'user','text':'Test','images':[]};tab.research_connection=tab.active_connection()
                     tab.job=MagicMock();tab.job.cancel.is_set.return_value=False;tab.research_running=True
                     tab.partial={'text':'Partial','thinking':'Reasoning'};tab.render()

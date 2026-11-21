@@ -57,7 +57,7 @@ def scrub(value,secrets):
     return value
 
 
-def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,runtime=None,local_tools=False,web_tools=True,mcp=None):
+def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,runtime=None,local_tools=False,web_tools=True,mcp=None,hosted_web=False,mcp_priority='first'):
     owned_runtime=runtime is None
     runtime=runtime or Runtime(cancel,limits,run_id); attempt_started=time.monotonic(); route=RouteAttempt()
     is_responses=c.get("protocol")=="responses"
@@ -66,13 +66,36 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
     state={'version':2,'run_id':runtime.run_id,'route':'managed','status':'running','sources':[],
            'events':[],'tool_records':[],'exchanges':[],'attempts':[asdict(route)],'limits':asdict(runtime.limits),
            'backend_attempts':getattr(backend,'attempts',[]),'capability_state':'configured','response_items':[],'provider_usage':[],'protocol':'native_ollama' if native else protocol}
-    if not web_tools: state.update(local_only=not bool(mcp),mcp_only=bool(mcp),capability_updates=[])
+    if not web_tools and not hosted_web: state.update(local_only=not bool(mcp),mcp_only=bool(mcp),capability_updates=[])
+    if hosted_web:state['route']='hosted';route.route='hosted'
     prior_sources={s['id']:s for m in messages if m.get('status','ok')=='ok' for s in m.get('research',{}).get('sources',[]) if re.fullmatch(r'S\d+',s.get('id',''))}
     next_source=max((int(ident[1:]) for ident in prior_sources),default=0)+1
     secrets=(c.get('api_key',''),key,*getattr(backend,'secret_values',[]),*getattr(mcp,'secret_values',[]))
     result={'text':'','thinking':'','metrics':{},'research':state,'status':'failed'}
     metrics={}; requested=0; all_usage=True; generation_seconds=0; generated_with_time=0
     tool_seconds=model_seconds=0; active={}; last_input=None; all_generation_timed=True; force_final=False
+    def collect_hosted():
+        nonlocal next_source
+        from .web import public_url
+        entries=[]
+        for item in active.get('output',[]):
+            action=item.get('action',{}) if isinstance(item,dict) and item.get('type')=='web_search_call' else {}
+            if isinstance(action,dict):entries.extend(x for x in action.get('sources',[]) if isinstance(x,dict))
+        entries.extend(x for x in active.get('annotations',[]) if isinstance(x,dict))
+        for entry in entries:
+            try:url=public_url(entry.get('url',''))
+            except (ValueError,TypeError):continue
+            if any(source.get('url')==url for source in state['sources']):continue
+            if len(state['sources'])>=runtime.limits.calls*runtime.limits.results:break
+            state['sources'].append({'id':f'S{next_source}','title':str(entry.get('title') or url)[:300],'url':url,'excerpt':'','retrieved_at':'','backend':'openai-hosted','metadata_only':True});next_source+=1
+        annotations=[]
+        for item in active.get('annotations',[]):
+            if not isinstance(item,dict):continue
+            source=next((source for source in state['sources'] if source['url']==item.get('url')),None)
+            start=item.get('start_index');end=item.get('end_index')
+            if source and type(start) is int and type(end) is int and 0<=start<=end<=len(active.get('text','')):annotations.append(dict(item,source_id=source['id']))
+        state['annotations']=annotations
+        state['unverified_annotations']=len(active.get('annotations',[]))-len(annotations)
     def snapshot():
         value=copy.deepcopy(result)
         if state['status']=='running':
@@ -139,12 +162,13 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
         body=core.chat_body(c,messages)
         if is_responses:
             body.update(instructions=instructions,store=False,include=['reasoning.encrypted_content'],tools=responses_tools.wire_tools(definitions))
+            if hosted_web:body['tools'].append({'type':'web_search'});body['include'].append('web_search_call.action.sources')
         else:
             if protocol=='messages': body['system']=instructions
             else: body['messages'].insert(0,{'role':'system','content':instructions})
             body['tools']=[d.wire() for d in definitions] if native else compat_tools.wire_tools(definitions,protocol)
         runtime.notify=lambda kind,detail:event(kind,detail)
-        event('route','Agentnik managed: '+('selected MCP server' if mcp else 'calculator and data analysis'+('; configured search and public page reader' if web_tools else '; web tools disabled') if local_tools else 'configured search backends and public page reader.'))
+        event('route','Provider-hosted web search with local tools.' if hosted_web else 'Agentnik managed: '+('selected MCP server' if mcp else 'calculator and data analysis'+('; configured search and public page reader' if web_tools else '; web tools disabled') if local_tools else 'configured search backends and public page reader.'))
         for round_number in range(runtime.limits.rounds+1):
             final_only=round_number>0 and (force_final or round_number>=runtime.limits.rounds or runtime.calls>=runtime.limits.calls or runtime.requests+1>=runtime.limits.requests)
             if final_only:
@@ -161,10 +185,13 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
             def progress(value):
                 runtime.check()
                 result.update(text=value['text'],thinking=combined_thinking(value['thinking']))
+                if hosted_web:collect_hosted()
                 emit(snapshot())
             model_started=time.monotonic()
-            try: assistant,calls=runtime.wait(lambda:(responses_tools if is_responses else ollama_tools if native else compat_tools).request(c,body,runtime,progress,active))
+            try: assistant,calls=runtime.wait(lambda:responses_tools.request(c,body,runtime,progress,active,hosted=True,allow_functions=True) if hosted_web and not final_only else (responses_tools if is_responses else ollama_tools if native else compat_tools).request(c,body,runtime,progress,active))
             finally: model_seconds+=time.monotonic()-model_started
+            if hosted_web and active.get('search_activity'):
+                state['capability_state']='verified';collect_hosted()
             active_text=active.get('text',''); active_thinking=active.get('thinking','')
             usage()
             # Preserve all provider continuation items, including encrypted reasoning.
@@ -195,8 +222,14 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 reject_mcp_batch(calls,exc)
                 continue
             try:
-                reconnect=bool(mcp and hasattr(mcp,'needs_reconnect') and mcp.needs_reconnect(batch))
-                if not reconnect and mcp:mcp.validate_batch(batch)
+                numeric=any(not name.startswith('mcp_') for name,_ in batch)
+                if mcp and numeric and mcp_priority=='first' and mcp.tools is None:
+                    event('mcp','Connecting to check for tools that take precedence over local tools.')
+                    runtime.charge('calls',1,runtime.limits.calls);discovery=mcp.invoke('mcp_discover',{'server':'connect'},runtime)
+                    if discovery.get('more_tools'):raise ResearchError('MCP tool list is incomplete; cannot safely choose between MCP and local tools.')
+                mcp_batch=[item for item in batch if item[0] in ('mcp_discover','mcp_call')]
+                reconnect=bool(mcp and mcp_batch and hasattr(mcp,'needs_reconnect') and mcp.needs_reconnect(mcp_batch))
+                if not reconnect and mcp and mcp_batch:mcp.validate_batch(mcp_batch)
             except ResearchError as exc:
                 if not mcp:raise
                 reject_mcp_batch(calls,exc)
@@ -224,7 +257,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                         state['tool_records'].append({'call_id':call.id,'name':call.name,'status':'failed','source_ids':[],'error':connection['error']})
                     event('tool_failed','MCP connection was not approved; no tool calls were sent.')
                     continue
-                try:mcp.validate_batch(batch)
+                try:mcp.validate_batch(mcp_batch)
                 except ResearchError as exc:
                     reject_mcp_batch(calls,exc)
                     continue
@@ -234,7 +267,19 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 started=time.monotonic()
                 record={'call_id':call.id,'name':call.name,'status':'running','source_ids':[]}
                 state['tool_records'].append(record)
-                try: returned=registry.execute(call,runtime)
+                try:
+                    match=next((tool for tool in (mcp.tools or []) if tool.get('name')==call.name),None) if mcp and mcp_priority=='first' and not call.name.startswith('mcp_') else None
+                    if match:
+                        args=registry.validate(call,runtime.limits);runtime.charge('calls',1,runtime.limits.calls)
+                        event('mcp','Using the selected MCP server tool '+call.name+' instead of the local tool.')
+                        payload={'request':json.dumps({'tool':call.name,'arguments':args})}
+                        try:mcp.validate_call('mcp_call',payload)
+                        except ResearchError as exc:
+                            detail=str(exc)+' Use mcp_call with the selected server tool schema: '+json.dumps(match,ensure_ascii=True)[:2000]
+                            returned=ToolResult(call.id,call.name,error=detail)
+                        else:
+                            answer=mcp.invoke('mcp_call',payload,runtime);returned=ToolResult(call.id,call.name,data=answer)
+                    else:returned=registry.execute(call,runtime)
                 except Exception as exc:
                     record.update(status='failed',error=str(exc)[:500]); raise
                 finally:
@@ -259,7 +304,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
         if active.get('output'): state['response_items'].extend(copy.deepcopy(active['output']))
         if active: usage()
         partial=bool(result['text'] or result['thinking'] or state['sources'] or state['exchanges'] or state['response_items'] or state['tool_records'] or metrics.get('output_tokens',0)>0)
-        state['failure']=classify(exc,partial,tool='function')
+        state['failure']=classify(exc,partial,tool='web_search' if hosted_web else 'function')
         if state['failure']['kind']=='unsupported': state['capability_state']='unsupported'
         result['status']='failed'
         result['error']=str(exc)[:1000]
@@ -294,12 +339,10 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
     return value
 
 
-def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,config=None,policy=None,backends=None,access_policy='public_fetch'):
-    if config and config.get('local_tools'):
-        if not config.get('web_enabled',False):
-            return run_managed(c,messages,'',emit,cancel,limits,run_id,local_tools=True,web_tools=False)
-        policy='Agentnik only'
+def run(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,config=None,policy=None,backends=None,access_policy='public_fetch',mcp=None):
+    if config and config.get('local_tools') and not config.get('web_enabled',False):
+        return run_managed(c,messages,'',emit,cancel,limits,run_id,local_tools=True,web_tools=False,mcp=mcp,mcp_priority=config.get('mcp_priority','first'))
     if config is None and policy is None:
         return run_managed(c,messages,key,emit,cancel,limits,run_id,backend)
     from .routing import run as routed_run
-    return routed_run(c,messages,key,emit,cancel,config or {},policy or 'Provider first',backends,access_policy,limits,run_id,backend)
+    return routed_run(c,messages,key,emit,cancel,config or {},policy or 'Provider first',backends,access_policy,limits,run_id,backend,mcp=mcp)

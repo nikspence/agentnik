@@ -1157,7 +1157,7 @@ class CodeTab(QWidget):
                     backends=[b for b in self.store.web_backend_specs() if b.get('kind') in SEARCH_KINDS and (b.get('kind')!='ollama' or direct)]
                     provider='managed'
             from .mcp_support import server_fingerprint
-            refs=([self.mcp_primary_ref] if self.mcp_primary_ref else [])+self.mcp_extra_refs
+            refs=(([self.mcp_primary_ref] if self.mcp_primary_ref else [])+self.mcp_extra_refs) if self.window.mcp_access.isChecked() else []
             if len(refs)>5:raise ValueError(self.tr('Select at most five MCP servers.'))
             entries=self.store.config.get('mcp_servers',[]);servers=[]
             for ref in refs:
@@ -1180,7 +1180,9 @@ class CodeTab(QWidget):
                 files=ProjectFiles(self.session['path_snapshot']);limit=coding_limits(self.store.config['settings'].get('coding_limits'))['context_bytes'];selected=prepare_track(files,ident,secrets,limit)
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.store.config['settings'].get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.store.config['settings'].get('coding_goal_limits'))
+            from . import hosted,research
+            hosted_enabled=enabled and not strict and not (refs and self.store.config['settings'].get('mcp_priority','first')=='first') and self.store.config['settings'].get('research_policy','Provider first')=='Provider first' and hosted.supported_endpoint(heavy) and research.capability(self.store.config,heavy,'hosted_search').state!='unsupported'
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.store.config['settings'].get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.store.config['settings'].get('coding_goal_limits'),hosted_search=hosted_enabled,mcp_priority=self.store.config['settings'].get('mcp_priority','first'))
             secrets=self.draft_secrets()+[heavy.get('api_key','')]+[item.get('key','') for item in backends]
             for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
             secrets=list(dict.fromkeys(secret for secret in secrets if isinstance(secret,str) and secret))
@@ -1466,6 +1468,14 @@ class CodeTab(QWidget):
     def receive(self,event):
         if self._closed or not self.job or event.get('run_id')!=self.run_id:return
         kind=event.get('kind')
+        if kind=='hosted_search_unsupported':
+            from . import research
+            original=self.job.connection;name=self.roles['heavy'][0].currentData();saved=self.store.config.get('connections',{}).get(name)
+            try:current=self.role_connection('heavy')
+            except ValueError:return
+            if any(original.get(k)!=current.get(k) for k in ('url','protocol','model','api_key','_capability_scope')):return
+            if saved is not None and original.get('_capability_scope'):saved.setdefault('_capability_scope',original['_capability_scope'])
+            research.set_capability(self.store.config,original,'unsupported','Provider explicitly rejected hosted search','hosted_search');self.store.flush();return
         if kind=='track_progress':
             from .track_execution import validate_progress,projected_plan
             try:

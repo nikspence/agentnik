@@ -239,10 +239,16 @@ class RouteContracts(unittest.TestCase):
         result,order,_,_=self.execute(c=NATIVE)
         self.assertEqual(order,['managed']); self.assertEqual(result['research']['attempts'][0]['status'],'skipped')
         cfg=config(); research.set_capability(cfg,C,'unknown','',field='hosted_search')
-        _,order,_,_=self.execute(cfg=cfg); self.assertEqual(order,['managed'])
-        cfg=config(dict(C,model='other'))
-        result,order,_,_=self.execute(cfg=cfg); self.assertEqual(order,[])
-        self.assertIn('In Web settings, enable managed tool requests',result['error'])
+        _,order,_,_=self.execute(cfg=cfg); self.assertEqual(order,['hosted'])
+        cfg=config(); research.set_capability(cfg,C,'unsupported','Explicit rejection',field='hosted_search')
+        _,order,_,_=self.execute(cfg=cfg);self.assertEqual(order,['managed'])
+
+    def test_mcp_first_prefers_managed_route_to_enforce_name_precedence(self):
+        from unittest.mock import Mock
+        server=Mock();config_value=config();config_value.update(local_tools=True,mcp_priority='first')
+        with patch.object(hosted,'run_hosted') as host,patch.object(research,'run_managed',return_value=fake_result('managed','ok')) as managed:
+            result=routing.run(C,MESSAGES,'key',lambda _:None,threading.Event(),config_value,'Provider first',SPECS,'public_fetch',mcp=server)
+        host.assert_not_called();managed.assert_called_once();self.assertEqual(result['research']['attempts'][0]['route'],'hosted');self.assertEqual(result['research']['attempts'][0]['status'],'skipped')
 
     def test_strict_navigation_disables_external_routes_before_submission(self):
         with patch.object(hosted,'run_hosted') as h,patch.object(research,'run_managed') as m:

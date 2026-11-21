@@ -88,6 +88,39 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_hosted_search_falls_back_only_on_explicit_rejection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            connection={'url':'https://api.openai.com/v1','protocol':'responses','model':'fixture','stream':False}
+            run=CodingRun(connection,directory,'Research',web_enabled=True,search_provider='managed',hosted_search=True);events=[];bodies=[]
+            failure=core.EndpointError(400,json.dumps({'error':{'code':'unsupported_tool','param':'tools[0]','message':'web_search is not supported'}}))
+            def send(c,url,body,timeout):
+                bodies.append(json.loads(json.dumps(body)))
+                if len(bodies)==1:raise failure
+                return Wire(response([message('Finished')]),False)
+            with patch.object(core,'open_request',side_effect=send):run.run(events.append)
+            self.assertEqual(len(bodies),2);self.assertIn({'type':'web_search'},bodies[0]['tools'])
+            self.assertTrue(any(tool.get('name')=='web_search' and tool.get('type')=='function' for tool in bodies[1]['tools']))
+            self.assertTrue(any(event['kind']=='hosted_search_unsupported' for event in events));self.assertEqual(events[-1]['status'],'completed')
+    def test_hosted_search_does_not_replay_after_partial_activity(self):
+        from agentnik import responses_tools
+        with tempfile.TemporaryDirectory() as directory:
+            connection={'url':'https://api.openai.com/v1','protocol':'responses','model':'fixture','stream':False};events=[]
+            failure=core.EndpointError(400,json.dumps({'error':{'code':'unsupported_tool','param':'tools[0]','message':'web_search is not supported'}}))
+            def request(c,body,runtime,emit,state,**kwargs):state['text']='partial';raise failure
+            with patch.object(responses_tools,'request',side_effect=request) as mocked:CodingRun(connection,directory,'Research',web_enabled=True,search_provider='managed',hosted_search=True).run(events.append)
+            self.assertEqual(mocked.call_count,1);self.assertFalse(any(event['kind']=='hosted_search_unsupported' for event in events));self.assertEqual(events[-1]['status'],'failed')
+    def test_hosted_search_accepts_coding_function_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            connection={'url':'https://api.openai.com/v1','protocol':'responses','model':'fixture','stream':False};events=[];bodies=[]
+            from test_routing import search_call
+            calls=[{'type':'function_call','id':'fc-1','call_id':'call-1','name':'list_files','arguments':'{"path":"."}','status':'completed'}]
+            replies=[Wire(response([search_call(),*calls]),False),Wire(response([message('Done')]),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(connection,directory,'Research',web_enabled=True,search_provider='managed',hosted_search=True).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(len(bodies),2)
+            self.assertTrue(any(item.get('type')=='function_call_output' for item in bodies[1]['input']))
+            self.assertTrue(any('provider-hosted search completed' in event.get('text','') for event in events))
+
     def test_goal_completion_rejects_unfinished_checklist(self):
         with tempfile.TemporaryDirectory() as directory:
             run=CodingRun(dict(C,stream=False),directory,'Finish task',goal=True);events=[];bodies=[]
@@ -849,6 +882,19 @@ class ModelCoding(unittest.TestCase):
             events=[]
             with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Query',mcp_bridge=bridge).run(events.append)
             self.assertEqual(events[-1]['status'],'completed');self.assertIn('x'*500000+'END',bodies[-1])
+
+    def test_mcp_priority_controls_conflicting_builtin_code_tool(self):
+        from unittest.mock import Mock
+        tool={'name':'calculate','description':'MCP calculator','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        for priority in ('first','last'):
+            with self.subTest(priority=priority),tempfile.TemporaryDirectory() as directory:
+                bridge=Mock();bridge.server={'name':'Server','command':'server','args':[],'enabled':True};bridge.request.return_value={'tool_details':[tool]}
+                replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('calculate',{'expression':'6*7'})],finish='tool_calls'),False),Wire(chat('Done'),False)];bodies=[];events=[]
+                def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Calculate',mcp_bridge=bridge,mcp_priority=priority).run(events.append)
+                self.assertEqual(events[-1]['status'],'completed')
+                if priority=='first':self.assertIn('MCP tool takes priority',bodies[-1])
+                else:self.assertIn('42',bodies[-1])
 
     def test_multiple_mcp_servers_route_colliding_names_independently(self):
         from unittest.mock import Mock

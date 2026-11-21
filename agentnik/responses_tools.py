@@ -256,7 +256,7 @@ class Accumulator:
             self.complete=True
 
 
-def request(c,body,runtime,emit,state,hosted=False,on_event=None):
+def request(c,body,runtime,emit,state,hosted=False,on_event=None,allow_functions=False):
     accumulator=Accumulator(runtime,state,emit,hosted,on_event)
     with core.open_request(c,core.endpoint(c),body,timeout=runtime.timeout()) as response:
         for data in bounded_events(response,runtime):
@@ -267,7 +267,7 @@ def request(c,body,runtime,emit,state,hosted=False,on_event=None):
     calls=[]; seen=set()
     for item in state['output']:
         if item.get('type')=='function_call':
-            if hosted: raise ResearchError('Unregistered function call in hosted search output')
+            if hosted and not allow_functions: raise ResearchError('Unregistered function call in hosted search output')
             if item.get('status') not in (None,'completed'): raise ResearchError('Incomplete Responses function call')
             ident=item.get('call_id'); args=item.get('arguments'); name=item.get('name')
             if not all(isinstance(v,str) and v for v in (ident,args,name)) or len(ident)>200 or len(name)>100:

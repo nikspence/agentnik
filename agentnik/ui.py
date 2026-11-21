@@ -11,7 +11,7 @@ import datetime
 import math
 import time
 
-from PySide6.QtCore import Qt, Signal, QObject, QTimer, QByteArray, QBuffer, QIODevice, QEvent, QCoreApplication
+from PySide6.QtCore import Qt, Signal, QObject, QTimer, QByteArray, QBuffer, QIODevice, QEvent, QCoreApplication, QSize, QRectF
 from PySide6.QtGui import QAction, QColor, QPainter, QPixmap, QIcon, QDesktopServices, QPalette, QShortcut, QKeySequence, QTextCursor
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -29,6 +29,23 @@ from .repositories import RepositoryRegistry
 from .code_ui import RepositoryPicker, CodeTab
 from . import localization
 from .selection_scroll import SelectionScroll
+
+class WebAccessSwitch(QCheckBox):
+    """Keyboard-accessible checkable control drawn as an on/off switch."""
+    def sizeHint(self):
+        height=max(22,self.fontMetrics().height()+6)
+        return QSize(height*2+self.fontMetrics().horizontalAdvance(self.text())+12,height)
+    def minimumSizeHint(self):return self.sizeHint()
+    def paintEvent(self,event):
+        painter=QPainter(self);painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        height=min(self.height()-4,max(18,self.fontMetrics().height()+2));width=height*2;y=(self.height()-height)/2
+        label_width=self.fontMetrics().horizontalAdvance(self.text());track_x=label_width+10
+        painter.setPen(self.palette().color(QPalette.ColorRole.WindowText));painter.drawText(QRectF(0,0,label_width,self.height()),int(Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignLeft),self.text())
+        track=QRectF(track_x,y,width,height)
+        painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor('#c83545') if self.isChecked() else self.palette().color(QPalette.ColorRole.Mid));painter.drawRoundedRect(track,height/2,height/2)
+        painter.setBrush(QColor('white'));knob=height-4;x=track_x+width-knob-2 if self.isChecked() else track_x+2;painter.drawEllipse(QRectF(x,y+2,knob,knob))
+        if self.hasFocus():
+            painter.setBrush(Qt.BrushStyle.NoBrush);painter.setPen(self.palette().color(QPalette.ColorRole.Highlight));painter.drawRoundedRect(QRectF(.5,.5,self.width()-1,self.height()-1),3,3)
 
 class Signals(QObject):
     progress = Signal(object)
@@ -459,15 +476,6 @@ class SessionTab(QWidget):
         if session['mode'] == 'chat':
             web_row = QHBoxLayout()
             self.web_access = window.web_search
-            self.route_policy=QComboBox(); self.route_policy.setAccessibleName(self.tr('Research route policy'))
-            self.route_policy.addItem(self.tr('Connection default'),None)
-            for policy in routing.POLICIES: self.route_policy.addItem(policy_label(policy),policy)
-            options=session.get('research_options',{})
-            override=options.get('policy','Agentnik only' if options.get('route')=='managed' else None)
-            self.route_policy.setCurrentIndex(max(0,self.route_policy.findData(override)))
-            web_row.addWidget(self.route_policy)
-            self.route_policy.currentIndexChanged.connect(self.save_draft)
-
             web_row.addStretch()
             mcp_row=QHBoxLayout();mcp_row.addWidget(QLabel(self.tr('MCP server:')))
             self.mcp_choice=QComboBox();self.mcp_choice.setAccessibleName(self.tr('Chat MCP server'));self.mcp_choice.setToolTip(self.tr('Optional server for this chat. MCP tools run without approval and may write data or perform other actions. Tool results are sent to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
@@ -516,11 +524,6 @@ class SessionTab(QWidget):
             self.auto_compact=QCheckBox(self.tr('Auto compact'));self.auto_compact.setChecked(session.get('chat_auto_compact',True));self.auto_compact.setToolTip(self.tr('Before sending, summarize older chat when the estimated context approaches the configured model window. Uses an additional model request.'));bottom.addWidget(self.auto_compact)
             self.auto_compact.toggled.connect(self.save_chat_compaction_setting)
             self.documents_button = QPushButton(self.tr('Documents…')); self.documents_button.clicked.connect(self.read_documents); self.attachments.controls.insertWidget(1,self.documents_button)
-            self.local_tools = QCheckBox(self.tr('Calculator / Data tools')); self.local_tools.setChecked(session.get('research_options',{}).get('local_tools',False))
-            self.local_tools.setToolTip(self.tr('Allow model-requested local arithmetic and CSV/JSON summaries. No code execution. With Web access, uses Agentnik-managed tools. Tool-capable model required.'))
-            self.attachments.controls.insertWidget(4,self.local_tools); self.local_tools.toggled.connect(self.save_draft)
-            self.local_tools.toggled.connect(lambda checked:self.route_policy.setEnabled(not checked))
-            self.route_policy.setEnabled(not self.local_tools.isChecked())
         button(self.tr('Export session…'),self.export_session,bottom)
         if session['mode'] == 'chat':layout.addLayout(web_row);layout.addLayout(mcp_row)
         self.refresh_connections(); self.model.setEditText(session['connection'].get('model',''))
@@ -612,20 +615,6 @@ class SessionTab(QWidget):
         self.attachments.set_paths([p for p in self.attachments.paths if p not in doc.get('images', [])])
         self.refresh_documents(); self.save_draft()
 
-    def configure_web(self):
-        c = self.active_connection()
-        if not c.get('model'): return error(self,self.tr('Select a model before configuring its tool capability.'))
-        dlg = WebSettings(self,c)
-        while dlg.exec() == QDialog.DialogCode.Accepted:
-            try:
-                for field,checkbox in [('managed_tools',dlg.allow),('hosted_search',dlg.allow_hosted)]:
-                    previous=research.capability(self.store.config,c,field)
-                    state=previous.state if checkbox.isChecked() and previous.state=='verified' else 'configured' if checkbox.isChecked() and checkbox.isEnabled() else 'unknown'
-                    research.set_capability(self.store.config,c,state,'Enabled by user; no live verification' if state=='configured' else previous.evidence if state=='verified' else '',field)
-                routing.save_defaults(self.store.config,self.session['connection_name'],c,dlg.default_policy.currentData(),dlg.access_policy.currentData())
-                self.store.flush(); self.info.setText(self.tr('Research defaults and scoped capabilities saved.')); return
-            except Exception as exc: error(self,exc)
-
     def configure_research_limits(self):
         settings=self.store.config['settings'];dialog=ResearchLimitsDialog(self,settings.get('chat_research_limits'))
         if dialog.exec()==QDialog.DialogCode.Accepted:
@@ -671,6 +660,9 @@ class SessionTab(QWidget):
             updates=[{'field':'managed_tools','state':capability_state,'evidence':'Structured managed request observed '+capability_state}]
         current=self.active_connection()
         same_context=all(current.get(k)==self.research_connection.get(k) for k in ('url','protocol','model','api_key','reasoning','stream','context_limit','_capability_scope'))
+        if updates and same_context and self.research_connection.get('_capability_scope'):
+            saved=self.store.config.get('connections',{}).get(self.session['connection_name'])
+            if saved is not None:saved.setdefault('_capability_scope',self.research_connection['_capability_scope'])
         for update in (updates or []) if same_context else []:
             research.set_capability(self.store.config,self.research_connection,update['state'],update['evidence'],update['field'])
         if updates: self.store.flush()
@@ -771,7 +763,7 @@ class SessionTab(QWidget):
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
         if self.session['mode'] == 'chat':
             options=self.session.get('research_options',{})
-            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={**options,'policy':self.route_policy.currentData(),'local_tools':self.local_tools.isChecked(),'mcp':copy.deepcopy(self.mcp_choice.currentData())})
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={**options,'mcp':copy.deepcopy(self.mcp_choice.currentData())})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -783,7 +775,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-            self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
+            self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value)
     def submit(self,continuation=False):
         if self.job: return
         try:
@@ -816,14 +808,13 @@ class SessionTab(QWidget):
                 self.pending = user
             else:
                 form = copy.deepcopy(self.form_value()); body = core.decision_body(c,form); self.pending = form
-            mcp_ref=self.mcp_choice.currentData() if mode=='chat' else None
-            if mcp_ref and (self.web_access.isChecked() or self.local_tools.isChecked()):raise ValueError('For now, use MCP separately from web research and local tools in Chat.')
-            self.research_running = mode=='chat' and (self.web_access.isChecked() or self.local_tools.isChecked() or bool(mcp_ref))
+            mcp_ref=self.mcp_choice.currentData() if mode=='chat' and self.window.mcp_access.isChecked() else None
+            self.research_running = mode=='chat'
             key = ''; backend_specs=[]; research_config={}; selected_policy=None; access_policy='public_fetch';research_limits=None
             if self.research_running:
                 research_limits=chat_limits(self.store.config['settings'].get('chat_research_limits'))
                 defaults=routing.connection_defaults(self.store.config,self.session['connection_name'],c)
-                selected_policy=self.route_policy.currentData() or defaults['policy']; access_policy=defaults['access_policy']
+                selected_policy=defaults['policy']; access_policy=defaults['access_policy']
                 if mcp_ref:
                     from .mcp_support import server_fingerprint
                     server=next((s for s in self.store.config.get('mcp_servers',[]) if s.get('name')==mcp_ref['name'] and s.get('enabled')),None)
@@ -831,7 +822,7 @@ class SessionTab(QWidget):
                     if access_policy=='strict_public':raise ValueError('Strict public-only navigation does not allow MCP in Chat.')
                     from .chat_mcp import ChatMCP
                     self.chat_mcp=ChatMCP(server,self.store.config,self,extra_secrets=(c.get('api_key',''),));self.chat_mcp.approval_requested.connect(self.review_chat_mcp)
-                research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{})),'local_tools':self.local_tools.isChecked(),'web_enabled':self.web_access.isChecked()}
+                research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{})),'local_tools':True,'web_enabled':self.web_access.isChecked(),'mcp_priority':self.store.config['settings'].get('mcp_priority','first')}
                 backend_specs=self.store.web_backend_specs()
                 key=next((b['key'] for b in backend_specs if b.get('key')),'')
             self._continuing_chat=bool(continuation and mode=='chat')
@@ -849,8 +840,7 @@ class SessionTab(QWidget):
             chat_mcp=self.chat_mcp if mcp_ref else None
             def work(emit,cancel):
                 try:
-                    if chat_mcp:return research.run_managed(c,request_messages,'',emit,cancel,limits=research_limits,run_id=token,web_tools=False,mcp=chat_mcp)
-                    return research.run(c,request_messages,key,emit,cancel,limits=research_limits,run_id=token,config=research_config,policy=selected_policy,backends=backend_specs,access_policy=access_policy) if research_enabled else core.run_request(c,mode,body,emit,cancel)
+                    return research.run(c,request_messages,key,emit,cancel,limits=research_limits,run_id=token,config=research_config,policy=selected_policy,backends=backend_specs,access_policy=access_policy,mcp=chat_mcp) if research_enabled else core.run_request(c,mode,body,emit,cancel)
                 finally:
                     if chat_mcp:chat_mcp.close()
             self.job = Job(work,
@@ -1005,7 +995,7 @@ class SettingsDialog(QDialog):
         super().__init__(window);self.window=window;self.store=window.store;self.setWindowTitle(self.tr('Settings'));self.resize(700,550)
         settings=self.store.config['settings'];outer=QVBoxLayout(self);scroll=QScrollArea();scroll.setWidgetResizable(True);outer.addWidget(scroll);content=QWidget();scroll.setWidget(content);layout=QVBoxLayout(content)
         notice=QLabel(self.tr('Settings apply to new Chat and Code runs. Existing runs keep their original settings. Search provider changes are saved immediately.'));notice.setWordWrap(True);layout.addWidget(notice)
-        legacy=QLabel(self.tr('Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web Search starts off.'));legacy.setWordWrap(True);layout.addWidget(legacy)
+        legacy=QLabel(self.tr('Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web Access starts off.'));legacy.setWordWrap(True);layout.addWidget(legacy)
         self.relaxed=QCheckBox(self.tr('Relax TLS verification globally'));self.relaxed.setChecked(settings.get('relaxed_tls',False));layout.addWidget(self.relaxed)
         tls_notice=QLabel(self.tr('Relaxing TLS disables certificate and hostname verification for Agentnik network connections. Intermediaries can read or change traffic. Restart Agentnik to apply this setting.'));tls_notice.setWordWrap(True);layout.addWidget(tls_notice)
         appearance=QFormLayout();layout.addLayout(appearance);self.theme=QComboBox()
@@ -1019,8 +1009,12 @@ class SettingsDialog(QDialog):
         from .code_limits import coding_limits,goal_limits
         self.coding_limits=coding_limits(settings.get('coding_limits'));self.goal_limits=goal_limits(settings.get('coding_goal_limits'))
         self.chat_limits=copy.deepcopy(settings.get('chat_research_limits'))
+        research_form=QFormLayout();layout.addLayout(research_form);self.research_policy=QComboBox()
+        for policy in ('Provider first','Agentnik first'):self.research_policy.addItem(policy_label(policy),policy)
+        self.research_policy.setCurrentIndex(max(0,self.research_policy.findData(settings.get('research_policy','Provider first'))));research_form.addRow(self.tr('Search priority'),self.research_policy)
+        self.research_access=QComboBox();self.research_access.addItem(self.tr('Public page reads; external search navigation disclosed'),'public_fetch');self.research_access.addItem(self.tr('Enforce public-only navigation everywhere'),'strict_public');self.research_access.setCurrentIndex(max(0,self.research_access.findData(settings.get('research_access_policy','public_fetch'))));research_form.addRow(self.tr('Navigation policy'),self.research_access)
+        self.mcp_priority=QComboBox();self.mcp_priority.addItem(self.tr('MCP First'),'first');self.mcp_priority.addItem(self.tr('MCP Last'),'last');self.mcp_priority.setCurrentIndex(max(0,self.mcp_priority.findData(settings.get('mcp_priority','first'))));research_form.addRow(self.tr('Conflicting MCP tools'),self.mcp_priority)
         button(self.tr('Search providers…'),self.search_providers,layout)
-        button(self.tr('Connection research settings…'),self.connection_research,layout)
         button(self.tr('Code and goal limits…'),self.code_limits,layout)
         button(self.tr('Chat research limits…'),self.research_limits,layout)
         button(self.tr('Forget remembered subagent tool support'),self.forget_subagents,layout)
@@ -1037,26 +1031,6 @@ class SettingsDialog(QDialog):
     def search_providers(self):
         from .research_ui import SearchBackends
         SearchBackends(self,self.store).exec()
-    def connection_research(self):
-        tab=self.window.tabs.currentWidget()
-        if isinstance(tab,SessionTab):
-            tab.configure_web();return
-        if not hasattr(tab,'roles'):
-            QMessageBox.information(self,self.tr('Research settings'),self.tr('Open a Chat or Code tab to configure its connection and model capabilities.'));return
-        name=tab.roles['heavy'][0].currentData()
-        try:c=tab.role_connection('heavy')
-        except ValueError:c=None
-        if not c or not c.get('model'):
-            QMessageBox.information(self,self.tr('Research settings'),self.tr('Select a Code connection and model first.'));return
-        self.session={'connection_name':name};dlg=WebSettings(self,c)
-        while dlg.exec()==QDialog.DialogCode.Accepted:
-            try:
-                for field,checkbox in [('managed_tools',dlg.allow),('hosted_search',dlg.allow_hosted)]:
-                    previous=research.capability(self.store.config,c,field)
-                    state=previous.state if checkbox.isChecked() and previous.state=='verified' else 'configured' if checkbox.isChecked() and checkbox.isEnabled() else 'unknown'
-                    research.set_capability(self.store.config,c,state,'Enabled by user; no live verification' if state=='configured' else previous.evidence if state=='verified' else '',field)
-                routing.save_defaults(self.store.config,name,c,dlg.default_policy.currentData(),dlg.access_policy.currentData());self.store.flush();return
-            except Exception as exc:error(self,exc)
     def code_limits(self):
         from .code_ui import CodingLimitsDialog
         dialog=CodingLimitsDialog(self,self.coding_limits,self.goal_limits)
@@ -1084,7 +1058,7 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(self,self.tr('Settings'),self.tr('Choose a Decision connection and model before enabling advice.'));return
         settings=self.store.config['settings'];settings.update(relaxed_tls=self.relaxed.isChecked(),coding_limits=self.coding_limits,coding_goal_limits=self.goal_limits,decision_advice_enabled=self.advice.isChecked(),decision_model={'connection':self.decision_connection.currentData(),'model':self.decision_model.text().strip()})
         if self.chat_limits is not None:settings['chat_research_limits']=self.chat_limits
-        settings['theme']=self.theme.currentData();settings['language']=self.language.currentData()
+        settings['theme']=self.theme.currentData();settings['language']=self.language.currentData();settings['research_policy']=self.research_policy.currentData();settings['research_access_policy']=self.research_access.currentData();settings['mcp_priority']=self.mcp_priority.currentData()
         self.store.flush();self.window.apply_theme();super().accept()
 
 class Window(QMainWindow):
@@ -1097,10 +1071,11 @@ class Window(QMainWindow):
         for text, fn in [(self.tr('☰ History'),self.toggle_history),(self.tr('☆ Prompts'),self.toggle_prompts),(self.tr('＋ Chat'),lambda:self.new_session('chat')),(self.tr('＋ Code'),self.new_code),(self.tr('Repositories'),self.manage_repositories),(self.tr('Connections'),self.manage_connections),(self.tr('MCP servers'),self.manage_mcp_servers)]:
             action = QAction(text,self); action.triggered.connect(fn); toolbar.addAction(action)
         controls=self.addToolBar('Display and settings');controls.setMovable(False)
+        self.settings_action=QAction(self.tr('Settings · TLS relaxed') if tls.relaxed() else self.tr('Settings'),self);self.settings_action.triggered.connect(self.configure_settings);controls.addAction(self.settings_action)
         self.font_smaller = QPushButton('A−'); self.font_smaller.setAccessibleName(self.tr('Decrease font size')); self.font_smaller.setToolTip(self.tr('Decrease font size')); self.font_smaller.clicked.connect(lambda:self.adjust_font_size(-1)); controls.addWidget(self.font_smaller)
         self.font_larger = QPushButton('A+'); self.font_larger.setAccessibleName(self.tr('Increase font size')); self.font_larger.setToolTip(self.tr('Increase font size')); self.font_larger.clicked.connect(lambda:self.adjust_font_size(1)); controls.addWidget(self.font_larger)
-        self.web_search=QCheckBox(self.tr('Web Search'));self.web_search.setObjectName('globalWebSearch');self.web_search.setToolTip(self.tr('Enable web search and public-page retrieval for new Chat and Code runs.'));self.web_search.setChecked(store.config['settings'].get('web_search_enabled',False));self.web_search.toggled.connect(self.save_global_web_search);controls.addWidget(self.web_search)
-        self.settings_action=QAction(self.tr('Settings · TLS relaxed') if tls.relaxed() else self.tr('Settings'),self);self.settings_action.triggered.connect(self.configure_settings);controls.addAction(self.settings_action);controls.setMinimumWidth(controls.sizeHint().width())
+        self.web_search=WebAccessSwitch(self.tr('Web Access'));self.web_search.setObjectName('globalWebSearch');self.web_search.setToolTip(self.tr('Enable web search and public-page retrieval for new Chat and Code runs.'));self.web_search.setChecked(store.config['settings'].get('web_search_enabled',False));self.web_search.toggled.connect(self.save_global_web_search);controls.addWidget(self.web_search)
+        self.mcp_access=WebAccessSwitch(self.tr('MCP Access'));self.mcp_access.setObjectName('globalMcpAccess');self.mcp_access.setToolTip(self.tr('Enable selected MCP servers for new Chat and Code runs.'));self.mcp_access.setChecked(store.config['settings'].get('mcp_access_enabled',True));self.mcp_access.toggled.connect(self.save_global_mcp_access);controls.addWidget(self.mcp_access);controls.setMinimumWidth(controls.sizeHint().width())
         self.split = QSplitter(); self.setCentralWidget(self.split)
         self.sidebar = QWidget(); side = QVBoxLayout(self.sidebar); side.addWidget(QLabel(self.tr('History')))
         self.search = QLineEdit(); self.search.setPlaceholderText(self.tr('Search conversations')); self.search.textChanged.connect(self.refresh_history); side.addWidget(self.search)
@@ -1130,6 +1105,8 @@ class Window(QMainWindow):
         if SettingsDialog(self).exec()==QDialog.DialogCode.Accepted:self.statusBar().showMessage(self.tr('Settings saved. Language and TLS changes apply after restart.'))
     def save_global_web_search(self,enabled):
         self.store.config['settings']['web_search_enabled']=bool(enabled);self.store.flush()
+    def save_global_mcp_access(self,enabled):
+        self.store.config['settings']['mcp_access_enabled']=bool(enabled);self.store.flush()
     def decision_connection(self):
         settings=self.store.config['settings'];binding=settings.get('decision_model',{})
         if not settings.get('decision_advice_enabled',False):return None,''
@@ -1183,10 +1160,15 @@ class Window(QMainWindow):
         changed=[]
         for name,c in self.connections.items():
             if name not in self.store.config['connections']:
-                old=previous.get(name,{})
+                # Stable, opaque scope lets remembered unsupported routes survive restart
+                # while separating connections whose endpoint or credentials differ.
+                import hashlib
+                settings=self.store.config['settings'];salt=settings.get('research_scope_salt')
+                if not salt:
+                    salt=uuid.uuid4().hex;settings['research_scope_salt']=salt;self.store.flush()
                 fields=('url','protocol','model','api_key','reasoning','stream','context_limit')
-                same=all(old.get(k)==c.get(k) for k in fields)
-                c['_capability_scope']=old.get('_capability_scope',uuid.uuid4().hex) if same else uuid.uuid4().hex
+                identity=json.dumps([salt,name,*[c.get(k,'') for k in fields]],ensure_ascii=True,separators=(',',':'))
+                c['_capability_scope']=hashlib.sha256(identity.encode()).hexdigest()
             old=(previous or {}).get(name)
             if old is not None and any(old.get(k)!=c.get(k) for k in ('url','protocol','model','api_key','reasoning','stream','context_limit')): changed.extend([old,c])
         if changed:
