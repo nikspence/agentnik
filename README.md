@@ -21,6 +21,10 @@ For testing System One Decision models with varying states, images, and question
 
 Research and coding workflows include preview features. Model listings do not establish support for tools, images, research or System One. See [validation](VALIDATION.md) for observed behavior and remaining platform and compatibility checks.
 
+## What Agentnik is not
+
+Agentnik is not a remotely controlled or unattended automated agent. You start and direct work in the desktop application; Code can continue through steps of a goal while the application is running. Agentnik does not connect to messaging services and is not intended for multi-agent orchestration. Code subagents are limited to bounded analysis within a user-started run.
+
 ## Get started
 
 Agentnik requires Python 3.11 or newer. See [installation and launch](GETTING_STARTED.md) for Windows, macOS and Linux instructions, or use the Windows archive described below. Endpoint, credential and storage configuration is covered in [connections and local data](CONNECTIONS.md).
