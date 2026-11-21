@@ -525,11 +525,11 @@ class CodingWorkspace(unittest.TestCase):
                 window.new_session('chat','Main');chat=window.tabs.currentWidget()
                 self.assertIs(code.web_enabled,window.web_search);self.assertIs(chat.web_access,window.web_search)
                 window.web_search.setChecked(True);self.assertTrue(code.web_enabled.isChecked());self.assertTrue(chat.web_access.isChecked())
-                settings=SettingsDialog(window);settings.decision_connection.setCurrentIndex(settings.decision_connection.findData('Main'));settings.decision_model.setText('decision-model');settings.advice.setChecked(True);settings.accept()
+                settings=SettingsDialog(window);settings.git_author_name.setText('Test Author');settings.git_author_email.setText('author@example.invalid');settings.decision_connection.setCurrentIndex(settings.decision_connection.findData('Main'));settings.decision_model.setText('decision-model');settings.advice.setChecked(True);settings.accept()
                 code.roles['heavy'][0].setCurrentIndex(code.roles['heavy'][0].findData('Main'));code.roles['heavy'][1].setText('model');code.composer.setPlainText('Inspect')
                 with patch.object(code,'launch') as launch,patch('agentnik.code_ui.QMessageBox.warning',side_effect=AssertionError):
                     code.start_coding();run=launch.call_args.args[0]
-                self.assertTrue(run.web_enabled);window.web_search.setChecked(False);self.assertTrue(run.web_enabled)
+                self.assertTrue(run.web_enabled);self.assertEqual(run.git_author,{'name':'Test Author','email':'author@example.invalid'});window.web_search.setChecked(False);self.assertTrue(run.web_enabled)
                 self.assertFalse(chat.web_access.isChecked());self.assertEqual(store.config['settings']['decision_model'],{'connection':'Main','model':'decision-model'})
             finally:
                 window.close();app.processEvents();store.db.close()

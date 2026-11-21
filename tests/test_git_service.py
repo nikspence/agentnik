@@ -186,6 +186,19 @@ class GitLocalWorkflow(unittest.TestCase):
         (self.root/'one.txt').write_text('old\n');porcelain.add(self.repo,['one.txt']);porcelain.commit(self.repo,message=b'Initial',no_verify=True,sign=False)
         self.git=GitService(ProjectFiles(self.root))
 
+    def test_repository_author_overrides_both_commit_types(self):
+        service=GitService(ProjectFiles(self.root),{'name':'Other Author','email':'other@example.invalid'})
+        (self.root/'one.txt').write_text('first change\n')
+        proposal=service.proposal('["one.txt"]','First')
+        self.assertEqual(proposal['identity'],'Other Author <other@example.invalid>')
+        service.commit(proposal,lambda:None)
+        self.assertEqual(self.repo[self.repo.head()].author,b'Other Author <other@example.invalid>')
+        (self.root/'one.txt').write_text('second change\n');porcelain.add(self.repo,['one.txt'])
+        proposal=service.local_proposal('git_commit_staged','["one.txt"]',message='Second')
+        self.assertEqual(proposal['identity'],'Other Author <other@example.invalid>')
+        service.commit(proposal,lambda:None)
+        self.assertEqual(self.repo[self.repo.head()].author,b'Other Author <other@example.invalid>')
+
     def test_changed_files_and_diff_between_refs(self):
         first=self.repo.head();self.repo.refs[b'refs/heads/before']=first
         (self.root/'one.txt').write_text('new content\n');(self.root/'new.txt').write_text('added\n');(self.root/'.env').write_text('secret')

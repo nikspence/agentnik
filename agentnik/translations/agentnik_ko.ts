@@ -4995,6 +4995,11 @@ Connections are discovered from your environment and local servers.</source>
     </context>
     <context>
         <name>SettingsDialog</name>
+        <message><source>Git author repository</source><translation>Git 작성자 저장소</translation></message>
+        <message><source>Git author name</source><translation>Git 작성자 이름</translation></message>
+        <message><source>Git author email</source><translation>Git 작성자 이메일</translation></message>
+        <message><source>Leave both fields blank to use the repository Git configuration. Changes apply to new Code runs.</source><translation>저장소의 Git 설정을 사용하려면 두 필드를 모두 비워 두세요. 변경 사항은 새 Code 실행에 적용됩니다.</translation></message>
+        <message><source>Enter both a valid Git author name and email, or leave both blank.</source><translation>유효한 Git 작성자 이름과 이메일을 모두 입력하거나 둘 다 비워 두세요.</translation></message>
         <message>
             <source>Settings</source>
             <translation>설정</translation>

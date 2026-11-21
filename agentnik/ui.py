@@ -1014,6 +1014,14 @@ class SettingsDialog(QDialog):
         self.research_policy.setCurrentIndex(max(0,self.research_policy.findData(settings.get('research_policy','Provider first'))));research_form.addRow(self.tr('Search priority'),self.research_policy)
         self.research_access=QComboBox();self.research_access.addItem(self.tr('Public page reads; external search navigation disclosed'),'public_fetch');self.research_access.addItem(self.tr('Enforce public-only navigation everywhere'),'strict_public');self.research_access.setCurrentIndex(max(0,self.research_access.findData(settings.get('research_access_policy','public_fetch'))));research_form.addRow(self.tr('Navigation policy'),self.research_access)
         self.mcp_priority=QComboBox();self.mcp_priority.addItem(self.tr('MCP First'),'first');self.mcp_priority.addItem(self.tr('MCP Last'),'last');self.mcp_priority.setCurrentIndex(max(0,self.mcp_priority.findData(settings.get('mcp_priority','first'))));research_form.addRow(self.tr('Conflicting MCP tools'),self.mcp_priority)
+        self.git_authors={row['id']:window.repositories.git_author(row['id']) for row in window.repositories.list()}
+        git_form=QFormLayout();layout.addLayout(git_form);self.git_repository=QComboBox();self.git_repository.setObjectName('gitAuthorRepository')
+        for row in window.repositories.list():self.git_repository.addItem(row['name']+' — '+row['path'],row['id'])
+        git_form.addRow(self.tr('Git author repository'),self.git_repository)
+        self.git_author_name=QLineEdit();self.git_author_name.setObjectName('gitAuthorName');git_form.addRow(self.tr('Git author name'),self.git_author_name)
+        self.git_author_email=QLineEdit();self.git_author_email.setObjectName('gitAuthorEmail');git_form.addRow(self.tr('Git author email'),self.git_author_email)
+        git_hint=QLabel(self.tr('Leave both fields blank to use the repository Git configuration. Changes apply to new Code runs.'));git_hint.setWordWrap(True);layout.addWidget(git_hint)
+        self._git_author_id=None;self.git_repository.currentIndexChanged.connect(self.change_git_author_repository);self.change_git_author_repository()
         button(self.tr('Search providers…'),self.search_providers,layout)
         button(self.tr('Code and goal limits…'),self.code_limits,layout)
         button(self.tr('Chat research limits…'),self.research_limits,layout)
@@ -1028,6 +1036,12 @@ class SettingsDialog(QDialog):
         self.advice=QCheckBox(self.tr('Check shell approvals with Decision model'));self.advice.setChecked(settings.get('decision_advice_enabled',False));layout.addWidget(self.advice)
         disclosure=QLabel(self.tr('Advice sends the command, working directory, shell and environment variable names to the Decision endpoint; it never approves commands.'));disclosure.setWordWrap(True);layout.addWidget(disclosure)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject);outer.addWidget(buttons);self.model_job=None
+    def change_git_author_repository(self,*_):
+        if self._git_author_id is not None:self.git_authors[self._git_author_id]={'name':self.git_author_name.text(),'email':self.git_author_email.text()}
+        self._git_author_id=self.git_repository.currentData();author=self.git_authors.get(self._git_author_id) or {}
+        self.git_author_name.setEnabled(self._git_author_id is not None);self.git_author_email.setEnabled(self._git_author_id is not None)
+        self.git_author_name.setText(author.get('name',''));self.git_author_email.setText(author.get('email',''))
+
     def search_providers(self):
         from .research_ui import SearchBackends
         SearchBackends(self,self.store).exec()
@@ -1056,6 +1070,12 @@ class SettingsDialog(QDialog):
     def accept(self):
         if self.advice.isChecked() and (not self.decision_connection.currentData() or not self.decision_model.text().strip()):
             QMessageBox.warning(self,self.tr('Settings'),self.tr('Choose a Decision connection and model before enabling advice.'));return
+        from .repositories import validate_git_author
+        if self._git_author_id is not None:self.git_authors[self._git_author_id]={'name':self.git_author_name.text(),'email':self.git_author_email.text()}
+        try:authors={ident:validate_git_author(author) for ident,author in self.git_authors.items()}
+        except ValueError:
+            QMessageBox.warning(self,self.tr('Settings'),self.tr('Enter both a valid Git author name and email, or leave both blank.'));return
+        for ident,author in authors.items():self.window.repositories.set_git_author(ident,author)
         settings=self.store.config['settings'];settings.update(relaxed_tls=self.relaxed.isChecked(),coding_limits=self.coding_limits,coding_goal_limits=self.goal_limits,decision_advice_enabled=self.advice.isChecked(),decision_model={'connection':self.decision_connection.currentData(),'model':self.decision_model.text().strip()})
         if self.chat_limits is not None:settings['chat_research_limits']=self.chat_limits
         settings['theme']=self.theme.currentData();settings['language']=self.language.currentData();settings['research_policy']=self.research_policy.currentData();settings['research_access_policy']=self.research_access.currentData();settings['mcp_priority']=self.mcp_priority.currentData()

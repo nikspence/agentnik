@@ -10,6 +10,21 @@ from agentnik.repositories import RepositoryRegistry
 
 
 class Registry(unittest.TestCase):
+    def test_git_authors_are_scoped_and_follow_repository_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);first=root/'first';second=root/'second';first.mkdir();second.mkdir();store=Store(root/'data')
+            try:
+                from agentnik.repositories import RepositoryRegistry
+                registry=RepositoryRegistry(store);one=registry.put(first);two=registry.put(second)
+                registry.set_git_author(one,{'name':'One','email':'one@example.invalid'})
+                registry.set_git_author(two,{'name':'Two','email':'two@example.invalid'})
+                registry.put(first,'Renamed',one)
+                self.assertEqual(registry.git_author(one)['name'],'One');self.assertEqual(registry.git_author(two)['name'],'Two')
+                with self.assertRaises(ValueError):registry.set_git_author(one,{'name':'Bad','email':'bad\n@example.invalid'})
+                self.assertEqual(registry.git_author(one)['name'],'One')
+                registry.set_git_author(one,{'name':'','email':''});self.assertIsNone(registry.git_author(one));self.assertEqual(registry.git_author(two)['name'],'Two')
+            finally:store.db.close()
+
     def test_ordinary_and_git_folders_duplicates_rename_relocate_and_remove(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);a=root/'plain';b=root/'git';c=root/'relocated'
