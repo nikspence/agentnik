@@ -25,10 +25,7 @@ class CodingCompactionTests(unittest.TestCase):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                def models():
-                    dialog=self.app.activeModalWidget();self.assertIs(dialog,tab.model_panel);self.assertIs(tab.roles['heavy'][0].window(),dialog)
-                    dialog.accept()
-                QTimer.singleShot(0,models);tab.model_toggle.click()
+                self.assertIs(tab.roles['heavy'][0].window(),window)
                 def context():
                     dialog=self.app.activeModalWidget();self.assertIs(tab.coding_auto_compact.window(),dialog)
                     tab.coding_auto_compact.setChecked(False);dialog.reject()

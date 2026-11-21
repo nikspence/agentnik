@@ -41,8 +41,16 @@ def load_config(path):
         if 'language' in settings and (not isinstance(settings['language'],str) or not 1<=len(settings['language'])<=32): raise ValueError()
         for field in ('font_size','composer_height'):
             if field in settings and (type(settings[field]) is not int or settings[field]<=0): raise ValueError()
-        for field in ('prompts_visible','history_visible','relaxed_tls'):
+        for field in ('prompts_visible','history_visible','relaxed_tls','web_search_enabled','decision_advice_enabled'):
             if field in settings and type(settings[field]) is not bool: raise ValueError()
+        from .code_limits import coding_limits,goal_limits
+        from .tools import chat_limits
+        if 'coding_limits' in settings:coding_limits(settings['coding_limits'])
+        if 'coding_goal_limits' in settings:goal_limits(settings['coding_goal_limits'])
+        if 'chat_research_limits' in settings:chat_limits(settings['chat_research_limits'])
+        if 'decision_model' in settings:
+            value=settings['decision_model']
+            if not isinstance(value,dict) or set(value)!={'connection','model'} or any(not isinstance(v,str) or len(v)>512 for v in value.values()):raise ValueError()
         backends=config.get('web_backends',[])
         if not isinstance(backends,list) or len(backends)>5: raise ValueError()
         ids=set()

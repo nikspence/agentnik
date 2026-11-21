@@ -43,7 +43,7 @@ class Localization(unittest.TestCase):
         finally:self.app.removeTranslator(translator)
 
     def test_korean_main_window_labels(self):
-        from agentnik.ui import Window
+        from agentnik.ui import Window,SettingsDialog
         translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
         try:
             with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
@@ -51,7 +51,9 @@ class Localization(unittest.TestCase):
                 try:
                     self.assertEqual(window.search.placeholderText(),'대화 검색')
                     self.assertEqual(window.tabs.tabText(0),'시작')
-                    self.assertGreaterEqual(window.language.findData('ko'),0)
+                    dialog=SettingsDialog(window);self.assertGreaterEqual(dialog.language.findData('ko'),0)
+                    self.assertEqual(dialog.theme.itemText(dialog.theme.findData('Dark')),'어둡게')
+                    dialog.theme.setCurrentIndex(dialog.theme.findData('Dark'));dialog.accept();self.assertEqual(store.config['settings']['theme'],'Dark')
                     self.assertEqual(window.font_smaller.accessibleName(),'글꼴 크기 줄이기')
                     window.apply_font_size(15);self.assertIn('15포인트',window.font_larger.toolTip())
                     with patch('agentnik.ui.error') as error:window.open_session({'_unavailable':True})
@@ -70,7 +72,7 @@ class Localization(unittest.TestCase):
                 try:
                     window.new_session('chat','Example');tab=window.tabs.currentWidget()
                     self.assertEqual(tab.send_button.text(),'전송');self.assertEqual(tab.cancel_button.text(),'취소')
-                    self.assertEqual(tab.web_access.text(),'웹 접근');self.assertEqual(tab.reasoning.placeholderText(),'추론 수준')
+                    self.assertEqual(tab.web_access.text(),'웹 검색');self.assertEqual(tab.reasoning.placeholderText(),'추론 수준')
                     tab.composer.setPlainText('User text');tab.save_draft();self.assertEqual(store.list_sessions()[0]['draft'],'User text')
                     tab.session['messages']=[{'role':'user','text':'Earlier prompt'}];tab.composer.clear();tab.render()
                     message=tab.findChildren(MessageBubble)[0]
@@ -124,6 +126,10 @@ class Localization(unittest.TestCase):
                     self.assertIn('모델 작업',tab.activity_text({'kind':'output','text':'Model task: requesting model/{x} through the selected connection.'}))
                     self.assertIn('위임',tab.activity_text({'kind':'output','text':'Light task delegated to model/light through its configured connection.'}))
                     self.assertIn('src/{name}.py',tab.activity_text({'kind':'output','text':'Applied approved edit: src/{name}.py'}))
+                    self.assertIn('목표',tab.goal_enabled.text());self.assertIn('승인 없이',tab.shell_auto.text())
+                    self.assertEqual(tab.activity_text({'kind':'output','text':'Tool call: read_file {"path":"src/{name}.py"}'}),'도구 호출: read_file {"path":"src/{name}.py"}')
+                    self.assertEqual(tab.activity_text({'kind':'output','text':'Tool result: read_file — rejected'}),'도구 결과: read_file — 거부됨')
+                    self.assertEqual(tab.activity_text({'kind':'output','text':'Reading web page: https://example.test/{name}'}),'웹 페이지 읽는 중: https://example.test/{name}')
                     self.assertEqual(tab.activity_text({'kind':'finished','text':'Applied approved edit: text'}),'Applied approved edit: text')
                     usage='Usage: Heavy: 2 request(s), input 10 (known usage only), output unknown tokens; Light: 1 request(s), input 3, output 0 tokens'
                     tab.record('usage',usage);display=tab.activity.toPlainText()
@@ -191,7 +197,7 @@ class Localization(unittest.TestCase):
                         self.assertEqual(dialog.windowTitle(),'웹 조사')
                         texts=[label.text() for label in dialog.findChildren(QLabel)]
                         self.assertTrue(any('모델: model' in text and '설정일 뿐 검증이 아닙니다' in text for text in texts))
-                        self.assertTrue(any('429/503' in text and '조사 제한' in text for text in texts))
+                        self.assertTrue(any('429/503' in text and '전역 제한' in text for text in texts))
                         dialog.access_policy.setCurrentIndex(dialog.access_policy.findData('strict_public'))
                         self.assertIn('공개',dialog.access_policy.currentText());self.assertEqual(dialog.access_policy.currentData(),'strict_public')
                         self.assertEqual(dialog.default_policy.currentText(),'제공자 우선');self.assertEqual(dialog.default_policy.currentData(),'Provider first')
@@ -201,7 +207,7 @@ class Localization(unittest.TestCase):
                         self.assertEqual(defaults['policy'],'Agentnik only');self.assertEqual(defaults['access_policy'],'strict_public')
                         tab.route_policy.setCurrentIndex(tab.route_policy.findData('Provider only'));tab.save_draft()
                         self.assertEqual(tab.session['research_options']['policy'],'Provider only')
-                        self.assertFalse(dialog.plain.isChecked());self.assertFalse(dialog.allow.isChecked())
+                        self.assertFalse(dialog.allow.isChecked())
                         details=ResearchDetails({'route':'managed','status':'completed','sources':[],'events':[],'unverified_annotations':1})
                         self.assertIn('Agentnik 관리형',details.toggle.text());self.assertIn('확인할 수 없습니다',details.excerpts.toPlainText());details.close()
                     finally:dialog.close()
@@ -282,6 +288,33 @@ class Localization(unittest.TestCase):
             if translation.get('type') not in ('unfinished','vanished','obsolete'):
                 self.assertEqual(fields(source),fields(translation.text),source)
 
+    def test_korean_current_mcp_and_tls_strings_are_translated(self):
+        from PySide6.QtCore import QCoreApplication
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            for context,source in [('MCPServers','Connection test timed out.'),('MCPServers','Tool call completed.'),('Window','Relax TLS verification globally'),('CodeTab','Run shell commands without approval'),('CodeTab','Pursue as goal')]:
+                with self.subTest(source=source):
+                    translated=QCoreApplication.translate(context,source)
+                    self.assertNotEqual(translated,source);self.assertTrue(any('\uac00'<=ch<='\ud7a3' for ch in translated))
+            source='Connected: {name} {version} · MCP {protocol} · tools: {tools}'
+            translated=QCoreApplication.translate('MCPServers',source).format(name='Server {x}',version='1',protocol='2025',tools='read_file')
+            self.assertIn('Server {x}',translated);self.assertIn('read_file',translated)
+        finally:self.app.removeTranslator(translator)
+
+    def test_korean_mcp_status_preserves_server_values(self):
+        from agentnik.ui import Window
+        from agentnik.mcp_ui import MCPServers
+        translator=localization.install(self.app,'ko');self.assertIsNotNone(translator)
+        try:
+            with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+                store=Store(tmp);window=Window(store);dialog=MCPServers(window)
+                try:
+                    dialog.discovered_config={};dialog.remote_done({'name':'Server {x}','version':'1','protocol':'2025','tools':['read_file'],'tool_details':[]})
+                    self.assertIn('연결됨',dialog.status.text());self.assertIn('Server {x}',dialog.status.text());self.assertIn('read_file',dialog.status.text())
+                    self.assertEqual(dialog.transport.itemText(0),'로컬 표준 입출력')
+                finally:dialog.close();window.close();self.app.processEvents();store.db.close()
+        finally:self.app.removeTranslator(translator)
+
     def test_korean_import_duplicate_actions(self):
         import json
         from agentnik.ui import Window,Connections
@@ -301,13 +334,12 @@ class Localization(unittest.TestCase):
         finally:self.app.removeTranslator(translator)
 
     def test_language_setting_persists_and_does_not_change_history(self):
-        from agentnik.ui import Window
+        from agentnik.ui import Window,SettingsDialog
         with tempfile.TemporaryDirectory() as tmp,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             store=Store(tmp);session=store.new_session('chat','Example',{});session['draft']='Original text';store.save(session)
             window=Window(store)
             try:
-                window.language.setCurrentIndex(window.language.findData('en'))
-                self.assertIn('restart',window.statusBar().currentMessage().lower())
+                dialog=SettingsDialog(window);dialog.language.setCurrentIndex(dialog.language.findData('en'));dialog.accept()
             finally:window.close();self.app.processEvents();store.db.close()
             store=Store(tmp)
             try:

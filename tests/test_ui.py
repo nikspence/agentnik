@@ -25,6 +25,23 @@ class Desktop(unittest.TestCase):
             dialog.fields['url'].setText('https://gateway.example/v1');self.assertTrue(dialog.route_hint.isHidden())
         finally:dialog.close()
 
+    def test_toolbar_controls_and_appearance_settings(self):
+        from PySide6.QtWidgets import QToolBar
+        from agentnik.storage import Store
+        from agentnik.ui import Window,SettingsDialog
+        with tempfile.TemporaryDirectory() as root,patch('agentnik.core.discover',return_value={}),patch('agentnik.core.environment_connections',return_value={}):
+            store=Store(root);window=Window(store)
+            try:
+                window.resize(1320,850);window.show();self.app.processEvents()
+                bars=window.findChildren(QToolBar);self.assertEqual(len(bars),2)
+                right=bars[1];self.assertGreater(right.geometry().x(),bars[0].geometry().x())
+                self.assertTrue(window.font_smaller.isVisible());self.assertTrue(window.font_larger.isVisible());self.assertTrue(window.web_search.isVisible());self.assertTrue(right.widgetForAction(window.settings_action).isVisible())
+                dialog=SettingsDialog(window);dialog.theme.setCurrentIndex(dialog.theme.findData('Dark'));dialog.language.setCurrentIndex(dialog.language.findData('en'));dialog.reject()
+                self.assertNotEqual(store.config['settings'].get('theme'),'Dark');self.assertNotEqual(store.config['settings'].get('language'),'en')
+                dialog=SettingsDialog(window);dialog.theme.setCurrentIndex(dialog.theme.findData('Dark'));dialog.language.setCurrentIndex(dialog.language.findData('en'));dialog.accept()
+                self.assertEqual(store.config['settings']['theme'],'Dark');self.assertEqual(store.config['settings']['language'],'en');self.assertEqual(window.brand_variant,'dark')
+            finally:window.close();self.app.processEvents();store.db.close()
+
     def test_model_count_only_appears_in_status_bar(self):
         from agentnik.storage import Store
         from agentnik.ui import Window
@@ -133,7 +150,7 @@ class Desktop(unittest.TestCase):
                 tab.chat_split.setSizes([350,180]); settle(); self.assertGreater(tab.composer.height(),100)
                 # Toolbar font controls apply immediately and persist the size.
                 self.assertTrue(w.menuBar().isHidden() or not w.menuBar().actions())
-                w.apply_font_size(15); w.font_larger.click(); w.theme.setCurrentText('Dark'); settle()
+                w.apply_font_size(15); w.font_larger.click(); store.config['settings']['theme']='Dark'; w.apply_theme(); settle()
                 self.assertEqual(short.text.font().pointSize(),16)
                 self.assertEqual(short.text.document().defaultFont().pointSize(),16)
                 self.assertEqual(store.config['settings']['font_size'],16)
@@ -237,9 +254,9 @@ class Desktop(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}):
             store=Store(root); w=Window(store)
             try:
-                w.theme.setCurrentText('Light'); self.assertEqual(w.brand_variant,'light'); self.assertFalse(w.brand.pixmap().isNull()); self.assertFalse(w.windowIcon().isNull()); self.assertFalse(w.welcome_brand.pixmap().isNull())
+                store.config['settings']['theme']='Light'; w.apply_theme(); self.assertEqual(w.brand_variant,'light'); self.assertFalse(w.brand.pixmap().isNull()); self.assertFalse(w.windowIcon().isNull()); self.assertFalse(w.welcome_brand.pixmap().isNull())
                 self.assertGreater(self.app.palette().color(QPalette.ColorRole.Window).lightness(),128)
-                w.theme.setCurrentText('Dark'); self.assertEqual(w.brand_variant,'dark')
+                store.config['settings']['theme']='Dark'; w.apply_theme(); self.assertEqual(w.brand_variant,'dark')
                 self.assertLess(self.app.palette().color(QPalette.ColorRole.Window).lightness(),128)
                 w.apply_font_size(8); self.assertFalse(w.font_smaller.isEnabled()); w.font_larger.click(); self.assertEqual(store.config['settings']['font_size'],9)
                 w.apply_font_size(32); self.assertFalse(w.font_larger.isEnabled()); w.font_smaller.click(); self.assertEqual(store.config['settings']['font_size'],31)

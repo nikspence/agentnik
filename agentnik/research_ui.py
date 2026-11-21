@@ -28,7 +28,7 @@ class ResearchLimitsDialog(QDialog):
         current=chat_limits(values)
         for name,(minimum,maximum) in CHAT_LIMIT_FIELDS.items():
             box=QSpinBox();box.setObjectName('researchLimit_'+name);box.setRange(minimum,maximum);box.setValue(int(getattr(current,name)));self.fields[name]=box;form.addRow(labels[name],box)
-        hint=QLabel(self.tr('Limits apply to this chat, including route attempts. The request timeout covers waiting for the first token and the full response; the total turn limit may end it sooner. Larger limits can increase time and provider charges.'));hint.setWordWrap(True);layout.addWidget(hint)
+        hint=QLabel(self.tr('Limits apply to new Chat runs, including route attempts. The request timeout covers waiting for the first token and the full response; the total turn limit may end it sooner. Larger limits can increase time and provider charges.'));hint.setWordWrap(True);layout.addWidget(hint)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.RestoreDefaults)
         buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject);buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults).clicked.connect(self.reset);layout.addWidget(buttons)
 
@@ -113,12 +113,6 @@ class WebSettings(QDialog):
         for policy in routing.POLICIES:self.default_policy.addItem(policy_label(policy),policy)
         self.default_policy.setCurrentIndex(self.default_policy.findData(defaults['policy'])); layout.addRow(self.tr('Default for this connection'),self.default_policy)
         self.access_policy=QComboBox(); self.access_policy.addItem(self.tr('Public page reads; external search navigation disclosed'),'public_fetch'); self.access_policy.addItem(self.tr('Enforce public-only navigation everywhere'),'strict_public'); self.access_policy.setCurrentIndex(self.access_policy.findData(defaults['access_policy'])); layout.addRow(self.tr('Navigation policy'),self.access_policy)
-        manage=QPushButton(self.tr('Manage ordered search backends…')); manage.clicked.connect(self.manage_backends); layout.addRow(manage)
-        self.backend_label=QLabel(); layout.addRow(self.tr('Key for first saved backend'),self.backend_label); self.select_backend()
-        self.key=QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password); self.key.setPlaceholderText(self.tr('Blank keeps the saved key or matching search-provider environment key'))
-        layout.addRow(self.tr('Separate search API key'),self.key)
-        self.remove=QCheckBox(self.tr('Remove this saved search key')); layout.addRow(self.remove)
-        self.plain=QCheckBox(self.tr('Store new search key as plaintext (explicit fallback)')); layout.addRow(self.plain);self.select_backend()
         current=research.capability(self.store.config,c)
         self.allow=QCheckBox(self.tr('Enable managed tool requests for this endpoint/model'))
         self.allow.setEnabled(core_managed(c)); self.allow.setChecked(current.state in ('configured','verified')); layout.addRow(self.allow)
@@ -128,22 +122,9 @@ class WebSettings(QDialog):
         states={'unknown':self.tr('unknown'),'configured':self.tr('configured'),'verified':self.tr('verified'),'unsupported':self.tr('unsupported')}
         status=self.tr('Model: {model} · managed: {managed} · hosted: {hosted}\nEnabling is configuration, not verification. Hosted search requires the official OpenAI Responses endpoint and a model that supports web_search. No background inference probes are run.')
         label=QLabel(status.format(model=c.get('model',''),managed=states[current.state],hosted=states[hosted_cap.state])); label.setTextFormat(Qt.TextFormat.PlainText); label.setWordWrap(True); layout.addRow(label)
-        info=QLabel(self.tr('Configure per-chat limits using Research limits. One retry per route is allowed on explicit 429/503 rejection, with bounded Retry-After. Partial or uncertain work always requires explicit restart.')); info.setWordWrap(True); layout.addRow(info)
+        info=QLabel(self.tr('Configure global limits and search providers in Settings. One retry per route is allowed on explicit 429/503 rejection, with bounded Retry-After. Partial or uncertain work always requires explicit restart.')); info.setWordWrap(True); layout.addRow(info)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); layout.addRow(buttons)
-
-    def select_backend(self):
-        entries=self.store.web_backend_specs()
-        self.backend_id=entries[0]['id'] if entries else 'builtin-firecrawl-keyless'
-        self.backend_label.setText(entries[0].get('name','Search') if entries else self.tr('Firecrawl Keyless (default)'))
-        keyless=not entries or entries[0].get('kind')=='firecrawl-keyless'
-        if hasattr(self,'key'):
-            self.key.setEnabled(not keyless);self.remove.setEnabled(not keyless);self.plain.setEnabled(not keyless)
-            if keyless:self.key.clear();self.remove.setChecked(False);self.plain.setChecked(False)
-
-    def manage_backends(self):
-        SearchBackends(self,self.store).exec(); self.select_backend()
-
 
 def core_managed(c):
     from . import core

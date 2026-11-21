@@ -9,12 +9,12 @@ from .mcp_support import MAX_OUTPUT,validate_servers,initialize_request,parse_in
 class MCPServers(QDialog):
     def __init__(self,window):
         super().__init__(window);self.store=window.store;self.setWindowTitle(self.tr('MCP servers'));self.resize(680,520)
-        self.process=None;self.remote=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test('Connection test timed out.'))
+        self.process=None;self.remote=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test(self.tr('Connection test timed out.')))
         outer=QVBoxLayout(self);scroll=QScrollArea();scroll.setObjectName('mcpSettingsScroll');scroll.setWidgetResizable(True);outer.addWidget(scroll)
         content=QWidget();scroll.setWidget(content);layout=QVBoxLayout(content)
         notice=QLabel(self.tr('Servers can access your data. Local commands and arguments are stored in plaintext; do not put secrets in them.'));notice.setWordWrap(True);layout.addWidget(notice)
         self.list=QListWidget();layout.addWidget(self.list);self.list.currentRowChanged.connect(self.load_row)
-        form=QFormLayout();layout.addLayout(form);self.name=QLineEdit();self.transport=QComboBox();self.transport.addItems(['Local stdio','Remote HTTPS']);self.command=QLineEdit();self.args=QPlainTextEdit();self.args.setPlaceholderText('["argument", "argument"]');self.args.setMaximumHeight(80);self.env=QPlainTextEdit();self.env.setPlaceholderText('{"TARGET_NAME": "EXISTING_ENV_NAME"}');self.env.setMaximumHeight(70);self.env.setToolTip(self.tr('Map environment variable names to existing variables in Agentnik’s environment. Values are never stored in settings.'));self.url=QLineEdit();self.url.setPlaceholderText('https://mcp.parallel.ai/mcp');self.token=QLineEdit();self.token.setEchoMode(QLineEdit.EchoMode.Password);self.token.setPlaceholderText(self.tr('Leave blank to keep the saved credential'));self.enabled=QCheckBox(self.tr('Enabled'));self.enabled.setChecked(True)
+        form=QFormLayout();layout.addLayout(form);self.name=QLineEdit();self.transport=QComboBox();self.transport.addItems([self.tr('Local stdio'),self.tr('Remote HTTPS')]);self.command=QLineEdit();self.args=QPlainTextEdit();self.args.setPlaceholderText('["argument", "argument"]');self.args.setMaximumHeight(80);self.env=QPlainTextEdit();self.env.setPlaceholderText('{"TARGET_NAME": "EXISTING_ENV_NAME"}');self.env.setMaximumHeight(70);self.env.setToolTip(self.tr('Map environment variable names to existing variables in Agentnik’s environment. Values are never stored in settings.'));self.url=QLineEdit();self.url.setPlaceholderText('https://mcp.parallel.ai/mcp');self.token=QLineEdit();self.token.setEchoMode(QLineEdit.EchoMode.Password);self.token.setPlaceholderText(self.tr('Leave blank to keep the saved credential'));self.enabled=QCheckBox(self.tr('Enabled'));self.enabled.setChecked(True)
         self.timeout=QSpinBox();self.timeout.setObjectName('mcpTimeout');self.timeout.setRange(1,MAX_TIMEOUT_SECONDS);self.timeout.setValue(DEFAULT_TIMEOUT_SECONDS);self.timeout.setSuffix(self.tr(' seconds'));self.timeout.setToolTip(self.tr('Maximum time for an MCP operation, including discovery or tool verification. Coding run limits may end it sooner.'))
         self.working_directory=QLineEdit();self.working_directory.setObjectName('mcpWorkingDirectory');self.working_directory.setPlaceholderText(self.tr('Optional absolute path; blank uses Agentnik working directory'))
         self.working_directory_button=QPushButton(self.tr('Browse…'));self.working_directory_button.clicked.connect(self.choose_working_directory)
@@ -35,7 +35,7 @@ class MCPServers(QDialog):
 
     def populate(self):
         self.list.clear()
-        for server in self.store.config.get('mcp_servers',[]):self.list.addItem(server['name']+('' if server['enabled'] else ' (disabled)'))
+        for server in self.store.config.get('mcp_servers',[]):self.list.addItem(server['name']+('' if server['enabled'] else self.tr(' (disabled)')))
 
     def choose_working_directory(self):
         path=QFileDialog.getExistingDirectory(self,self.tr('Choose MCP working directory'),self.working_directory.text())
@@ -45,7 +45,7 @@ class MCPServers(QDialog):
         self.list.setCurrentRow(-1);self.name.clear();self.transport.setCurrentIndex(0);self.command.clear();self.args.setPlainText('[]');self.working_directory.clear();self.env.setPlainText('{}');self.url.clear();self.token.clear();self.timeout.setValue(DEFAULT_TIMEOUT_SECONDS);self.enabled.setChecked(True)
 
     def load_row(self,index):
-        if self.process:self.finish_test('Local MCP session closed.')
+        if self.process:self.finish_test(self.tr('Local MCP session closed.'))
         self.tool_details.clear();self.tool_choice.clear();self.tool_result.clear();self.discovered=None
         entries=self.store.config.get('mcp_servers',[])
         if 0<=index<len(entries):
@@ -139,7 +139,7 @@ class MCPServers(QDialog):
 
     def local_discovered(self,result):
         self.remote_done(result)
-        self.status.setText(self.status.text()+' · local session active')
+        self.status.setText(self.status.text()+self.tr(' · local session active'))
 
     def local_called(self,result):
         if 'error' in result:self.status.setText(result['error']);return
@@ -149,7 +149,7 @@ class MCPServers(QDialog):
         session=self.process;self.process=None;self.call_tool=None
         if session:session.deleteLater()
         self.discovered=None;self.tool_choice.clear()
-        self.status.setText(result['error']+(' The call may have completed; inspect server state before retrying.' if result.get('call_uncertain') else ''))
+        self.status.setText(result['error']+(self.tr(' The call may have completed; inspect server state before retrying.') if result.get('call_uncertain') else ''))
 
     def finish_test(self,message):
         process=self.process
@@ -159,7 +159,7 @@ class MCPServers(QDialog):
     def done(self,result):
         self._closed=True
         if self.validation_job:self.validation_job.cancel.set()
-        if self.process:self.finish_test('Connection test cancelled.')
+        if self.process:self.finish_test(self.tr('Connection test cancelled.'))
         if self.remote:self.remote.stop()
         super().done(result)
 
@@ -178,18 +178,18 @@ class MCPServers(QDialog):
     def remote_done(self,result):
         probe=self.remote;self.remote=None
         if probe:probe.deleteLater()
-        if 'error' in result:self.status.setText(result['error']+(' Session close not confirmed.' if result.get('session_closed') is False else ''));return
+        if 'error' in result:self.status.setText(result['error']+(self.tr(' Session close not confirmed.') if result.get('session_closed') is False else ''));return
         self.discovered={'config':self.discovered_config,'tools':result.get('tool_details',[])}
         self.tool_choice.clear();self.tool_choice.addItems([item['name'] for item in self.discovered['tools']])
-        self.status.setText('Connected: '+result['name']+' '+result['version']+' · MCP '+result['protocol']+' · tools: '+(', '.join(result.get('tools',[])) or 'none')+(' (more available)' if result.get('more_tools') else '')+(' · session close not confirmed' if result.get('session_closed') is False else ''))
+        self.status.setText(self.tr('Connected: {name} {version} · MCP {protocol} · tools: {tools}').format(name=result['name'],version=result['version'],protocol=result['protocol'],tools=', '.join(result.get('tools',[])) or self.tr('none'))+(self.tr(' (more available)') if result.get('more_tools') else '')+(self.tr(' · session close not confirmed') if result.get('session_closed') is False else ''))
         sections=[]
         for detail in result.get('tool_details',[]):
-            description=detail['description'] or '(no description)'
-            if detail['description_clipped']:description+='\n[Description truncated or unavailable]'
-            schema=json.dumps(detail['schema'],ensure_ascii=True,indent=2) if detail['schema_status']=='available' else '[Input schema '+detail['schema_status']+']'
-            hints=('\nServer-supplied hints (untrusted): '+json.dumps(detail['annotations'],ensure_ascii=True) if detail.get('annotations') else '')
-            output=('\nOutput schema:\n'+(json.dumps(detail['output_schema'],ensure_ascii=True,indent=2) if detail.get('output_schema_status')=='available' else '[Output schema unavailable]')) if 'output_schema_status' in detail else ''
-            sections.append(detail['name']+'\n'+description+hints+'\nTask execution: '+detail.get('task_support','forbidden')+'\nInput schema:\n'+schema+output)
+            description=detail['description'] or self.tr('(no description)')
+            if detail['description_clipped']:description+='\n'+self.tr('[Description truncated or unavailable]')
+            schema=json.dumps(detail['schema'],ensure_ascii=True,indent=2) if detail['schema_status']=='available' else self.tr('[Input schema {status}]').format(status=detail['schema_status'])
+            hints=('\n'+self.tr('Server-supplied hints (untrusted): ')+json.dumps(detail['annotations'],ensure_ascii=True) if detail.get('annotations') else '')
+            output=('\n'+self.tr('Output schema:')+'\n'+(json.dumps(detail['output_schema'],ensure_ascii=True,indent=2) if detail.get('output_schema_status')=='available' else self.tr('[Output schema unavailable]'))) if 'output_schema_status' in detail else ''
+            sections.append(detail['name']+'\n'+description+hints+'\n'+self.tr('Task execution: ')+detail.get('task_support','forbidden')+'\n'+self.tr('Input schema:')+'\n'+schema+output)
         self.tool_details.setPlainText('\n\n'.join(sections))
 
     def call_remote(self):
@@ -247,7 +247,7 @@ class MCPServers(QDialog):
         if probe:probe.deleteLater()
         if 'error' in result:
             self.call_tool=None
-            self.status.setText(result['error']+(' The call may have reached the server; inspect its state before retrying.' if result.get('call_uncertain') else '')+(' Session close not confirmed.' if result.get('session_closed') is False else ''));return
+            self.status.setText(result['error']+(self.tr(' The call may have reached the server; inspect its state before retrying.') if result.get('call_uncertain') else '')+(self.tr(' Session close not confirmed.') if result.get('session_closed') is False else ''));return
         self.show_call_result(result)
 
     def show_call_result(self,result):
@@ -257,8 +257,8 @@ class MCPServers(QDialog):
             if self._closed:return
             outcome=result.get('call_result',{})
             self.tool_result.setPlainText(json.dumps(outcome,ensure_ascii=True,indent=2))
-            message=self.tr('Tool returned an error.' if outcome.get('isError') else 'Tool call completed.') if valid else self.tr('Structured output failed validation; the tool may have completed. Inspect server state before retrying.')
-            self.status.setText(message+(' Session close not confirmed.' if result.get('session_closed') is False else ''))
+            message=(self.tr('Tool returned an error.') if outcome.get('isError') else self.tr('Tool call completed.')) if valid else self.tr('Structured output failed validation; the tool may have completed. Inspect server state before retrying.')
+            self.status.setText(message+(self.tr(' Session close not confirmed.') if result.get('session_closed') is False else ''))
         if 'output_schema_status' not in tool:display(True);return
         from .mcp_schema import validate_tool_result
         from .ui import Job

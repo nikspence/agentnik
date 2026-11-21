@@ -57,3 +57,5 @@ Ordinary tests use temporary storage and do not issue live inference. Build and 
 ## License
 
 Apache-2.0. Copyright 2026 Nikolaus Spence. Sole author: Nikolaus Spence.
+
+The toolbar **Web Search** switch applies to new Chat and Code runs. Use **Settings** for shared search providers, research and coding limits, optional Decision-model shell advice, and TLS verification. Select the Code model at the top of each Code pane. Settings changed during a run apply to the next run. Previously saved per-tab web, limit, and Decision settings remain in history but are no longer used; Web Search defaults off.

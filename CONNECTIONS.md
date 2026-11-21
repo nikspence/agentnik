@@ -14,6 +14,6 @@ Sessions use local SQLite storage. Default data directories are `%LOCALAPPDATA%\
 
 ## TLS settings
 
-By default, model endpoints, direct public-page reads, search and retrieval provider APIs, and remote MCP servers verify TLS certificates and hostnames. **TLS settings** in the main toolbar offers **Relax TLS verification globally** for networks that intercept TLS. Save the setting and restart Agentnik to apply it; the toolbar shows **TLS: relaxed** while it is active. Turning it off and restarting restores verification.
+By default, model endpoints, direct public-page reads, search and retrieval provider APIs, and remote MCP servers verify TLS certificates and hostnames. **Settings** in the main toolbar offers **Relax TLS verification globally** for networks that intercept TLS. Save the setting and restart Agentnik to apply it; the toolbar shows **Settings · TLS relaxed** while it is active. Turning it off and restarting restores verification.
 
 Relaxed TLS permits a network intermediary to impersonate services, read API keys, prompts and other traffic, and alter responses. Public-address checks, redirect policies, and other request limits still apply. The setting affects Agentnik network transports, not external processes launched by approved shell commands or local MCP servers, nor browsing inside hosted providers.

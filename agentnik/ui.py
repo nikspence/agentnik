@@ -458,10 +458,7 @@ class SessionTab(QWidget):
         self.info = SessionStatus(self); self.info.setTextFormat(Qt.TextFormat.PlainText)
         if session['mode'] == 'chat':
             web_row = QHBoxLayout()
-            self.web_access = QCheckBox(self.tr('Web access'))
-            self.web_access.setChecked(session.get('research_options',{}).get('enabled',False))
-            self.web_access.setToolTip(self.tr('Search queries go to Ollama.com; page reads go directly to public websites.'))
-            web_row.addWidget(self.web_access)
+            self.web_access = window.web_search
             self.route_policy=QComboBox(); self.route_policy.setAccessibleName(self.tr('Research route policy'))
             self.route_policy.addItem(self.tr('Connection default'),None)
             for policy in routing.POLICIES: self.route_policy.addItem(policy_label(policy),policy)
@@ -471,9 +468,7 @@ class SessionTab(QWidget):
             web_row.addWidget(self.route_policy)
             self.route_policy.currentIndexChanged.connect(self.save_draft)
 
-            self.web_settings = button(self.tr('Web settings…'),self.configure_web,web_row)
-            self.research_limits_button=button(self.tr('Research limits…'),self.configure_research_limits,web_row); web_row.addStretch()
-            self.web_access.toggled.connect(self.save_draft)
+            web_row.addStretch()
             mcp_row=QHBoxLayout();mcp_row.addWidget(QLabel(self.tr('MCP server:')))
             self.mcp_choice=QComboBox();self.mcp_choice.setAccessibleName(self.tr('Chat MCP server'));self.mcp_choice.setToolTip(self.tr('Optional server for this chat. MCP tools run without approval and may write data or perform other actions. Tool results are sent to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
             self.mcp_refresh=button(self.tr('Refresh MCP'),self.refresh_chat_mcp,mcp_row)
@@ -623,7 +618,6 @@ class SessionTab(QWidget):
         dlg = WebSettings(self,c)
         while dlg.exec() == QDialog.DialogCode.Accepted:
             try:
-                self.store.save_web_key(dlg.key.text().strip(),dlg.plain.isChecked(),dlg.remove.isChecked(),ident=dlg.backend_id)
                 for field,checkbox in [('managed_tools',dlg.allow),('hosted_search',dlg.allow_hosted)]:
                     previous=research.capability(self.store.config,c,field)
                     state=previous.state if checkbox.isChecked() and previous.state=='verified' else 'configured' if checkbox.isChecked() and checkbox.isEnabled() else 'unknown'
@@ -633,9 +627,9 @@ class SessionTab(QWidget):
             except Exception as exc: error(self,exc)
 
     def configure_research_limits(self):
-        dialog=ResearchLimitsDialog(self,self.session.get('research_options',{}).get('limits'))
+        settings=self.store.config['settings'];dialog=ResearchLimitsDialog(self,settings.get('chat_research_limits'))
         if dialog.exec()==QDialog.DialogCode.Accepted:
-            self.session.setdefault('research_options',{})['limits']=dialog.values();self.save_draft()
+            settings['chat_research_limits']=dialog.values();self.store.flush()
 
     def refresh_chat_mcp(self):
         from .mcp_support import server_fingerprint
@@ -777,7 +771,7 @@ class SessionTab(QWidget):
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
         if self.session['mode'] == 'chat':
             options=self.session.get('research_options',{})
-            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={'enabled':self.web_access.isChecked(),'policy':self.route_policy.currentData(),'local_tools':self.local_tools.isChecked(),'mcp':copy.deepcopy(self.mcp_choice.currentData()),**({'limits':copy.deepcopy(options['limits'])} if 'limits' in options else {})})
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={**options,'policy':self.route_policy.currentData(),'local_tools':self.local_tools.isChecked(),'mcp':copy.deepcopy(self.mcp_choice.currentData())})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -789,7 +783,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-            self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.web_access.setEnabled(not value); self.web_settings.setEnabled(not value); self.research_limits_button.setEnabled(not value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
+            self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.local_tools.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value); self.route_policy.setEnabled(not value and not self.local_tools.isChecked())
     def submit(self,continuation=False):
         if self.job: return
         try:
@@ -827,7 +821,7 @@ class SessionTab(QWidget):
             self.research_running = mode=='chat' and (self.web_access.isChecked() or self.local_tools.isChecked() or bool(mcp_ref))
             key = ''; backend_specs=[]; research_config={}; selected_policy=None; access_policy='public_fetch';research_limits=None
             if self.research_running:
-                research_limits=chat_limits(self.session.get('research_options',{}).get('limits'))
+                research_limits=chat_limits(self.store.config['settings'].get('chat_research_limits'))
                 defaults=routing.connection_defaults(self.store.config,self.session['connection_name'],c)
                 selected_policy=self.route_policy.currentData() or defaults['policy']; access_policy=defaults['access_policy']
                 if mcp_ref:
@@ -1006,6 +1000,93 @@ class LegacyDecisionTab(QWidget):
     def save_draft(self):pass
     def cancel(self):pass
 
+class SettingsDialog(QDialog):
+    def __init__(self,window):
+        super().__init__(window);self.window=window;self.store=window.store;self.setWindowTitle(self.tr('Settings'));self.resize(700,550)
+        settings=self.store.config['settings'];outer=QVBoxLayout(self);scroll=QScrollArea();scroll.setWidgetResizable(True);outer.addWidget(scroll);content=QWidget();scroll.setWidget(content);layout=QVBoxLayout(content)
+        notice=QLabel(self.tr('Settings apply to new Chat and Code runs. Existing runs keep their original settings. Search provider changes are saved immediately.'));notice.setWordWrap(True);layout.addWidget(notice)
+        legacy=QLabel(self.tr('Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web Search starts off.'));legacy.setWordWrap(True);layout.addWidget(legacy)
+        self.relaxed=QCheckBox(self.tr('Relax TLS verification globally'));self.relaxed.setChecked(settings.get('relaxed_tls',False));layout.addWidget(self.relaxed)
+        tls_notice=QLabel(self.tr('Relaxing TLS disables certificate and hostname verification for Agentnik network connections. Intermediaries can read or change traffic. Restart Agentnik to apply this setting.'));tls_notice.setWordWrap(True);layout.addWidget(tls_notice)
+        appearance=QFormLayout();layout.addLayout(appearance);self.theme=QComboBox()
+        for label,value in ((self.tr('System'),'System'),(self.tr('Light'),'Light'),(self.tr('Dark'),'Dark')):self.theme.addItem(label,value)
+        self.theme.setCurrentIndex(max(0,self.theme.findData(settings.get('theme','System'))));appearance.addRow(self.tr('Theme'),self.theme)
+        self.language=QComboBox();self.language.setToolTip(self.tr('Language changes take effect after restarting Agentnik.'))
+        for code,name in localization.choices():self.language.addItem(self.tr('System default') if code=='system' else name,code)
+        saved_language=settings.get('language','system')
+        if self.language.findData(saved_language)<0:self.language.addItem(saved_language+self.tr(' (unavailable)'),saved_language)
+        self.language.setCurrentIndex(self.language.findData(saved_language));appearance.addRow(self.tr('Language'),self.language)
+        from .code_limits import coding_limits,goal_limits
+        self.coding_limits=coding_limits(settings.get('coding_limits'));self.goal_limits=goal_limits(settings.get('coding_goal_limits'))
+        self.chat_limits=copy.deepcopy(settings.get('chat_research_limits'))
+        button(self.tr('Search providers…'),self.search_providers,layout)
+        button(self.tr('Connection research settings…'),self.connection_research,layout)
+        button(self.tr('Code and goal limits…'),self.code_limits,layout)
+        button(self.tr('Chat research limits…'),self.research_limits,layout)
+        button(self.tr('Forget remembered subagent tool support'),self.forget_subagents,layout)
+        form=QFormLayout();layout.addLayout(form);self.decision_connection=QComboBox();self.decision_connection.setObjectName('globalDecisionConnection');self.decision_connection.addItem(self.tr('Not configured'),'')
+        for name in window.connections:self.decision_connection.addItem(name,name)
+        saved=settings.get('decision_model',{});name=saved.get('connection','')
+        if name and self.decision_connection.findData(name)<0:self.decision_connection.addItem(name+self.tr(' (unavailable)'),name)
+        self.decision_connection.setCurrentIndex(max(0,self.decision_connection.findData(name)));form.addRow(self.tr('Decision connection'),self.decision_connection)
+        self.decision_model=QLineEdit(saved.get('model',''));self.decision_model.setObjectName('globalDecisionModel');model_row=QHBoxLayout();model_row.addWidget(self.decision_model,1);button(self.tr('Choose model…'),self.choose_decision_model,model_row);form.addRow(self.tr('Decision model'),model_row)
+        self.decision_connection.currentIndexChanged.connect(lambda _:self.decision_model.setText(window.connections.get(self.decision_connection.currentData(),{}).get('model','')))
+        self.advice=QCheckBox(self.tr('Check shell approvals with Decision model'));self.advice.setChecked(settings.get('decision_advice_enabled',False));layout.addWidget(self.advice)
+        disclosure=QLabel(self.tr('Advice sends the command, working directory, shell and environment variable names to the Decision endpoint; it never approves commands.'));disclosure.setWordWrap(True);layout.addWidget(disclosure)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(self.accept);buttons.rejected.connect(self.reject);outer.addWidget(buttons);self.model_job=None
+    def search_providers(self):
+        from .research_ui import SearchBackends
+        SearchBackends(self,self.store).exec()
+    def connection_research(self):
+        tab=self.window.tabs.currentWidget()
+        if isinstance(tab,SessionTab):
+            tab.configure_web();return
+        if not hasattr(tab,'roles'):
+            QMessageBox.information(self,self.tr('Research settings'),self.tr('Open a Chat or Code tab to configure its connection and model capabilities.'));return
+        name=tab.roles['heavy'][0].currentData()
+        try:c=tab.role_connection('heavy')
+        except ValueError:c=None
+        if not c or not c.get('model'):
+            QMessageBox.information(self,self.tr('Research settings'),self.tr('Select a Code connection and model first.'));return
+        self.session={'connection_name':name};dlg=WebSettings(self,c)
+        while dlg.exec()==QDialog.DialogCode.Accepted:
+            try:
+                for field,checkbox in [('managed_tools',dlg.allow),('hosted_search',dlg.allow_hosted)]:
+                    previous=research.capability(self.store.config,c,field)
+                    state=previous.state if checkbox.isChecked() and previous.state=='verified' else 'configured' if checkbox.isChecked() and checkbox.isEnabled() else 'unknown'
+                    research.set_capability(self.store.config,c,state,'Enabled by user; no live verification' if state=='configured' else previous.evidence if state=='verified' else '',field)
+                routing.save_defaults(self.store.config,name,c,dlg.default_policy.currentData(),dlg.access_policy.currentData());self.store.flush();return
+            except Exception as exc:error(self,exc)
+    def code_limits(self):
+        from .code_ui import CodingLimitsDialog
+        dialog=CodingLimitsDialog(self,self.coding_limits,self.goal_limits)
+        if dialog.exec()==QDialog.DialogCode.Accepted:self.coding_limits=dialog.values();self.goal_limits=dialog.goal_values()
+    def research_limits(self):
+        dialog=ResearchLimitsDialog(self,self.chat_limits)
+        if dialog.exec()==QDialog.DialogCode.Accepted:self.chat_limits=dialog.values()
+    def choose_decision_model(self):
+        name=self.decision_connection.currentData();connection=dict(self.window.connections.get(name,{}))
+        if not connection or self.model_job:return
+        def done(names):
+            self.model_job=None
+            if not self.isVisible() or self.decision_connection.currentData()!=name:return
+            choices=[value for value in names if isinstance(value,str) and len(value)<=512][:2000]
+            model,ok=QInputDialog.getItem(self,self.tr('Choose Decision model'),self.tr('Model alias:'),choices,0,True)
+            if ok:self.decision_model.setText(model)
+        def failed(_):
+            self.model_job=None
+            if self.isVisible():QMessageBox.warning(self,self.tr('Settings'),self.tr('Model listing failed. You can enter an alias manually.'))
+        self.model_job=Job(lambda *_:core.models(connection),done,failed)
+    def forget_subagents(self):
+        self.store.config.pop('subagent_tool_capabilities',None);self.store.flush()
+    def accept(self):
+        if self.advice.isChecked() and (not self.decision_connection.currentData() or not self.decision_model.text().strip()):
+            QMessageBox.warning(self,self.tr('Settings'),self.tr('Choose a Decision connection and model before enabling advice.'));return
+        settings=self.store.config['settings'];settings.update(relaxed_tls=self.relaxed.isChecked(),coding_limits=self.coding_limits,coding_goal_limits=self.goal_limits,decision_advice_enabled=self.advice.isChecked(),decision_model={'connection':self.decision_connection.currentData(),'model':self.decision_model.text().strip()})
+        if self.chat_limits is not None:settings['chat_research_limits']=self.chat_limits
+        settings['theme']=self.theme.currentData();settings['language']=self.language.currentData()
+        self.store.flush();self.window.apply_theme();super().accept()
+
 class Window(QMainWindow):
     def __init__(self,store):
         super().__init__(); self.store = store; self.repositories=RepositoryRegistry(store); self.local = {}; self.connections = {}; self.setWindowTitle('Agentnik'); self.resize(1320,850)
@@ -1015,16 +1096,11 @@ class Window(QMainWindow):
         self.brand = QLabel(); self.brand.setContentsMargins(2,0,12,0); toolbar.addWidget(self.brand)
         for text, fn in [(self.tr('☰ History'),self.toggle_history),(self.tr('☆ Prompts'),self.toggle_prompts),(self.tr('＋ Chat'),lambda:self.new_session('chat')),(self.tr('＋ Code'),self.new_code),(self.tr('Repositories'),self.manage_repositories),(self.tr('Connections'),self.manage_connections),(self.tr('MCP servers'),self.manage_mcp_servers)]:
             action = QAction(text,self); action.triggered.connect(fn); toolbar.addAction(action)
-        self.tls_action=QAction(self.tr('TLS: relaxed') if tls.relaxed() else self.tr('TLS settings'),self);self.tls_action.triggered.connect(self.configure_tls);toolbar.addAction(self.tls_action)
-        toolbar.addSeparator(); toolbar.addWidget(QLabel(self.tr('Theme: '))); self.theme = QComboBox(); self.theme.addItems(['System','Light','Dark']); toolbar.addWidget(self.theme); self.theme.setCurrentText(store.config['settings'].get('theme','System')); self.theme.currentTextChanged.connect(self.apply_theme)
-        toolbar.addWidget(QLabel(self.tr('Language: ')));self.language=QComboBox();self.language.setToolTip(self.tr('Language changes take effect after restarting Agentnik.'))
-        for code,name in localization.choices():self.language.addItem(self.tr('System default') if code=='system' else name,code)
-        saved_language=store.config['settings'].get('language','system')
-        if self.language.findData(saved_language)<0:self.language.addItem(saved_language+' (unavailable)',saved_language)
-        self.language.setCurrentIndex(self.language.findData(saved_language));toolbar.addWidget(self.language)
-        self.language.currentIndexChanged.connect(self.save_language)
-        self.font_smaller = QPushButton('A−'); self.font_smaller.setAccessibleName(self.tr('Decrease font size')); self.font_smaller.setToolTip(self.tr('Decrease font size')); self.font_smaller.clicked.connect(lambda:self.adjust_font_size(-1)); toolbar.addWidget(self.font_smaller)
-        self.font_larger = QPushButton('A+'); self.font_larger.setAccessibleName(self.tr('Increase font size')); self.font_larger.setToolTip(self.tr('Increase font size')); self.font_larger.clicked.connect(lambda:self.adjust_font_size(1)); toolbar.addWidget(self.font_larger)
+        controls=self.addToolBar('Display and settings');controls.setMovable(False)
+        self.font_smaller = QPushButton('A−'); self.font_smaller.setAccessibleName(self.tr('Decrease font size')); self.font_smaller.setToolTip(self.tr('Decrease font size')); self.font_smaller.clicked.connect(lambda:self.adjust_font_size(-1)); controls.addWidget(self.font_smaller)
+        self.font_larger = QPushButton('A+'); self.font_larger.setAccessibleName(self.tr('Increase font size')); self.font_larger.setToolTip(self.tr('Increase font size')); self.font_larger.clicked.connect(lambda:self.adjust_font_size(1)); controls.addWidget(self.font_larger)
+        self.web_search=QCheckBox(self.tr('Web Search'));self.web_search.setObjectName('globalWebSearch');self.web_search.setToolTip(self.tr('Enable web search and public-page retrieval for new Chat and Code runs.'));self.web_search.setChecked(store.config['settings'].get('web_search_enabled',False));self.web_search.toggled.connect(self.save_global_web_search);controls.addWidget(self.web_search)
+        self.settings_action=QAction(self.tr('Settings · TLS relaxed') if tls.relaxed() else self.tr('Settings'),self);self.settings_action.triggered.connect(self.configure_settings);controls.addAction(self.settings_action);controls.setMinimumWidth(controls.sizeHint().width())
         self.split = QSplitter(); self.setCentralWidget(self.split)
         self.sidebar = QWidget(); side = QVBoxLayout(self.sidebar); side.addWidget(QLabel(self.tr('History')))
         self.search = QLineEdit(); self.search.setPlaceholderText(self.tr('Search conversations')); self.search.textChanged.connect(self.refresh_history); side.addWidget(self.search)
@@ -1050,19 +1126,18 @@ class Window(QMainWindow):
         hint = QLabel(self.tr('Open a chat or Code tab to begin.\nConnections are discovered from your environment and local servers.')); hint.setAlignment(Qt.AlignmentFlag.AlignCenter); hint.setWordWrap(True); welcome.addWidget(hint); welcome.addStretch()
         self.tabs.addTab(self.empty,self.tr('Welcome')); self.update_branding()
         QApplication.styleHints().colorSchemeChanged.connect(self.system_theme_changed)
-    def configure_tls(self):
-        dlg=QDialog(self);dlg.setWindowTitle(self.tr('TLS settings'));layout=QVBoxLayout(dlg)
-        notice=QLabel(self.tr('Relaxing TLS disables certificate and hostname verification for model endpoints, direct public page reads, search and retrieval providers, and remote MCP servers. A network intermediary can impersonate services, read credentials and requests, and alter responses. Use only when you accept this risk. Restart Agentnik to apply changes.'));notice.setWordWrap(True);layout.addWidget(notice)
-        checkbox=QCheckBox(self.tr('Relax TLS verification globally'));checkbox.setChecked(self.store.config['settings'].get('relaxed_tls',False));layout.addWidget(checkbox)
-        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dlg.accept);buttons.rejected.connect(dlg.reject);layout.addWidget(buttons)
-        if dlg.exec()==QDialog.DialogCode.Accepted:
-            self.store.config['settings']['relaxed_tls']=checkbox.isChecked();self.store.flush()
-            self.statusBar().showMessage(self.tr('TLS setting saved; restart Agentnik to apply it.'))
-    def save_language(self,*_):
-        self.store.config['settings']['language']=self.language.currentData();self.store.flush()
-        self.statusBar().showMessage(self.tr('Language choice saved; restart Agentnik to apply it.'))
+    def configure_settings(self):
+        if SettingsDialog(self).exec()==QDialog.DialogCode.Accepted:self.statusBar().showMessage(self.tr('Settings saved. Language and TLS changes apply after restart.'))
+    def save_global_web_search(self,enabled):
+        self.store.config['settings']['web_search_enabled']=bool(enabled);self.store.flush()
+    def decision_connection(self):
+        settings=self.store.config['settings'];binding=settings.get('decision_model',{})
+        if not settings.get('decision_advice_enabled',False):return None,''
+        name=binding.get('connection','');connection=dict(self.connections.get(name,{}));connection['model']=binding.get('model','').strip()
+        if not connection.get('url') or not connection['model']:raise ValueError(self.tr('Choose an available Decision connection and model in Settings.'))
+        return connection,name+' / '+connection['model']+' / '+core.endpoint(connection,'decision')
     def apply_theme(self,*_):
-        value = self.theme.currentText(); self.store.config['settings']['theme'] = value; self.store.flush()
+        value = self.store.config['settings'].get('theme','System'); self.store.flush()
         scheme = {'Light':Qt.ColorScheme.Light,'Dark':Qt.ColorScheme.Dark}.get(value,Qt.ColorScheme.Unknown)
         QApplication.styleHints().setColorScheme(scheme)
         dark = value == 'Dark' or (value == 'System' and QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark)
@@ -1084,10 +1159,10 @@ class Window(QMainWindow):
     def adjust_font_size(self,delta):
         self.apply_font_size(self.store.config['settings'].get('font_size',self.font().pointSize())+delta)
     def system_theme_changed(self,*_):
-        if self.theme.currentText() == 'System': self.apply_theme()
+        if self.store.config['settings'].get('theme','System') == 'System': self.apply_theme()
         else: self.update_branding()
     def update_branding(self,*_):
-        dark = self.theme.currentText() == 'Dark' or (self.theme.currentText() == 'System' and QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark)
+        dark = self.store.config['settings'].get('theme','System') == 'Dark' or (self.store.config['settings'].get('theme','System') == 'System' and QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark)
         assets = Path(__file__).parent/'assets'
         self.brand_variant = 'dark' if dark else 'light'
         path = assets/f'agentnik-{self.brand_variant}.svg'

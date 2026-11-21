@@ -332,7 +332,7 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertIn('Steering not delivered: Queued correction',json.dumps(session['code_activity']));self.assertNotIn('Queued correction',session['coding_resume']['evidence'])
                 saved=next(row for row in store.list_sessions() if row['id']==session['id']);window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);tab=window.tabs.currentWidget()
                 self.assertTrue(tab.continue_button.isEnabled());self.assertEqual(tab.composer.toPlainText(),'Unsent next task');self.assertEqual(tab.steering_input.text(),'Unsent steering')
-                tab.session['coding_goal_progress']={'steps':3,'seconds':999};tab.session['coding_goal_limits']={'steps':1,'seconds':10};store.save(tab.session)
+                tab.session['coding_goal_progress']={'steps':3,'seconds':999};store.config['settings']['coding_goal_limits']={'steps':1,'seconds':10};store.save(tab.session)
                 replies=[Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Checked result'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
                 def answer(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
                 with patch.object(core,'open_request',side_effect=answer):tab.continue_coding();settle(lambda:tab.job is None)
@@ -398,7 +398,7 @@ class CodingWorkspace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
             try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);session['coding_goal_limits']={'steps':1,'seconds':0};store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.config['settings']['coding_goal_limits']={'steps':1,'seconds':0};store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.goal_enabled.setChecked(True);tab.composer.setPlainText('Original objective')
                 replies=[Wire(chat('First step done'),False),Wire(chat(calls=[call('set_goal_status',{'status':'completed','detail':'Finished remaining work'})],finish='tool_calls'),False),Wire(chat('Done'),False)];bodies=[]
                 def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
@@ -496,6 +496,33 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
                 app.processEvents();store.db.close()
 
+    def test_global_settings_persist_and_web_is_shared(self):
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window,SettingsDialog
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Main':dict(C,stream=False)};window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);code=window.tabs.currentWidget()
+                window.new_session('chat','Main');chat=window.tabs.currentWidget()
+                self.assertIs(code.web_enabled,window.web_search);self.assertIs(chat.web_access,window.web_search)
+                window.web_search.setChecked(True);self.assertTrue(code.web_enabled.isChecked());self.assertTrue(chat.web_access.isChecked())
+                settings=SettingsDialog(window);settings.decision_connection.setCurrentIndex(settings.decision_connection.findData('Main'));settings.decision_model.setText('decision-model');settings.advice.setChecked(True);settings.accept()
+                code.roles['heavy'][0].setCurrentIndex(code.roles['heavy'][0].findData('Main'));code.roles['heavy'][1].setText('model');code.composer.setPlainText('Inspect')
+                window.tabs.setCurrentWidget(code)
+                with patch('agentnik.ui.WebSettings') as research_dialog:
+                    research_dialog.return_value.exec.return_value=0;settings.connection_research();research_dialog.assert_called_once()
+                with patch.object(code,'launch') as launch,patch('agentnik.code_ui.QMessageBox.warning',side_effect=AssertionError):
+                    code.start_coding();run=launch.call_args.args[0]
+                self.assertTrue(run.web_enabled);window.web_search.setChecked(False);self.assertTrue(run.web_enabled)
+                self.assertFalse(chat.web_access.isChecked());self.assertEqual(store.config['settings']['decision_model'],{'connection':'Main','model':'decision-model'})
+            finally:
+                window.close();app.processEvents();store.db.close()
+            reopened=Store(root/'data')
+            try:
+                self.assertFalse(reopened.config['settings']['web_search_enabled']);self.assertTrue(reopened.config['settings']['decision_advice_enabled']);self.assertEqual(reopened.config['settings']['decision_model']['model'],'decision-model')
+            finally:reopened.db.close()
+
     def test_single_model_run_preserves_legacy_assignments(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication
@@ -508,10 +535,8 @@ class CodingWorkspace(unittest.TestCase):
                 ident=window.repositories.put(project);session=window.repositories.session(ident)
                 session['coding_models']={'heavy':{'connection':'Main','model':'main'},'light':{'connection':'Old','model':'legacy'}}
                 session['coding_subagent_model']={'connection':'Other','model':'old-alternate'};store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                tab.composer.setPlainText('Inspect');tab.model_panel.show();app.processEvents()
-                self.assertFalse(tab.roles['heavy'][0].isHidden());self.assertEqual(set(tab.roles),{'heavy','decision'})
-                from PySide6.QtWidgets import QDialog,QPlainTextEdit,QPushButton
-                self.assertIsNone(tab.model_panel.findChild(QPushButton,'legacyModelSettings'))
+                tab.composer.setPlainText('Inspect');window.show();app.processEvents()
+                self.assertFalse(tab.roles['heavy'][0].isHidden());self.assertEqual(set(tab.roles),{'heavy'});self.assertFalse(hasattr(tab,'model_panel'))
                 with patch.object(tab,'launch') as launch:
                     tab.start_coding();run=launch.call_args.args[0]
                 self.assertEqual(run.connection['model'],'main')
@@ -950,8 +975,8 @@ class CodingWorkspace(unittest.TestCase):
             window=Window(store);started=threading.Event();release=threading.Event();seen=[]
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                for role,name in [('heavy','Heavy'),('decision','Decision')]:tab.roles[role][0].setCurrentIndex(tab.roles[role][0].findData(name))
-                self.assertFalse(tab.advice_enabled.isChecked());tab.advice_enabled.setChecked(True);tab.composer.setPlainText('Run a command')
+                tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Heavy'))
+                store.config['settings']['decision_advice_enabled']=True;store.config['settings']['decision_model']={'connection':'Decision','model':'safety'};tab.composer.setPlainText('Run a command')
                 replies=[Wire(chat(calls=[call('run_shell',{'path':'.','command':'echo hello'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
                 def advice(connection,proposal,cancel):
                     seen.append((connection,proposal));started.set();release.wait(3)
@@ -964,7 +989,7 @@ class CodingWorkspace(unittest.TestCase):
                     release.set();settle(lambda:tab.approve.isEnabled())
                     self.assertIn('DANGER',tab.advice_label.text());self.assertIn('decision.example',tab.advice_label.text());execute.assert_not_called()
                     tab.decide(True);settle(lambda:tab.job is None);execute.assert_called_once()
-                saved=store.list_sessions()[0];self.assertTrue(saved['coding_advice_enabled']);self.assertNotIn('decision-secret',json.dumps(saved))
+                saved=store.list_sessions()[0];self.assertTrue(store.config['settings']['decision_advice_enabled']);self.assertNotIn('decision-secret',json.dumps(saved))
             finally:release.set();window.close();app.processEvents();store.db.close()
 
     def test_shell_and_delete_approval_display_scope_and_diff(self):
@@ -1006,8 +1031,11 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session)
                 tab=window.tabs.currentWidget();tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Gateway'))
-                with patch('agentnik.code_ui.SearchBackends') as dialog:
-                    tab.search_settings.click();dialog.assert_called_once_with(tab,store);dialog.return_value.exec.assert_called_once()
+                from agentnik.ui import SettingsDialog
+                settings=SettingsDialog(window)
+                with patch('agentnik.research_ui.SearchBackends') as dialog:
+                    settings.search_providers();dialog.assert_called_once_with(settings,store);dialog.return_value.exec.assert_called_once()
+                settings.close()
                 tab.composer.setPlainText('Research API');tab.web_enabled.setChecked(True)
                 with patch('agentnik.code_ui.CodingRun') as run,patch.object(tab,'launch'):
                     tab.start_coding();self.assertEqual(run.call_args.kwargs['search_provider'],'none')
@@ -1065,14 +1093,14 @@ class CodingWorkspace(unittest.TestCase):
                 with patch('agentnik.code_ui.CodingLimitsDialog') as dialog:
                     dialog.return_value.exec.return_value=QDialog.DialogCode.Accepted;dialog.return_value.values.return_value=values;dialog.return_value.goal_values.return_value={'steps':4,'seconds':120}
                     tab.configure_limits()
-                self.assertEqual(store.list_sessions()[0]['coding_limits'],values);self.assertEqual(store.list_sessions()[0]['coding_goal_limits'],{'steps':4,'seconds':120})
+                self.assertEqual(store.config['settings']['coding_limits'],values);self.assertEqual(store.config['settings']['coding_goal_limits'],{'steps':4,'seconds':120})
                 dialog=CodingLimitsDialog(tab,values,{'steps':4,'seconds':120});self.assertEqual(dialog.fields['model_seconds'].value(),480);self.assertEqual(dialog.goal_fields['steps'].value(),4);dialog.reset();self.assertEqual(dialog.values(),coding_limits());self.assertEqual(dialog.goal_values(),{'steps':0,'seconds':0});dialog.close()
                 dialog=CodingLimitsDialog(tab,values,{'steps':4,'seconds':120})
                 for key,maximum in {'rounds':128,'requests':256,'calls':256,'turn_seconds':7200,'model_seconds':7200,'context_bytes':16000000}.items():
                     self.assertEqual(dialog.fields[key].maximum(),maximum);dialog.fields[key].setValue(maximum)
                 for key,maximum in {'steps':2000000,'seconds':63072000}.items():self.assertEqual(dialog.goal_fields[key].maximum(),maximum);dialog.goal_fields[key].setValue(maximum)
                 self.assertEqual(dialog.values()['calls'],256);self.assertEqual(dialog.goal_values()['steps'],2000000);dialog.close()
-                window.close_tab(window.tabs.indexOf(tab));window.open_session(store.list_sessions()[0]);self.assertEqual(window.tabs.currentWidget().session['coding_limits'],values)
+                window.close_tab(window.tabs.indexOf(tab));window.open_session(store.list_sessions()[0]);self.assertEqual(store.config['settings']['coding_limits'],values)
             finally:window.close();app.processEvents();store.db.close()
 
     def test_close_prompts_during_pending_coding_approval(self):
@@ -1187,7 +1215,7 @@ class CodingWorkspace(unittest.TestCase):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');store.config['connections']={'Gateway':{'url':'https://gateway.example/v1','protocol':'chat','model':'heavy','stream':False}}
             window=Window(store)
             try:
-                ident=window.repositories.put(project);session=window.repositories.session(ident);limits=coding_limits();limits['rounds']=1;session['coding_limits']=limits;store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                ident=window.repositories.put(project);session=window.repositories.session(ident);limits=coding_limits();limits['rounds']=1;store.config['settings']['coding_limits']=limits;store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
                 tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Gateway'));tab.composer.setPlainText('Inspect this project');tab.start_coding();settle(tab)
                 self.assertEqual(len(bodies),2);self.assertTrue(tab.continue_button.isEnabled());tab.continue_button.click();settle(tab)
                 self.assertEqual(len(bodies),3);self.assertIn('Inspect this project',json.dumps(bodies[-1]));self.assertEqual(tab.session['code_state'],'completed')
@@ -1223,7 +1251,7 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertEqual(saved['coding_context']['task'],'Create a test file')
                 window.close_tab(window.tabs.indexOf(tab));window.open_session(saved);app.processEvents()
                 reopened=window.tabs.currentWidget();self.assertEqual(reopened.roles['heavy'][1].text(),'my-heavy-coder')
-                self.assertEqual(set(reopened.roles),{'heavy','decision'});self.assertIsNone(reopened.job)
+                self.assertEqual(set(reopened.roles),{'heavy'});self.assertIsNone(reopened.job)
                 self.assertIn('Created test.txt',reopened.session['coding_context']['answer']);self.assertFalse(reopened.use_context.isChecked())
                 reopened.use_context.setChecked(True);reopened.composer.setPlainText('Follow up');bodies=[]
                 def reply(c,url,body,timeout):bodies.append(body);return Wire(chat('Follow-up complete'),False)

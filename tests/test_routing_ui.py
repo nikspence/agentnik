@@ -47,7 +47,7 @@ class RouteDesktop(unittest.TestCase):
                 self.assertEqual(first.route_policy.currentData(),'Provider only')
                 legacy=store.new_session('chat','test',C); legacy['research_options']={'enabled':True,'route':'managed'}
                 w.open_session(legacy); legacy_tab=w.tabs.currentWidget(); self.app.processEvents()
-                self.assertEqual(legacy_tab.route_policy.currentData(),'Agentnik only'); self.assertTrue(legacy_tab.web_access.isChecked())
+                self.assertEqual(legacy_tab.route_policy.currentData(),'Agentnik only'); self.assertFalse(legacy_tab.web_access.isChecked()); self.assertTrue(legacy_tab.session['research_options']['enabled'])
                 self.assertEqual(json.loads(store.config_path.read_text())['research_defaults'],store.config['research_defaults'])
                 repointed=dict(C,url='https://other.example/v1')
                 self.assertEqual(routing.connection_defaults(store.config,'test',repointed)['policy'],'Provider first')

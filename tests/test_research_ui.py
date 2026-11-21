@@ -84,8 +84,8 @@ class ResearchDesktop(unittest.TestCase):
                     dialog.fields['request_seconds'].setValue(900);dialog.fields['rounds'].setValue(12)
                     return QDialog.DialogCode.Accepted
                 with patch('agentnik.research_ui.ResearchLimitsDialog.exec',accept):tab.configure_research_limits()
-                self.assertEqual(tab.session['research_options']['limits']['request_seconds'],900)
-                self.assertEqual(store.list_sessions()[0]['research_options']['limits']['rounds'],12)
+                self.assertEqual(store.config['settings']['chat_research_limits']['request_seconds'],900)
+                self.assertEqual(store.config['settings']['chat_research_limits']['rounds'],12)
                 tab.web_access.setChecked(True);tab.composer.setPlainText('Research');tab.submit()
                 self.settle_until(lambda:tab.job is None)
                 self.assertEqual(captured[0].request_seconds,900);self.assertEqual(captured[0].rounds,12)
@@ -99,7 +99,7 @@ class ResearchDesktop(unittest.TestCase):
                 w.new_session('chat','test'); first=w.tabs.currentWidget()
                 w.new_session('chat','test'); second=w.tabs.currentWidget()
                 self.assertFalse(first.web_access.isChecked()); self.assertFalse(second.web_access.isChecked())
-                first.web_access.setChecked(True); self.assertFalse(second.web_access.isChecked())
+                first.web_access.setChecked(True); self.assertTrue(second.web_access.isChecked());self.assertTrue(store.config['settings']['web_search_enabled'])
                 legacy=store.new_session('decision','test',dict(C));store.save(legacy);w.open_session(legacy);self.assertFalse(hasattr(w.tabs.currentWidget(),'web_access'))
             finally: w.close(); self.app.processEvents(); store.db.close()
 
