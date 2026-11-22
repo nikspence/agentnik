@@ -19,6 +19,7 @@ class ElicitationTests(unittest.TestCase):
     def test_parse_and_review_valid_answer(self):
         parsed=parse_input_required(request());self.assertEqual(parsed['request_state'],'opaque-state')
         dialog=ElicitationDialog('Example',parsed['forms']);self.assertIn('csv',dialog.answer.toPlainText())
+        dialog.tabs.setCurrentIndex(1)
         dialog.answer.setPlainText('{"format":"unknown"}');dialog.submit();self.assertTrue(dialog.error.text());self.assertEqual(dialog.responses,{})
         dialog.answer.setPlainText('{"format":"json"}');dialog.submit();self.assertEqual(dialog.responses,{'item':{'action':'accept','content':{'format':'json'}}});self.assertEqual(dialog.result(),QDialogAccepted)
 
@@ -40,8 +41,44 @@ class ElicitationTests(unittest.TestCase):
 
     def test_form_format_is_checked_without_echoing_private_value(self):
         value=request();value['inputRequests']['item']['params']['requestedSchema']={'type':'object','properties':{'address':{'type':'string','format':'email'}},'required':['address']}
-        dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);dialog.answer.setPlainText('{"address":"private-invalid"}');dialog.submit()
+        dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);dialog.tabs.setCurrentIndex(1);dialog.answer.setPlainText('{"address":"private-invalid"}');dialog.submit()
         self.assertTrue(dialog.error.text());self.assertNotIn('private-invalid',dialog.error.text());self.assertEqual(dialog.responses,{})
+
+    def test_form_controls_preserve_types_optional_fields_and_defaults(self):
+        value=request();value['inputRequests']['item']['params']['requestedSchema']={'type':'object','properties':{'format':{'type':'string','enum':['csv','json'],'enumNames':['CSV','JSON'],'default':'csv'},'enabled':{'type':'boolean'},'count':{'type':'integer'},'note':{'type':'string'}},'required':['format','enabled','count']}
+        dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);self.assertEqual(dialog.tabs.currentIndex(),0)
+        dialog.fields['enabled'][1].setCurrentIndex(2);dialog.fields['count'][1].setText('12');dialog.fields['note'][2].setChecked(True);dialog.fields['note'][1].setText('')
+        dialog.submit();self.assertEqual(dialog.responses['item']['content'],{'format':'csv','enabled':False,'count':12,'note':''})
+
+    def test_json_round_trip_preserves_extra_fields_and_refuses_type_loss(self):
+        dialog=ElicitationDialog('Example',parse_input_required(request())['forms']);dialog.tabs.setCurrentIndex(1)
+        dialog.answer.setPlainText('{"format":"json","extra":42}');dialog.tabs.setCurrentIndex(0)
+        self.assertEqual(dialog.tabs.currentIndex(),0);self.assertEqual(dialog.form_values(),{'format':'json','extra':42});self.assertIn('extra',dialog.extra_notice.text());self.assertNotIn('42',dialog.extra_notice.text())
+        dialog.tabs.setCurrentIndex(1);dialog.answer.setPlainText('{"format":42}');dialog.tabs.setCurrentIndex(0)
+        self.assertEqual(dialog.tabs.currentIndex(),1);self.assertIn('42',dialog.answer.toPlainText())
+
+    def test_complex_schema_remains_editable_as_json(self):
+        value=request();value['inputRequests']['item']['params']['requestedSchema']={'type':'object','properties':{'tags':{'type':'array','items':{'type':'string'},'default':['seed']}},'required':['tags']}
+        dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);self.assertFalse(dialog.tabs.isTabEnabled(0));self.assertEqual(dialog.tabs.currentIndex(),1)
+        self.assertIn('seed',dialog.answer.toPlainText())
+        dialog.answer.setPlainText('{"tags":["one","two"]}');dialog.submit();self.assertEqual(dialog.responses['item']['content']['tags'],['one','two'])
+
+    def test_unrepresentable_default_remains_available_in_json(self):
+        value=request();value['inputRequests']['item']['params']['requestedSchema']['properties']['format']['default']='unlisted'
+        dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);self.assertFalse(dialog.tabs.isTabEnabled(0));self.assertEqual(dialog.tabs.currentIndex(),1);self.assertIn('unlisted',dialog.answer.toPlainText())
+
+    def test_nonfinite_numbers_are_not_submitted(self):
+        value=request();value['inputRequests']['item']['params']['requestedSchema']={'type':'object','properties':{'amount':{'type':'number'}},'required':['amount']}
+        dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);dialog.fields['amount'][1].setText('1e999');dialog.submit()
+        self.assertEqual(dialog.responses,{});self.assertTrue(dialog.error.text())
+        dialog.fields['amount'][1].clear();dialog.tabs.setCurrentIndex(1);dialog.answer.setPlainText('{"amount":1e999}');dialog.tabs.setCurrentIndex(0)
+        self.assertEqual(dialog.tabs.currentIndex(),1);self.assertIn('1e999',dialog.answer.toPlainText())
+
+    def test_multiple_forms_keep_prior_answers_and_reset_controls(self):
+        data=request();data['inputRequests']['second']={'method':'elicitation/create','params':{'message':'Enable it?','requestedSchema':{'type':'object','properties':{'enabled':{'type':'boolean'}},'required':['enabled']}}}
+        dialog=ElicitationDialog('Example',parse_input_required(data)['forms']);dialog.fields['format'][1].setCurrentIndex(2);dialog.submit()
+        self.assertEqual(dialog.responses['item']['content'],{'format':'json'});self.assertEqual(dialog.counter.text(),'Request 2 of 2')
+        dialog.fields['enabled'][1].setCurrentIndex(1);dialog.submit();self.assertEqual(dialog.responses['second']['content'],{'enabled':True})
 
     def test_bridge_opens_dialog_and_continues_only_after_answer(self):
         from agentnik.mcp_code import CodingMCPBridge
@@ -58,7 +95,7 @@ class ElicitationTests(unittest.TestCase):
             dialog=bridge.elicitation_dialog
             if dialog and not presented:
                 presented.append(dialog.message.text());self.assertEqual(len(out),1)
-                dialog.answer.setPlainText('{"choice":"yes"}');dialog.submit()
+                dialog.tabs.setCurrentIndex(1);dialog.answer.setPlainText('{"choice":"yes"}');dialog.submit()
             if not thread.is_alive():loop.quit()
         poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
         self.assertFalse(thread.is_alive());self.assertEqual(presented,['private-server-text']);self.assertEqual(out[1]['call_result']['content'][0]['text'],'continued');self.assertNotIn('private-state',str(out))
@@ -123,7 +160,7 @@ class ElicitationTests(unittest.TestCase):
             store=Store(folder);window=Window(store);manager=MCPServers(window);session=Session();manager.process=session;manager.attach_elicitation(session,'Example')
             try:
                 session.elicitation_requested.emit(parse_input_required(request())['forms']);self.assertTrue(session.elicitation_enabled)
-                manager.elicitation_dialog.answer.setPlainText('{"format":"json"}');manager.elicitation_dialog.submit();self.assertEqual(session.received['item']['content'],{'format':'json'})
+                manager.elicitation_dialog.tabs.setCurrentIndex(1);manager.elicitation_dialog.answer.setPlainText('{"format":"json"}');manager.elicitation_dialog.submit();self.assertEqual(session.received['item']['content'],{'format':'json'})
             finally:manager.close();window.close();self.app.processEvents();store.db.close()
 
 
