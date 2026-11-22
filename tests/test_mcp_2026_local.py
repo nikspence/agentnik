@@ -22,6 +22,41 @@ class ModernLocalSession(unittest.TestCase):
             loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(info[0]['protocol'],'2026-07-28');self.assertEqual(out[0]['call_result']['content'][0]['text'],'hello')
         finally:session.close()
 
+    def test_initialization_envelope_errors_probe_modern_stdio(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        for code in (-32600,-32601,-32602,-32020,-32022):
+            with self.subTest(code=code):
+                session=LocalSession(sys.executable,['-u',str(server),'--init-error='+str(code)],timeout_seconds=5);loop=QEventLoop();out=[]
+                session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:loop.exec();timer.stop();self.assertEqual(out[0]['protocol'],'2026-07-28')
+                finally:session.close()
+
+    def test_legacy_initialization_can_finish_after_modern_probe_version_error(self):
+        script='''import json,sys,time,threading
+def send_init(ident):
+ time.sleep(1.5)
+ result={"protocolVersion":"2025-11-25","serverInfo":{"name":"slow","version":"1"},"capabilities":{"tools":{}}}
+ print(json.dumps({"jsonrpc":"2.0","id":ident,"result":result}),flush=True)
+for line in sys.stdin:
+ m=json.loads(line);method=m.get("method")
+ if "id" not in m:continue
+ if method=="initialize":threading.Thread(target=send_init,args=(m["id"],),daemon=True).start();continue
+ if method=="server/discover":reply={"error":{"code":-32022} if sys.argv[1]=="malformed" else {"code":-32022,"message":"unsupported","data":{"supported":["2025-11-25"]}}}
+ elif method=="tools/list":reply={"result":{"tools":[]}}
+ else:raise RuntimeError(method)
+ print(json.dumps(dict(reply,jsonrpc="2.0",id=m["id"])),flush=True)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            server=Path(directory)/'legacy.py';server.write_text(script,encoding='utf-8')
+            for mode in ('unsupported','malformed'):
+                with self.subTest(mode=mode):
+                    session=LocalSession(sys.executable,['-u',str(server),mode],timeout_seconds=5);loop=QEventLoop();out=[]
+                    session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+                    timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                    try:loop.exec();timer.stop();self.assertEqual(out[0]['protocol'],'2025-11-25');self.assertEqual(out[0]['name'],'slow')
+                    finally:session.close()
+
     def test_cancellation_notifies_modern_stdio_server(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         with tempfile.TemporaryDirectory() as directory:

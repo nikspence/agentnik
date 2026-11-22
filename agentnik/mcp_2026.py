@@ -8,6 +8,9 @@ _PREFIX='=?base64?'
 _SUFFIX='?='
 _SAFE_INTEGER=2**53-1
 INPUT_REQUIRED_ERROR='The MCP server requested interactive input, which Agentnik cannot provide yet. The request was not continued.'
+# These errors can indicate that a stateless server rejected the legacy
+# initialization envelope. Discovery is read-only and occurs only at startup.
+LEGACY_ENVELOPE_ERRORS=frozenset((-32600,-32601,-32602,-32020,-32022))
 
 
 def parse_discovery(result):

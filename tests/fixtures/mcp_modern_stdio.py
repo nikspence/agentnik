@@ -12,7 +12,9 @@ for line in sys.stdin:
     if ident is None:continue
     if method=='initialize' and '--ignore-initialize' in sys.argv:continue
     if method=='initialize' and '--delay-reject' in sys.argv:time.sleep(1.3)
-    if method=='initialize':response={'error':{'code':-32022,'message':'modern protocol required','data':{'supported':['2026-07-28']}}}
+    if method=='initialize':
+        init_code=next((int(arg.split('=',1)[1]) for arg in sys.argv[1:] if arg.startswith('--init-error=')),-32022)
+        response={'error':{'code':init_code,'message':'modern protocol required','data':{'supported':['2026-07-28']}}}
     else:
         metadata=message.get('params',{}).get('_meta',{})
         if metadata.get('io.modelcontextprotocol/protocolVersion')!='2026-07-28':response={'error':{'code':-32602,'message':'missing metadata'}}

@@ -256,7 +256,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False,test_elicitation=False,test_url=False,test_required=False,test_pattern=False,test_choices=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False,test_elicitation=False,test_url=False,test_required=False,test_pattern=False,test_choices=False,test_rpc_rejection=False):
     import datetime
     import ipaddress
     import socket
@@ -313,6 +313,9 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
             chunks=[]
             if test_modern and scope['type']=='http' and scope['method']=='POST' and scope['path']=='/mcp' and not dict(scope['headers']).get(b'mcp-method'):
                 from starlette.responses import JSONResponse
+                if test_rpc_rejection:
+                    body=await receive();request=json.loads(body.get('body',b''))
+                    await JSONResponse({'jsonrpc':'2.0','id':request['id'],'error':{'code':-32020,'message':'modern request headers required'}})(scope,receive,send);return
                 await JSONResponse({'jsonrpc':'2.0','id':None,'error':{'code':-32020,'message':'modern request headers required'}},status_code=400)(scope,receive,send);return
             if test_oauth_dynamic and scope['type']=='http' and scope['method']=='POST' and scope['path']=='/register':
                 from starlette.responses import JSONResponse
@@ -609,7 +612,7 @@ def run_cancel(session,cancelled,observed):
     return {'sdk_version':version('mcp'),'transport':'https','checks':['notification received with matching request ID','synthetic server operation ended','session closed']}
 
 
-def modern_stdio_server():
+def modern_stdio_server(init_error=-32022):
     """Wrap a real SDK server and reject legacy initialization only."""
     import subprocess,threading
     child=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--server'],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
@@ -621,7 +624,7 @@ def modern_stdio_server():
         for line in sys.stdin.buffer:
             message=json.loads(line)
             if message.get('method')=='initialize':
-                reply={'jsonrpc':'2.0','id':message['id'],'error':{'code':-32022,'message':'modern protocol required','data':{'supported':['2026-07-28']}}}
+                reply={'jsonrpc':'2.0','id':message['id'],'error':{'code':init_error,'message':'modern protocol required','data':{'supported':['2026-07-28']}}}
                 sys.stdout.buffer.write((json.dumps(reply)+'\n').encode());sys.stdout.buffer.flush()
             else:child.stdin.write(line);child.stdin.flush()
     finally:
@@ -631,6 +634,7 @@ def modern_stdio_server():
 if __name__=='__main__':
     if sys.argv[1:]==['--server']:make_server().run(transport='stdio')
     elif sys.argv[1:]==['--server-modern']:modern_stdio_server()
+    elif sys.argv[1:]==['--server-modern-rpc-error']:modern_stdio_server(-32020)
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
     elif sys.argv[1:]==['--https-elicitation']:print(json.dumps(run_https(test_elicitation=True)))
     elif sys.argv[1:]==['--https-pattern-elicitation']:print(json.dumps(run_https(test_pattern=True)))
@@ -638,6 +642,7 @@ if __name__=='__main__':
     elif sys.argv[1:]==['--https-url-elicitation']:print(json.dumps(run_https(test_url=True)))
     elif sys.argv[1:]==['--https-url-required']:print(json.dumps(run_https(test_required=True)))
     elif sys.argv[1:]==['--https-modern']:print(json.dumps(run_https(test_modern=True)))
+    elif sys.argv[1:]==['--https-modern-rpc-negotiation']:print(json.dumps(run_https(test_modern=True,test_rpc_rejection=True)))
     elif sys.argv[1:]==['--https-modern-notifications']:print(json.dumps(run_https(test_modern=True,test_modern_notifications=True)))
     elif sys.argv[1:]==['--https-modern-elicitation']:print(json.dumps(run_https(test_modern=True,test_modern_elicitation=True)))
     elif sys.argv[1:]==['--https-cancel']:print(json.dumps(run_https(test_cancel=True)))
@@ -658,6 +663,11 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
+    elif sys.argv[1:]==['--stdio-modern-rpc-negotiation']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern-rpc-error'],timeout_seconds=15),'stdio-modern')))
     elif sys.argv[1:]==['--stdio-modern-notifications']:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
@@ -693,4 +703,4 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio',required=True)))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https-modern-rpc-negotiation|--stdio-modern-rpc-negotiation|--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

@@ -11,7 +11,7 @@ from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initia
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
-from .mcp_2026 import PROTOCOL as MODERN_PROTOCOL,prepare_request,header_fields,parse_discovery,INPUT_REQUIRED_ERROR
+from .mcp_2026 import PROTOCOL as MODERN_PROTOCOL,prepare_request,header_fields,parse_discovery,INPUT_REQUIRED_ERROR,LEGACY_ENVELOPE_ERRORS
 
 HTTP_PROTOCOLS=(PROTOCOL,'2025-06-18','2025-03-26')
 MAX_PAGES=5
@@ -544,11 +544,13 @@ class RemoteProbe(QObject):
             if not self.modern and self.elicitation_pending is not None:raise ValueError('MCP operation completed while user input was pending')
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
             if 'error' in message:
-                if self.phase=='initialize' and isinstance(message['error'],dict) and message['error'].get('code') in (-32601,-32022):
+                error=rpc_error(message)
+                if self.phase=='initialize' and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
                     self.legacy_rejection='JSON-RPC '+str(message['error']['code']);self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
                     self.progress.emit('Legacy MCP initialization was rejected; checking 2026 discovery.')
                     self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
-                error=rpc_error(message)
+                if self.phase=='modern_discovery' and self.legacy_rejection is not None:
+                    self.stop('MCP server rejected legacy initialization ('+self.legacy_rejection+') and 2026 discovery (JSON-RPC '+str(message['error']['code'])+').');return
                 if not self.modern and self.protocol=='2025-11-25' and self.elicitation_enabled and self.phase in ('call','resource_read','prompt_get') and self.elicitation_original is not None and message['error']['code']==-32042:
                     try:
                         from .mcp_elicitation import parse_url_required

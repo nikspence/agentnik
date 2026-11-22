@@ -12,7 +12,7 @@ from .mcp_support import response_limit, initialize_request, parse_initialize, r
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
-from .mcp_2026 import prepare_request,parse_discovery,INPUT_REQUIRED_ERROR
+from .mcp_2026 import prepare_request,parse_discovery,INPUT_REQUIRED_ERROR,LEGACY_ENVELOPE_ERRORS
 
 
 class LocalSession(QObject):
@@ -224,8 +224,6 @@ class LocalSession(QObject):
                     self.ignored_id=None;continue
                 if self.phase=='initialize' and type(message['id']) is int and message['id']==self.probe_id:
                     if 'error' in message:
-                        error=message.get('error')
-                        if isinstance(error,dict) and error.get('code')==-32022:self.fail('MCP server does not support the requested protocol version.');return
                         self.probe_id=None;continue
                     try:parse_discovery(message.get('result'))
                     except (ValueError,TypeError,RecursionError):self.probe_id=None;continue
@@ -238,13 +236,13 @@ class LocalSession(QObject):
                     self.task_cancelled=isinstance(task,dict) and task.get('taskId')==self.task_id and task.get('status')=='cancelled' and 'error' not in message
                     self._close_now();return
                 if 'error' in message:
-                    if self.phase=='initialize' and isinstance(message['error'],dict) and message['error'].get('code') in (-32601,-32022):
+                    error=rpc_error(message)
+                    if self.phase=='initialize' and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
                         self.probe_timer.stop()
                         if self.probe_id is not None:
                             self.modern=True;self.phase='modern_discovery';self.next_id=self.probe_id;self.probe_id=None;continue
                         self.modern=True;self.phase='modern_discovery';self.next_id+=1
                         self.send({'jsonrpc':'2.0','id':self.next_id,'method':'server/discover','params':{}});continue
-                    error=rpc_error(message)
                     if not self.modern and (self.info or {}).get('protocol')=='2025-11-25' and self.elicitation_enabled and self.phase in ('call','resource_read','prompt_get') and self.elicitation_original is not None and message['error']['code']==-32042:
                         try:
                             from .mcp_elicitation import parse_url_required

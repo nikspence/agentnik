@@ -34,7 +34,7 @@ class ModernRemoteSession(unittest.TestCase):
                 finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
     def test_json_rpc_initialization_rejection_probes_modern(self):
-        for code in (-32601,-32022):
+        for code in (-32600,-32601,-32602,-32020,-32022):
             with self.subTest(code=code):
                 calls=[]
                 class Handler(BaseHTTPRequestHandler):
@@ -49,6 +49,37 @@ class ModernRemoteSession(unittest.TestCase):
                 timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                 try:
                     loop.exec();timer.stop();self.assertEqual(out[0]['protocol'],PROTOCOL);self.assertEqual(calls,['initialize','server/discover'])
+                finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_failed_json_rpc_probe_reports_both_codes_without_server_text(self):
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method'])
+                code=-32602 if request['method']=='initialize' else -32601
+                payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'error':{'code':code,'message':'private server diagnostic'}}).encode()
+                self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertEqual(calls,['initialize','server/discover']);self.assertIn('-32602',out[0]['error']);self.assertIn('-32601',out[0]['error']);self.assertNotIn('private',out[0]['error'])
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_unrelated_or_malformed_json_rpc_error_does_not_probe(self):
+        for error in ({'code':-32603,'message':'Internal error'},{'code':-32602}):
+            with self.subTest(error=error):
+                calls=[]
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method'])
+                        payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'error':error}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+                session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(calls,['initialize'])
                 finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
     def test_authentication_rejection_does_not_probe_another_protocol(self):
