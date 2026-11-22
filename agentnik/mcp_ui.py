@@ -185,12 +185,14 @@ class MCPServers(QDialog):
     def show_elicitation(self,session,server,forms):
         if self._closed or session not in (self.process,self.remote):return
         from .mcp_elicitation import ElicitationDialog
-        dialog=ElicitationDialog(server,forms,self);self.elicitation_dialog=dialog
+        retry_required=bool((getattr(session,'elicitation_pending',None) or {}).get('retry_required'));dialog=ElicitationDialog(server,forms,self,retry_required=retry_required);self.elicitation_dialog=dialog
         def finished(code):
             if self.elicitation_dialog is not dialog:return
             self.elicitation_dialog=None;dialog.deleteLater()
             if self._closed or session not in (self.process,self.remote):return
-            if code==QDialog.DialogCode.Accepted:session.continue_elicitation(dialog.responses)
+            if code==QDialog.DialogCode.Accepted:
+                if retry_required:session.continue_elicitation(dialog.responses,retry=dialog.retry_confirmed)
+                else:session.continue_elicitation(dialog.responses)
             elif hasattr(session,'fail'):session.fail('MCP input request cancelled; the request was not continued.')
             else:session.stop('MCP input request cancelled; the request was not continued.')
         dialog.finished.connect(finished);dialog.open()

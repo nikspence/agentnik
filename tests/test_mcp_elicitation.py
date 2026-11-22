@@ -6,7 +6,7 @@ from unittest.mock import patch
 from pathlib import Path
 from PySide6.QtCore import QEventLoop,QTimer,QObject,Signal
 from PySide6.QtWidgets import QApplication
-from agentnik.mcp_elicitation import ElicitationDialog,parse_input_required,parse_legacy_request,continuation
+from agentnik.mcp_elicitation import ElicitationDialog,parse_input_required,parse_legacy_request,parse_url_required,continuation
 
 
 def request():
@@ -56,6 +56,49 @@ class ElicitationTests(unittest.TestCase):
             with self.subTest(ident=ident),self.assertRaises(ValueError):parse_legacy_request(dict(params,elicitationId=ident),'2025-11-25')
         with self.assertRaises(ValueError):parse_legacy_request(params,'2025-06-18')
         with self.assertRaises(ValueError):parse_legacy_request(dict(params,url='http://example.test/'),'2025-11-25')
+
+    def test_url_required_rejects_missing_duplicate_or_unsafe_requests(self):
+        item={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'}
+        for items in ([],[item,item],[dict(item,url='http://example.test/')],[dict(item,mode='form')],[dict(item,elicitationId='')]):
+            with self.subTest(items=items),self.assertRaises(ValueError):parse_url_required({'code':-32042,'data':{'elicitations':items}})
+        result=parse_url_required({'code':-32042,'data':{'elicitations':[item,dict(item,elicitationId='another')]}})
+        self.assertEqual([form['id'] for form in result['forms']],['0','1']);self.assertTrue(result['retry_required'])
+
+    def test_required_url_dialog_needs_separate_explicit_retry(self):
+        item={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'};pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}})
+        with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True) as open_url:
+            dialog=ElicitationDialog('Example',pending['forms'],retry_required=True);dialog.submit()
+            open_url.assert_called_once();self.assertTrue(dialog.retry_confirmation);self.assertFalse(dialog.retry_confirmed);self.assertNotEqual(dialog.result(),QDialogAccepted)
+            self.assertIn('inspect',dialog.intro.text());dialog.submit();self.assertTrue(dialog.retry_confirmed);self.assertEqual(dialog.result(),QDialogAccepted)
+            declined=ElicitationDialog('Example',pending['forms'],retry_required=True);declined.decline();self.assertFalse(declined.retry_confirmed);self.assertEqual(declined.result(),QDialogAccepted)
+
+    def test_2025_local_url_required_retries_only_after_explicit_confirmation(self):
+        from agentnik.mcp_code import CodingMCPBridge
+        from agentnik.tools import Runtime,Limits
+        path=Path(__file__).parent/'fixtures'/'mcp_legacy_elicitation_stdio.py';server={'name':'Legacy','command':sys.executable,'args':['-u',str(path),'2025-11-25','required'],'enabled':True}
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];steps=[]
+        def worker():
+            info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime));bridge.close_signal.emit()
+        with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True) as open_url:
+            thread=threading.Thread(target=worker);thread.start();loop=QEventLoop();poll=QTimer()
+            def tick():
+                dialog=bridge.elicitation_dialog
+                if dialog and not steps:
+                    steps.append('opened');dialog.submit();self.assertTrue(dialog.retry_confirmation);self.assertEqual(out,[])
+                    def confirm():
+                        self.assertEqual(out,[]);steps.append('confirmed');dialog.submit()
+                    QTimer.singleShot(100,confirm)
+                if not thread.is_alive():loop.quit()
+            poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+            self.assertFalse(thread.is_alive());self.assertEqual(steps,['opened','confirmed']);open_url.assert_called_once();self.assertEqual(out[0]['call_result']['content'][0]['text'],'retried')
+
+    def test_required_url_remote_never_retries_without_confirmation(self):
+        from unittest.mock import Mock
+        from agentnik.mcp_remote import RemoteSession
+        item={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'}
+        for action,retry in (('accept',False),('decline',True)):
+            session=RemoteSession('https://example.test/mcp','');session.elicitation_pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}});session.elicitation_original={'id':4,'method':'tools/call','params':{'name':'work','arguments':{}}};session.send=Mock();session.stop=Mock()
+            self.assertFalse(session.continue_elicitation({'0':{'action':action}},retry=retry));session.send.assert_not_called();session.stop.assert_called_once();session.closed=True
 
     def test_legacy_remote_url_only_opens_after_consent(self):
         from unittest.mock import Mock

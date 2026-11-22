@@ -83,14 +83,22 @@ class LocalSession(QObject):
         self.send(message)
 
     def send(self, message):
-        if self.modern and message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
+        if message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
         if self.modern and 'id' in message and 'method' in message:message,_=prepare_request(message,client_capabilities={'elicitation':{'form':{},'url':{}}} if self.elicitation_enabled else None)
         payload = (json.dumps(message, ensure_ascii=True, allow_nan=False) + '\n').encode('ascii')
         if 'id' in message:self.request_active=True
         if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')
 
-    def continue_elicitation(self,responses):
+    def continue_elicitation(self,responses,retry=False):
         if self.closed or self.elicitation_pending is None:return False
+        if self.elicitation_pending.get('retry_required'):
+            try:
+                from .mcp_elicitation import continuation
+                continuation(self.elicitation_original,self.elicitation_pending,responses)
+                if any(contains_secret(responses,secret) for secret in self.environment_secrets):raise ValueError()
+                if retry is not True or any(value['action']!='accept' for value in responses.values()):raise ValueError()
+            except (ValueError,TypeError,UnicodeError,RecursionError):self.fail('MCP external input was not completed; the operation was not retried.');return False
+            message=copy.deepcopy(self.elicitation_original);self.elicitation_pending=None;self.next_id+=1;message['id']=self.next_id;self.timer.start(self.timeout_ms);self.send(message);return not self.closed
         legacy_id=self.elicitation_pending.get('legacy_id')
         if legacy_id is None and self.elicitation_original is None:return False
         try:
@@ -233,6 +241,12 @@ class LocalSession(QObject):
                         self.modern=True;self.phase='modern_discovery';self.next_id+=1
                         self.send({'jsonrpc':'2.0','id':self.next_id,'method':'server/discover','params':{}});continue
                     error=rpc_error(message)
+                    if not self.modern and (self.info or {}).get('protocol')=='2025-11-25' and self.elicitation_enabled and self.phase in ('call','resource_read','prompt_get') and self.elicitation_original is not None and message['error']['code']==-32042:
+                        try:
+                            from .mcp_elicitation import parse_url_required
+                            self.elicitation_pending=parse_url_required(message['error'])
+                        except (ValueError,TypeError,UnicodeError,RecursionError):self.fail('Invalid MCP URL input request; the operation was not retried.');return
+                        self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);continue
                     if self.phase=='completion':
                         self.phase='ready';self.timer.stop();self.called.emit({'error':error});continue
                     if self.phase in ('prompt_list','prompt_get'):

@@ -174,12 +174,14 @@ class CodingMCPBridge(QObject):
         from .mcp_elicitation import ElicitationDialog
         parent=self.parent()
         while parent is not None and not isinstance(parent,QWidget):parent=parent.parent()
-        session=self.session;dialog=ElicitationDialog(self.server['name'],forms,parent);self.elicitation_dialog=dialog
+        session=self.session;retry_required=bool((getattr(session,'elicitation_pending',None) or {}).get('retry_required'));dialog=ElicitationDialog(self.server['name'],forms,parent,retry_required=retry_required);self.elicitation_dialog=dialog
         def finished(code):
             if self.elicitation_dialog is not dialog:return
             self.elicitation_dialog=None;dialog.deleteLater()
             if self.closed or self.session is not session or self.pending is None or self.pending['cancelled'].is_set():return
-            if code==QDialog.DialogCode.Accepted:session.continue_elicitation(dialog.responses)
+            if code==QDialog.DialogCode.Accepted:
+                if retry_required:session.continue_elicitation(dialog.responses,retry=dialog.retry_confirmed)
+                else:session.continue_elicitation(dialog.responses)
             elif hasattr(session,'fail'):session.fail('MCP input request cancelled; the request was not continued.')
             else:session.stop('MCP input request cancelled; the request was not continued.')
         dialog.finished.connect(finished);dialog.open()

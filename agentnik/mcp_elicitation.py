@@ -73,6 +73,23 @@ def parse_legacy_request(params,protocol):
     return parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':'elicitation/create','params':params}}})
 
 
+def parse_url_required(error):
+    """Validate required external interactions without exposing error data to models."""
+    data=error.get('data') if isinstance(error,dict) and error.get('code')==-32042 else None
+    items=data.get('elicitations') if isinstance(data,dict) else None
+    if not isinstance(items,list) or not items or len(items)>32:raise ValueError('Invalid MCP URL input request')
+    try:
+        if len(json.dumps(items,ensure_ascii=False,allow_nan=False).encode('utf-8'))>65536:raise ValueError('MCP URL input request too large')
+    except (TypeError,UnicodeError,RecursionError):raise ValueError('Invalid MCP URL input request') from None
+    forms=[];ids=set()
+    for index,params in enumerate(items):
+        if not isinstance(params,dict) or params.get('mode')!='url':raise ValueError('Invalid MCP URL input request')
+        form=parse_legacy_request(params,'2025-11-25')['forms'][0];ident=params['elicitationId']
+        if ident in ids:raise ValueError('Duplicate MCP input request')
+        ids.add(ident);form['id']=str(index);forms.append(form)
+    return {'forms':forms,'request_state':None,'retry_required':True}
+
+
 def continuation(original,pending,responses):
     """Validate user responses and build the next explicit protocol round."""
     if not isinstance(original,dict) or not isinstance(original.get('params'),dict) or not isinstance(responses,dict):raise ValueError('Invalid MCP input response')
@@ -95,8 +112,8 @@ def continuation(original,pending,responses):
 
 class ElicitationDialog(QDialog):
     """Review server-provided forms without putting answers in the model context."""
-    def __init__(self,server,forms,parent=None):
-        super().__init__(parent);self.forms=forms;self.position=0;self.responses={};self.setWindowTitle(self.tr('MCP input request'))
+    def __init__(self,server,forms,parent=None,retry_required=False):
+        super().__init__(parent);self.forms=forms;self.position=0;self.responses={};self.retry_required=retry_required;self.retry_confirmation=False;self.retry_confirmed=False;self.setWindowTitle(self.tr('MCP input request'))
         layout=QVBoxLayout(self)
         self.server=server;self.intro=QLabel();self.intro.setWordWrap(True);self.intro.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.intro)
         self.counter=QLabel();layout.addWidget(self.counter)
@@ -225,6 +242,8 @@ class ElicitationDialog(QDialog):
             self.error.setText(self.tr('Enter a JSON object that can be represented by the form.') if index==0 else self.tr('Complete valid form values before switching views.'));self.switching=True;self.tabs.setCurrentIndex(1-index);self.switching=False
 
     def submit(self):
+        if self.retry_confirmation:
+            self.retry_confirmed=True;self.accept();return
         form=self.forms[self.position]
         if form.get('mode','form')=='url':
             try:opened=open_elicitation_url(form['url'])
@@ -232,7 +251,7 @@ class ElicitationDialog(QDialog):
             if not opened:
                 self.error.setText(self.tr('Could not open the browser. The request was not continued.'));return
             self.responses[form['id']]={'action':'accept'};self.position+=1
-            if self.position==len(self.forms):self.accept()
+            if self.position==len(self.forms):self.finish_answers()
             else:self.show_form()
             return
         try:
@@ -250,5 +269,11 @@ class ElicitationDialog(QDialog):
 
     def decline(self):
         self.responses[self.forms[self.position]['id']]={'action':'decline'};self.position+=1
-        if self.position==len(self.forms):self.accept()
+        if self.position==len(self.forms):self.finish_answers()
         else:self.show_form()
+
+    def finish_answers(self):
+        if not self.retry_required or any(response['action']!='accept' for response in self.responses.values()):self.accept();return
+        self.retry_confirmation=True;self.tabs.hide();self.url_box.hide();self.counter.hide();self.message.hide();self.decline_button.hide();self.error.clear()
+        self.intro.setText(self.tr('Complete the requested interactions in your browser. The previous operation may have performed actions; inspect the server state before retrying. Choose Retry request only when you are ready to submit the operation again.'))
+        self.accept_button.setText(self.tr('Retry request'))

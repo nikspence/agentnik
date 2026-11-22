@@ -121,7 +121,7 @@ class RemoteProbe(QObject):
     def start(self):
         self.timer.start(self.timeout_ms);self.send(initialize_request(elicitation=self.elicitation_enabled))
     def send(self,message):
-        if self.modern and message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
+        if message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
         if 'id' in message:
             self.next_id+=1;self.current_id=self.next_id;message=dict(message,id=self.current_id)
         if self.phase!='task_result':self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0
@@ -144,8 +144,16 @@ class RemoteProbe(QObject):
             if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         self.buffer=bytearray();self.reply=self.manager.post(request,json.dumps(message).encode());self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
 
-    def continue_elicitation(self,responses):
+    def continue_elicitation(self,responses,retry=False):
         if getattr(self,'closed',False) or self.elicitation_pending is None:return False
+        if self.elicitation_pending.get('retry_required'):
+            try:
+                from .mcp_elicitation import continuation
+                continuation(self.elicitation_original,self.elicitation_pending,responses)
+                if self.token and contains_secret(responses,self.token):raise ValueError()
+                if retry is not True or any(value['action']!='accept' for value in responses.values()):raise ValueError()
+            except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('MCP external input was not completed; the operation was not retried.');return False
+            message=copy.deepcopy(self.elicitation_original);self.elicitation_pending=None;self.timer.start(self.timeout_ms);self.send(message);return self.reply is not None
         legacy=self.elicitation_pending.get('legacy_request')
         if legacy is None and (self.elicitation_original is None or self.reply is not None):return False
         try:
@@ -534,6 +542,12 @@ class RemoteProbe(QObject):
                     self.progress.emit('Legacy MCP initialization was rejected; checking 2026 discovery.')
                     self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
                 error=rpc_error(message)
+                if not self.modern and self.protocol=='2025-11-25' and self.elicitation_enabled and self.phase in ('call','resource_read','prompt_get') and self.elicitation_original is not None and message['error']['code']==-32042:
+                    try:
+                        from .mcp_elicitation import parse_url_required
+                        self.elicitation_pending=parse_url_required(message['error'])
+                    except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Invalid MCP URL input request; the operation was not retried.');return
+                    self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);return
                 if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error});return
                 self.stop(error);return
             if self.modern and self.phase in ('call','resource_read','prompt_get') and isinstance(message.get('result'),dict) and message['result'].get('resultType')=='input_required':
