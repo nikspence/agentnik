@@ -85,6 +85,21 @@ def parse_legacy_request(params,protocol):
     return pending
 
 
+def related_task_input(params,task_id):
+    """Require an input request during a task to identify that active task."""
+    metadata=params.get('_meta') if isinstance(params,dict) else None
+    related=metadata.get('io.modelcontextprotocol/related-task') if isinstance(metadata,dict) else None
+    if not task_id or not isinstance(related,dict) or related.get('taskId')!=task_id:raise ValueError('Input request does not identify the active task')
+    return {'io.modelcontextprotocol/related-task':{'taskId':task_id}}
+
+
+def input_task_metadata(params,task_id,task_active):
+    metadata=params.get('_meta') if isinstance(params,dict) else None
+    if task_active or isinstance(metadata,dict) and 'io.modelcontextprotocol/related-task' in metadata:
+        return related_task_input(params,task_id if task_active else None)
+    return None
+
+
 def track_opened(session,ident):
     """Track only URLs the user opened during the current request."""
     pending=getattr(session,'elicitation_pending',None)

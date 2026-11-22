@@ -118,9 +118,11 @@ class LocalSession(QObject):
             message=continuation(original,self.elicitation_pending,responses)
             if any(contains_secret(responses,secret) for secret in self.environment_secrets):raise ValueError()
         except (ValueError,TypeError,UnicodeError,RecursionError):self.fail('Invalid MCP input response; the request was not continued.');return False
-        self.elicitation_pending=None;self.timer.start(self.timeout_ms)
+        related=self.elicitation_pending.get('related_task');self.elicitation_pending=None;self.timer.start(self.timeout_ms)
         if legacy_id is not None:
-            self.send({'jsonrpc':'2.0','id':legacy_id,'result':responses['request']})
+            result=dict(responses['request'])
+            if related:result['_meta']=related
+            self.send({'jsonrpc':'2.0','id':legacy_id,'result':result})
         else:
             self.next_id+=1;message['id']=self.next_id;self.send(message)
         return not self.closed
@@ -199,10 +201,12 @@ class LocalSession(QObject):
                     while self.server_requests and self.server_requests[0]<=now-10:self.server_requests.popleft()
                     if len(self.server_requests)>=32:raise ValueError('Too many MCP server requests')
                     self.server_requests.append(now)
-                    if method=='elicitation/create' and self.elicitation_enabled and self.phase in ('call','resource_read','prompt_get') and (self.info or {}).get('protocol') in ('2025-06-18','2025-11-25') and self.elicitation_pending is None:
-                        from .mcp_elicitation import parse_legacy_request
+                    if method=='elicitation/create' and self.elicitation_enabled and self.phase in ('call','task_result','resource_read','prompt_get') and (self.info or {}).get('protocol') in ('2025-06-18','2025-11-25') and self.elicitation_pending is None:
+                        from .mcp_elicitation import parse_legacy_request,input_task_metadata
                         try:
+                            related=input_task_metadata(params,self.task_id,self.phase=='task_result')
                             self.elicitation_pending=parse_legacy_request(params,self.info['protocol']);self.elicitation_pending['legacy_id']=ident
+                            if related:self.elicitation_pending['related_task']=related
                         except (ValueError,TypeError,RecursionError):
                             self.send({'jsonrpc':'2.0','id':ident,'error':{'code':-32602,'message':'Unsupported elicitation request'}});continue
                         self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);continue

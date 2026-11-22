@@ -172,10 +172,12 @@ class RemoteProbe(QObject):
             message=continuation(self.elicitation_original if legacy is None else {'params':{}},self.elicitation_pending,responses)
             if self.token and contains_secret(responses,self.token):raise ValueError()
         except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Invalid MCP input response; the request was not continued.');return False
-        self.elicitation_pending=None;self.timer.start(self.timeout_ms)
+        related=self.elicitation_pending.get('related_task');self.elicitation_pending=None;self.timer.start(self.timeout_ms)
         if legacy is not None:
             ident,standalone=legacy;key=(type(ident).__name__,ident)
-            try:self.post_server_response(ident,{'result':responses['request']},key,standalone)
+            result=dict(responses['request'])
+            if related:result['_meta']=related
+            try:self.post_server_response(ident,{'result':result},key,standalone)
             except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Unable to send MCP input response.');return False
             return True
         self.send(message);return self.reply is not None
@@ -287,10 +289,12 @@ class RemoteProbe(QObject):
         else:
             if key in self.server_pings or len(self.server_pings)>=32:raise ValueError('Excessive server requests')
             self.server_pings[key]=message
-        if method=='elicitation/create' and self.elicitation_enabled and self.protocol in ('2025-06-18','2025-11-25') and self.phase in ('call','resource_read','prompt_get') and self.elicitation_pending is None:
-            from .mcp_elicitation import parse_legacy_request
+        if method=='elicitation/create' and self.elicitation_enabled and self.protocol in ('2025-06-18','2025-11-25') and self.phase in ('call','task_result','resource_read','prompt_get') and self.elicitation_pending is None:
+            from .mcp_elicitation import parse_legacy_request,input_task_metadata
             try:
+                related=input_task_metadata(params,self.task_id,self.phase=='task_result')
                 self.elicitation_pending=parse_legacy_request(params,self.protocol);self.elicitation_pending['legacy_request']=(ident,standalone)
+                if related:self.elicitation_pending['related_task']=related
             except (ValueError,TypeError,RecursionError):
                 self.post_server_response(ident,{'error':{'code':-32602,'message':'Unsupported elicitation request'}},key,standalone);return
             self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);return

@@ -1,4 +1,4 @@
-"""State and validation for MCP 2026 Tasks; not yet wired to sessions."""
+"""State and validation for MCP 2026 Tasks."""
 import hashlib
 import json
 import copy
