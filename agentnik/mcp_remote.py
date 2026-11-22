@@ -1,5 +1,6 @@
 """Bounded, asynchronous HTTP MCP discovery and explicitly reviewed calls."""
 import json
+import copy
 import math
 import time
 import uuid
@@ -101,9 +102,10 @@ def response_message(data,content_type,expected_id,on_list_changed=None,on_serve
 class RemoteProbe(QObject):
     finished=Signal(object)
     progress=Signal(object)
+    elicitation_requested=Signal(object)
     def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
-        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None;self.modern=False;self.call_schema=None;self.legacy_rejection=None
+        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None;self.modern=False;self.call_schema=None;self.legacy_rejection=None;self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
         self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
@@ -119,6 +121,7 @@ class RemoteProbe(QObject):
     def start(self):
         self.timer.start(self.timeout_ms);self.send(initialize_request())
     def send(self,message):
+        if self.modern and message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
         if 'id' in message:
             self.next_id+=1;self.current_id=self.next_id;message=dict(message,id=self.current_id)
         if self.phase!='task_result':self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0
@@ -129,7 +132,7 @@ class RemoteProbe(QObject):
         if self.phase=='call' and message.get('method')=='tools/call':
             self.log_count=0;self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
         modern_headers={}
-        if self.modern:message,modern_headers=prepare_request(message,self.call_schema if message.get('method')=='tools/call' else None)
+        if self.modern:message,modern_headers=prepare_request(message,self.call_schema if message.get('method')=='tools/call' else None,{'elicitation':{'form':{}}} if self.elicitation_enabled else None)
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
         tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
@@ -140,6 +143,15 @@ class RemoteProbe(QObject):
             request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
             if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         self.buffer=bytearray();self.reply=self.manager.post(request,json.dumps(message).encode());self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
+
+    def continue_elicitation(self,responses):
+        if self.elicitation_pending is None or self.elicitation_original is None or self.reply is not None:return False
+        try:
+            from .mcp_elicitation import continuation
+            message=continuation(self.elicitation_original,self.elicitation_pending,responses)
+            if self.token and contains_secret(responses,self.token):raise ValueError()
+        except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Invalid MCP input response; the request was not continued.');return False
+        self.elicitation_pending=None;self.timer.start(self.timeout_ms);self.send(message);return self.reply is not None
     def configure_reply(self):
         if tls.relaxed(): self.reply.sslErrors.connect(lambda _errors,reply=self.reply:reply.ignoreSslErrors())
     def consume(self,final=False):
@@ -504,7 +516,13 @@ class RemoteProbe(QObject):
                 if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error});return
                 self.stop(error);return
             if self.modern and self.phase in ('call','resource_read','prompt_get') and isinstance(message.get('result'),dict) and message['result'].get('resultType')=='input_required':
-                self.stop(INPUT_REQUIRED_ERROR);return
+                if not self.elicitation_enabled or self.elicitation_original is None:self.stop(INPUT_REQUIRED_ERROR);return
+                try:
+                    from .mcp_elicitation import parse_input_required
+                    self.elicitation_pending=parse_input_required(message['result'])
+                except (ValueError,TypeError,UnicodeError,RecursionError):self.stop(INPUT_REQUIRED_ERROR);return
+                self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);return
+            if self.modern and self.phase in ('call','resource_read','prompt_get'):self.elicitation_original=None;self.elicitation_pending=None
             if self.phase=='modern_discovery':
                 self.result=parse_discovery(message.get('result'))
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
@@ -617,6 +635,7 @@ class RemoteProbe(QObject):
     def finish_call(self):
         self.close_session()
     def close_session(self):
+        self.elicitation_original=None;self.elicitation_pending=None
         self.sse_resuming=False;self.sse_resume_timer.stop()
         self.close_server_stream()
         if not self.session:self.complete(None);return

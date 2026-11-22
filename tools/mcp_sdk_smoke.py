@@ -13,8 +13,9 @@ sys.path.insert(0,str(ROOT))
 
 
 def make_server(cancelled=None,resumption=None):
-    from mcp.server.mcpserver import MCPServer,Context
-    from typing import TypedDict
+    from mcp.server.mcpserver import MCPServer,Context,Resolve,Elicit
+    from pydantic import BaseModel
+    from typing import TypedDict,Annotated,Literal
     class Addition(TypedDict):
         sum:int
     server=MCPServer('Agentnik smoke',version='1')
@@ -44,6 +45,14 @@ def make_server(cancelled=None,resumption=None):
         import asyncio
         await ctx.notify_resources_changed();await ctx.notify_prompts_changed();await asyncio.sleep(.1)
         return 'Changes sent'
+
+    class Answer(BaseModel):
+        choice:Literal['yes','no']
+    def ask():return Elicit('Choose a synthetic answer',Answer)
+    @server.tool()
+    def interactive(answer:Annotated[Answer,Resolve(ask)])->str:
+        """Request synthetic user input before finishing."""
+        return 'Chosen '+answer.choice
 
     @server.resource('smoke://fixture')
     def fixture()->str:
@@ -209,7 +218,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False):
     import datetime
     import ipaddress
     import socket
@@ -324,12 +333,33 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
             elif test_oauth_ui or test_oauth_dynamic:result=run_oauth_ui(url,oauth_requests,dynamic=test_oauth_dynamic)
             else:
                 session=RemoteSession(url,'',timeout_seconds=15)
-                result=run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
+                result=run_modern_elicitation(session,'https-modern') if test_modern_elicitation else run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
             if thread.is_alive():raise RuntimeError('Local HTTPS server did not stop')
     return result
+
+
+def run_modern_elicitation(session,transport):
+    from PySide6.QtCore import QEventLoop,QTimer,QCoreApplication
+    session.elicitation_enabled=True;loop=QEventLoop();result={'forms':[]};timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit)
+    def discovered(info):
+        tool=next(item for item in info['tool_details'] if item['name']=='interactive')
+        if not session.call(tool,{}):result['error']='Call rejected';loop.quit()
+    def requested(forms):
+        result['forms'].append(forms)
+        if not session.continue_elicitation({forms[0]['id']:{'action':'accept','content':{'choice':'yes'}}}):result['error']='Input rejected';loop.quit()
+    session.discovered.connect(discovered);session.elicitation_requested.connect(requested);session.called.connect(lambda value:(result.update(response=value),loop.quit()));session.ended.connect(lambda value:(result.update(error=value.get('error')),loop.quit()))
+    timer.start(15000);session.start();loop.exec();timer.stop()
+    try:
+        blocks=result.get('response',{}).get('call_result',{}).get('content',[])
+        if result.get('error') or len(result['forms'])!=1 or not any(item.get('text')=='Chosen yes' for item in blocks):raise RuntimeError('SDK elicitation failed: '+str(result))
+    finally:
+        if transport=='stdio-modern':session.close()
+        else:session.shutdown();session.manager.clearConnectionCache()
+        QCoreApplication.processEvents()
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':'2026-07-28','checks':['form request','validated input','explicit continuation','final result']}
 
 
 def run_modern_notifications(session,transport='https-modern'):
@@ -544,6 +574,7 @@ if __name__=='__main__':
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
     elif sys.argv[1:]==['--https-modern']:print(json.dumps(run_https(test_modern=True)))
     elif sys.argv[1:]==['--https-modern-notifications']:print(json.dumps(run_https(test_modern=True,test_modern_notifications=True)))
+    elif sys.argv[1:]==['--https-modern-elicitation']:print(json.dumps(run_https(test_modern=True,test_modern_elicitation=True)))
     elif sys.argv[1:]==['--https-cancel']:print(json.dumps(run_https(test_cancel=True)))
     elif sys.argv[1:]==['--https-resume']:print(json.dumps(run_https(test_resume=True)))
     elif sys.argv[1:]==['--https-standalone-resume']:print(json.dumps(run_https(test_standalone_resume=True)))
@@ -567,4 +598,9 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run_modern_notifications(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern|--stdio-modern-notifications|--https|--https-modern|--https-modern-notifications|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    elif sys.argv[1:]==['--stdio-modern-elicitation']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

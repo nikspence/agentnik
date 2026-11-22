@@ -24,7 +24,12 @@ for line in sys.stdin:
             response={'result':{'supportedVersions':['2026-07-28'],'capabilities':capabilities}}
         elif method=='resources/list':response={'result':{'resources':[{'uri':'test://resource','name':'Resource'}]}}
         elif method=='prompts/list':response={'result':{'prompts':[{'name':'prompt','arguments':[]}]}}
-        elif method in ('resources/read','prompts/get'):response={'result':{'resultType':'input_required','inputRequests':{'question':{'method':'elicitation/create','params':{'message':'private-server-text'}}},'requestState':'private-state'}}
+        elif method in ('resources/read','prompts/get'):
+            if 'inputResponses' in message['params']:
+                assert message['params']['requestState']=='private-state'
+                assert message['params']['inputResponses']['question']=={'action':'accept','content':{'choice':'yes'}}
+                response={'result':{'contents':[{'uri':'test://resource','text':'continued'}]} if method=='resources/read' else {'messages':[{'role':'user','content':{'type':'text','text':'continued'}}]}}
+            else:response={'result':{'resultType':'input_required','inputRequests':{'question':{'method':'elicitation/create','params':{'message':'private-server-text','requestedSchema':{'type':'object','properties':{'choice':{'type':'string'}},'required':['choice']}}}},'requestState':'private-state'}}
         elif method=='subscriptions/listen':
             subscription=ident;subscription_count+=1
             print(json.dumps({'jsonrpc':'2.0','method':'notifications/subscriptions/acknowledged','params':{'notifications':message['params']['notifications'],'_meta':{'io.modelcontextprotocol/subscriptionId':ident}}}),flush=True)
@@ -33,7 +38,13 @@ for line in sys.stdin:
         elif method=='tools/list':response={'result':{'tools':[{'name':'echo','inputSchema':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}]}}
         elif method=='tools/call':
             if message['params']['arguments']['text']=='input':
-                response={'result':{'resultType':'input_required','inputRequests':{'question':{'method':'elicitation/create','params':{'message':'private-server-text'}}},'requestState':'private-state'}}
+                if 'inputResponses' in message['params']:
+                    assert message['params']['requestState']=='private-state'
+                    answer=message['params']['inputResponses']['question']
+                    assert answer in ({'action':'accept','content':{'choice':'yes'}},{'action':'decline'})
+                    response={'result':{'content':[{'type':'text','text':'declined' if answer['action']=='decline' else 'continued'}]}}
+                else:
+                    response={'result':{'resultType':'input_required','inputRequests':{'question':{'method':'elicitation/create','params':{'message':'private-server-text','requestedSchema':{'type':'object','properties':{'choice':{'type':'string','enum':['yes','no']}},'required':['choice']}}}},'requestState':'private-state'}}
                 print(json.dumps(dict(response,jsonrpc='2.0',id=ident)),flush=True);continue
             if message['params']['arguments']['text']=='notify':
                 for kind in ('resources','prompts'):

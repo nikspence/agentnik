@@ -9,7 +9,7 @@ from .mcp_support import MAX_OUTPUT,validate_servers,initialize_request,parse_in
 class MCPServers(QDialog):
     def __init__(self,window):
         super().__init__(window);self.store=window.store;self.setWindowTitle(self.tr('MCP servers'));self.resize(680,520)
-        self.process=None;self.remote=None;self.oauth_pending=None;self.oauth_discovery=None;self.oauth_authorization=None;self.oauth_metadata=None;self.oauth_config=None;self.oauth_challenge=None;self.oauth_challenge_url=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test(self.tr('Connection test timed out.')))
+        self.process=None;self.remote=None;self.elicitation_dialog=None;self.oauth_pending=None;self.oauth_discovery=None;self.oauth_authorization=None;self.oauth_metadata=None;self.oauth_config=None;self.oauth_challenge=None;self.oauth_challenge_url=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test(self.tr('Connection test timed out.')))
         outer=QVBoxLayout(self);scroll=QScrollArea();scroll.setObjectName('mcpSettingsScroll');scroll.setWidgetResizable(True);outer.addWidget(scroll)
         content=QWidget();scroll.setWidget(content);layout=QVBoxLayout(content)
         notice=QLabel(self.tr('Servers can access your data. Local commands and arguments are stored in plaintext; do not put secrets in them.'));notice.setWordWrap(True);layout.addWidget(notice)
@@ -50,6 +50,9 @@ class MCPServers(QDialog):
         self.list.setCurrentRow(-1);self.name.clear();self.transport.setCurrentIndex(0);self.command.clear();self.args.setPlainText('[]');self.working_directory.clear();self.env.setPlainText('{}');self.url.clear();self.token.clear();self.timeout.setValue(DEFAULT_TIMEOUT_SECONDS);self.enabled.setChecked(True)
 
     def load_row(self,index):
+        if self.elicitation_dialog:
+            self.close_elicitation()
+            if self.remote:self.remote.stop('MCP input request cancelled; the request was not continued.')
         self.oauth_pending=None
         if self.oauth_authorization:
             authorization=self.oauth_authorization;self.oauth_authorization=None;authorization.stop()
@@ -146,6 +149,7 @@ class MCPServers(QDialog):
         from .mcp_local import LocalSession
         try:self.process=LocalSession(item['command'],item['args'],self,env_refs=item.get('env',{}),timeout_seconds=server_timeout(item),working_directory=item.get('working_directory',''))
         except ValueError:self.status.setText(self.tr('The MCP environment or working directory is invalid on this system.'));return
+        self.attach_elicitation(self.process,item['name'])
         self.discovered_config=dict(item)
         self.process.discovered.connect(self.local_discovered);self.process.called.connect(self.local_called);self.process.ended.connect(self.local_ended);self.process.shutdown_finished.connect(lambda result,config=dict(item):self.local_task_cleanup(result,config));self.process.shutdown_finished.connect(lambda _result,session=self.process:session.deleteLater())
         self.status.setText(self.tr('Connecting…'));self.process.start()
@@ -164,6 +168,7 @@ class MCPServers(QDialog):
         self.status.setText(task_cleanup_text({'server':config['name'],'task_id':result['task_id'],'task_cancelled':result.get('task_cancelled')}))
 
     def local_ended(self,result):
+        self.close_elicitation()
         session=self.process;self.process=None;self.call_tool=None
         self.discovered=None;self.tool_choice.clear()
         self.status.setText(result['error']+(self.tr(' The call may have completed; inspect server state before retrying.') if result.get('call_uncertain') else ''))
@@ -171,10 +176,32 @@ class MCPServers(QDialog):
     def finish_test(self,message):
         process=self.process
         if process is None:return
-        self.process=None;process.close();self.discovered=None;self.status.setText(message)
+        self.close_elicitation();self.process=None;process.close();self.discovered=None;self.status.setText(message)
+
+    def attach_elicitation(self,session,server):
+        session.elicitation_enabled=True
+        session.elicitation_requested.connect(lambda forms:self.show_elicitation(session,server,forms))
+
+    def show_elicitation(self,session,server,forms):
+        if self._closed or session not in (self.process,self.remote):return
+        from .mcp_elicitation import ElicitationDialog
+        dialog=ElicitationDialog(server,forms,self);self.elicitation_dialog=dialog
+        def finished(code):
+            if self.elicitation_dialog is not dialog:return
+            self.elicitation_dialog=None;dialog.deleteLater()
+            if self._closed or session not in (self.process,self.remote):return
+            if code==QDialog.DialogCode.Accepted:session.continue_elicitation(dialog.responses)
+            elif hasattr(session,'fail'):session.fail('MCP input request cancelled; the request was not continued.')
+            else:session.stop('MCP input request cancelled; the request was not continued.')
+        dialog.finished.connect(finished);dialog.open()
+
+    def close_elicitation(self):
+        dialog=self.elicitation_dialog;self.elicitation_dialog=None
+        if dialog:dialog.blockSignals(True);dialog.reject();dialog.deleteLater()
 
     def done(self,result):
         self._closed=True;self.oauth_pending=None
+        self.close_elicitation()
         if self.oauth_authorization:
             authorization=self.oauth_authorization;self.oauth_authorization=None;authorization.stop()
         if self.oauth_discovery:
@@ -386,9 +413,10 @@ class MCPServers(QDialog):
             if not self.process or not self.process.call(tool,args):self.status.setText(self.tr('Local MCP session is no longer available.'));return
             self.tool_result.clear();self.status.setText(self.tr('Calling tool…'));return
         from .mcp_remote import RemoteProbe
-        self.tool_result.clear();self.remote=RemoteProbe(item['url'],token,self,invocation={'tool':tool,'arguments':args},timeout_seconds=server_timeout(item));self.remote.finished.connect(self.call_done);self.status.setText(self.tr('Calling tool…'));self.remote.start()
+        self.tool_result.clear();self.remote=RemoteProbe(item['url'],token,self,invocation={'tool':tool,'arguments':args},timeout_seconds=server_timeout(item));self.attach_elicitation(self.remote,item['name']);self.remote.finished.connect(self.call_done);self.status.setText(self.tr('Calling tool…'));self.remote.start()
 
     def call_done(self,result):
+        self.close_elicitation()
         probe=self.remote;self.remote=None
         if probe:probe.deleteLater()
         if 'error' in result:

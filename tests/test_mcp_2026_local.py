@@ -121,3 +121,23 @@ for line in sys.stdin:
                 try:
                     loop.exec();timer.stop();self.assertTrue(out);self.assertIn('interactive input',out[0]['error']);self.assertFalse(out[0]['call_uncertain']);self.assertNotIn('private',str(out))
                 finally:session.close()
+
+    def test_prompt_and_resource_form_responses_continue(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        for kind in ('resource','prompt'):
+            with self.subTest(kind=kind):
+                session=LocalSession(sys.executable,['-u',str(server),'--'+kind+'-input'],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[];step=[]
+                def discovered(_):session.list_resources() if kind=='resource' else session.list_prompts()
+                def resources(result):
+                    if not step:step.append(True);session.read_resource(result['resources'][0]['uri'])
+                    else:out.append(result);loop.quit()
+                def prompts(result):
+                    if not step:step.append(True);session.list_prompts({'prompt':result['prompts'][0],'arguments':{}})
+                    else:out.append(result);loop.quit()
+                session.discovered.connect(discovered);session.resources.connect(resources);session.prompts.connect(prompts);session.elicitation_requested.connect(lambda _:session.continue_elicitation({'question':{'action':'accept','content':{'choice':'yes'}}}));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out)
+                    text=out[0]['contents'][0]['text'] if kind=='resource' else out[0]['messages'][0]['content']['text']
+                    self.assertEqual(text,'continued')
+                finally:session.close()

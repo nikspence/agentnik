@@ -21,7 +21,7 @@ class CodingMCPBridge(QObject):
             try:self.environment_values=resolve_environment_references(self.server.get('env',{}))
             except ValueError:self.environment_error='A configured MCP environment variable is missing or invalid.'
         self.cache_scope = None;self.cache_partition=uuid.uuid4().hex
-        self.session = None; self.pending = None; self.closed = False; self.identity = None; self.uncertain = False
+        self.session = None; self.pending = None; self.closed = False; self.identity = None; self.uncertain = False;self.elicitation_dialog=None
         self.request_signal.connect(self._dispatch); self.close_signal.connect(self.close)
 
     def request(self, action, payload, runtime):
@@ -60,6 +60,7 @@ class CodingMCPBridge(QObject):
             if self.environment_error:self._reply(request, {'error':self.environment_error});return
             try:self.session = LocalSession(self.server['command'], self.server['args'], self,env_values=self.environment_values,timeout_seconds=server_timeout(self.server),working_directory=self.server.get('working_directory',''))
             except ValueError:self._reply(request, {'error':'MCP working directory or timeout is invalid on this system.'});return
+            self.session.elicitation_enabled=True;self.session.elicitation_requested.connect(self._elicitation)
             self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called);self.session.progress.connect(self._progress);self.session.shutdown_finished.connect(self._cleanup);self.session.shutdown_finished.connect(lambda _result,session=self.session:session.deleteLater())
             self.session.start()
         elif request['action'] in ('prompts_list','prompts_get') and self.session:
@@ -138,6 +139,7 @@ class CodingMCPBridge(QObject):
     def _start_remote(self,token):
         from .mcp_remote import RemoteSession
         session=RemoteSession(self.server['url'],token,self,timeout_seconds=server_timeout(self.server));self.session=session
+        session.elicitation_enabled=True;session.elicitation_requested.connect(self._elicitation)
         session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended);session.resources.connect(self._called);session.prompts.connect(self._called);session.progress.connect(self._progress)
         session.finished.connect(self._cleanup);session.finished.connect(lambda _result:session.deleteLater());session.start()
 
@@ -161,9 +163,30 @@ class CodingMCPBridge(QObject):
         try:request['progress'].put_nowait(detail)
         except queue.Full:pass
     def _ended(self, result):
+        self._close_elicitation()
         self.session=None
         if result.get('call_uncertain'):self.uncertain=True
         if self.pending:self._reply(self.pending, result)
+
+    def _elicitation(self,forms):
+        if self.closed or self.pending is None or self.pending['cancelled'].is_set() or self.session is None:return
+        from PySide6.QtWidgets import QWidget,QDialog
+        from .mcp_elicitation import ElicitationDialog
+        parent=self.parent()
+        while parent is not None and not isinstance(parent,QWidget):parent=parent.parent()
+        session=self.session;dialog=ElicitationDialog(self.server['name'],forms,parent);self.elicitation_dialog=dialog
+        def finished(code):
+            if self.elicitation_dialog is not dialog:return
+            self.elicitation_dialog=None;dialog.deleteLater()
+            if self.closed or self.session is not session or self.pending is None or self.pending['cancelled'].is_set():return
+            if code==QDialog.DialogCode.Accepted:session.continue_elicitation(dialog.responses)
+            elif hasattr(session,'fail'):session.fail('MCP input request cancelled; the request was not continued.')
+            else:session.stop('MCP input request cancelled; the request was not continued.')
+        dialog.finished.connect(finished);dialog.open()
+
+    def _close_elicitation(self):
+        dialog=self.elicitation_dialog;self.elicitation_dialog=None
+        if dialog:dialog.blockSignals(True);dialog.reject();dialog.deleteLater()
 
     def _cleanup(self,result):
         if isinstance(result,dict) and isinstance(result.get('task_id'),str):
@@ -173,6 +196,7 @@ class CodingMCPBridge(QObject):
     def close(self):
         if self.closed:return
         self.closed=True
+        self._close_elicitation()
         if self.session:
             session=self.session;self.session=None
             if self.server.get('transport')=='http':session.shutdown()

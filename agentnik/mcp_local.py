@@ -1,5 +1,6 @@
 """Persistent, explicitly started MCP stdio session."""
 import json
+import copy
 import os
 import shutil
 import time
@@ -22,6 +23,7 @@ class LocalSession(QObject):
     prompts = Signal(object)
     progress = Signal(object)
     shutdown_finished = Signal(object)
+    elicitation_requested = Signal(object)
 
     def __init__(self, command, args, parent=None, env_refs=None, env_values=None, timeout_seconds=60, working_directory=''):
         super().__init__(parent)
@@ -56,7 +58,7 @@ class LocalSession(QObject):
         self.subscription_retry=QTimer(self);self.subscription_retry.setSingleShot(True);self.subscription_retry.timeout.connect(self.retry_subscription)
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False;self.probe_id=None;self.ignored_id=None;self.subscription_id=-1;self.subscription_active=False;self.subscription_ack=None;self.retired_subscriptions=deque(maxlen=32)
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False;self.probe_id=None;self.ignored_id=None;self.subscription_id=-1;self.subscription_active=False;self.subscription_ack=None;self.retired_subscriptions=deque(maxlen=32);self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None
 
     def start(self):
         if os.name=='nt':
@@ -81,10 +83,20 @@ class LocalSession(QObject):
         self.send(message)
 
     def send(self, message):
-        if self.modern and 'id' in message and 'method' in message:message,_=prepare_request(message)
+        if self.modern and message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
+        if self.modern and 'id' in message and 'method' in message:message,_=prepare_request(message,client_capabilities={'elicitation':{'form':{}}} if self.elicitation_enabled else None)
         payload = (json.dumps(message, ensure_ascii=True, allow_nan=False) + '\n').encode('ascii')
         if 'id' in message:self.request_active=True
         if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')
+
+    def continue_elicitation(self,responses):
+        if self.closed or self.elicitation_pending is None or self.elicitation_original is None:return False
+        try:
+            from .mcp_elicitation import continuation
+            message=continuation(self.elicitation_original,self.elicitation_pending,responses)
+            if any(contains_secret(responses,secret) for secret in self.environment_secrets):raise ValueError()
+        except (ValueError,TypeError,UnicodeError,RecursionError):self.fail('Invalid MCP input response; the request was not continued.');return False
+        self.elicitation_pending=None;self.next_id+=1;message['id']=self.next_id;self.timer.start(self.timeout_ms);self.send(message);return not self.closed
 
     def open_subscription(self):
         filters=self.info.get('subscription_filters',{})
@@ -222,7 +234,13 @@ class LocalSession(QObject):
                 result = message.get('result')
                 if not isinstance(result, dict): raise ValueError()
                 if self.modern and self.phase in ('call','resource_read','prompt_get') and result.get('resultType')=='input_required':
-                    self.fail(INPUT_REQUIRED_ERROR);return
+                    if not self.elicitation_enabled or self.elicitation_original is None:self.fail(INPUT_REQUIRED_ERROR);return
+                    try:
+                        from .mcp_elicitation import parse_input_required
+                        self.elicitation_pending=parse_input_required(result)
+                    except (ValueError,TypeError,UnicodeError,RecursionError):self.fail(INPUT_REQUIRED_ERROR);return
+                    self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);continue
+                if self.modern and self.phase in ('call','resource_read','prompt_get'):self.elicitation_original=None;self.elicitation_pending=None
                 if self.phase=='modern_discovery':
                     self.info=parse_discovery(result)
                     self.open_subscription()
@@ -418,6 +436,7 @@ class LocalSession(QObject):
         self.closed = True
         from shiboken6 import isValid
         self.environment_secrets=[]
+        self.elicitation_original=None;self.elicitation_pending=None
         if isValid(self.timer):self.timer.stop()
         if isValid(self.probe_timer):self.probe_timer.stop()
         if isValid(self.subscription_timer):self.subscription_timer.stop()

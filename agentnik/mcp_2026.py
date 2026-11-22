@@ -60,14 +60,14 @@ def header_fields(schema):
     return found
 
 
-def prepare_request(message,schema=None):
+def prepare_request(message,schema=None,client_capabilities=None):
     """Return a self-describing JSON-RPC request and its matching HTTP headers."""
     if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or type(message.get('id')) is not int:raise ValueError('Invalid MCP request')
     method=message.get('method');params=message.get('params',{})
     if not isinstance(method,str) or not method or any(not 33<=ord(ch)<=126 for ch in method) or not isinstance(params,dict):raise ValueError('Invalid MCP request')
     meta=params.get('_meta',{})
     if not isinstance(meta,dict):raise ValueError('Invalid MCP request metadata')
-    meta=dict(meta,**{'io.modelcontextprotocol/protocolVersion':PROTOCOL,'io.modelcontextprotocol/clientInfo':{'name':'Agentnik','version':'0.1'},'io.modelcontextprotocol/clientCapabilities':{}})
+    meta=dict(meta,**{'io.modelcontextprotocol/protocolVersion':PROTOCOL,'io.modelcontextprotocol/clientInfo':{'name':'Agentnik','version':'0.1'},'io.modelcontextprotocol/clientCapabilities':dict(client_capabilities or {})})
     params=dict(params,_meta=meta);request=dict(message,params=params)
     headers={'MCP-Protocol-Version':PROTOCOL,'Mcp-Method':method}
     field={'tools/call':'name','prompts/get':'name','resources/read':'uri'}.get(method)
