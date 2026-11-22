@@ -18,7 +18,7 @@ class MCPFoundation(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
         app=QApplication.instance() or QApplication([])
-        for mode in ('same-id','string-id'):
+        for mode in ('same-id','string-id','unsupported'):
             with self.subTest(mode=mode):
                 received=[];ping_answered=threading.Event()
                 class Handler(BaseHTTPRequestHandler):
@@ -31,7 +31,7 @@ class MCPFoundation(unittest.TestCase):
                         if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
                         elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
                         elif method=='tools/call':
-                            ping={'jsonrpc':'2.0','id':body['id'] if mode=='same-id' else 'server-ping','method':'ping'}
+                            ping={'jsonrpc':'2.0','id':body['id'] if mode=='same-id' else 'server-ping','method':'sampling/createMessage' if mode=='unsupported' else 'ping'}
                             self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'data: '+json.dumps(ping).encode()+b'\n\n');self.wfile.flush()
                             if ping_answered.wait(4):self.wfile.write(b'data: '+json.dumps({'jsonrpc':'2.0','id':body['id'],'result':{'content':[{'type':'text','text':'done'}]}}).encode()+b'\n\n');self.wfile.flush()
                             return
@@ -43,21 +43,49 @@ class MCPFoundation(unittest.TestCase):
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
                 try:
                     loop.exec();self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(received),1)
-                    response,session_header,auth,protocol=received[0];self.assertEqual(response['result'],{});self.assertEqual(response['id'],4 if mode=='same-id' else 'server-ping');self.assertEqual(session_header,'session-one');self.assertEqual(auth,'Bearer fixture-token');self.assertEqual(protocol,PROTOCOL)
+                    response,session_header,auth,protocol=received[0]
+                    if mode=='unsupported':self.assertEqual(response['error']['code'],-32601)
+                    else:self.assertEqual(response['result'],{})
+                    self.assertEqual(response['id'],4 if mode=='same-id' else 'server-ping');self.assertEqual(session_header,'session-one');self.assertEqual(auth,'Bearer fixture-token');self.assertEqual(protocol,PROTOCOL)
                 finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
     def test_remote_server_ping_rejects_invalid_or_duplicate_requests(self):
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession,response_message
         app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','')
-        invalid=[{'id':True,'method':'ping'},{'id':'x','method':'other'},{'id':'x','method':'ping','params':[]},{'id':'x','method':'ping','result':{}},{'id':'x'*129,'method':'ping'}]
+        invalid=[{'id':True,'method':'ping'},{'id':'x','method':''},{'id':'x','method':'ping','params':[]},{'id':'x','method':'ping','result':{}},{'id':'x'*129,'method':'ping'}]
         session.server_pings[('int',7)]={'jsonrpc':'2.0','id':7,'method':'ping'};invalid.append({'id':7,'method':'ping'})
         for request in invalid:
-            with self.subTest(request=request),self.assertRaises(ValueError):session.server_ping(request)
+            with self.subTest(request=request),self.assertRaises(ValueError):session.server_request(request)
         ping=b'data: {"jsonrpc":"2.0","id":7,"method":"ping"}\n\n';final=b'data: {"jsonrpc":"2.0","id":7,"result":{}}\n\n'
         self.assertEqual(response_message(ping+final,'text/event-stream',7,on_server_request=session.verify_server_ping)['result'],{})
         with self.assertRaises(ValueError):response_message(ping+final,'text/event-stream',7)
         session.closed=True
+
+    def test_remote_standalone_stream_invalidates_unrelated_catalogs(self):
+        from unittest.mock import Mock
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtNetwork import QNetworkRequest
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.phase='call';session.resource_items=[{'uri':'old'}];session.template_items=[{'uriTemplate':'old'}];session.prompt_items=[{'name':'old'}]
+        notices=[];session.progress.connect(notices.append);reply=Mock();reply.attribute.return_value=200;reply.header.return_value='text/event-stream';session.server_stream=reply
+        events=[{'jsonrpc':'2.0','method':'notifications/resources/list_changed'},{'jsonrpc':'2.0','method':'notifications/prompts/list_changed'}]
+        wire=b'\xef\xbb\xbf'+b''.join(b'data: '+json.dumps(event).encode()+b'\r\n\r\n' for event in events)
+        reply.readAll.side_effect=[wire[:9],wire[9:]];session.read_server_stream(reply);self.assertEqual(len(notices),0);session.read_server_stream(reply)
+        self.assertEqual(session.resource_items,[]);self.assertEqual(session.template_items,[]);self.assertEqual(session.prompt_items,[]);self.assertEqual(len(notices),2)
+        session.phase='resource_list';session.stop=Mock();session.server_stream_event(json.dumps(events[0]).encode());session.stop.assert_called_once()
+        session.server_stream=None;session.closed=True
+
+    def test_remote_optional_server_stream_rejects_bad_content_and_is_bounded(self):
+        from unittest.mock import Mock
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.phase='call';session.stop=Mock()
+        for status,content_type,wire in ((405,'text/plain',b''),(200,'application/json',b'{}'),(200,'text/event-stream',b'data: '+b'x'*65537)):
+            with self.subTest(status=status,content_type=content_type):
+                reply=Mock();reply.attribute.return_value=status;reply.header.return_value=content_type;reply.readAll.return_value=wire;session.server_stream=reply
+                session.read_server_stream(reply);self.assertIsNone(session.server_stream);reply.abort.assert_called_once()
+        session.stop.assert_not_called();session.closed=True
 
     def test_local_stopped_tool_sends_cancellation_notification(self):
         from PySide6.QtCore import QEventLoop,QTimer

@@ -2,6 +2,7 @@
 import json
 import time
 import uuid
+from collections import deque
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
 from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError,task_status_notice,server_log_notice
@@ -105,6 +106,7 @@ class RemoteProbe(QObject):
         self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
         self.server_pings={};self.server_ping_error=None;self.server_ping_replies=set()
+        self.server_stream=None;self.server_stream_buffer=bytearray();self.server_stream_parts=[];self.server_stream_bytes=0;self.server_stream_first=True;self.server_stream_requests=deque();self.server_stream_pending=set()
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(self.timeout_ms);self.send(initialize_request())
@@ -167,7 +169,7 @@ class RemoteProbe(QObject):
         if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or (self.token and contains_secret(message,self.token)):return
         if 'id' in message and 'method' in message:
             if self.progress_final_seen:self.server_ping_error='Unexpected MCP server request after the response.';return
-            try:self.server_ping(message)
+            try:self.server_request(message)
             except ValueError:self.server_ping_error='Invalid or unsupported MCP server request.'
             return
         if type(message.get('id')) is int and message['id']==self.current_id:
@@ -185,30 +187,114 @@ class RemoteProbe(QObject):
             if self.progress_count<40 and now-self.progress_emitted_at>=.25:
                 self.progress_count+=1;self.progress_emitted_at=now;self.progress.emit(detail)
 
-    def server_ping(self,message):
-        ident=message.get('id');params=message.get('params')
-        if message.get('method')!='ping' or (type(ident) is not int and (not isinstance(ident,str) or len(ident)>128)) or (params is not None and not isinstance(params,dict)) or 'result' in message or 'error' in message:raise ValueError('Invalid server request')
+    def server_request(self,message,standalone=False):
+        ident=message.get('id');params=message.get('params');method=message.get('method')
+        if not isinstance(method,str) or not method or len(method)>256 or (type(ident) is not int and (not isinstance(ident,str) or len(ident)>128)) or (params is not None and not isinstance(params,dict)) or 'result' in message or 'error' in message:raise ValueError('Invalid server request')
         key=(type(ident).__name__,ident)
-        if key in self.server_pings or len(self.server_pings)>=32 or len(self.server_ping_replies)>=4:raise ValueError('Excessive server requests')
-        self.server_pings[key]=message
+        now=time.monotonic()
+        if standalone:
+            while self.server_stream_requests and self.server_stream_requests[0]<=now-10:self.server_stream_requests.popleft()
+            if key in self.server_stream_pending or len(self.server_stream_requests)>=32:raise ValueError('Excessive server requests')
+            self.server_stream_requests.append(now);self.server_stream_pending.add(key)
+        else:
+            if key in self.server_pings or len(self.server_pings)>=32:raise ValueError('Excessive server requests')
+            self.server_pings[key]=message
+        if len(self.server_ping_replies)>=4:raise ValueError('Excessive server requests')
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy);tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
         request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
         if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
-        origin=self.reply;reply=self.manager.post(request,json.dumps({'jsonrpc':'2.0','id':ident,'result':{}}).encode());self.server_ping_replies.add(reply)
+        response={'jsonrpc':'2.0','id':ident}
+        if method=='ping':response['result']={}
+        else:response['error']={'code':-32601,'message':'Method not supported'}
+        origin=self.reply;reply=self.manager.post(request,json.dumps(response).encode());self.server_ping_replies.add(reply)
         reply.setReadBufferSize(1024)
         ping_timer=QTimer(reply);ping_timer.setSingleShot(True);ping_timer.timeout.connect(reply.abort);ping_timer.start(min(self.timeout_ms,3000))
         if tls.relaxed():reply.sslErrors.connect(lambda _errors,reply=reply:reply.ignoreSslErrors())
         def finished():
             status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute);invalid=status!=202 or reply.bytesAvailable()!=0
-            self.server_ping_replies.discard(reply);reply.deleteLater()
-            if invalid and self.reply is origin and self.phase not in ('closing','task_cancel','request_cancel'):self.stop('MCP server did not accept a ping response.')
+            self.server_ping_replies.discard(reply);self.server_stream_pending.discard(key);reply.deleteLater()
+            if invalid and standalone:self.close_server_stream()
+            elif invalid and self.reply is origin and self.phase not in ('closing','task_cancel','request_cancel'):self.stop('MCP server did not accept a ping response.')
         reply.finished.connect(finished)
 
     def verify_server_ping(self,message):
         ident=message.get('id');key=(type(ident).__name__,ident) if type(ident) is int or isinstance(ident,str) else None
         if key not in self.server_pings or self.server_pings[key]!=message:raise ValueError('Unsupported server request')
+
+    def open_server_stream(self):
+        """Open the optional, independent server-to-client event stream."""
+        if self.server_stream is not None:return
+        request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy);tls.configure_qt_request(request)
+        request.setRawHeader(b'Accept',b'text/event-stream');request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
+        if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
+        if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
+        reply=self.manager.get(request);self.server_stream=reply;self.server_stream_buffer=bytearray();self.server_stream_parts=[];self.server_stream_bytes=0;self.server_stream_first=True
+        reply.setReadBufferSize(65536)
+        if tls.relaxed():reply.sslErrors.connect(lambda _errors,reply=reply:reply.ignoreSslErrors())
+        reply.readyRead.connect(lambda:self.read_server_stream(reply));reply.finished.connect(lambda:self.finish_server_stream(reply))
+
+    def close_server_stream(self):
+        reply=self.server_stream;self.server_stream=None
+        if reply:
+            reply.abort();reply.deleteLater()
+        self.server_stream_buffer.clear();self.server_stream_parts=[];self.server_stream_bytes=0
+
+    def finish_server_stream(self,reply):
+        if self.server_stream is not reply:return
+        self.read_server_stream(reply,final=True)
+        if self.server_stream is reply:self.server_stream=None;reply.deleteLater()
+
+    def read_server_stream(self,reply,final=False):
+        if self.server_stream is not reply:return
+        status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+        content_type=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
+        if status!=200 or content_type!='text/event-stream':
+            if status is not None:self.close_server_stream()
+            return
+        self.server_stream_buffer.extend(bytes(reply.readAll()))
+        if len(self.server_stream_buffer)+self.server_stream_bytes>65536:self.close_server_stream();return
+        while self.server_stream is reply:
+            data=self.server_stream_buffer;cr=data.find(b'\r');lf=data.find(b'\n');ends=[i for i in (cr,lf) if i>=0]
+            if not ends:break
+            end=min(ends)
+            if data[end]==13 and end+1==len(data) and not final:break
+            line=bytes(data[:end]);step=2 if data[end]==13 and end+1<len(data) and data[end+1]==10 else 1;del data[:end+step]
+            if self.server_stream_first:
+                self.server_stream_first=False
+                if line.startswith(b'\xef\xbb\xbf'):line=line[3:]
+            if not line:
+                if self.server_stream_parts and any(self.server_stream_parts):self.server_stream_event(b'\n'.join(self.server_stream_parts))
+                self.server_stream_parts=[];self.server_stream_bytes=0;continue
+            if line.startswith(b':'):continue
+            field,separator,value=line.partition(b':')
+            if field==b'data':
+                if separator and value.startswith(b' '):value=value[1:]
+                self.server_stream_parts.append(value);self.server_stream_bytes+=len(value)+1
+                if self.server_stream_bytes>65536:self.close_server_stream();return
+
+    def server_stream_event(self,data):
+        try:
+            message=json.loads(data)
+            if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or (self.token and contains_secret(message,self.token)):raise ValueError()
+            if 'id' in message:
+                if 'method' not in message:raise ValueError()
+                self.server_request(message,standalone=True);return
+            if message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
+                self.list_changed(message['method']);return
+            if self.phase in ('call','task_result'):
+                detail=server_log_notice(message)
+                if detail and self.log_count<20:self.log_count+=1;self.progress.emit(detail)
+                if self.phase=='task_result' and self.task_status_count<40:
+                    status=task_status_notice(message,self.task_id,self.task_status_last)
+                    if status:self.task_status_last,detail=status;self.task_status_count+=1;self.progress.emit(detail)
+                notice=progress_notice(message,self.progress_token,self.progress_last)
+                if notice:
+                    self.progress_last,detail=notice;now=time.monotonic()
+                    if self.progress_count<40 and now-self.progress_emitted_at>=.25:self.progress_count+=1;self.progress_emitted_at=now;self.progress.emit(detail)
+        except MCPListChangedError as exc:self.stop(str(exc))
+        except (ValueError,UnicodeError,TypeError,RecursionError):self.close_server_stream()
 
     def list_changed(self,method):
         notice=invalidate_server_list(self,method)
@@ -240,6 +326,7 @@ class RemoteProbe(QObject):
         try:
             if self.token and self.token.encode('ascii') in self.buffer:raise ValueError('Credential reflected in response')
             if self.phase=='initialized':
+                self.open_server_stream()
                 if 'tools' not in self.result['capabilities']:
                     if self.invocation:raise ValueError('MCP tools unavailable')
                     self.result['tools']=[];self.result['tool_details']=[];self.result['more_tools']=False;self.finish_discovery();return
@@ -340,6 +427,7 @@ class RemoteProbe(QObject):
     def finish_call(self):
         self.close_session()
     def close_session(self):
+        self.close_server_stream()
         if not self.session:self.complete(None);return
         self.phase='closing';self.timer.start(3000)
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
@@ -365,6 +453,7 @@ class RemoteProbe(QObject):
             self.send({'jsonrpc':'2.0','method':'notifications/cancelled','params':{'requestId':request_id}});return
         self.close_session()
     def stop(self,message='MCP connection cancelled.'):
+        self.close_server_stream()
         self.timer.stop();reply=self.reply;self.reply=None
         request_id=self.current_id if reply and self.phase=='call' and not self.task_mode and not self.progress_final_seen else None
         if reply:
@@ -461,6 +550,7 @@ class RemoteSession(RemoteProbe):
 
     def shutdown(self):
         if self.closed:return
+        self.close_server_stream()
         self.closed=True;self.timer.stop()
         reply=self.reply;self.reply=None
         request_id=self.current_id if reply and self.phase=='call' and not self.task_mode and not self.progress_final_seen else None

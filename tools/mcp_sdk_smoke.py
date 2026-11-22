@@ -27,6 +27,12 @@ def make_server(cancelled=None):
     @server.tool()
     async def ping_client(ctx:Context)->str:
         """Ping the client before returning a synthetic result."""
+        await ctx.session.send_ping()
+        return 'Ping acknowledged'
+
+    @server.tool()
+    async def ping_scoped_client(ctx:Context)->str:
+        """Ping the client on the current request stream."""
         from mcp.types import PingRequest,EmptyResult
         from mcp.shared.message import ServerMessageMetadata
         await ctx.session.send_request(PingRequest(),EmptyResult,metadata=ServerMessageMetadata(related_request_id=ctx.request_id))
@@ -71,6 +77,7 @@ def run(session,transport):
         try:
             tool=next(item for item in info['tool_details'] if item['name']=='add')
             result['ping_tool']=next(item for item in info['tool_details'] if item['name']=='ping_client')
+            result['ping_scoped_tool']=next(item for item in info['tool_details'] if item['name']=='ping_scoped_client')
             if tool.get('output_schema_status')!='available':raise RuntimeError('Output schema was not discovered')
             validate_tool_arguments(tool['schema'],{'a':2,'b':3});result['tool']=tool
             result['protocol']=info['protocol'];result['step']='call'
@@ -88,6 +95,10 @@ def run(session,transport):
                 if not session.call(result['ping_tool'],{}):raise RuntimeError('Ping tool call was rejected')
                 return
             if not any(block.get('text')=='Ping acknowledged' for block in output['content']):raise RuntimeError('SDK server ping was not acknowledged')
+            if result['step']=='ping':
+                result['step']='ping_scoped'
+                if not session.call(result['ping_scoped_tool'],{}):raise RuntimeError('Request-scoped ping tool was rejected')
+                return
             result['step']='resources'
             if not session.list_resources():raise RuntimeError('Resource listing was rejected')
         except Exception as exc:fail(exc)
@@ -134,7 +145,7 @@ def run(session,transport):
             if not closed or closed[0].get('session_closed') is not True:fail('HTTPS session shutdown was not confirmed')
         session.manager.clearConnectionCache();app.processEvents()
     if result.get('error'):raise RuntimeError(result['step']+': '+result['error'])
-    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['discovery','tool call and output schema','server ping','resource list/read','template list/read','prompt list/get']}
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['discovery','tool call and output schema','server ping','request-scoped server ping','resource list/read','template list/read','prompt list/get']}
 
 
 def run_https(test_cancel=False):
