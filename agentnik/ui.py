@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+import shutil
 from pathlib import Path
 import sys
 import threading
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QLabel, QPushButton, QLineEdit, QPlainTextEdit, QTextBrowser, QComboBox, QCheckBox,
     QSpinBox, QDialog, QDialogButtonBox, QListWidget, QListWidgetItem, QTabWidget, QSplitter,
     QScrollArea, QFrame, QFileDialog, QMessageBox, QInputDialog, QTableWidget, QTableWidgetItem,
-    QHeaderView, QProgressBar, QStackedWidget, QAbstractItemView, QSizePolicy)
+    QHeaderView, QProgressBar, QStackedWidget, QAbstractItemView, QSizePolicy, QToolButton, QStyle)
 
 from . import core, research, routing, tls
 from .citations import cited_markdown
@@ -150,6 +151,28 @@ class MessageText(QTextBrowser):
         if event.type() == QEvent.Type.FontChange and hasattr(self,'_fit_timer'):
             self.document().setDefaultFont(self.font()); self.schedule_fit()
 
+class ImagePreview(QDialog):
+    """Resizable, aspect-preserving preview of an image stored with a message."""
+    def __init__(self,path,parent=None):
+        super().__init__(parent); self.setWindowTitle(self.tr('Image preview'))
+        self.image=QPixmap(path)
+        if self.image.isNull():raise ValueError(self.tr('The image could not be opened.'))
+        layout=QVBoxLayout(self); self.preview=QLabel(); self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview.setAccessibleName(self.tr('Image preview')); self.preview.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Ignored)
+        self.preview.setMinimumSize(1,1);layout.addWidget(self.preview,1)
+        controls=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);controls.rejected.connect(self.reject);layout.addWidget(controls)
+        screen=self.screen() or QApplication.primaryScreen()
+        available=screen.availableGeometry() if screen else None
+        self.resize(min(900,round(available.width()*.9)) if available else 900,min(700,round(available.height()*.9)) if available else 700)
+        self.update_image()
+    def update_image(self):
+        size=self.preview.size()
+        if size.width()>1 and size.height()>1:
+            self.preview.setPixmap(self.image.scaled(size,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation))
+    def resizeEvent(self,event):
+        super().resizeEvent(event);self.update_image()
+
+
 class MessageBubble(QFrame):
     def __init__(self,message,live=False):
         super().__init__(); self.research_data=message.get('research',{}); self.role = message['role']; self.live = live; self._thinking_seen = False
@@ -176,8 +199,28 @@ class MessageBubble(QFrame):
     def set_images(self,paths):
         if list(paths)==self.image_paths:return
         clear_layout(self.image_layout); self.image_paths=list(paths)
-        for path in paths:
-            label=QLabel(); label.setPixmap(QPixmap(path).scaled(280,180,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)); self.image_layout.addWidget(label)
+        for index,path in enumerate(paths,1):
+            frame=QWidget();column=QVBoxLayout(frame);column.setContentsMargins(0,0,0,0);column.setSpacing(3)
+            label=QLabel();label.setPixmap(QPixmap(path).scaled(280,180,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation));column.addWidget(label)
+            controls=QHBoxLayout();column.addLayout(controls)
+            preview=QToolButton();preview.setObjectName('previewChatImage');preview.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView));preview.setToolTip(self.tr('Preview image'));preview.setAccessibleName(self.tr('Preview image'));preview.clicked.connect(lambda checked=False,p=path:self.preview_image(p));controls.addWidget(preview)
+            save=QToolButton();save.setObjectName('saveChatImage');save.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton));save.setToolTip(self.tr('Save image'));save.setAccessibleName(self.tr('Save image'));save.clicked.connect(lambda checked=False,p=path,n=index:self.save_image(p,n));controls.addWidget(save)
+            controls.addStretch();self.image_layout.addWidget(frame)
+    def preview_image(self,path):
+        try:ImagePreview(path,self).exec()
+        except (ValueError,OSError) as exc:error(self,exc)
+    def save_image(self,path,index=1):
+        suffix=Path(path).suffix.lower()
+        formats={'.png':('PNG image (*.png)',('.png',)),'.jpg':('JPEG image (*.jpg *.jpeg)',('.jpg','.jpeg')),'.jpeg':('JPEG image (*.jpg *.jpeg)',('.jpg','.jpeg')),'.webp':('WebP image (*.webp)',('.webp',)),'.gif':('GIF image (*.gif)',('.gif',))}
+        file_filter,extensions=formats.get(suffix,('Images (*)',(suffix,)))
+        target,_=QFileDialog.getSaveFileName(self,self.tr('Save image'),f'agentnik-image-{index}{suffix}',file_filter)
+        if not target:return
+        destination=Path(target)
+        if not destination.suffix and suffix:destination=destination.with_suffix(suffix)
+        if destination.suffix.lower() not in extensions:
+            return error(self,self.tr('Choose a filename matching the original image format.'))
+        try:shutil.copyfile(path,destination)
+        except (OSError,shutil.Error) as exc:error(self,self.tr('Could not save image: {reason}').format(reason=str(exc)))
     def toggle_thinking(self,visible):
         self.thinking_view.setVisible(visible); self.thinking_toggle.setText(self.tr('Hide thinking') if visible else self.tr('Show thinking'))
     def set_stream(self,text,thinking,research_data=None):

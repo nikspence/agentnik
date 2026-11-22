@@ -3540,6 +3540,22 @@ Choose No to export connection settings without keys.</source>
     <context>
         <name>MessageBubble</name>
         <message>
+            <source>Preview image</source>
+            <translation>预览图像</translation>
+        </message>
+        <message>
+            <source>Save image</source>
+            <translation>保存图像</translation>
+        </message>
+        <message>
+            <source>Choose a filename matching the original image format.</source>
+            <translation>请选择与原始图像格式匹配的文件名。</translation>
+        </message>
+        <message>
+            <source>Could not save image: {reason}</source>
+            <translation>无法保存图像：{reason}</translation>
+        </message>
+        <message>
             <location filename="../ui.py" line="143" />
             <source>You</source>
             <translation>你</translation>
@@ -5257,6 +5273,17 @@ Connections are discovered from your environment and local servers.</source>
         <message>
             <source>Use typed alias</source>
             <translation>使用输入的别名</translation>
+        </message>
+    </context>
+    <context>
+        <name>ImagePreview</name>
+        <message>
+            <source>Image preview</source>
+            <translation>图像预览</translation>
+        </message>
+        <message>
+            <source>The image could not be opened.</source>
+            <translation>无法打开图像。</translation>
         </message>
     </context>
 </TS>

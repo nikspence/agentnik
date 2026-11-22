@@ -3540,6 +3540,22 @@ Wählen Sie Nein, um Verbindungseinstellungen ohne Schlüssel zu exportieren.</t
     <context>
         <name>MessageBubble</name>
         <message>
+            <source>Preview image</source>
+            <translation>Bildvorschau</translation>
+        </message>
+        <message>
+            <source>Save image</source>
+            <translation>Bild speichern</translation>
+        </message>
+        <message>
+            <source>Choose a filename matching the original image format.</source>
+            <translation>Wählen Sie einen Dateinamen, der dem ursprünglichen Bildformat entspricht.</translation>
+        </message>
+        <message>
+            <source>Could not save image: {reason}</source>
+            <translation>Bild konnte nicht gespeichert werden: {reason}</translation>
+        </message>
+        <message>
             <location filename="../ui.py" line="143" />
             <source>You</source>
             <translation>Du</translation>
@@ -5257,6 +5273,17 @@ Verbindungen werden von Ihrer Umgebung und lokalen Servern erkannt.</translation
         <message>
             <source>Use typed alias</source>
             <translation>Eingegebene Modellkennung verwenden</translation>
+        </message>
+    </context>
+    <context>
+        <name>ImagePreview</name>
+        <message>
+            <source>Image preview</source>
+            <translation>Bildvorschau</translation>
+        </message>
+        <message>
+            <source>The image could not be opened.</source>
+            <translation>Das Bild konnte nicht geöffnet werden.</translation>
         </message>
     </context>
 </TS>

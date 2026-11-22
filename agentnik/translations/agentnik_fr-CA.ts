@@ -3540,6 +3540,22 @@ Choisissez Non pour exporter les paramètres de connexion sans clés.</translati
     <context>
         <name>MessageBubble</name>
         <message>
+            <source>Preview image</source>
+            <translation>Aperçu de l’image</translation>
+        </message>
+        <message>
+            <source>Save image</source>
+            <translation>Enregistrer l’image</translation>
+        </message>
+        <message>
+            <source>Choose a filename matching the original image format.</source>
+            <translation>Choisissez un nom de fichier correspondant au format de l’image d’origine.</translation>
+        </message>
+        <message>
+            <source>Could not save image: {reason}</source>
+            <translation>Impossible d’enregistrer l’image : {reason}</translation>
+        </message>
+        <message>
             <location filename="../ui.py" line="143" />
             <source>You</source>
             <translation>Vous</translation>
@@ -5257,6 +5273,17 @@ Les connexions sont découvertes à partir de votre environnement et des serveur
         <message>
             <source>Use typed alias</source>
             <translation>Utiliser l’alias saisi</translation>
+        </message>
+    </context>
+    <context>
+        <name>ImagePreview</name>
+        <message>
+            <source>Image preview</source>
+            <translation>Aperçu de l’image</translation>
+        </message>
+        <message>
+            <source>The image could not be opened.</source>
+            <translation>Impossible d’ouvrir l’image.</translation>
         </message>
     </context>
 </TS>
