@@ -46,6 +46,7 @@ class TaskTracker:
         _,status,interval=_metadata(value,self.task_id);self.status=status;self.poll_interval_ms=interval
         if status=='input_required':
             requests=value.get('inputRequests')
+            if not isinstance(requests,dict) or not requests:raise ValueError('Invalid MCP task input')
             pending=parse_input_required({'resultType':'input_required','inputRequests':requests})
             fresh=[];seen_updates={}
             for form in pending['forms']:

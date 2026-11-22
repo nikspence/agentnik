@@ -46,12 +46,14 @@ for line in sys.stdin:
             continue
         elif method=='tools/list':response={'result':{'tools':[{'name':'echo','inputSchema':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}]}}
         elif method=='tools/call':
-            if message['params']['arguments']['text'] in ('state','state_loop','state_long'):
+            if message['params']['arguments']['text'] in ('state','state_loop','state_long','empty_input'):
                 state=message['params'].get('requestState')
-                if state is not None:assert state=='opaque-private-state' and message['params']['inputResponses']=={}
+                if 'inputResponses' in message['params']:
+                    assert message['params']['inputResponses']=={}
+                    assert 'requestState' not in message['params'] if message['params']['arguments']['text']=='empty_input' else state=='opaque-private-state'
                 state_rounds+=1
-                finished=state is not None and (message['params']['arguments']['text']=='state' or message['params']['arguments']['text']=='state_long' and state_rounds>11)
-                response={'result':{'content':[{'type':'text','text':'continued'}]}} if finished else {'result':{'resultType':'input_required','requestState':'opaque-private-state'}}
+                finished=state_rounds>1 and (message['params']['arguments']['text'] in ('state','empty_input') or message['params']['arguments']['text']=='state_long' and state_rounds>11)
+                response={'result':{'content':[{'type':'text','text':'continued'}]}} if finished else {'result':{'resultType':'input_required','inputRequests':{}}} if message['params']['arguments']['text']=='empty_input' else {'result':{'resultType':'input_required','requestState':'opaque-private-state'}}
                 print(json.dumps(dict(response,jsonrpc='2.0',id=ident)),flush=True);continue
             if message['params']['arguments']['text'] in ('task','task_input','task_wait','task_failed','task_leak','task_error_leak'):
                 assert metadata['io.modelcontextprotocol/clientCapabilities']['extensions']['io.modelcontextprotocol/tasks']=={}

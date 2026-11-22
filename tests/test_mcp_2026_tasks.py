@@ -19,6 +19,15 @@ class ModernTaskProtocolTests(unittest.TestCase):
         for extensions in (None,[],{'io.modelcontextprotocol/tasks':None},{}):
             value['capabilities']['extensions']=extensions;self.assertFalse(parse_discovery(value)['task_extension_advertised'])
 
+    def test_empty_mrtr_input_is_valid_but_missing_fields_are_not(self):
+        from agentnik.mcp_elicitation import parse_input_required,continuation
+        pending=parse_input_required({'resultType':'input_required','inputRequests':{}})
+        self.assertEqual(pending['forms'],[])
+        message=continuation({'method':'tools/call','params':{'name':'work'}},pending,{})
+        self.assertEqual(message['params'],{'name':'work','inputResponses':{}})
+        for value in ({'resultType':'input_required'},{'resultType':'input_required','inputRequests':None},{'resultType':'input_required','requestState':None}):
+            with self.subTest(value=value),self.assertRaises(ValueError):parse_input_required(value)
+
     def test_server_manager_discloses_unavailable_modern_tasks(self):
         import tempfile
         from unittest.mock import patch
@@ -80,6 +89,7 @@ class ModernTaskProtocolTests(unittest.TestCase):
                 value=task();value.update(changes);TaskTracker(task(result_type='task')).observe(value)
         for ack in ({},{'resultType':'complete','unexpected':1},{'resultType':'task'}):
             with self.subTest(ack=ack),self.assertRaises(ValueError):TaskTracker(task(result_type='task')).acknowledge(ack)
+        with self.assertRaises(ValueError):TaskTracker(task(result_type='task')).observe(task('input_required',inputRequests={}))
 
     def test_failures_are_bounded_and_cancellation_ack_is_not_completion(self):
         tracker=TaskTracker(task(result_type='task'));failed=tracker.observe(task('failed',error={'code':-32603,'message':'problem','data':{'private':'secret'}}))

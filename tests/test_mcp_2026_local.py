@@ -15,7 +15,7 @@ class ModernLocalSession(unittest.TestCase):
     def test_state_only_continuation_is_paced_and_bounded(self):
         import time
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
-        for mode in ('state','state_loop','state_long'):
+        for mode in ('state','state_loop','state_long','empty_input'):
             with self.subTest(mode=mode):
                 session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=1 if mode=='state_loop' else 6);loop=QEventLoop();out=[];forms=[];started=time.monotonic()
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{'text':mode}))

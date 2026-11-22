@@ -59,6 +59,28 @@ class ModernRemoteSession(unittest.TestCase):
             loop.exec();timer.stop();self.assertTrue(out[0]['call_uncertain']);self.assertEqual(calls.count('tools/call'),1);self.assertFalse(session.state_timer.isActive());self.assertNotIn('opaque-private-state',str(out))
         finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
+    def test_empty_input_map_continues_without_state(self):
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method'];calls.append(request)
+                if method=='initialize':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{}}}
+                elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+                elif method=='tools/call':result={'content':[{'type':'text','text':'done'}]} if 'inputResponses' in request['params'] else {'resultType':'input_required','inputRequests':{}}
+                else:raise AssertionError(method)
+                payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[];forms=[]
+        session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.elicitation_requested.connect(forms.append)
+        session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertFalse(forms)
+            invoked=[call for call in calls if call['method']=='tools/call'];self.assertEqual(len(invoked),2);self.assertEqual(invoked[1]['params']['inputResponses'],{});self.assertNotIn('requestState',invoked[1]['params']);self.assertNotEqual(invoked[0]['id'],invoked[1]['id'])
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_modern_task_cancellation_is_acknowledged_without_claiming_completion(self):
         for acknowledge in (True,False):
             with self.subTest(acknowledge=acknowledge):

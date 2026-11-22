@@ -45,7 +45,7 @@ def parse_input_required(result):
         if len(json.dumps(result,ensure_ascii=False,allow_nan=False).encode('utf-8'))>65536:raise ValueError('MCP input request is too large')
     except (TypeError,UnicodeError,RecursionError):raise ValueError('Invalid MCP input request') from None
     requests=result.get('inputRequests',{});state=result.get('requestState')
-    if not isinstance(requests,dict) or len(requests)>32 or (not requests and not isinstance(state,str)) or (state is not None and not isinstance(state,str)):raise ValueError('Unsupported MCP input request')
+    if not isinstance(requests,dict) or len(requests)>32 or ('inputRequests' not in result and not isinstance(state,str)) or (state is not None and not isinstance(state,str)):raise ValueError('Unsupported MCP input request')
     forms=[]
     for key,request in requests.items():
         if not isinstance(key,str) or not key or len(key)>256 or not isinstance(request,dict) or request.get('method')!='elicitation/create':raise ValueError('Unsupported MCP input request')
