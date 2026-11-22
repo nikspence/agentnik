@@ -1,7 +1,5 @@
 # Agentnik branding
 
-The robot icon preserves the supplied artwork geometry, with red shading and highlights matching the wordmark accent. `assets/robot.svg` contains only robot geometry. The wordmark uses lowercase **agentnik**, with dark lettering for light backgrounds, light lettering for dark backgrounds, and warm red `#d63b4b` for **nik**. Interface accents use red `#c83545`.
+The approved transparent light and dark artwork is stored in `assets/agentnik-light-source.png` and `assets/agentnik-dark-source.png`. The packaged logo PNGs copy those sources, and the self-contained SVG wrappers embed the same raster artwork for the desktop interface. The robot icon is extracted from the light artwork and supplied as PNG, SVG, and a multi-resolution Windows ICO. These SVG files are raster-backed rather than vector paths.
 
-All SVGs contain vector paths, with no embedded bitmaps or runtime font dependency. Matching transparent PNGs and a multi-resolution Windows ICO are included in the package.
-
-Rebuild with `python tools/build_branding.py` using PySide6 and Pillow. The builder uses Segoe UI Black on Windows; another platform may substitute a font. Commit the generated assets to preserve the approved appearance across platforms. Pillow is optional for asset builds only.
+Rebuild with `python tools/build_branding.py` using Pillow. The builder detects the transparent gap between the robot and wordmark; if a replacement source changes the layout, verify the resulting icon. Pillow is needed only to rebuild branding, not to run Agentnik.

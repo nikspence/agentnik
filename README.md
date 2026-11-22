@@ -1,7 +1,7 @@
 # Agentnik
 
-![Agentnik logo](agentnik/assets/agentnik-light.svg#gh-light-mode-only)
-![Agentnik logo](agentnik/assets/agentnik-dark.svg#gh-dark-mode-only)
+![Agentnik logo](agentnik/assets/agentnik-light.png#gh-light-mode-only)
+![Agentnik logo](agentnik/assets/agentnik-dark.png#gh-dark-mode-only)
 
 **Code, chat, and research with your choice of local or cloud models.** Agentnik is a Python/Qt desktop application for Windows, macOS, and Linux. It brings model connections, conversations, projects, and research into one workspace, using Ollama, LiteLLM gateways, and compatible provider endpoints.
 

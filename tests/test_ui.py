@@ -302,7 +302,16 @@ class Desktop(unittest.TestCase):
         for name in ('agentnik-light.png','agentnik-dark.png','agentnik-icon.png'):
             image=QImage(str(assets/name)); self.assertFalse(image.isNull()); self.assertTrue(image.hasAlphaChannel()); self.assertEqual(image.pixelColor(0,0).alpha(),0)
             svg=(assets/name).with_suffix('.svg').read_text('utf-8')
-            self.assertIn('<path',svg); self.assertNotIn('<image',svg)
+            self.assertIn('<image',svg); self.assertIn('data:image/png;base64,',svg)
+        for variant in ('light','dark'):
+            import base64
+            import xml.etree.ElementTree as ET
+            svg=ET.parse(assets/f'agentnik-{variant}.svg').getroot()
+            image=svg.find('{http://www.w3.org/2000/svg}image')
+            self.assertIsNotNone(image)
+            embedded=base64.b64decode(image.attrib['href'].split(',',1)[1],validate=True)
+            self.assertEqual(embedded,(assets/f'agentnik-{variant}.png').read_bytes())
+            self.assertEqual(embedded,(assets.parents[1]/'assets'/f'agentnik-{variant}-source.png').read_bytes())
         # Qt accepts an SVG as valid even when individual paths are truncated.
         from PySide6.QtCore import qInstallMessageHandler
         from PySide6.QtSvg import QSvgRenderer
