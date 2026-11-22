@@ -11,6 +11,42 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_progress_notice_requires_active_token_and_increasing_finite_values(self):
+        from agentnik.mcp_support import progress_notice
+        def msg(**params):return {'jsonrpc':'2.0','method':'notifications/progress','params':params}
+        self.assertEqual(progress_notice(msg(progressToken='token',progress=2,total=4,message='Loading\n  charts'),'token',None),(2,'Progress 2 / 4: Loading charts'))
+        for params in ({'progressToken':'other','progress':3},{'progressToken':'token','progress':1},{'progressToken':'token','progress':float('nan')},{'progressToken':'token','progress':10**400},{'progressToken':'token','progress':True},{'progressToken':'token','progress':3,'total':float('inf')},{'progressToken':'token','progress':3,'message':3}):
+            with self.subTest(params=params):self.assertIsNone(progress_notice(msg(**params),'token',2))
+
+    def test_local_tool_progress_reaches_worker_before_completion(self):
+        import threading
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_code import CodingMCPBridge
+        from agentnik.tools import Runtime
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'progress_server.py'
+            server.write_text('''import json,sys,time
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+ elif method=='tools/list':result={'tools':[{'name':'long_job','inputSchema':{'type':'object'}}]}
+ elif method=='tools/call':
+  token=req['params']['_meta']['progressToken']
+  for t in ('wrong',token):print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':t,'progress':1,'total':4,'message':'Loading'}}),flush=True)
+  time.sleep(.15);result={'content':[{'type':'text','text':'done'}]}
+ else:raise RuntimeError('unexpected')
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            config={'mcp_servers':[{'name':'Local','command':sys.executable,'args':[str(server)],'enabled':True}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config);runtime=Runtime();out=[]
+            runtime.mcp_progress=lambda name,detail:out.append(('progress',name,detail))
+            def work():
+                info=bridge.request('discover',{},runtime);result=bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime);out.append(('result',result));bridge.close_signal.emit()
+            thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1);bridge.close()
+            self.assertFalse(thread.is_alive());self.assertEqual(out[0],('progress','Local','Progress 1 / 4: Loading'));self.assertEqual(out[1][0],'result');self.assertEqual(len(out),2)
+
     def test_parallel_mcp_documented_tool_selector_only(self):
         profile={'name':'Parallel','transport':'http','url':'https://mcp.parallel.ai/mcp?tools=web_search,web_research,find_verticals,search_vertical','credential_id':'','enabled':True}
         self.assertEqual(validate_servers([profile]),[profile])

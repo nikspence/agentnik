@@ -1,5 +1,6 @@
 """Bridge a coding worker to one explicitly selected MCP server."""
 import copy
+import queue
 import threading
 from PySide6.QtCore import QObject, Signal, Slot
 from .mcp_local import LocalSession
@@ -22,10 +23,20 @@ class CodingMCPBridge(QObject):
         self.request_signal.connect(self._dispatch); self.close_signal.connect(self.close)
 
     def request(self, action, payload, runtime):
-        request = {'action': action, 'payload': payload, 'done': threading.Event(), 'cancelled': threading.Event()}
+        request = {'action': action, 'payload': payload, 'done': threading.Event(), 'cancelled': threading.Event(),'progress':queue.Queue(maxsize=40)}
         self.request_signal.emit(request)
+        def drain_progress():
+            while True:
+                try:detail=request['progress'].get_nowait()
+                except queue.Empty:return
+                callback=getattr(runtime,'mcp_progress',None)
+                if callable(callback):callback(self.server['name'],detail)
+                else:
+                    callback=getattr(runtime,'notify',None)
+                    if callable(callback):callback('mcp','MCP '+self.server['name']+': '+detail)
         try:
-            while not request['done'].wait(.05): runtime.check()
+            while not request['done'].wait(.05):drain_progress();runtime.check()
+            drain_progress()
             runtime.check()
             return request['result']
         except BaseException:
@@ -47,7 +58,7 @@ class CodingMCPBridge(QObject):
             if self.environment_error:self._reply(request, {'error':self.environment_error});return
             try:self.session = LocalSession(self.server['command'], self.server['args'], self,env_values=self.environment_values,timeout_seconds=server_timeout(self.server),working_directory=self.server.get('working_directory',''))
             except ValueError:self._reply(request, {'error':'MCP working directory or timeout is invalid on this system.'});return
-            self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called)
+            self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called);self.session.progress.connect(self._progress)
             self.session.start()
         elif request['action'] in ('prompts_list','prompts_get') and self.session:
             if not self.session.list_prompts(request['payload'] if request['action']=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})
@@ -119,6 +130,12 @@ class CodingMCPBridge(QObject):
         if self.pending:self._reply(self.pending, result)
     def _called(self, result):
         if self.pending:self._reply(self.pending, result)
+
+    def _progress(self,detail):
+        request=self.pending
+        if not request or request['cancelled'].is_set():return
+        try:request['progress'].put_nowait(detail)
+        except queue.Full:pass
     def _ended(self, result):
         self.session=None
         if result.get('call_uncertain'):self.uncertain=True

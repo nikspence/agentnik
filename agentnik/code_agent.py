@@ -856,6 +856,7 @@ class CodingRun:
             if self.latest_test_report is not None:self.test_report_may_be_stale=True
             text='Applied project '+label+': '+path+('\n'+diff if diff else '')
             event('output',text=text[:1750]+('\n[diff excerpt truncated]' if len(text)>1750 else ''))
+        runtime.mcp_progress=lambda server,detail:event('output',text='MCP '+server+': '+detail)
         steering_batch=[];steering_submitted=False
         try:
             files=ProjectFiles(self.root);project=ProjectTools(files);c=self.connection;native=core.native_ollama(c);protocol=c.get('protocol','chat')

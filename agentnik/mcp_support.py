@@ -1,6 +1,7 @@
 """MCP server configuration and bounded initialization preview."""
 import json
 import hashlib
+import math
 import os
 import re
 import unicodedata
@@ -17,6 +18,21 @@ def response_limit(phase):
     return MAX_DISCOVERY_OUTPUT if phase=='tools' else MAX_RESOURCE_RESULT_OUTPUT if phase=='resource_read' else MAX_TOOL_RESULT_OUTPUT if phase in ('call','prompt_get') else MAX_OUTPUT
 DEFAULT_TIMEOUT_SECONDS=60
 MAX_TIMEOUT_SECONDS=900
+
+def progress_notice(message,token,previous):
+    """Validate a progress notification against the active tool call."""
+    if not isinstance(message,dict) or message.get('method')!='notifications/progress' or 'id' in message:return None
+    params=message.get('params')
+    if not isinstance(params,dict) or params.get('progressToken')!=token:return None
+    value=params.get('progress');total=params.get('total');description=params.get('message','')
+    def valid_number(number):return type(number) in (int,float) and abs(number)<=10**100 and math.isfinite(number) and number>=0
+    if not valid_number(value) or (previous is not None and value<=previous):return None
+    if total is not None and not valid_number(total):return None
+    if not isinstance(description,str):return None
+    description=' '.join(''.join(ch if ch.isprintable() else ' ' for ch in description).split())[:240]
+    detail='Progress '+format(value,'.6g')+(' / '+format(total,'.6g') if total is not None else '')+(': '+description if description else '')
+    return value,detail
+
 PARALLEL_MCP_TOOLS=frozenset(('web_search','web_fetch','web_decisions','web_research','find_verticals','search_vertical'))
 
 def safe_parallel_tool_query(parts):
