@@ -302,6 +302,21 @@ class ElicitationTests(unittest.TestCase):
             poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
             self.assertFalse(thread.is_alive());open_url.assert_called_once();self.assertEqual(out[0]['call_result']['content'][0]['text'],'url continued');self.assertNotIn('example.test',str(out));self.assertNotIn('private-state',str(out))
 
+    def test_bridge_reviews_modern_task_input_once(self):
+        from agentnik.mcp_code import CodingMCPBridge
+        from agentnik.tools import Runtime,Limits
+        path=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';server={'name':'Example','command':sys.executable,'args':['-u',str(path),'--modern-tasks'],'enabled':True}
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]},self.app);self.addCleanup(retire_bridge,bridge);runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
+        def worker():
+            info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{'text':'task_input'}},runtime));bridge.close_signal.emit()
+        thread=threading.Thread(target=worker);thread.start();loop=QEventLoop();poll=QTimer()
+        def tick():
+            dialog=bridge.elicitation_dialog
+            if dialog and not presented:presented.append(True);dialog.fields['choice'][1].setText('yes');dialog.submit()
+            if not thread.is_alive():loop.quit()
+        poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
+        self.assertFalse(thread.is_alive());self.assertEqual(presented,[True]);self.assertEqual(out[0]['call_result']['content'][0]['text'],'task complete');self.assertNotIn('private-task-id',str(out))
+
     def test_2025_local_server_receives_answer_to_original_request(self):
         for protocol in ('2025-06-18','2025-11-25'):
             with self.subTest(protocol=protocol):self.check_2025_local_server(protocol)

@@ -67,7 +67,10 @@ class TaskTracker:
             result=value.get('result')
             if not isinstance(result,dict):raise ValueError('Invalid MCP task result')
             return {'action':'complete','result':result}
-        if status=='failed':return {'action':'failed','error':rpc_error({'error':value.get('error')})}
+        if status=='failed':
+            error=rpc_error({'error':value.get('error')})
+            if self.task_id in error:error='MCP server error details were omitted.'
+            return {'action':'failed','error':error}
         return {'action':'cancelled'}
 
     def respond(self,responses,ident=0):

@@ -31,6 +31,65 @@ class ModernLocalSession(unittest.TestCase):
             loop.exec();timer.stop();self.assertTrue(info[0]['task_extension_advertised']);self.assertFalse(info[0]['task_capabilities']['tool_calls']);self.assertEqual(out[0]['call_result']['content'][0]['text'],'hello')
         finally:session.close()
 
+    def test_modern_task_polling_and_reviewed_input(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        for text in ('task','task_input'):
+            with self.subTest(text=text):
+                session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[];requests=[];progress=[];info=[]
+                def discovered(result):info.append(result);session.call(result['tool_details'][0],{'text':text})
+                def requested(forms):requests.append(forms);session.continue_elicitation({'question':{'action':'accept','content':{'choice':'yes'}}})
+                session.discovered.connect(discovered);session.elicitation_requested.connect(requested);session.progress.connect(progress.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(info[0]['task_capabilities']['modern']);self.assertEqual(out[0]['call_result']['content'][0]['text'],'task complete')
+                    self.assertEqual(len(requests),1 if text=='task_input' else 0);self.assertNotIn('private-task-id',str(out)+str(progress))
+                finally:session.close()
+
+    def test_modern_task_cancellation_is_requested_without_claiming_completion(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        with tempfile.TemporaryDirectory() as directory:
+            record=Path(directory)/'cancel.json';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks','--cancel-record='+str(record)],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();notices=[];closed=[]
+            session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':'task_wait'}))
+            def progress(message):
+                notices.append(message)
+                if message.startswith('MCP task started'):session.close()
+            session.progress.connect(progress);session.shutdown_finished.connect(lambda result:(closed.append(result),loop.quit()));session.ended.connect(lambda result:loop.quit())
+            timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+            try:
+                loop.exec();timer.stop();self.assertTrue(record.exists());self.assertEqual(json.loads(record.read_text()),{'method':'tasks/cancel'});self.assertTrue(closed[0]['modern_task_cancel_ack'])
+                self.assertTrue(any('completion is not confirmed' in message for message in notices));self.assertNotIn('private-task-id',str(notices)+str(closed))
+            finally:session.close()
+
+    def test_modern_task_can_be_cancelled_while_input_is_pending(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        with tempfile.TemporaryDirectory() as directory:
+            record=Path(directory)/'cancel.json';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks','--cancel-record='+str(record)],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();requests=[];closed=[]
+            session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':'task_input'}))
+            session.elicitation_requested.connect(lambda forms:(requests.append(forms),session.close()))
+            session.shutdown_finished.connect(lambda result:(closed.append(result),loop.quit()))
+            timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+            try:
+                loop.exec();timer.stop();self.assertEqual(len(requests),1);self.assertTrue(record.exists());self.assertTrue(closed[0]['modern_task_cancel_ack'])
+            finally:session.close()
+
+    def test_modern_task_failure_reports_uncertain_without_private_data(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[]
+        session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':'task_failed'}));session.ended.connect(lambda value:(out.append(value),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(out[0]['call_uncertain']);self.assertIn('task failed',out[0]['error']);self.assertNotIn('private-task-id',str(out));self.assertNotIn('secret',str(out))
+        finally:session.close()
+
+    def test_modern_task_identifier_never_reaches_results_or_errors(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        for text in ('task_leak','task_error_leak'):
+            with self.subTest(text=text):
+                session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[]
+                session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':text}));session.ended.connect(lambda value:(out.append(value),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:loop.exec();timer.stop();self.assertTrue(out[0]['call_uncertain']);self.assertNotIn('private-task-id',str(out))
+                finally:session.close()
+
     def test_initialization_envelope_errors_probe_modern_stdio(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         for code in (-32600,-32601,-32602,-32020,-32022):

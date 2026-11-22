@@ -3,7 +3,7 @@ import json
 import sys
 import time
 
-pending=None;subscription_count=0
+pending=None;subscription_count=0;modern_task_kind=None;modern_task_polls=0;modern_task_updates=0
 for line in sys.stdin:
     message=json.loads(line);method=message.get('method');ident=message.get('id')
     if method=='notifications/cancelled' and pending is not None:
@@ -40,6 +40,11 @@ for line in sys.stdin:
             continue
         elif method=='tools/list':response={'result':{'tools':[{'name':'echo','inputSchema':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}]}}
         elif method=='tools/call':
+            if message['params']['arguments']['text'] in ('task','task_input','task_wait','task_failed','task_leak','task_error_leak'):
+                assert metadata['io.modelcontextprotocol/clientCapabilities']['extensions']['io.modelcontextprotocol/tasks']=={}
+                modern_task_kind=message['params']['arguments']['text'];modern_task_polls=0;modern_task_updates=0
+                response={'result':{'resultType':'task','taskId':'private-task-id','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttlMs':None,'pollIntervalMs':100}}
+                print(json.dumps(dict(response,jsonrpc='2.0',id=ident)),flush=True);continue
             if message['params']['arguments']['text']=='url':
                 if 'inputResponses' in message['params']:
                     assert message['params']['requestState']=='private-state'
@@ -62,5 +67,26 @@ for line in sys.stdin:
             if message['params']['arguments']['text']=='wait':
                 pending=ident;print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':message['params']['_meta']['progressToken'],'progress':1,'total':2}}),flush=True);continue
             response={'result':{'content':[{'type':'text','text':message['params']['arguments']['text']}]}}
+        elif method in ('tasks/get','tasks/update','tasks/cancel'):
+            assert metadata['io.modelcontextprotocol/clientCapabilities']['extensions']['io.modelcontextprotocol/tasks']=={}
+            assert message['params']['taskId']=='private-task-id'
+            state={'resultType':'complete','taskId':'private-task-id','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttlMs':None,'pollIntervalMs':100}
+            if method=='tasks/cancel':
+                record=next((arg.split('=',1)[1] for arg in sys.argv[1:] if arg.startswith('--cancel-record=')),None)
+                if record:
+                    with open(record,'w',encoding='utf-8') as file:json.dump({'method':method},file)
+                response={'result':{'resultType':'complete'}}
+            elif method=='tasks/update':
+                assert message['params']['inputResponses']=={'question':{'action':'accept','content':{'choice':'yes'}}}
+                modern_task_updates+=1;response={'result':{'resultType':'complete'}}
+            else:
+                modern_task_polls+=1
+                if modern_task_kind in ('task_failed','task_error_leak'):state.update(status='failed',error={'code':-32603,'message':'private-task-id' if modern_task_kind=='task_error_leak' else 'synthetic task failure','data':{'private':'secret'}})
+                elif modern_task_kind=='task_input' and modern_task_polls<=2:
+                    state.update(status='input_required',inputRequests={'question':{'method':'elicitation/create','params':{'message':'Choose','requestedSchema':{'type':'object','properties':{'choice':{'type':'string'}},'required':['choice']}}}})
+                elif modern_task_kind!='task_wait':
+                    if modern_task_kind=='task_input':assert modern_task_updates==1
+                    state.update(status='completed',result={'content':[{'type':'text','text':'private-task-id' if modern_task_kind=='task_leak' else 'task complete'}]})
+                response={'result':state}
         else:response={'error':{'code':-32601,'message':'unknown method'}}
     print(json.dumps(dict(response,jsonrpc='2.0',id=ident)),flush=True)

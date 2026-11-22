@@ -87,5 +87,11 @@ class ModernTaskProtocolTests(unittest.TestCase):
         tracker=TaskTracker(task(result_type='task'));tracker.acknowledge({'resultType':'complete'},method='tasks/cancel');self.assertFalse(tracker.terminal)
         self.assertEqual(tracker.observe(task('cancelled'))['action'],'cancelled')
 
+    def test_modern_cancel_cleanup_never_discloses_task_identifier_or_claims_stop(self):
+        from agentnik.mcp_support import task_cleanup_text
+        for accepted in (True,False):
+            text=task_cleanup_text({'server':'Example','modern_task_cancel_ack':accepted})
+            self.assertIn('may still be running',text);self.assertNotIn('synthetic-task',text)
+
 
 if __name__=='__main__':unittest.main()

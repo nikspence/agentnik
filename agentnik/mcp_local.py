@@ -57,6 +57,7 @@ class LocalSession(QObject):
         self.probe_timer=QTimer(self);self.probe_timer.setSingleShot(True);self.probe_timer.timeout.connect(self.probe_modern)
         self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(lambda:self.stop_subscription('MCP change notification subscription was not acknowledged; list resources and prompts again.'))
         self.subscription_retry=QTimer(self);self.subscription_retry.setSingleShot(True);self.subscription_retry.timeout.connect(self.retry_subscription)
+        self.modern_task_timer=QTimer(self);self.modern_task_timer.setSingleShot(True);self.modern_task_timer.timeout.connect(self.poll_modern_task);self.modern_task=None;self.modern_cancel_ack=None
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1;self.elicitation_urls={}
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
         self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False;self.probe_id=None;self.ignored_id=None;self.subscription_id=-1;self.subscription_active=False;self.subscription_ack=None;self.retired_subscriptions=deque(maxlen=32);self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None
@@ -85,13 +86,22 @@ class LocalSession(QObject):
 
     def send(self, message):
         if message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
-        if self.modern and 'id' in message and 'method' in message:message,_=prepare_request(message,client_capabilities={'elicitation':{'form':{},'url':{}}} if self.elicitation_enabled else None)
+        if self.modern and 'id' in message and 'method' in message:
+            capabilities={'elicitation':{'form':{},'url':{}}} if self.elicitation_enabled else {}
+            if message['method'] in ('tools/call','tasks/get','tasks/update','tasks/cancel') and (self.info or {}).get('task_capabilities',{}).get('modern'):capabilities['extensions']={'io.modelcontextprotocol/tasks':{}}
+            message,_=prepare_request(message,client_capabilities=capabilities)
         payload = (json.dumps(message, ensure_ascii=True, allow_nan=False) + '\n').encode('ascii')
         if 'id' in message:self.request_active=True
         if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')
 
     def continue_elicitation(self,responses,retry=False):
         if self.closed or self.elicitation_pending is None:return False
+        if self.modern_task is not None and self.phase=='modern_task_input':
+            try:
+                if any(contains_secret(responses,secret) for secret in self.environment_secrets):raise ValueError()
+                message=self.modern_task.respond(responses)
+            except (ValueError,TypeError,UnicodeError,RecursionError):self.fail('Invalid MCP task input response; the task was not updated.');return False
+            self.elicitation_pending=None;self.phase='modern_task_update';self.next_id+=1;message['id']=self.next_id;self.timer.start(self.timeout_ms);self.send(message);return not self.closed
         if self.elicitation_pending.get('retry_required'):
             try:
                 from .mcp_elicitation import continuation
@@ -114,6 +124,15 @@ class LocalSession(QObject):
         else:
             self.next_id+=1;message['id']=self.next_id;self.send(message)
         return not self.closed
+
+    def schedule_modern_task_poll(self):
+        if self.closed or self.modern_task is None:return
+        self.phase='modern_task_wait';delay=self.modern_task.poll_interval_ms
+        if delay<=2147483647:self.modern_task_timer.start(delay)
+
+    def poll_modern_task(self):
+        if self.closed or self.phase!='modern_task_wait' or self.modern_task is None:return
+        self.phase='modern_task_poll';self.next_id+=1;self.send(self.modern_task.request('tasks/get',self.next_id))
 
     def open_subscription(self):
         filters=self.info.get('subscription_filters',{})
@@ -213,7 +232,7 @@ class LocalSession(QObject):
                         notice=invalidate_server_list(self,message['method'])
                         if notice:self.progress.emit(notice)
                     continue
-                if self.phase=='task_cancel' and type(message['id']) is int and message['id']==self.cancelled_result_id:continue
+                if self.phase in ('task_cancel','modern_task_cancel') and type(message['id']) is int and message['id']==self.cancelled_result_id:continue
                 if self.modern and type(message['id']) is int and message['id']==self.subscription_id:
                     if self.subscription_active:
                         self.stop_subscription('MCP change notification subscription ended; list resources and prompts again.',cancel=False)
@@ -231,12 +250,20 @@ class LocalSession(QObject):
                 if self.elicitation_pending is not None and not self.modern:raise ValueError('MCP server completed an operation while input was pending')
                 if type(message['id']) is not int or message['id'] != self.next_id: raise ValueError()
                 self.request_active=False
+                if self.phase=='modern_task_cancel':
+                    try:
+                        if 'error' in message:raise ValueError()
+                        self.modern_task.acknowledge(message.get('result'),method='tasks/cancel')
+                    except (ValueError,TypeError):self.progress.emit('MCP task cancellation was not acknowledged; it may still be running.')
+                    else:self.modern_cancel_ack=True;self.progress.emit('MCP task cancellation was requested; completion is not confirmed.')
+                    self._close_now();return
                 if self.phase=='task_cancel':
                     task=message.get('result')
                     self.task_cancelled=isinstance(task,dict) and task.get('taskId')==self.task_id and task.get('status')=='cancelled' and 'error' not in message
                     self._close_now();return
                 if 'error' in message:
                     error=rpc_error(message)
+                    if self.modern_task is not None and self.modern_task.task_id in error:error='MCP task request failed; server error details were omitted.'
                     if self.phase=='initialize' and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
                         self.probe_timer.stop()
                         if self.probe_id is not None:
@@ -265,6 +292,26 @@ class LocalSession(QObject):
                     self.list_page(None); continue
                 result = message.get('result')
                 if not isinstance(result, dict): raise ValueError()
+                if self.modern and self.phase=='call' and result.get('resultType')=='task':
+                    if not (self.info or {}).get('task_capabilities',{}).get('modern'):raise ValueError('Unexpected MCP task')
+                    from .mcp_2026_tasks import TaskTracker
+                    self.modern_task=TaskTracker(result);self.task_mode=True;self.elicitation_original=None;self.elicitation_pending=None
+                    self.schedule_modern_task_poll();self.progress.emit('MCP task started; awaiting result.');continue
+                if self.phase=='modern_task_update':
+                    self.modern_task.acknowledge(result);self.schedule_modern_task_poll();continue
+                if self.phase=='modern_task_poll':
+                    outcome=self.modern_task.observe(result)
+                    if outcome['action']=='poll':self.schedule_modern_task_poll();continue
+                    if outcome['action']=='input':
+                        self.phase='modern_task_input';self.elicitation_pending=self.modern_task.pending;self.timer.stop();self.elicitation_requested.emit(outcome['forms']);continue
+                    if outcome['action']=='failed':
+                        detail=outcome['error']
+                        if self.modern_task.task_id in detail:detail='Server error details were omitted.'
+                        self.fail('MCP task failed: '+detail);return
+                    if outcome['action']=='cancelled':self.fail('MCP task was cancelled; inspect server state before retrying.');return
+                    result=outcome['result']
+                    if contains_secret(result,self.modern_task.task_id):self.fail('MCP task result contained its private task identifier and was blocked.');return
+                    self.modern_task=None;self.task_mode=False;self.phase='call'
                 if self.modern and self.phase in ('call','resource_read','prompt_get') and result.get('resultType')=='input_required':
                     if not self.elicitation_enabled or self.elicitation_original is None:self.fail(INPUT_REQUIRED_ERROR);return
                     try:
@@ -275,6 +322,7 @@ class LocalSession(QObject):
                 if self.modern and self.phase in ('call','resource_read','prompt_get'):self.elicitation_original=None;self.elicitation_pending=None
                 if self.phase=='modern_discovery':
                     self.info=parse_discovery(result)
+                    if self.elicitation_enabled and self.info.get('task_extension_advertised'):self.info['task_capabilities']={'tool_calls':True,'list':False,'cancel':True,'modern':True}
                     self.open_subscription()
                     if 'tools' not in self.info['capabilities']:self.finish_discovery(False);continue
                     self.list_page(None);continue
@@ -360,7 +408,7 @@ class LocalSession(QObject):
                 self.invocation=None;self.phase='ready';self.timer.stop();self.called.emit({'verified':True});return
             args=self.invocation['arguments'];self.invocation=None
             self.phase='call';self.next_id+=1;self.progress_token=uuid.uuid4().hex;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.log_count=0
-            self.task_mode=current.get('task_support')=='required';self.task_id=None
+            self.task_mode=current.get('task_support')=='required' and not self.modern;self.task_id=None
             params={'name':current['name'],'arguments':args,'_meta':{'progressToken':self.progress_token}}
             if self.task_mode:params['task']={}
             self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tools/call','params':params});return
@@ -443,15 +491,19 @@ class LocalSession(QObject):
     def fail(self, message):
         from shiboken6 import isValid
         if not isValid(self) or self.closed: return
-        if self.phase=='task_cancel':self.task_cancelled=False;self._close_now();return
-        uncertain = self.phase in ('call','task_result')
+        if self.phase in ('task_cancel','modern_task_cancel'):self.task_cancelled=False;self._close_now();return
+        uncertain = self.phase in ('call','task_result') or self.modern_task is not None
         if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
         self.close()
         self.ended.emit({'error':message,'call_uncertain':uncertain})
 
     def close(self):
         if self.closed: return
-        if self.phase=='task_cancel':return
+        if self.phase in ('task_cancel','modern_task_cancel'):return
+        self.modern_task_timer.stop()
+        if self.modern_task is not None and not self.modern_task.terminal and self.process.state()==QProcess.ProcessState.Running:
+            self.modern_cancel_ack=False;self.cancelled_result_id=self.next_id if self.request_active else None;self.phase='modern_task_cancel';self.next_id+=1;self.timer.start(3000)
+            self.send(self.modern_task.request('tasks/cancel',self.next_id));return
         caps=(self.info or {}).get('task_capabilities',{})
         if self.phase=='task_result' and self.task_id and caps.get('cancel'):
             self.task_cancelled=False;self.cancelled_result_id=self.next_id;self.phase='task_cancel';self.next_id+=1;self.timer.start(3000)
@@ -468,11 +520,12 @@ class LocalSession(QObject):
         self.closed = True
         from shiboken6 import isValid
         self.environment_secrets=[]
-        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear()
+        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear();self.modern_task=None
         if isValid(self.timer):self.timer.stop()
         if isValid(self.probe_timer):self.probe_timer.stop()
         if isValid(self.subscription_timer):self.subscription_timer.stop()
         if isValid(self.subscription_retry):self.subscription_retry.stop()
+        if isValid(self.modern_task_timer):self.modern_task_timer.stop()
         if isValid(self.process):
             self.process.errorOccurred.disconnect(); self.process.finished.disconnect()
             self.process.closeWriteChannel()
@@ -483,4 +536,5 @@ class LocalSession(QObject):
         result={}
         if self.task_id:result['task_id']=self.task_id
         if self.task_cancelled is not None:result['task_cancelled']=self.task_cancelled
+        if self.modern_cancel_ack is not None:result['modern_task_cancel_ack']=self.modern_cancel_ack
         self.shutdown_finished.emit(result)

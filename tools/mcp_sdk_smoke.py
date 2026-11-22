@@ -12,13 +12,46 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 
 
-def make_server(cancelled=None,resumption=None):
+def make_server(cancelled=None,resumption=None,tasks=False):
     from mcp.server.mcpserver import MCPServer,Context,Resolve,Elicit
     from pydantic import BaseModel,Field
     from typing import TypedDict,Annotated,Literal
     class Addition(TypedDict):
         sum:int
-    server=MCPServer('Agentnik smoke',version='1')
+    extensions=[]
+    if tasks:
+        from mcp.server.extension import Extension,MethodBinding
+        from mcp.types import RequestParams
+        class TaskParams(RequestParams):
+            taskId:str
+            inputResponses:dict|None=None
+        class SyntheticTasks(Extension):
+            identifier='io.modelcontextprotocol/tasks'
+            def __init__(self):self.polls=0;self.updates=0
+            def methods(self):return [MethodBinding('tasks/get',TaskParams,self.get),MethodBinding('tasks/update',TaskParams,self.update),MethodBinding('tasks/cancel',TaskParams,self.cancel)]
+            async def intercept_tool_call(self,params,ctx,call_next):
+                if params.name!='sdk_task':return await call_next(ctx)
+                return {'resultType':'task','taskId':'sdk-private-task-id','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttlMs':None,'pollIntervalMs':100}
+            async def get(self,ctx,params):
+                if params.taskId!='sdk-private-task-id':raise ValueError('Wrong synthetic task')
+                self.polls+=1;task={'taskId':params.taskId,'status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttlMs':None,'pollIntervalMs':100}
+                if self.polls<=2:task.update(status='input_required',inputRequests={'question':{'method':'elicitation/create','params':{'message':'Choose','requestedSchema':{'type':'object','properties':{'choice':{'type':'string'}},'required':['choice']}}}})
+                else:
+                    if self.updates!=1:raise ValueError('Unexpected synthetic input count')
+                    task.update(status='completed',result={'content':[{'type':'text','text':'SDK task complete'}]})
+                return task
+            async def update(self,ctx,params):
+                if params.taskId!='sdk-private-task-id' or params.inputResponses!={'question':{'action':'accept','content':{'choice':'yes'}}}:raise ValueError('Invalid synthetic input')
+                self.updates+=1;return {}
+            async def cancel(self,ctx,params):return {}
+        extensions=[SyntheticTasks()]
+    server=MCPServer('Agentnik smoke',version='1',extensions=extensions)
+
+    if tasks:
+        @server.tool()
+        def sdk_task()->str:
+            """A synthetic task intercepted by the local SDK extension."""
+            return 'Unexpected direct result'
 
     @server.tool(structured_output=True)
     def add(a:int,b:int)->Addition:
@@ -612,10 +645,26 @@ def run_cancel(session,cancelled,observed):
     return {'sdk_version':version('mcp'),'transport':'https','checks':['notification received with matching request ID','synthetic server operation ended','session closed']}
 
 
-def modern_stdio_server(init_error=-32022):
+def run_modern_tasks(session):
+    from PySide6.QtCore import QEventLoop,QTimer,QCoreApplication
+    session.elicitation_enabled=True;loop=QEventLoop();out=[];forms=[];progress=[]
+    def discovered(info):
+        if not info.get('task_capabilities',{}).get('modern'):out.append({'error':'Task extension was not enabled'});loop.quit();return
+        tool=next(item for item in info['tool_details'] if item['name']=='sdk_task')
+        if not session.call(tool,{}):out.append({'error':'Task call rejected'});loop.quit()
+    def requested(requests):
+        forms.append(requests);session.continue_elicitation({'question':{'action':'accept','content':{'choice':'yes'}}})
+    session.discovered.connect(discovered);session.elicitation_requested.connect(requested);session.progress.connect(progress.append)
+    session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
+    timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(15000);session.start();loop.exec();timer.stop();session.close();QCoreApplication.processEvents()
+    if len(forms)!=1 or not out or out[0].get('call_result',{}).get('content',[{}])[0].get('text')!='SDK task complete' or 'sdk-private-task-id' in str(out)+str(progress):raise RuntimeError('SDK task test failed: '+str(out))
+    return {'sdk_version':version('mcp'),'transport':'stdio-modern','protocol':'2026-07-28','checks':['task extension discovery','polling','reviewed input','deduplication','final result']}
+
+
+def modern_stdio_server(init_error=-32022,tasks=False):
     """Wrap a real SDK server and reject legacy initialization only."""
     import subprocess,threading
-    child=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--server'],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+    child=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--server-tasks' if tasks else '--server'],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
     def output():
         for line in child.stdout:
             sys.stdout.buffer.write(line);sys.stdout.buffer.flush()
@@ -633,7 +682,9 @@ def modern_stdio_server(init_error=-32022):
 
 if __name__=='__main__':
     if sys.argv[1:]==['--server']:make_server().run(transport='stdio')
+    elif sys.argv[1:]==['--server-tasks']:make_server(tasks=True).run(transport='stdio')
     elif sys.argv[1:]==['--server-modern']:modern_stdio_server()
+    elif sys.argv[1:]==['--server-modern-tasks']:modern_stdio_server(tasks=True)
     elif sys.argv[1:]==['--server-modern-rpc-error']:modern_stdio_server(-32020)
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
     elif sys.argv[1:]==['--https-elicitation']:print(json.dumps(run_https(test_elicitation=True)))
@@ -673,6 +724,11 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run_modern_notifications(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
+    elif sys.argv[1:]==['--stdio-modern-tasks']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run_modern_tasks(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern-tasks'],timeout_seconds=15))))
     elif sys.argv[1:]==['--stdio-modern-elicitation']:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
@@ -703,4 +759,4 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio',required=True)))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https-modern-rpc-negotiation|--stdio-modern-rpc-negotiation|--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern-tasks|--https-modern-rpc-negotiation|--stdio-modern-rpc-negotiation|--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

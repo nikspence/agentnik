@@ -145,8 +145,8 @@ class ChatMCP(QObject):
             if 'error' in response:raise ResearchError(response['error'])
             self.tools=response.get('tool_details',[]);self.task_capabilities=response.get('task_capabilities',{})
             notify('mcp','Connected to '+server['name']+'; discovered '+str(len(self.tools))+' tool(s).'+(' More tools were not listed.' if response.get('more_tools',False) else ''))
-            result={'server':server['name'],'tools':self.tools,'task_capabilities':self.task_capabilities,'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata. 2025 task-required execution is supported for capable servers; the 2026 Tasks extension is not yet supported.'}
-            if response.get('task_extension_advertised') is True:result['task_extension_notice']='The server advertises MCP 2026 Tasks, which Agentnik does not yet support.'
+            result={'server':server['name'],'tools':self.tools,'task_capabilities':self.task_capabilities,'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata. Task execution depends on the connection capabilities.'}
+            if response.get('task_extension_advertised') is True:result['task_extension_notice']='MCP 2026 Tasks are experimental on this connection.' if self.task_capabilities.get('modern') else 'The server advertises MCP 2026 Tasks, which Agentnik does not yet support on this connection.'
             return result
         if name=='mcp_complete_argument':
             value,target=validated
@@ -334,7 +334,7 @@ class MultiChatMCP(QObject):
             for controller in self.controllers:controller.close()
             raise
         self.tools=discovered
-        return {'servers':[item.server['name'] for item in self.controllers],'server_capabilities':server_capabilities,'tools':discovered,'more_tools':self.more_tools,'notice':'Untrusted MCP server metadata; first server wins conflicting tool names. 2025 task-required execution is supported for capable servers; the 2026 Tasks extension is not yet supported.'}
+        return {'servers':[item.server['name'] for item in self.controllers],'server_capabilities':server_capabilities,'tools':discovered,'more_tools':self.more_tools,'notice':'Untrusted MCP server metadata; first server wins conflicting tool names. Task execution depends on the connection capabilities.'}
 
     def _close_on_gui(self):
         if self.closing:return

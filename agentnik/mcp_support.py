@@ -15,7 +15,7 @@ MAX_TOOL_RESULT_OUTPUT=1048576
 MAX_RESOURCE_RESULT_OUTPUT=16*1024*1024
 
 def response_limit(phase):
-    return MAX_DISCOVERY_OUTPUT if phase=='tools' else MAX_RESOURCE_RESULT_OUTPUT if phase=='resource_read' else MAX_TOOL_RESULT_OUTPUT if phase in ('call','task_result','prompt_get') else MAX_OUTPUT
+    return MAX_DISCOVERY_OUTPUT if phase=='tools' else MAX_RESOURCE_RESULT_OUTPUT if phase=='resource_read' else MAX_TOOL_RESULT_OUTPUT if phase in ('call','task_result','modern_task_poll','prompt_get') else MAX_OUTPUT
 DEFAULT_TIMEOUT_SECONDS=60
 MAX_TIMEOUT_SECONDS=900
 
@@ -184,6 +184,10 @@ def validate_task_result(result,ident):
 
 def task_cleanup_text(result):
     """Describe a task's asynchronous cleanup without claiming uncertain success."""
+    if isinstance(result,dict) and isinstance(result.get('server'),str) and type(result.get('modern_task_cancel_ack')) is bool:
+        server=''.join(ch if ch.isprintable() else ' ' for ch in result['server'])[:80]
+        detail='cancellation request acknowledged' if result['modern_task_cancel_ack'] else 'cancellation request was not acknowledged'
+        return 'MCP task on '+server+': '+detail+'; the task may still be running.'
     if not isinstance(result,dict) or not isinstance(result.get('server'),str) or not isinstance(result.get('task_id'),str) or (result.get('task_cancelled') is not None and type(result['task_cancelled']) is not bool):raise ValueError('Invalid MCP task cleanup result')
     server=''.join(ch if ch.isprintable() else ' ' for ch in result['server'])[:80];ident=''.join(ch if ch.isprintable() else ' ' for ch in result['task_id'])[:256];status=result.get('task_cancelled')
     detail='cancellation confirmed' if status is True else 'cancellation was not confirmed; the task may still be running' if status is False else 'cancellation was not requested; the task may still be running'

@@ -195,6 +195,8 @@ class CodingMCPBridge(QObject):
     def _cleanup(self,result):
         if isinstance(result,dict) and isinstance(result.get('task_id'),str):
             self.cleanup_finished.emit({'server':self.server['name'],'task_id':result['task_id'],'task_cancelled':result.get('task_cancelled')})
+        elif isinstance(result,dict) and type(result.get('modern_task_cancel_ack')) is bool:
+            self.cleanup_finished.emit({'server':self.server['name'],'modern_task_cancel_ack':result['modern_task_cancel_ack']})
 
     @Slot()
     def close(self):

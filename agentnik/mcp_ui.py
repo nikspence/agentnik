@@ -163,9 +163,9 @@ class MCPServers(QDialog):
         self.show_call_result(result)
 
     def local_task_cleanup(self,result,config):
-        if self._closed or self.discovered_config!=config or self.process is not None or not result.get('task_id'):return
+        if self._closed or self.discovered_config!=config or self.process is not None or not (result.get('task_id') or type(result.get('modern_task_cancel_ack')) is bool):return
         from .mcp_support import task_cleanup_text
-        self.status.setText(task_cleanup_text({'server':config['name'],'task_id':result['task_id'],'task_cancelled':result.get('task_cancelled')}))
+        self.status.setText(task_cleanup_text(dict(result,server=config['name'])))
 
     def local_ended(self,result):
         self.close_elicitation()
@@ -353,7 +353,7 @@ class MCPServers(QDialog):
         if 'tasks' in result.get('capabilities',[]):
             sections.append(self.tr('Server task capabilities (experimental): ')+json.dumps(task_caps,ensure_ascii=True))
         if result.get('task_extension_advertised') is True:
-            sections.append(self.tr('The server advertises the MCP 2026 Tasks extension. Agentnik cannot execute those tasks yet.'))
+            sections.append(self.tr('The server advertises the MCP 2026 Tasks extension. Local task execution is experimental.') if task_caps.get('modern') else self.tr('The server advertises the MCP 2026 Tasks extension. Agentnik cannot execute those tasks on this connection yet.'))
         for detail in result.get('tool_details',[]):
             description=detail['description'] or self.tr('(no description)')
             if detail['description_clipped']:description+='\n'+self.tr('[Description truncated or unavailable]')
