@@ -285,12 +285,13 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                         else:
                             answer=mcp.invoke('mcp_call',payload,runtime);returned=ToolResult(call.id,call.name,data=answer)
                     elif call.name=='image_gen' and image_tool:
-                        from .image_generation import ImageRequestError, ImageRequestUncertain
+                        from .image_generation import ImageRequestError, ImageRequestUncertain, request_options
                         from .tools import UncertainError
                         runtime.charge('calls',1,runtime.limits.calls)
                         try: prepared=image_tool.prepare(registry.validate(call,runtime.limits)['request'])
                         except (ValueError,OSError) as exc: returned=ToolResult(call.id,call.name,error=str(exc))
                         else:
+                            event('image_request',request_options(prepared[2],prepared[3],len(prepared[1])))
                             try:
                                 image=runtime.wait(lambda:image_tool.generate(prepared,cancel),request_seconds=300)
                                 runtime.check()
@@ -314,12 +315,13 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     next_source+=1
                     state['sources'].append(asdict(source)); sources.append(source)
                 record.update(status='failed' if returned.error else 'completed',source_ids=[s.id for s in sources])
+                if call.name=='image_gen' and returned.error:record['error']=scrub(returned.error[:500],secrets)
                 tool_result=ToolResult(call.id,call.name,tuple(sources),error=returned.error,data=returned.data)
                 content=json.dumps(scrub(tool_result.wire(),secrets),ensure_ascii=False)
                 runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
                 if call.name in ('calculate','analyze_data'): event('tool_result',call.name+': '+content[:440])
                 append_tool_output(call,content)
-                detail=('tool reported an error' if returned.error else 'completed' if call.name.startswith('mcp_') else f'{len(sources)} source(s)')
+                detail=(returned.error if returned.error and call.name=='image_gen' else 'tool reported an error' if returned.error else 'completed' if call.name.startswith('mcp_') else f'{len(sources)} source(s)')
                 event('tool_failed' if returned.error else 'tool_completed',f'{call.name}: '+detail)
         else: raise LimitError('Research round limit reached')
     except Exception as exc:

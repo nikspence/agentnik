@@ -44,6 +44,29 @@ class ImageAPI(unittest.TestCase):
             with self.subTest(payload=payload),patch.object(core,'open_request',return_value=io.BytesIO(json.dumps(payload).encode())),self.assertRaises(images.ImageRequestError):images.generate(C,'model','prompt')
         with patch.object(images,'MAX_RESPONSE_BYTES',10),patch.object(core,'open_request',return_value=io.BytesIO(b'x'*11)),self.assertRaises(images.ImageRequestError):images.generate(C,'model','prompt')
 
+    def test_provider_rejection_exposes_only_allowlisted_details_and_request_options(self):
+        payload={'error':{'code':'invalid_request_error','param':'background','message':'No provider for fixture-key supports the requested parameter(s): aspect_ratio, background. private-prompt data:image/png;base64,SECRET'}}
+        error=core.EndpointError(400,json.dumps(payload))
+        with patch.object(core,'open_request',side_effect=error) as request:
+            with self.assertRaises(images.ImageRequestError) as caught:images.generate(C,'model','private-prompt',[png()],aspect_ratio='16:9',background='transparent')
+        message=str(caught.exception);request.assert_called_once()
+        for part in ('HTTP 400','code=invalid_request_error','parameter=background','aspect_ratio','background','reference_count=1'):
+            self.assertIn(part,message)
+        for secret in ('fixture-key','private-prompt','data:image','SECRET'):
+            self.assertNotIn(secret,message)
+
+    def test_unknown_provider_data_is_never_copied_and_uncertainty_is_preserved(self):
+        payload={'error':{'code':'fixture-key','param':'private-prompt','message':'private-prompt fixture-key data:image/png;base64,SECRET'}}
+        with patch.object(core,'open_request',side_effect=core.EndpointError(400,json.dumps(payload))):
+            with self.assertRaises(images.ImageRequestError) as caught:images.generate(C,'model','private-prompt')
+        self.assertNotIn('private-prompt',str(caught.exception));self.assertNotIn('fixture-key',str(caught.exception));self.assertNotIn('SECRET',str(caught.exception))
+        with patch.object(core,'open_request',side_effect=core.EndpointError(500,json.dumps(payload))):
+            with self.assertRaises(images.ImageRequestUncertain) as caught:images.generate(C,'model','private-prompt',aspect_ratio='1:1')
+        self.assertIn('aspect_ratio=1:1',str(caught.exception));self.assertNotIn('fixture-key',str(caught.exception))
+
+    def test_request_options_do_not_echo_invalid_input(self):
+        self.assertEqual(images.request_options('private-prompt','fixture-key','secret'), 'Request options: aspect_ratio=invalid, background=invalid, reference_count=invalid.')
+
     def test_failure_does_not_retry_or_expose_server_or_key(self):
         for exc,kind in ((core.EndpointError(403,'fixture-key private detail'),images.ImageRequestError),(core.EndpointError(500,'fixture-key private detail'),images.ImageRequestUncertain),(TimeoutError('fixture-key'),images.ImageRequestUncertain)):
             with self.subTest(kind=kind),patch.object(core,'open_request',side_effect=exc) as request:

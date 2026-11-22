@@ -1789,14 +1789,14 @@ class CodingRun:
                                 aspect='' if args['aspect_ratio']=='auto' else args['aspect_ratio']
                                 background='' if args['background']=='auto' else args['background']
                                 if background=='transparent' and Path(args['path']).suffix.lower() in ('.jpg','.jpeg'):raise ValueError('Use PNG or WebP for a transparent image')
-                                event('output',text='Generating image with the configured image model.')
+                                event('output',text='Generating image with the configured image model. '+image_generation.request_options(aspect,background,len(refs)))
                                 generated=runtime.wait(lambda:image_generation.generate(self.image_config['connection'],self.image_config['model'],args['prompt'],refs,endpoint=self.image_config['endpoint'],cancel=self.cancel,aspect_ratio=aspect,background=background),request_seconds=300)
                                 data=code_image.convert(generated['data'],Path(args['path']).suffix)
                                 check_project_mutation();code_image.publish(files,args['path'],base,data,check_project_mutation)
                                 event('image_generated',path=args['path']);event('output',text='Generated image: '+args['path'])
                                 result={'path':args['path'],'created':base is None,'bytes':len(data),'cost':generated['cost'],'notice':'Image generated; visual content has not been inspected.'}
-                            except image_generation.ImageRequestUncertain:
-                                raise LimitError('Image generation outcome is uncertain. Check the provider before retrying.') from None
+                            except image_generation.ImageRequestUncertain as exc:
+                                raise LimitError('Image generation outcome is uncertain. Check the provider before retrying. '+str(exc)) from None
                             except (image_generation.ImageRequestError,ValueError,OSError) as exc:
                                 if generated is not None:raise LimitError('Image generation completed, but the image could not be safely saved. Inspect the project and provider before retrying.') from None
                                 raise ProjectToolError(str(exc)) from None

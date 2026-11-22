@@ -103,6 +103,7 @@ class ModelCoding(unittest.TestCase):
             generate.assert_called_once();self.assertEqual(generate.call_args.args[2],'A blue circle')
             self.assertIn('image_gen',json.dumps(bodies[0]['tools']));self.assertNotIn('image-secret',json.dumps(bodies));self.assertNotIn('image-secret',json.dumps(events))
             self.assertTrue(any(e.get('kind')=='image_generated' and e['path']=='image.png' for e in events))
+            self.assertTrue(any('aspect_ratio=1:1, background=auto, reference_count=0' in e.get('text','') for e in events))
             self.assertNotIn('iVBOR',json.dumps(bodies[-1]))
 
     def test_image_tool_will_not_overwrite_unreferenced_or_changed_file(self):

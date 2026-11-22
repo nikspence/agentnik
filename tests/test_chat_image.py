@@ -32,6 +32,7 @@ class ChatImageTests(unittest.TestCase):
             self.assertTrue(Path(result['images'][0]).exists())
             self.assertIn('generated:1',json.dumps(bodies[1]));self.assertNotIn(source,json.dumps(bodies[1]));self.assertNotIn('image-secret',json.dumps(result))
             self.assertTrue(any(e.get('images') for e in events))
+            self.assertTrue(any(e.get('kind')=='image_request' and 'reference_count=1' in e.get('detail','') for e in result['research']['events']))
             self.assertEqual(tool.prepare(json.dumps({'prompt':'again','references':['generated:1']}))[1],[png()])
             with self.assertRaises(ValueError):tool.prepare(json.dumps({'prompt':'bad','references':['../../secret']}))
             store.db.close()
@@ -43,6 +44,17 @@ class ChatImageTests(unittest.TestCase):
             with patch.object(core,'open_request',return_value=reply),patch.object(image_generation,'generate',side_effect=image_generation.ImageRequestUncertain('unknown')) as generate:
                 result=research.run({'url':'https://example.org/v1','model':'text','protocol':'chat','stream':False},[{'role':'user','text':'Draw'}],'',lambda _:None,threading.Event(),config={'local_tools':True,'web_enabled':False},image_tool=tool)
             self.assertEqual(result['research']['failure']['kind'],'uncertain');self.assertFalse(result['research']['failure']['fallback_allowed']);generate.assert_called_once();store.db.close()
+
+    def test_image_error_details_appear_in_chat_activity_and_tool_result(self):
+        with tempfile.TemporaryDirectory() as root:
+            store=Store(root);tool=ChatImageTool({'connection':{},'model':'m','endpoint':''},store,[{'role':'user','text':'Draw'}])
+            replies=[Wire(chat(calls=[call('image_gen',{'request':'{"prompt":"draw"}'})],finish='tool_calls'),False),Wire(chat('Could not generate.'),False)]
+            bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+            detail='Image endpoint rejected the request (HTTP 400): parameter=background Request options: aspect_ratio=1:1, background=transparent, reference_count=0.'
+            with patch.object(core,'open_request',side_effect=send),patch.object(image_generation,'generate',side_effect=image_generation.ImageRequestError(detail)):
+                result=research.run({'url':'https://example.org/v1','model':'text','protocol':'chat','stream':False},[{'role':'user','text':'Draw'}],'',events.append,threading.Event(),config={'local_tools':True,'web_enabled':False},image_tool=tool)
+            self.assertEqual(result['status'],'ok');self.assertIn(detail,json.dumps(bodies[1]));self.assertTrue(any(detail in e.get('detail','') for e in result['research']['events']));self.assertEqual(result['research']['tool_records'][0]['error'],detail);store.db.close()
 
     def test_assistant_images_are_not_sent_as_user_input(self):
         for protocol in ('chat','responses','messages'):

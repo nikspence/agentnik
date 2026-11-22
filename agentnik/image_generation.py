@@ -3,6 +3,7 @@ import base64
 import binascii
 import json
 import math
+import re
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice
@@ -17,7 +18,7 @@ FORMATS = {'png': ('image/png', '.png'), 'jpeg': ('image/jpeg', '.jpg'), 'jpg': 
 
 
 class ImageRequestError(ValueError):
-    """Image request failed; the message deliberately excludes provider data."""
+    """Image request failed with bounded, allowlisted diagnostics."""
 
 
 class ImageRequestUncertain(ImageRequestError):
@@ -51,6 +52,36 @@ def image_bytes(data):
     finally:buf.close()
 
 
+def provider_error_details(payload):
+    """Return only recognized structured fields or fixed hints, never raw provider text."""
+    if not isinstance(payload,dict):return ''
+    error=payload.get('error')
+    if not isinstance(error,dict):return ''
+    parts=[]
+    codes={'invalid_request_error','invalid_request','invalid_value','unsupported_parameter','model_not_found','content_policy_violation','invalid_image','rate_limit_exceeded','insufficient_quota'}
+    code=error.get('code');param=error.get('param')
+    if isinstance(code,str) and code in codes:parts.append('code='+code)
+    allowed={'aspect_ratio','background','input_references','model','prompt','size','n','response_format','output_format','resolution'}
+    if isinstance(param,str) and param in allowed:parts.append('parameter='+param)
+    message=error.get('message')
+    if isinstance(message,str):
+        # OpenRouter reports this route-selection error with model and provider data;
+        # retain only the fixed reason and recognized parameter names.
+        if re.search(r'no provider for .{1,300} supports the requested parameter',message,re.I):
+            fields=[field for field in sorted(allowed) if re.search(r'(?<![A-Za-z0-9_])'+re.escape(field)+r'(?![A-Za-z0-9_])',message,re.I)]
+            parts.append('No available provider supports the requested parameter(s)'+(': '+', '.join(fields) if fields else ''))
+        elif re.search(r'(?:background.{0,80}transparent|transparent.{0,80}background).{0,80}(?:not supported|unsupported)',message,re.I):
+            parts.append('Provider reports transparent background is unsupported')
+    return '; '.join(parts)
+
+
+def request_options(aspect_ratio,background,reference_count):
+    aspect=aspect_ratio if isinstance(aspect_ratio,str) and aspect_ratio in ('','1:1','16:9','9:16','4:3','3:4','3:2','2:3') else 'invalid'
+    back=background if isinstance(background,str) and background in ('','transparent','opaque','auto') else 'invalid'
+    count=str(reference_count) if type(reference_count) is int and 0<=reference_count<=MAX_REFERENCE_IMAGES else 'invalid'
+    return 'Request options: aspect_ratio='+(aspect or 'auto')+', background='+(back or 'auto')+', reference_count='+count+'.'
+
+
 def _read_json(connection,url,body=None,timeout=180,cancel=None,maximum=MAX_RESPONSE_BYTES):
     if cancel and cancel.is_set():raise InterruptedError('Image request cancelled before submission')
     request_connection=dict(connection,protocol='responses')
@@ -59,7 +90,8 @@ def _read_json(connection,url,body=None,timeout=180,cancel=None,maximum=MAX_RESP
             data=response.read(maximum+1)
     except core.EndpointError as exc:
         if body is not None and (exc.status==408 or exc.status>=500):raise ImageRequestUncertain('Image request failed after submission; check the provider before retrying.') from None
-        raise ImageRequestError('Image endpoint rejected the request (HTTP '+str(exc.status)+')') from None
+        detail=provider_error_details(exc.payload)
+        raise ImageRequestError('Image endpoint rejected the request (HTTP '+str(exc.status)+')'+(': '+detail if detail else '')) from None
     except (OSError,TimeoutError,ValueError) as exc:
         if body is not None:raise ImageRequestUncertain('Image request did not complete; it may have been submitted. Check the provider before retrying.') from None
         raise ImageRequestError('Image model listing failed') from None
@@ -96,7 +128,9 @@ def generate(connection,model,prompt,references=(),endpoint='',cancel=None,aspec
     if background:
         if background not in ('transparent','opaque','auto'):raise ValueError('Invalid background')
         body['background']=background
-    result=_read_json(connection,image_endpoint(connection,endpoint),body,cancel=cancel)
+    try:result=_read_json(connection,image_endpoint(connection,endpoint),body,cancel=cancel)
+    except ImageRequestError as exc:
+        raise type(exc)(str(exc)+' '+request_options(aspect_ratio,background,len(references))) from None
     data=result.get('data') if isinstance(result,dict) else None
     if not isinstance(data,list) or len(data)!=1 or not isinstance(data[0],dict):raise ImageRequestUncertain('Image endpoint returned an invalid image result after submission; check the provider before retrying')
     encoded=data[0].get('b64_json')
