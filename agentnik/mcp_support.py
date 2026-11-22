@@ -19,6 +19,27 @@ def response_limit(phase):
 DEFAULT_TIMEOUT_SECONDS=60
 MAX_TIMEOUT_SECONDS=900
 
+
+class MCPListChangedError(ValueError):
+    """A server changed a catalog that must remain stable for an operation."""
+
+
+def invalidate_server_list(session,method):
+    """Invalidate only the changed catalog, rejecting affected in-flight work."""
+    if method=='notifications/tools/list_changed':
+        raise MCPListChangedError('MCP tools changed; reconnect before making another call.')
+    if method=='notifications/resources/list_changed':
+        session.resource_items=[];session.template_items=[]
+        if session.phase in ('resource_list','template_list'):
+            raise MCPListChangedError('MCP resources changed during discovery; reconnect and list them again.')
+        return 'MCP resources changed; list them again before reading.'
+    if method=='notifications/prompts/list_changed':
+        session.prompt_items=[]
+        if session.phase in ('prompt_list','prompt_get'):
+            raise MCPListChangedError('MCP prompts changed during retrieval; reconnect and list them again.')
+        return 'MCP prompts changed; list them again before retrieval.'
+    return ''
+
 def progress_notice(message,token,previous):
     """Validate a progress notification against the active tool call."""
     if not isinstance(message,dict) or message.get('method')!='notifications/progress' or 'id' in message:return None

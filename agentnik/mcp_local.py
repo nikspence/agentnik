@@ -7,7 +7,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
-from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout,progress_notice,created_task_id,validate_task_result
+from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
@@ -103,7 +103,8 @@ class LocalSession(QObject):
                             if self.progress_count<40 and now-self.progress_emitted_at>=.25:
                                 self.progress_count+=1;self.progress_emitted_at=now;self.progress.emit(detail)
                     if message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
-                        self.fail('MCP tools changed; reconnect before making another call.')
+                        notice=invalidate_server_list(self,message['method'])
+                        if notice:self.progress.emit(notice)
                     continue
                 if self.phase=='task_cancel' and type(message['id']) is int and message['id']==self.cancelled_result_id:continue
                 if type(message['id']) is not int or message['id'] != self.next_id: raise ValueError()
@@ -173,6 +174,8 @@ class LocalSession(QObject):
                     self.cursors.add(cursor)
                 if cursor and self.pages < MAX_PAGES and len(self.names) < MAX_TOOLS: self.list_page(cursor)
                 else: self.finish_discovery(bool(cursor) or len(self.names)>MAX_TOOLS)
+            except MCPListChangedError as exc:
+                self.fail(str(exc));return
             except (ValueError, TypeError, UnicodeError, RecursionError):
                 self.fail('Invalid or unsupported local MCP server response.'); return
         if not self.closed and len(self.buffer)>response_limit(self.phase):

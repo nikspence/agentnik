@@ -4,7 +4,7 @@ import time
 import uuid
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
-from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout,progress_notice,created_task_id,validate_task_result
+from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
@@ -59,7 +59,7 @@ def contains_secret(value,secret):
     return False
 
 
-def response_message(data,content_type,expected_id):
+def response_message(data,content_type,expected_id,on_list_changed=None):
     if content_type=='application/json':messages=[data]
     elif content_type=='text/event-stream':
         messages=[];parts=[]
@@ -85,7 +85,9 @@ def response_message(data,content_type,expected_id):
         if not isinstance(message,dict) or message.get('jsonrpc')!='2.0':raise ValueError('Invalid MCP response')
         if message.get('id')==expected_id and type(message.get('id')) is int:found.append(message)
         elif 'id' in message:raise ValueError('Unsupported server request or unexpected response')
-        elif message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):raise ValueError('MCP server list changed')
+        elif message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
+            if on_list_changed is None:raise MCPListChangedError('MCP server list changed')
+            on_list_changed(message['method'])
     if len(found)!=1:raise ValueError('Missing or duplicate MCP response')
     return found[0]
 
@@ -163,6 +165,10 @@ class RemoteProbe(QObject):
             self.progress_last,detail=notice;now=time.monotonic()
             if self.progress_count<40 and now-self.progress_emitted_at>=.25:
                 self.progress_count+=1;self.progress_emitted_at=now;self.progress.emit(detail)
+
+    def list_changed(self,method):
+        notice=invalidate_server_list(self,method)
+        if notice:self.progress.emit(notice)
     def received(self):
         reply=self.reply
         if reply is None:return
@@ -193,7 +199,7 @@ class RemoteProbe(QObject):
                     self.result['tools']=[];self.result['tool_details']=[];self.result['more_tools']=False;self.finish_discovery();return
                 self.phase='tools';self.pages=1;self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}});return
             ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
-            message=response_message(bytes(self.buffer),ctype,self.current_id)
+            message=response_message(bytes(self.buffer),ctype,self.current_id,self.list_changed)
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
             if 'error' in message:self.stop(rpc_error(message));return
             if self.phase=='initialize':
@@ -273,6 +279,7 @@ class RemoteProbe(QObject):
                 if self.task_mode:params['task']={}
                 self.send({'jsonrpc':'2.0','id':self.pages+2,'method':'tools/call','params':params});return
             self.finish_discovery()
+        except MCPListChangedError as exc:self.stop(str(exc))
         except (ValueError,UnicodeError,TypeError,RecursionError):self.stop('Invalid or unsupported MCP server response.')
     def finish_discovery(self):
         self.close_session()

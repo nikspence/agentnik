@@ -11,6 +11,65 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_catalog_notifications_invalidate_only_affected_state(self):
+        from types import SimpleNamespace
+        from agentnik.mcp_support import invalidate_server_list,MCPListChangedError
+        session=SimpleNamespace(phase='call',resource_items=[{'uri':'a'}],template_items=[{'uriTemplate':'a'}],prompt_items=[{'name':'p'}],resource_links=[{'uri':'linked'}])
+        self.assertIn('resources changed',invalidate_server_list(session,'notifications/resources/list_changed'))
+        self.assertEqual(session.resource_items,[]);self.assertEqual(session.template_items,[]);self.assertEqual(session.resource_links,[{'uri':'linked'}]);self.assertEqual(session.prompt_items,[{'name':'p'}])
+        self.assertIn('prompts changed',invalidate_server_list(session,'notifications/prompts/list_changed'));self.assertEqual(session.prompt_items,[])
+        for phase,method in (('call','notifications/tools/list_changed'),('resource_list','notifications/resources/list_changed'),('template_list','notifications/resources/list_changed'),('prompt_list','notifications/prompts/list_changed'),('prompt_get','notifications/prompts/list_changed')):
+            session.phase=phase
+            with self.subTest(phase=phase),self.assertRaises(MCPListChangedError):invalidate_server_list(session,method)
+
+    def test_local_catalog_updates_do_not_interrupt_unrelated_tool(self):
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'catalog_change.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'resources':{},'prompts':{}}}
+ elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+ elif method=='resources/list':result={'resources':[{'uri':'test://old','name':'old'}]}
+ elif method=='prompts/list':result={'prompts':[{'name':'prompt'}]}
+ elif method=='tools/call':
+  for name in ('resources','prompts'):print(json.dumps({'jsonrpc':'2.0','method':'notifications/'+name+'/list_changed'}),flush=True)
+  result={'content':[{'type':'text','text':'completed'}]}
+ elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'text':'fresh'}]}
+ else:raise RuntimeError('unexpected '+method)
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();out=[];notices=[];old=[]
+            def resources(result):
+                out.append(result)
+                if len(out)==1:session.list_prompts()
+                elif len(out)==3:self.assertTrue(session.read_resource('test://old'))
+                else:loop.quit()
+            def prompts(result):old.extend(result['prompts']);session.call(session.info['tool_details'][0],{})
+            def called(result):
+                out.append(result);self.assertFalse(session.read_resource('test://old'));self.assertFalse(session.list_prompts({'prompt':old[0],'arguments':{}}));self.assertTrue(session.list_resources())
+            session.discovered.connect(lambda _:session.list_resources());session.resources.connect(resources);session.prompts.connect(prompts);session.called.connect(called);session.progress.connect(notices.append);session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertEqual(out[1]['call_result']['content'][0]['text'],'completed');self.assertEqual(out[-1]['contents'][0]['text'],'fresh');self.assertEqual(len(notices),2)
+
+    def test_remote_stream_catalog_updates_preserve_unrelated_result(self):
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession,response_message
+        from agentnik.mcp_support import MCPListChangedError
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.phase='call';session.resource_items=[{'uri':'old'}];session.template_items=[{'uriTemplate':'old'}];session.prompt_items=[{'name':'old'}];notices=[];session.progress.connect(notices.append)
+        def frame(message):return b'data: '+json.dumps(message).encode()+b'\n\n'
+        response={'jsonrpc':'2.0','id':7,'result':{'content':[]}}
+        notifications=[{'jsonrpc':'2.0','method':'notifications/'+name+'/list_changed'} for name in ('resources','prompts')]
+        self.assertEqual(response_message(b''.join(frame(x) for x in notifications+[response]),'text/event-stream',7,session.list_changed),response)
+        self.assertEqual(session.resource_items,[]);self.assertEqual(session.template_items,[]);self.assertEqual(session.prompt_items,[]);self.assertEqual(len(notices),2)
+        session.phase='prompt_get'
+        with self.assertRaises(MCPListChangedError):response_message(frame(notifications[1])+frame(response),'text/event-stream',7,session.list_changed)
+        session.closed=True
+
     def test_local_shutdown_attempts_task_cancellation_and_handles_result_race(self):
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
