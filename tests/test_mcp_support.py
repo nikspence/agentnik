@@ -11,6 +11,32 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_remote_tool_response_completes_before_stream_closes(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([]);release=threading.Event();calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];calls.append(method)
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if method=='tools/call':
+                    payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':{'content':[{'type':'text','text':'complete'}]}}).encode()
+                    self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'data: '+payload+b'\n\n');self.wfile.flush();release.wait(6);return
+                result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fixture','version':'1'},'capabilities':{'tools':{}}} if method=='initialize' else {'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+                payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
+            def do_GET(self):self.send_response(405);self.end_headers()
+            def do_DELETE(self):self.send_response(204);self.end_headers()
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=3);loop=QEventLoop();out=[]
+        session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(5000)
+        try:
+            loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['call_result']['content'][0]['text'],'complete');self.assertFalse(release.is_set());self.assertEqual(calls.count('tools/call'),1)
+        finally:release.set();session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_remote_stream_answers_server_ping_without_interrupting_tool(self):
         import threading
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
