@@ -179,13 +179,13 @@ class MCPServers(QDialog):
         probe=self.remote;self.remote=None
         if probe:probe.deleteLater()
         if 'error' in result:self.status.setText(result['error']+(self.tr(' Session close not confirmed.') if result.get('session_closed') is False else ''));return
-        self.discovered={'config':self.discovered_config,'tools':result.get('tool_details',[])}
+        self.discovered={'config':self.discovered_config,'tools':result.get('tool_details',[]),'task_capabilities':result.get('task_capabilities',{})}
         self.tool_choice.clear();self.tool_choice.addItems([item['name'] for item in self.discovered['tools']])
         self.status.setText(self.tr('Connected: {name} {version} · MCP {protocol} · tools: {tools}').format(name=result['name'],version=result['version'],protocol=result['protocol'],tools=', '.join(result.get('tools',[])) or self.tr('none'))+(self.tr(' (more available)') if result.get('more_tools') else '')+(self.tr(' · session close not confirmed') if result.get('session_closed') is False else ''))
         sections=[]
         task_caps=result.get('task_capabilities',{})
         if 'tasks' in result.get('capabilities',[]):
-            sections.append(self.tr('Server task capabilities (experimental; execution not supported): ')+json.dumps(task_caps,ensure_ascii=True))
+            sections.append(self.tr('Server task capabilities (experimental): ')+json.dumps(task_caps,ensure_ascii=True))
         for detail in result.get('tool_details',[]):
             description=detail['description'] or self.tr('(no description)')
             if detail['description_clipped']:description+='\n'+self.tr('[Description truncated or unavailable]')
@@ -202,7 +202,7 @@ class MCPServers(QDialog):
             self.status.setText(self.tr('Server configuration changed. Test it again.'));return
         item=entries[index];tool=next((tool for tool in self.discovered['tools'] if tool['name']==self.tool_choice.currentText()),None)
         if not tool or tool['schema_status']!='available' or tool['description_clipped'] or tool.get('output_schema_status','available')!='available':self.status.setText(self.tr('This tool has incomplete metadata and cannot be called.'));return
-        if tool.get('task_support')=='required':self.status.setText(self.tr('This tool requires MCP task execution, which is not supported.'));return
+        if tool.get('task_support')=='required' and (item.get('transport')=='http' or not self.discovered['task_capabilities'].get('tool_calls')):self.status.setText(self.tr('This tool requires MCP task execution on a capable local server.'));return
         try:
             raw=self.tool_args.toPlainText()
             if len(raw.encode('utf-8'))>16000:raise ValueError()

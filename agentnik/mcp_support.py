@@ -15,7 +15,7 @@ MAX_TOOL_RESULT_OUTPUT=1048576
 MAX_RESOURCE_RESULT_OUTPUT=16*1024*1024
 
 def response_limit(phase):
-    return MAX_DISCOVERY_OUTPUT if phase=='tools' else MAX_RESOURCE_RESULT_OUTPUT if phase=='resource_read' else MAX_TOOL_RESULT_OUTPUT if phase in ('call','prompt_get') else MAX_OUTPUT
+    return MAX_DISCOVERY_OUTPUT if phase=='tools' else MAX_RESOURCE_RESULT_OUTPUT if phase=='resource_read' else MAX_TOOL_RESULT_OUTPUT if phase in ('call','task_result','prompt_get') else MAX_OUTPUT
 DEFAULT_TIMEOUT_SECONDS=60
 MAX_TIMEOUT_SECONDS=900
 
@@ -115,7 +115,26 @@ def rpc_error(message):
 
 
 def initialize_request():
-    return {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':PROTOCOL,'capabilities':{},'clientInfo':{'name':'Agentnik','version':'0.1'}}}
+    return {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':PROTOCOL,'capabilities':{'tasks':{}},'clientInfo':{'name':'Agentnik','version':'0.1'}}}
+
+
+def created_task_id(result):
+    """Validate a task creation response without interpreting its opaque ID."""
+    task=result.get('task') if isinstance(result,dict) else None
+    if not isinstance(task,dict):raise ValueError('Invalid MCP task creation response')
+    ident=task.get('taskId')
+    if not isinstance(ident,str) or not ident or len(ident)>256 or any(ord(ch)<32 or ord(ch)==127 for ch in ident) or task.get('status')!='working':raise ValueError('Invalid MCP task identity or status')
+    for name in ('createdAt','lastUpdatedAt'):
+        if not isinstance(task.get(name),str) or not 1<=len(task[name])<=80:raise ValueError('Invalid MCP task timestamp')
+    ttl=task.get('ttl')
+    if 'ttl' not in task or (ttl is not None and (type(ttl) not in (int,float) or abs(ttl)>10**100 or not math.isfinite(ttl) or ttl<0)):raise ValueError('Invalid MCP task lifetime')
+    return ident
+
+
+def validate_task_result(result,ident):
+    meta=result.get('_meta') if isinstance(result,dict) else None
+    related=meta.get('io.modelcontextprotocol/related-task') if isinstance(meta,dict) else None
+    if not isinstance(related,dict) or related.get('taskId')!=ident:raise ValueError('MCP task result identity mismatch')
 
 
 def parse_initialize(line, supported_protocols=(PROTOCOL,)):

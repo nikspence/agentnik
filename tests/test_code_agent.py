@@ -1270,6 +1270,18 @@ class ModelCoding(unittest.TestCase):
             self.assertEqual([e['proposal']['operation'] for e in events if e['kind']=='operation_proposal'],[]);self.assertEqual(bridge.request.call_count,1)
             self.assertEqual(events[-1]['status'],'completed')
 
+    def test_mcp_required_task_is_allowed_for_capable_local_server(self):
+        from unittest.mock import Mock
+        detail={'name':'long_job','description':'Run job','description_clipped':False,'schema':{'type':'object'},'schema_status':'available','task_support':'required'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Local','command':'server','args':[],'enabled':True}
+            bridge.request.side_effect=[{'tool_details':[detail],'task_capabilities':{'tool_calls':True}},{'call_result':{'content':[{'type':'text','text':'task result'}]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'long_job','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Run',mcp_bridge=bridge).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed');self.assertIn('task result',json.dumps(bodies[-1]));self.assertEqual([item.args[0] for item in bridge.request.call_args_list],['discover','call'])
+
     def test_remote_mcp_model_approves_connection_and_exact_call(self):
         from unittest.mock import Mock
         detail={'name':'search','description':'Search','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}

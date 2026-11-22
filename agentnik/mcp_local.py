@@ -7,7 +7,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
-from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout,progress_notice
+from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout,progress_notice,created_task_id,validate_task_result
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
@@ -51,7 +51,7 @@ class LocalSession(QObject):
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None
 
     def start(self):
         if os.name=='nt':
@@ -95,7 +95,7 @@ class LocalSession(QObject):
                     else:response['error']={'code':-32601,'message':'Method not supported'}
                     self.send(response);continue
                 if 'id' not in message:
-                    if self.phase=='call' and self.progress_token is not None:
+                    if self.phase in ('call','task_result') and self.progress_token is not None:
                         notice=progress_notice(message,self.progress_token,self.progress_last)
                         if notice:
                             self.progress_last,detail=notice;now=time.monotonic()
@@ -141,10 +141,15 @@ class LocalSession(QObject):
                     self.resource_items=outcome['resources'];self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
                 if self.phase == 'resource_read':
                     outcome=parse_resource_contents(result,self.resource_uri);self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
-                if self.phase == 'call':
+                if self.phase=='call' and self.task_mode:
+                    self.task_id=created_task_id(result);self.phase='task_result';self.next_id+=1
+                    self.progress.emit('Task started: '+self.task_id+'; awaiting result.')
+                    self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tasks/result','params':{'taskId':self.task_id}});continue
+                if self.phase in ('call','task_result'):
+                    if self.phase=='task_result':validate_task_result(result,self.task_id)
                     if not isinstance(result.get('content'), list) or ('isError' in result and type(result['isError']) is not bool) or ('structuredContent' in result and not isinstance(result['structuredContent'],dict)): raise ValueError()
                     self.resource_links=merge_resource_links(self.resource_links,tool_resource_links(result))
-                    self.progress_token=None;self.phase = 'ready'; self.timer.stop(); self.called.emit({'call_result':result}); continue
+                    self.progress_token=None;self.task_id=None;self.task_mode=False;self.phase = 'ready'; self.timer.stop(); self.called.emit({'call_result':result}); continue
                 if self.phase != 'tools' or not isinstance(result.get('tools'), list) or len(result['tools']) > MAX_TOOLS: raise ValueError()
                 for item in result['tools']:
                     name = item.get('name') if isinstance(item, dict) else None
@@ -175,26 +180,32 @@ class LocalSession(QObject):
         if self.invocation:
             expected=self.invocation['tool']
             current=next((item for item in self.details if item['name']==expected['name']),None)
-            if current!=expected or current.get('schema_status')!='available' or current.get('task_support')=='required':
+            if current!=expected or current.get('schema_status')!='available' or not self.supports_tool(current):
                 self.fail('MCP tool definition changed or requires unsupported task execution.');return
             if self.invocation.get('verify_only'):
                 self.invocation=None;self.phase='ready';self.timer.stop();self.called.emit({'verified':True});return
             args=self.invocation['arguments'];self.invocation=None
             self.phase='call';self.next_id+=1;self.progress_token=uuid.uuid4().hex;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0
-            self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tools/call','params':{'name':current['name'],'arguments':args,'_meta':{'progressToken':self.progress_token}}});return
+            self.task_mode=current.get('task_support')=='required';self.task_id=None
+            params={'name':current['name'],'arguments':args,'_meta':{'progressToken':self.progress_token}}
+            if self.task_mode:params['task']={}
+            self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tools/call','params':params});return
         self.phase = 'ready'; self.timer.stop()
         self.info.update(tools=self.names[:MAX_TOOLS], tool_details=self.details, more_tools=more)
         self.discovered.emit(self.info)
 
+    def supports_tool(self,tool):
+        return tool.get('task_support')!='required' or bool((self.info or {}).get('task_capabilities',{}).get('tool_calls'))
+
     def verify_tool(self, tool):
-        if self.closed or self.phase != 'ready' or tool not in self.details or tool.get('task_support')=='required': return False
+        if self.closed or self.phase != 'ready' or tool not in self.details or not self.supports_tool(tool): return False
         self.invocation={'tool':tool,'verify_only':True}
         self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
         self.timer.start(self.timeout_ms);self.list_page(None)
         return True
 
     def call(self, tool, args):
-        if self.closed or self.phase != 'ready' or tool not in self.details or tool.get('task_support')=='required': return False
+        if self.closed or self.phase != 'ready' or tool not in self.details or not self.supports_tool(tool): return False
         self.invocation={'tool':tool,'arguments':args}
         self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set()
         self.timer.start(self.timeout_ms);self.list_page(None)
@@ -247,7 +258,9 @@ class LocalSession(QObject):
     def fail(self, message):
         from shiboken6 import isValid
         if not isValid(self) or self.closed: return
-        uncertain = self.phase == 'call'; self.close()
+        uncertain = self.phase in ('call','task_result')
+        if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
+        self.close()
         self.ended.emit({'error':message,'call_uncertain':uncertain})
 
     def close(self):

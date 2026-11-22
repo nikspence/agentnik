@@ -31,6 +31,19 @@ class ChatMCPIntegration(unittest.TestCase):
         while not predicate() and time.monotonic()<end:self.app.processEvents();time.sleep(.005)
         self.assertTrue(predicate());self.app.processEvents()
 
+    def test_chat_task_required_tool_requires_capable_local_server(self):
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        detail={'name':'work','description':'Work','description_clipped':False,'schema_status':'available','schema':{'type':'object'},'task_support':'required'}
+        for remote,advertised,allowed in ((False,True,True),(False,False,False),(True,True,False)):
+            server={'name':'Test','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True} if remote else {'name':'Test','command':sys.executable,'args':[],'enabled':True}
+            controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[detail],'task_capabilities':{'tool_calls':advertised}},{'call_result':{'content':[{'type':'text','text':'done'}]}}]
+            controller.invoke('mcp_discover',{'server':'connect'},Runtime());args={'request':json.dumps({'tool':'work','arguments':{}})}
+            if allowed:self.assertIn('done',json.dumps(controller.invoke('mcp_call',args,Runtime())))
+            else:
+                with self.assertRaises(ResearchError):controller.invoke('mcp_call',args,Runtime())
+                self.assertEqual(controller.bridge.request.call_count,1)
+
     def test_multiple_servers_use_ordered_precedence_and_batch_validation(self):
         from agentnik.chat_mcp import MultiChatMCP
         from agentnik.tools import Runtime,ResearchError

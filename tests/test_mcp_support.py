@@ -11,6 +11,47 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_local_task_required_tool_lifecycle_and_uncertain_failures(self):
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'task_server.py'
+            server.write_text('''import json,sys,time
+mode=sys.argv[1]
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':
+  caps={'tools':{}}
+  if mode!='no-capability':caps['tasks']={'requests':{'tools':{'call':{}}}}
+  result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':caps}
+ elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'},'execution':{'taskSupport':'required'}}]}
+ elif method=='tools/call':
+  assert req['params']['task']=={};token=req['params']['_meta']['progressToken']
+  result={'task':{'taskId':'task-123','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttl':60000}}
+ elif method=='tasks/result':
+  assert req['params']['taskId']=='task-123'
+  print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':token,'progress':1,'total':2}}),flush=True)
+  if mode=='timeout':time.sleep(2)
+  result={'content':[{'type':'text','text':'task evidence'}],'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'different' if mode=='mismatch' else 'task-123'}}}
+ else:raise RuntimeError('unexpected '+method)
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            for mode in ('success','mismatch','timeout','no-capability'):
+                with self.subTest(mode=mode):
+                    session=LocalSession(sys.executable,[str(server),mode],timeout_seconds=1 if mode=='timeout' else 5);loop=QEventLoop();out=[];notices=[]
+                    def discovered(info):
+                        accepted=session.call(info['tool_details'][0],{})
+                        if mode=='no-capability':out.append({'accepted':accepted});loop.quit()
+                        else:self.assertTrue(accepted)
+                    session.discovered.connect(discovered);session.progress.connect(notices.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit);loop.exec();session.close()
+                    self.assertTrue(out,mode)
+                    if mode=='success':self.assertEqual(out[0]['call_result']['content'][0]['text'],'task evidence');self.assertTrue(any('task-123' in value for value in notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
+                    elif mode=='no-capability':self.assertFalse(out[0]['accepted'])
+                    else:self.assertTrue(out[0]['call_uncertain']);self.assertIn('task-123',out[0]['error']);self.assertIn('may still be running',out[0]['error'])
+
     def test_progress_notice_requires_active_token_and_increasing_finite_values(self):
         from agentnik.mcp_support import progress_notice
         def msg(**params):return {'jsonrpc':'2.0','method':'notifications/progress','params':params}
