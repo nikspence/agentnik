@@ -4,7 +4,7 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It v
 
 ## Scoped live observations
 
-On 2026-11-21, a live Code run using OpenRouter Responses and `openai/gpt-6.2-sol` called `view_image` on a generated image and correctly described a red triangle on a white background. This is one model and image, not general verification of visual accuracy or other providers.
+On 2026-11-21, a live Code run using OpenRouter Responses and `openai/gpt-6.2-sol` called `view_image` on a generated image and correctly described a red triangle on a white background. A separate run with simulated parent orchestration sent an approved image to a live GPT-6.2-Sol subagent; it also correctly described the triangle. These are single model and image checks, not general verification of visual accuracy or other providers.
 
 These observations apply only to the tested configurations and do not guarantee other models, accounts or versions:
 
