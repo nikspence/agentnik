@@ -53,6 +53,12 @@ def parse_resource_text(result,uri):
     return {'contents':safe}
 
 
+def text_blob_mime(mime):
+    if not isinstance(mime,str):return False
+    media=mime.split(';',1)[0].strip().lower()
+    return bool(re.fullmatch(r'text/[a-z0-9!#$&^_.+\-]+',media)) or media in ('application/json','application/xml') or bool(re.fullmatch(r'application/[a-z0-9!#$&^_.+\-]+\+(?:json|xml)',media))
+
+
 def parse_resource_contents(result,uri):
     """Accept text, UTF-8 text blobs, and images for the requested URI."""
     from .image_generation import image_bytes
@@ -67,8 +73,7 @@ def parse_resource_contents(result,uri):
         if isinstance(mime,str):
             media,*parameters=mime.lower().split(';')
             media=media.strip()
-            text_type=bool(re.fullmatch(r'text/[a-z0-9!#$&^_.+\-]+',media)) or media in ('application/json','application/xml') or bool(re.fullmatch(r'application/[a-z0-9!#$&^_.+\-]+\+(?:json|xml)',media))
-            if text_type:
+            if text_blob_mime(mime):
                 if 'text' in item or not isinstance(blob,str) or len(blob)>42668 or len(mime)>256 or len(parameters)>1 or any(parameter.strip().replace(' ','') not in ('charset=utf-8','charset="utf-8"','charset=us-ascii','charset="us-ascii"') for parameter in parameters):raise ValueError('Unsupported MCP text resource blob')
                 try:
                     data=base64.b64decode(blob,validate=True)

@@ -4,6 +4,20 @@ import base64
 import binascii
 
 
+def decode_tool_text_resources(result):
+    """Decode supported embedded text resources before credential checks."""
+    from .mcp_resources import parse_resource_contents,text_blob_mime
+    output=copy.deepcopy(result)
+    for block in output['content']:
+        if not isinstance(block,dict) or block.get('type')!='resource':continue
+        resource=block.get('resource')
+        if not isinstance(resource,dict) or 'blob' not in resource or not text_blob_mime(resource.get('mimeType')):continue
+        uri=resource.get('uri')
+        if not isinstance(uri,str) or not uri or len(uri)>2048 or any(ord(ch)<32 or ord(ch)==127 for ch in uri):raise ValueError('Invalid embedded MCP resource URI')
+        block['resource']=parse_resource_contents({'contents':[resource]},uri)['contents'][0]
+    return output
+
+
 def model_tool_result(result):
     """Return model-facing output and user-directed text from a validated call result.
 
@@ -24,6 +38,7 @@ def model_tool_result(result):
         if audience is None or 'assistant' in audience:content.append(copy.deepcopy(block))
         elif 'user' in audience:
             if block.get('type')=='text' and isinstance(block.get('text'),str):user_text.append(block['text'])
+            elif block.get('type')=='resource' and isinstance(block.get('resource'),dict) and isinstance(block['resource'].get('text'),str):user_text.append(block['resource']['text'])
             else:user_nontext+=1
     output=copy.deepcopy(result);output['content']=content
     return output,user_text,user_nontext

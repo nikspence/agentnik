@@ -1364,6 +1364,39 @@ for line in sys.stdin:
         for invalid in (item('text/plain',b'\xff'),item('text/plain',b'x'*32001),item('text/plain; charset=iso-8859-1',b'x'),item('text/plain; charset=us-ascii','雪'.encode()),dict(item('text/plain',b'x'),blob='!!'),dict(item('text/plain',b'x'),text='duplicate')):
             with self.subTest(invalid=invalid.get('mimeType')),self.assertRaises(ValueError):parse_resource_contents({'contents':[invalid]},'test://doc')
 
+    def test_tool_embedded_text_blob_and_audience(self):
+        import base64
+        from agentnik.mcp_content import decode_tool_text_resources,model_tool_result,model_images
+        def block(text,audience):return {'type':'resource','resource':{'uri':'test://doc','mimeType':'text/plain','blob':base64.b64encode(text.encode()).decode()},'annotations':{'audience':[audience]}}
+        result={'content':[block('visible 雪','assistant'),block('private','user')],'structuredContent':{'ok':True}}
+        decoded=decode_tool_text_resources(result);visible,user,nontext=model_tool_result(decoded)
+        visible,images=model_images(visible,False,0,'test')
+        self.assertEqual(visible['content'][0]['resource']['text'],'visible 雪');self.assertEqual(user,['private']);self.assertEqual(nontext,0);self.assertEqual(images,[])
+        self.assertEqual(visible['structuredContent'],{'ok':True});self.assertIn('blob',result['content'][0]['resource'])
+        bad=block('hello','assistant');bad['resource']['blob']='bad!'
+        with self.assertRaises(ValueError):decode_tool_text_resources({'content':[bad]})
+
+    def test_local_tool_text_blob_cannot_reflect_mapped_credential(self):
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'AGENTNIK_TEST_MCP_TOKEN':'secret-fixture-value'}):
+            server=Path(folder)/'server.py'
+            server.write_text('''import base64,json,os,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'test','version':'1'},'capabilities':{'tools':{}}}
+ elif method=='tools/list':result={'tools':[{'name':'read','inputSchema':{'type':'object'}}]}
+ elif method=='tools/call':result={'content':[{'type':'resource','resource':{'uri':'test://doc','mimeType':'text/plain','blob':base64.b64encode(os.environ['TARGET_TOKEN'].encode()).decode()}}]}
+ else:raise RuntimeError('unexpected')
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server)],env_refs={'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'});loop=QEventLoop();out=[]
+            session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda result:out.append(result));session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertIn('mapped environment value',out[-1]['error']);self.assertNotIn('secret-fixture-value',str(out));self.assertTrue(out[-1]['call_uncertain'])
+
     def test_local_text_blob_cannot_reflect_mapped_credential(self):
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication

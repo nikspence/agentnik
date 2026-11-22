@@ -159,6 +159,9 @@ class LocalSession(QObject):
                 if self.phase in ('call','task_result'):
                     if self.phase=='task_result':validate_task_result(result,self.task_id)
                     if not isinstance(result.get('content'), list) or ('isError' in result and type(result['isError']) is not bool) or ('structuredContent' in result and not isinstance(result['structuredContent'],dict)): raise ValueError()
+                    from .mcp_content import decode_tool_text_resources
+                    result=decode_tool_text_resources(result)
+                    if any(contains_secret(result,secret) for secret in self.environment_secrets):self.fail('MCP response contained a mapped environment value and was blocked.');return
                     self.resource_links=merge_resource_links(self.resource_links,tool_resource_links(result))
                     self.progress_token=None;self.task_id=None;self.task_mode=False;self.phase = 'ready'; self.timer.stop(); self.called.emit({'call_result':result}); continue
                 if self.phase != 'tools' or not isinstance(result.get('tools'), list) or len(result['tools']) > MAX_TOOLS: raise ValueError()
