@@ -1230,6 +1230,18 @@ class ModelCoding(unittest.TestCase):
             self.assertTrue(any(message.get('role')=='tool' and 'untrusted' in message.get('content','').lower() and 'Review this' in message.get('content','') for message in bodies[-1]['messages']))
             self.assertIn('Useful guide',json.dumps(bodies[-1]));self.assertNotIn('Private note',json.dumps(bodies));self.assertTrue(any('Private note' in e.get('text','') for e in events))
 
+    def test_mcp_tool_resource_link_can_be_read_without_listing(self):
+        from unittest.mock import Mock
+        detail={'name':'find','description':'Find','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Search','command':'server','args':[],'enabled':True}
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'resource_link','uri':'file:///public','name':'Public'},{'type':'resource_link','uri':'file:///private','name':'Private','annotations':{'audience':['user']}}]}},{'contents':[{'uri':'file:///public','text':'Linked evidence'}]}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'find','arguments':'{}'})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_read_resource',{'uri':'file:///private'}),call('mcp_read_resource',{'uri':'file:///public'},'public')],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Find',mcp_bridge=bridge).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertIn('Linked evidence',json.dumps(bodies[-1]));self.assertNotIn('file:///private',json.dumps(bodies[2]));self.assertEqual([item.args[0] for item in bridge.request.call_args_list],['discover','call','resources_read'])
+
     def test_mcp_resource_template_approved_with_expanded_uri(self):
         from unittest.mock import Mock
         template={'uriTemplate':'test://item/{id}{?query,limit}','name':'Item','description':'','mimeType':'text/plain','supported':True,'variables':['id','query','limit']}

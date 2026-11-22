@@ -1023,6 +1023,51 @@ for line in sys.stdin:
         for invalid in (dict(item,mimeType='image/jpeg'),dict(item,blob='bad base64'),dict(item,uri='test://other'),dict(item,mimeType='application/pdf'),dict(item,text='also text')):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):parse_resource_contents({'contents':[invalid]},'test://chart')
 
+    def test_tool_resource_links_respect_audience_and_metadata(self):
+        from agentnik.mcp_resources import tool_resource_links,merge_resource_links
+        result={'content':[{'type':'resource_link','uri':'file:///public','name':'public'},
+                           {'type':'resource_link','uri':'file:///private','name':'private','annotations':{'audience':['user']}},
+                           {'type':'resource_link','uri':'file:///invalid\n','name':'invalid'},
+                           {'type':'resource_link','uri':'file:///public','name':'duplicate'}]}
+        links=tool_resource_links(result);self.assertEqual([link['uri'] for link in links],['file:///public'])
+        self.assertEqual(merge_resource_links(links,links),links)
+        self.assertEqual(tool_resource_links({'content':[{'type':'resource_link','uri':'file:///secret','name':'x','annotations':{'audience':'user'}}]}),[])
+
+    def test_local_tool_resource_link_can_be_read_without_listing(self):
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'linked_resource.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'resources':{}}}
+ elif method=='tools/list':result={'tools':[{'name':'find','inputSchema':{'type':'object'}}]}
+ elif method=='tools/call':result={'content':[{'type':'resource_link','uri':'file:///public','name':'public'},{'type':'resource_link','uri':'file:///private','name':'private','annotations':{'audience':['user']}}]}
+ elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'text':'linked evidence'}]}
+ else:raise RuntimeError('unexpected')
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();out=[]
+            def discovered(info):self.assertTrue(session.call(info['tool_details'][0],{}))
+            def called(result):
+                out.append(result);self.assertFalse(session.read_resource('file:///private'));self.assertFalse(session.read_resource('file:///other'));self.assertTrue(session.read_resource('file:///public'))
+            session.discovered.connect(discovered);session.called.connect(called);session.resources.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertEqual(out[1]['contents'][0]['text'],'linked evidence')
+
+    def test_remote_session_resource_links_remain_server_scoped(self):
+        from unittest.mock import Mock
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([])
+        session=RemoteSession('https://example.com/mcp','');session.result={'call_result':{'content':[{'type':'resource_link','uri':'file:///public','name':'public'},{'type':'resource_link','uri':'file:///private','name':'private','annotations':{'audience':['user']}}]}}
+        session.finish_call();session.send=Mock()
+        self.assertFalse(session.read_resource('file:///private'));self.assertFalse(session.read_resource('file:///other'));self.assertTrue(session.read_resource('file:///public'))
+        self.assertEqual(session.send.call_args.args[0]['params']['uri'],'file:///public');session.timer.stop();session.closed=True
+
     def test_local_server_image_resource(self):
         import base64
         from test_image_generation import png

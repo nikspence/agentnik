@@ -18,6 +18,30 @@ def parse_resources(result):
     return resources,cursor
 
 
+def tool_resource_links(result):
+    """Extract bounded, assistant-directed links from a tool result."""
+    from .mcp_content import model_tool_result
+    try:visible,_,_=model_tool_result(result)
+    except (ValueError,TypeError):return []
+    links=[];seen=set()
+    for block in visible['content']:
+        if block.get('type')!='resource_link':continue
+        try:items,_=parse_resources({'resources':[block]})
+        except (ValueError,TypeError,UnicodeError):continue
+        link=items[0]
+        if link['uri'] in seen:continue
+        seen.add(link['uri']);links.append(link)
+        if len(links)>=100:break
+    return links
+
+
+def merge_resource_links(current,incoming):
+    result=list(current);known={item['uri'] for item in result}
+    for item in incoming:
+        if item['uri'] not in known and len(result)<100:result.append(item);known.add(item['uri'])
+    return result
+
+
 def parse_resource_text(result,uri):
     contents=result.get('contents')
     if not isinstance(contents,list) or len(contents)>16:raise ValueError('Invalid MCP resource content')

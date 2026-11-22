@@ -3,7 +3,7 @@ import json
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
 from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout
-from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents
+from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
 
@@ -240,7 +240,7 @@ class RemoteSession(RemoteProbe):
 
     def __init__(self,url,token,parent=None,timeout_seconds=60):
         super().__init__(url,token,parent,timeout_seconds=timeout_seconds)
-        self.closed=False
+        self.closed=False;self.resource_links=[]
 
     def finish_discovery(self):
         self.timer.stop();self.phase='ready'
@@ -248,6 +248,7 @@ class RemoteSession(RemoteProbe):
 
     def finish_call(self):
         outcome=self.result.pop('call_result')
+        self.resource_links=merge_resource_links(self.resource_links,tool_resource_links(outcome))
         self.timer.stop();self.phase='ready';self.invocation=None
         self.called.emit({'call_result':outcome})
 
@@ -276,7 +277,7 @@ class RemoteSession(RemoteProbe):
         self.send({'jsonrpc':'2.0','id':0,'method':'resources/list','params':{'cursor':cursor} if cursor else {}})
 
     def read_resource(self,uri):
-        if self.closed or self.phase!='ready' or uri not in [item['uri'] for item in getattr(self,'resource_items',[])]:return False
+        if self.closed or self.phase!='ready' or uri not in [item['uri'] for item in getattr(self,'resource_items',[])+self.resource_links]:return False
         if self.token and self.token in uri:return False
         self.resource_uri=uri;self.phase='resource_read';self.timer.start(self.timeout_ms)
         self.send({'jsonrpc':'2.0','id':0,'method':'resources/read','params':{'uri':uri}});return True

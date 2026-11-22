@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
-from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents
+from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 
 
@@ -49,7 +49,7 @@ class LocalSession(QObject):
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque()
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[]
 
     def start(self):
         if os.name=='nt':
@@ -135,6 +135,7 @@ class LocalSession(QObject):
                     outcome=parse_resource_contents(result,self.resource_uri);self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
                 if self.phase == 'call':
                     if not isinstance(result.get('content'), list) or ('isError' in result and type(result['isError']) is not bool) or ('structuredContent' in result and not isinstance(result['structuredContent'],dict)): raise ValueError()
+                    self.resource_links=merge_resource_links(self.resource_links,tool_resource_links(result))
                     self.phase = 'ready'; self.timer.stop(); self.called.emit({'call_result':result}); continue
                 if self.phase != 'tools' or not isinstance(result.get('tools'), list) or len(result['tools']) > MAX_TOOLS: raise ValueError()
                 for item in result['tools']:
@@ -201,7 +202,7 @@ class LocalSession(QObject):
         self.send({'jsonrpc':'2.0','id':self.next_id,'method':'resources/list','params':{'cursor':cursor} if cursor else {}})
 
     def read_resource(self,uri):
-        if self.closed or self.phase!='ready' or uri not in [item['uri'] for item in getattr(self,'resource_items',[])]:return False
+        if self.closed or self.phase!='ready' or uri not in [item['uri'] for item in getattr(self,'resource_items',[])+self.resource_links]:return False
         self.resource_uri=uri;self.phase='resource_read';self.next_id+=1;self.timer.start(self.timeout_ms)
         self.send({'jsonrpc':'2.0','id':self.next_id,'method':'resources/read','params':{'uri':uri}});return True
 
