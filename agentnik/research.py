@@ -239,7 +239,9 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 if not mcp:raise
                 reject_mcp_batch(calls,exc)
                 continue
-            if runtime.calls+len(calls)+int(reconnect)>runtime.limits.calls:
+            discovery_count=getattr(mcp,'discovery_call_count',1) if mcp else 1
+            discovery_cost=(discovery_count if reconnect else max(0,discovery_count-1) if any(name=='mcp_discover' for name,_ in mcp_batch) else 0)
+            if runtime.calls+len(calls)+discovery_cost>runtime.limits.calls:
                 if not runtime.calls or runtime.requests>=runtime.limits.requests:
                     raise LimitError('Research tool call limit reached')
                 for call in calls:

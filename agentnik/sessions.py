@@ -60,6 +60,14 @@ def validate_session(value, ident=None):
     if 'mcp' in options and options['mcp'] is not None:
         ref=options['mcp'];require(isinstance(ref,dict) and set(ref)=={'name','sha256'})
         require(isinstance(ref['name'],str) and 0<len(ref['name'])<=80 and isinstance(ref['sha256'],str) and len(ref['sha256'])==64 and all(ch in '0123456789abcdef' for ch in ref['sha256']))
+    if 'mcp_extra' in options:
+        refs=options['mcp_extra'];require(isinstance(refs,list) and len(refs)<=4)
+        names=[options['mcp']['name'].casefold()] if isinstance(options.get('mcp'),dict) else []
+        for ref in refs:
+            require(isinstance(ref,dict) and set(ref)=={'name','sha256'})
+            require(isinstance(ref['name'],str) and 0<len(ref['name'])<=80 and isinstance(ref['sha256'],str) and len(ref['sha256'])==64 and all(ch in '0123456789abcdef' for ch in ref['sha256']))
+            require(ref['name'].casefold() not in names);names.append(ref['name'].casefold())
+        require(not refs or isinstance(options.get('mcp'),dict))
     if 'limits' in options:
         from .tools import chat_limits
         try: chat_limits(options['limits'])

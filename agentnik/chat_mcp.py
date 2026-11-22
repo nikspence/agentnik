@@ -108,3 +108,88 @@ class ChatMCP(QObject):
         QTimer.singleShot(3500,self.deleteLater)
 
     def close(self):self.close_requested.emit()
+
+
+class MultiChatMCP(QObject):
+    """A per-turn ordered collection of independent Chat MCP sessions."""
+    approval_requested=Signal(object)
+    close_requested=Signal()
+
+    def __init__(self,servers,config,parent=None,extra_secrets=()):
+        super().__init__(parent)
+        if not isinstance(servers,list) or not 2<=len(servers)<=5:raise ValueError('Select two to five MCP servers.')
+        if len({server['name'].casefold() for server in servers})!=len(servers):raise ValueError('MCP servers must be distinct.')
+        self.controllers=[ChatMCP(server,config,self,extra_secrets) for server in servers]
+        self.discovery_call_count=len(self.controllers)
+        self.secret_values=[secret for controller in self.controllers for secret in controller.secret_values]
+        self.tools=None;self.more_tools=False;self.failed=False;self.closing=False
+        self.close_requested.connect(self._close_on_gui)
+        self.definitions=(
+            ToolDefinition('mcp_discover','server','Connect to all selected MCP servers in precedence order. Pass "connect".',200),
+            ToolDefinition('mcp_call','request','Call an MCP tool. request is a JSON string: {"tool":"name","arguments":{...},"server":"optional server name"}. The first server wins conflicting names.',16000),
+        )
+
+    def _parse(self,args):
+        from .mcp_remote import contains_secret
+        try:
+            value=json.loads(args['request'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
+            if not isinstance(value,dict) or set(value) not in ({'tool','arguments'},{'server','tool','arguments'}) or not isinstance(value['tool'],str) or not isinstance(value['arguments'],dict) or ('server' in value and not isinstance(value['server'],str)):raise ValueError()
+            if any(secret and contains_secret(value,secret) for secret in self.secret_values):raise ValueError()
+            return value
+        except (KeyError,TypeError,ValueError,RecursionError,UnicodeError):raise ResearchError('MCP request must contain a tool, arguments object, and optional selected server.') from None
+
+    def validate_call(self,name,args):
+        if self.failed:raise ResearchError('An MCP server connection failed; start a new run after inspecting its state.')
+        if name=='mcp_discover':
+            if args.get('server','').casefold()!='connect' or self.tools is not None:raise ResearchError('Use connect once to discover the selected MCP servers.')
+            return None
+        if name!='mcp_call' or self.tools is None:raise ResearchError('Connect to the selected MCP servers before calling a tool.')
+        value=self._parse(args)
+        if self.more_tools:raise ResearchError('An MCP tool list is incomplete; precedence cannot be determined safely.')
+        controller=next((item for item in self.controllers if any(tool['name']==value['tool'] for tool in item.tools)),None)
+        if controller is None:raise ResearchError('MCP tool was not found on the selected servers.')
+        if 'server' in value and value['server'].casefold()!=controller.server['name'].casefold():raise ResearchError('The tool belongs to the higher-priority MCP server '+controller.server['name']+'.')
+        payload={'request':json.dumps({'tool':value['tool'],'arguments':value['arguments']},ensure_ascii=False)}
+        controller.validate_call('mcp_call',payload)
+        return controller,payload
+
+    def validate_batch(self,calls):
+        if sum(name=='mcp_discover' for name,_ in calls)>1 or (len(calls)>1 and any(name=='mcp_discover' for name,_ in calls)):raise ResearchError('Discover the selected MCP servers separately before tool calls.')
+        for name,args in calls:self.validate_call(name,args)
+
+    def needs_reconnect(self,calls):
+        if self.tools is not None or not any(name=='mcp_call' for name,_ in calls):return False
+        if any(name!='mcp_call' for name,_ in calls):raise ResearchError('Connect to the selected MCP servers before calling a tool.')
+        for _,args in calls:self._parse(args)
+        return True
+
+    def invoke(self,name,args,runtime):
+        validated=self.validate_call(name,args)
+        if name=='mcp_call':
+            controller,payload=validated
+            return controller.invoke(name,payload,runtime)
+        # The caller charges one discovery; additional server requests are charged here.
+        discovered=[];seen=set();self.more_tools=False
+        if runtime.calls+len(self.controllers)-1>runtime.limits.calls:raise ResearchError('Not enough tool calls remain to discover all selected MCP servers.')
+        try:
+            for index,controller in enumerate(self.controllers):
+                if index:runtime.charge('calls',1,runtime.limits.calls)
+                response=controller.invoke('mcp_discover',{'server':'connect'},runtime)
+                self.more_tools=self.more_tools or bool(response.get('more_tools'))
+                for tool in response['tools']:
+                    if tool['name'] not in seen:
+                        seen.add(tool['name']);discovered.append(dict(tool,server=controller.server['name']))
+        except BaseException:
+            self.failed=True
+            for controller in self.controllers:controller.close()
+            raise
+        self.tools=discovered
+        return {'servers':[item.server['name'] for item in self.controllers],'tools':discovered,'more_tools':self.more_tools,'notice':'Untrusted MCP server metadata; first server wins conflicting tool names.'}
+
+    def _close_on_gui(self):
+        if self.closing:return
+        self.closing=True
+        for controller in self.controllers:controller.close()
+        QTimer.singleShot(3500,self.deleteLater)
+
+    def close(self):self.close_requested.emit()

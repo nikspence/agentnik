@@ -534,7 +534,9 @@ class SessionTab(QWidget):
             mcp_row=QHBoxLayout();mcp_row.addWidget(QLabel(self.tr('MCP server:')))
             self.mcp_choice=QComboBox();self.mcp_choice.setAccessibleName(self.tr('Chat MCP server'));self.mcp_choice.setToolTip(self.tr('Optional server for this chat. MCP tools run without approval and may write data or perform other actions. Tool results are sent to the selected model.'));mcp_row.addWidget(self.mcp_choice,1)
             self.mcp_refresh=button(self.tr('Refresh MCP'),self.refresh_chat_mcp,mcp_row)
-            self.refresh_chat_mcp();self.mcp_choice.currentIndexChanged.connect(self.save_draft)
+            self.mcp_extra_refs=copy.deepcopy(session.get('research_options',{}).get('mcp_extra',[]))
+            self.mcp_servers_button=button(self.tr('MCP servers…'),self.choose_chat_mcp_servers,mcp_row)
+            self.refresh_chat_mcp();self.mcp_choice.currentIndexChanged.connect(self.chat_mcp_changed)
 
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True); self.results_widget = QWidget(); self.results = QVBoxLayout(self.results_widget); self.results.addStretch(); self.scroll.setWidget(self.results_widget)
         self.results.setSpacing(10)
@@ -688,6 +690,43 @@ class SessionTab(QWidget):
             self.mcp_choice.setCurrentIndex(index)
         self.mcp_choice.blockSignals(False)
 
+    def chat_mcp_changed(self):
+        ref=self.mcp_choice.currentData()
+        self.mcp_extra_refs=[item for item in self.mcp_extra_refs if ref and item['name'].casefold()!=ref['name'].casefold()]
+        self.save_draft()
+
+    def choose_chat_mcp_servers(self):
+        from .mcp_support import server_fingerprint
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('MCP servers'));dialog.resize(560,440);layout=QVBoxLayout(dialog)
+        note=QLabel(self.tr('Select up to five servers. The top server takes precedence when tool names conflict. Changes apply to the next run.'));note.setWordWrap(True);layout.addWidget(note)
+        items=QListWidget();items.setObjectName('chatMcpOrder');layout.addWidget(items)
+        primary=self.mcp_choice.currentData();old=([primary] if primary else [])+list(self.mcp_extra_refs)
+        entries={item['name']:item for item in self.store.config.get('mcp_servers',[]) if item.get('enabled')}
+        ordered=[ref['name'] for ref in old]+[name for name in entries if name not in {ref['name'] for ref in old}]
+        for name in ordered:
+            current=entries.get(name);previous=next((ref for ref in old if ref['name']==name),None)
+            changed=bool(current and previous and previous['sha256']!=server_fingerprint(current))
+            item=QListWidgetItem(name+(self.tr(' (changed; confirm selection)') if changed else self.tr(' (unavailable; uncheck to remove)') if not current else ''))
+            item.setData(Qt.ItemDataRole.UserRole,name);item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable);item.setCheckState(Qt.CheckState.Checked if previous else Qt.CheckState.Unchecked);items.addItem(item)
+        actions=QHBoxLayout();layout.addLayout(actions)
+        def move(offset):
+            row=items.currentRow();target=row+offset
+            if 0<=row<items.count() and 0<=target<items.count():items.insertItem(target,items.takeItem(row));items.setCurrentRow(target)
+        up=QPushButton(self.tr('Move up'));up.setObjectName('chatMcpMoveUp');up.clicked.connect(lambda:move(-1));actions.addWidget(up)
+        down=QPushButton(self.tr('Move down'));down.setObjectName('chatMcpMoveDown');down.clicked.connect(lambda:move(1));actions.addWidget(down);actions.addStretch()
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
+        if dialog.exec()!=QDialog.DialogCode.Accepted:return
+        names=[items.item(i).data(Qt.ItemDataRole.UserRole) for i in range(items.count()) if items.item(i).checkState()==Qt.CheckState.Checked]
+        if len(names)>5:QMessageBox.warning(self,self.tr('MCP servers'),self.tr('Select at most five servers total.'));return
+        refs=[{'name':name,'sha256':server_fingerprint(entries[name])} if name in entries else next(ref for ref in old if ref['name']==name) for name in names]
+        self.mcp_choice.blockSignals(True)
+        if refs:
+            index=self.mcp_choice.findData(refs[0])
+            if index<0:self.mcp_choice.addItem(refs[0]['name']+self.tr(' (changed or unavailable; reselect)'),refs[0]);index=self.mcp_choice.count()-1
+            self.mcp_choice.setCurrentIndex(index)
+        else:self.mcp_choice.setCurrentIndex(0)
+        self.mcp_choice.blockSignals(False);self.mcp_extra_refs=refs[1:];self.save_draft()
+
     def review_chat_mcp(self,request):
         try:
             if self._closed or request['cancelled'].is_set() or not self.job or self.job.cancel.is_set():return
@@ -820,7 +859,7 @@ class SessionTab(QWidget):
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
         if self.session['mode'] == 'chat':
             options=self.session.get('research_options',{})
-            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={**options,'mcp':copy.deepcopy(self.mcp_choice.currentData())})
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={**options,'mcp':copy.deepcopy(self.mcp_choice.currentData()),'mcp_extra':copy.deepcopy(self.mcp_extra_refs)})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -832,7 +871,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-            self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value)
+                self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value);self.mcp_servers_button.setEnabled(not value)
     def submit(self,continuation=False):
         if self.job: return
         try:
@@ -874,11 +913,14 @@ class SessionTab(QWidget):
                 selected_policy=defaults['policy']; access_policy=defaults['access_policy']
                 if mcp_ref:
                     from .mcp_support import server_fingerprint
-                    server=next((s for s in self.store.config.get('mcp_servers',[]) if s.get('name')==mcp_ref['name'] and s.get('enabled')),None)
-                    if not server or server_fingerprint(server)!=mcp_ref['sha256']:raise ValueError('The selected MCP server changed or is unavailable; refresh and reselect it.')
+                    servers=[]
+                    for ref in [mcp_ref,*self.mcp_extra_refs]:
+                        server=next((s for s in self.store.config.get('mcp_servers',[]) if s.get('name')==ref['name'] and s.get('enabled')),None)
+                        if not server or server_fingerprint(server)!=ref['sha256']:raise ValueError('A selected MCP server changed or is unavailable; refresh and reselect it.')
+                        servers.append(server)
                     if access_policy=='strict_public':raise ValueError('Strict public-only navigation does not allow MCP in Chat.')
-                    from .chat_mcp import ChatMCP
-                    self.chat_mcp=ChatMCP(server,self.store.config,self,extra_secrets=(c.get('api_key',''),));self.chat_mcp.approval_requested.connect(self.review_chat_mcp)
+                    from .chat_mcp import ChatMCP,MultiChatMCP
+                    self.chat_mcp=(ChatMCP(servers[0],self.store.config,self,extra_secrets=(c.get('api_key',''),)) if len(servers)==1 else MultiChatMCP(servers,self.store.config,self,extra_secrets=(c.get('api_key',''),)));self.chat_mcp.approval_requested.connect(self.review_chat_mcp)
                 research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{})),'local_tools':True,'web_enabled':self.web_access.isChecked(),'mcp_priority':self.store.config['settings'].get('mcp_priority','first')}
                 backend_specs=self.store.web_backend_specs()
                 key=next((b['key'] for b in backend_specs if b.get('key')),'')

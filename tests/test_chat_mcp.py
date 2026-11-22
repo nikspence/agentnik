@@ -31,6 +31,96 @@ class ChatMCPIntegration(unittest.TestCase):
         while not predicate() and time.monotonic()<end:self.app.processEvents();time.sleep(.005)
         self.assertTrue(predicate());self.app.processEvents()
 
+    def test_multiple_servers_use_ordered_precedence_and_batch_validation(self):
+        from agentnik.chat_mcp import MultiChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        servers=[{'name':name,'transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True} for name in ('First','Second','Third')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers});tool=lambda name:{'name':name,'description':name,'description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        for controller,tools in zip(group.controllers,([tool('shared'),tool('alpha')],[tool('shared'),tool('beta')],[tool('gamma')])):
+            controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':tools},{'call_result':{'content':[{'type':'text','text':controller.server['name']}]}}]
+        runtime=Runtime();runtime.calls=1
+        result=group.invoke('mcp_discover',{'server':'connect'},runtime)
+        self.assertEqual(runtime.calls,3);self.assertEqual([(item['name'],item['server']) for item in result['tools']],[('shared','First'),('alpha','First'),('beta','Second'),('gamma','Third')])
+        def args(name,server=None):return {'request':json.dumps({'tool':name,'arguments':{},**({'server':server} if server else {})})}
+        with self.assertRaisesRegex(ResearchError,'higher-priority'):group.validate_call('mcp_call',args('shared','Second'))
+        with self.assertRaises(ResearchError):group.validate_batch([('mcp_call',args('alpha')),('mcp_call',args('missing'))])
+        self.assertIn('First',json.dumps(group.invoke('mcp_call',args('shared'),runtime)))
+        self.assertIn('Second',json.dumps(group.invoke('mcp_call',args('beta','Second'),runtime)))
+        self.assertEqual(group.controllers[2].bridge.request.call_count,1)
+
+    def test_multi_server_rejects_incomplete_or_unaffordable_discovery(self):
+        from agentnik.chat_mcp import MultiChatMCP
+        from agentnik.tools import Runtime,Limits,ResearchError
+        servers=[{'name':name,'transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True} for name in ('First','Second')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers})
+        for controller in group.controllers:controller.bridge=Mock();controller.bridge.request.return_value={'tool_details':[],'more_tools':True}
+        runtime=Runtime(limits=Limits(calls=1));runtime.calls=1
+        with self.assertRaisesRegex(ResearchError,'Not enough'):group.invoke('mcp_discover',{'server':'connect'},runtime)
+        self.assertTrue(all(not controller.bridge.request.called for controller in group.controllers))
+        runtime=Runtime();runtime.calls=1;group.invoke('mcp_discover',{'server':'connect'},runtime)
+        with self.assertRaisesRegex(ResearchError,'incomplete'):group.validate_call('mcp_call',{'request':'{"tool":"anything","arguments":{}}'})
+
+    def test_chat_server_picker_preserves_order_and_session(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QListWidget,QPushButton
+        from agentnik.sessions import validate_session
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            store=Store(folder);store.config['mcp_servers']=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('Parallel','Postgres','Subledger')];store.flush();window=Window(store);window.connections={'test':dict(C)}
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget()
+                def select(dialog):
+                    items=dialog.findChild(QListWidget,'chatMcpOrder')
+                    for index in range(items.count()):items.item(index).setCheckState(Qt.CheckState.Checked)
+                    items.setCurrentRow(2);dialog.findChild(QPushButton,'chatMcpMoveUp').click()
+                    return QDialog.DialogCode.Accepted
+                with patch.object(QDialog,'exec',select):tab.choose_chat_mcp_servers()
+                self.assertEqual(tab.mcp_choice.currentData()['name'],'Parallel')
+                self.assertEqual([item['name'] for item in tab.mcp_extra_refs],['Subledger','Postgres'])
+                validate_session(tab.session)
+                saved=next(item for item in store.list_sessions() if item['id']==tab.session['id'])
+                self.assertEqual([item['name'] for item in saved['research_options']['mcp_extra']],['Subledger','Postgres'])
+                tab.mcp_choice.setCurrentIndex(0);self.assertEqual(tab.mcp_extra_refs,[])
+            finally:window.close();self.app.processEvents();store.db.close()
+
+    def test_multi_server_chat_model_receives_each_server_result(self):
+        import threading
+        from agentnik.chat_mcp import MultiChatMCP
+        servers=[{'name':name,'transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True} for name in ('Search','Database')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers});bodies=[]
+        for controller,name in zip(group.controllers,('web_lookup','query')):
+            tool={'name':name,'description':name,'description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+            controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[{'type':'text','text':controller.server['name']+' result'}]}}]
+        call=lambda name: {'request':json.dumps({'tool':name,'arguments':{}})}
+        replies=[Wire(response([function('mcp_discover',{'server':'connect'},'first')]),False),Wire(response([function('mcp_call',call('web_lookup'),'second'),function('mcp_call',call('query'),'third')]),False),Wire(response([message('Done')]),False)]
+        def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Research'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=group)
+        self.assertEqual(result['status'],'ok',result);self.assertIn('Search result',json.dumps(bodies[-1]));self.assertIn('Database result',json.dumps(bodies[-1]))
+        self.assertEqual([controller.bridge.request.call_count for controller in group.controllers],[2,2])
+
+    def test_chat_runs_two_independent_local_mcp_servers(self):
+        from agentnik.mcp_support import server_fingerprint
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            root=Path(folder);server=root/'server.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':sys.argv[1],'version':'1'},'capabilities':{'tools':{}}}
+ elif method=='tools/list':result={'tools':[{'name':sys.argv[1],'inputSchema':{'type':'object'}}]}
+ else:result={'content':[{'type':'text','text':sys.argv[1]+' evidence'}]}
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            store=Store(root/'data');servers=[{'name':name,'command':sys.executable,'args':[str(server),tool],'enabled':True} for name,tool in (('Search','find'),('Database','query'))];store.config['mcp_servers']=servers;store.flush()
+            window=Window(store);window.connections={'test':dict(C)};bodies=[]
+            request=lambda name: {'request':json.dumps({'tool':name,'arguments':{}})}
+            replies=[Wire(response([function('mcp_discover',{'server':'connect'},'first')]),False),Wire(response([function('mcp_call',request('find'),'second'),function('mcp_call',request('query'),'third')]),False),Wire(response([message('Done')]),False)]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget();tab.mcp_choice.setCurrentIndex(1);tab.mcp_extra_refs=[{'name':'Database','sha256':server_fingerprint(servers[1])}];tab.save_draft();tab.composer.setPlainText('Use both')
+                with patch.object(core,'open_request',side_effect=send):tab.submit();self.settle(lambda:tab.job is None)
+                self.assertEqual(tab.session['messages'][-1]['text'],'Done');self.assertIn('find evidence',json.dumps(bodies[-1]));self.assertIn('query evidence',json.dumps(bodies[-1]))
+            finally:window.close();self.app.processEvents();store.db.close()
+
     def test_remote_controller_reviews_arguments_and_filters_user_content(self):
         from agentnik.chat_mcp import ChatMCP
         from agentnik.tools import Runtime
