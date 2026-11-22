@@ -253,7 +253,10 @@ class ProjectFiles:
 
     def listing(self,relative):
         directory=self.path(relative)
-        if not directory.is_dir():raise ValueError('Directory is unavailable')
+        try:mode=directory.stat().st_mode
+        except (FileNotFoundError,NotADirectoryError):raise ValueError('Directory does not exist in the selected project. List the parent directory or use glob_files to find the correct path.') from None
+        except PermissionError:raise ValueError('Directory cannot be read with the current permissions.') from None
+        if not stat.S_ISDIR(mode):raise ValueError('Path is not a directory. Use read_file for a file or list its parent directory.')
         entries=[]
         for item in directory.iterdir():
             if len(entries)>=128:break
@@ -1809,7 +1812,10 @@ class CodingRun:
                             event('output',text='Applying project patch: '+args['path']);check_project_mutation()
                             files.apply(proposal,check_project_mutation);applied_event('patch',args['path'],proposal['diff'])
                             result={'applied':True,'path':args['path']}
-                        elif call.name=='list_files':result={'entries':files.listing(args['path'])}
+                        elif call.name=='list_files':
+                            try:result={'entries':files.listing(args['path'])}
+                            except ValueError as exc:raise ProjectToolError(str(exc)) from None
+                            except OSError:raise ProjectToolError('Directory could not be listed. Check that it is accessible and still exists.') from None
                         elif call.name=='glob_files':
                             from .code_search import glob_files
                             result=glob_files(files,args['path'],args['pattern'],runtime.check)
