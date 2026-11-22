@@ -215,6 +215,27 @@ class ElicitationTests(unittest.TestCase):
         dialog.fields['enabled'][1].setCurrentIndex(2);dialog.fields['count'][1].setText('12');dialog.fields['note'][2].setChecked(True);dialog.fields['note'][1].setText('')
         dialog.submit();self.assertEqual(dialog.responses['item']['content'],{'format':'csv','enabled':False,'count':12,'note':''})
 
+    def test_titled_and_multiple_choices_use_controls_and_preserve_json_order(self):
+        from PySide6.QtCore import Qt
+        choices=[{'const':'v'+str(i),'title':'Choice '+str(i)} for i in range(20)]
+        value=request();value['inputRequests']['item']['params']['requestedSchema']={'type':'object','properties':{
+            'single':{'type':'string','oneOf':choices,'default':'v12'},
+            'multiple':{'type':'array','items':{'anyOf':choices},'minItems':1,'maxItems':3,'default':['v12','v2']},
+            'optional':{'type':'array','items':{'type':'string','enum':['one','two']}}},'required':['single','multiple']}
+        dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);self.assertEqual(dialog.tabs.currentIndex(),0)
+        single=dialog.fields['single'][1];multiple=dialog.fields['multiple'][1];optional=dialog.fields['optional']
+        self.assertEqual(single.currentText(),'Choice 12');self.assertEqual(dialog.form_values(),{'single':'v12','multiple':['v12','v2']})
+        multiple.item(3).setCheckState(Qt.CheckState.Checked);optional[2].setChecked(True);optional[1].item(1).setCheckState(Qt.CheckState.Checked)
+        dialog.tabs.setCurrentIndex(1);self.assertIn('"v12"',dialog.answer.toPlainText());dialog.tabs.setCurrentIndex(0)
+        self.assertEqual(dialog.form_values(),{'single':'v12','multiple':['v12','v2','v3'],'optional':['two']})
+        dialog.submit();self.assertEqual(dialog.responses['item']['content'],{'single':'v12','multiple':['v12','v2','v3'],'optional':['two']})
+
+    def test_multiple_choices_refuse_unrepresentable_json_without_data_loss(self):
+        value=request();value['inputRequests']['item']['params']['requestedSchema']={'type':'object','properties':{'tags':{'type':'array','items':{'enum':['one','two']}}}}
+        dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);dialog.tabs.setCurrentIndex(1)
+        for raw in ('{"tags":["one","one"]}','{"tags":["unknown"]}'):
+            dialog.answer.setPlainText(raw);dialog.tabs.setCurrentIndex(0);self.assertEqual(dialog.tabs.currentIndex(),1);self.assertEqual(dialog.answer.toPlainText(),raw)
+
     def test_json_round_trip_preserves_extra_fields_and_refuses_type_loss(self):
         dialog=ElicitationDialog('Example',parse_input_required(request())['forms']);dialog.tabs.setCurrentIndex(1)
         dialog.answer.setPlainText('{"format":"json","extra":42}');dialog.tabs.setCurrentIndex(0)

@@ -6,12 +6,28 @@ import unicodedata
 from urllib.parse import urlsplit
 from PySide6.QtCore import Qt,QUrl,Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QApplication,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QPlainTextEdit,QDialogButtonBox,QTabWidget,QWidget,QScrollArea,QLineEdit,QComboBox,QCheckBox)
+from PySide6.QtWidgets import (QApplication,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QPlainTextEdit,QDialogButtonBox,QTabWidget,QWidget,QScrollArea,QLineEdit,QComboBox,QCheckBox,QListWidget,QListWidgetItem,QAbstractItemView)
 from .mcp_schema import validate_tool_arguments,MCPArgumentValidationError
 
 
 def open_elicitation_url(url):
     return QDesktopServices.openUrl(QUrl(url))
+
+
+def string_choices(schema,alternative):
+    """Return representable string choices, or None for a complex schema."""
+    if not isinstance(schema,dict):return None
+    if 'enum' in schema:
+        values=schema['enum'];names=schema.get('enumNames',[])
+        if not isinstance(values,list) or not values or any(type(value) is not str for value in values):return None
+        labels=names if isinstance(names,list) and len(names)==len(values) and all(isinstance(name,str) for name in names) else values
+        choices=list(zip(values,labels))
+    else:
+        variants=schema.get(alternative)
+        if not isinstance(variants,list) or not variants:return None
+        if any(not isinstance(item,dict) or type(item.get('const')) is not str or set(item)-{'const','title','description'} or ('title' in item and not isinstance(item['title'],str)) for item in variants):return None
+        choices=[(item['const'],item.get('title',item['const'])) for item in variants]
+    return choices if len({value for value,_ in choices})==len(choices) else None
 
 
 def validate_answer(schema,value):
@@ -135,7 +151,7 @@ class ElicitationDialog(QDialog):
         self.counter=QLabel();layout.addWidget(self.counter)
         self.message=QLabel();self.message.setWordWrap(True);self.message.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.message)
         self.tabs=QTabWidget();layout.addWidget(self.tabs,1);self.fields={};self.extra={};self.switching=False
-        self.form_scroll=QScrollArea();self.form_scroll.setWidgetResizable(True);self.form_widget=QWidget();self.form_layout=QFormLayout(self.form_widget);self.form_scroll.setWidget(self.form_widget)
+        self.form_scroll=QScrollArea();self.form_scroll.setWidgetResizable(True);self.form_widget=QWidget();self.form_layout=QFormLayout(self.form_widget);self.form_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop);self.form_scroll.setWidget(self.form_widget)
         self.tabs.addTab(self.form_scroll,self.tr('Form'))
         raw=QWidget();raw_layout=QVBoxLayout(raw);schema_label=QLabel(self.tr('Requested format'));raw_layout.addWidget(schema_label)
         self.schema=QPlainTextEdit();self.schema.setObjectName('mcpElicitationSchema');self.schema.setReadOnly(True);schema_label.setBuddy(self.schema);raw_layout.addWidget(self.schema)
@@ -177,29 +193,35 @@ class ElicitationDialog(QDialog):
 
     def build_form(self,schema,values):
         while self.form_layout.rowCount():self.form_layout.removeRow(0)
-        self.fields={};self.extra={};properties=schema.get('properties',{})
+        self.fields={};self.extra={};self.selection_orders={};properties=schema.get('properties',{})
         simple=not any(key in schema for key in ('$ref','oneOf','anyOf','allOf'))
         for field in properties.values():
-            if not isinstance(field,dict) or field.get('type') not in ('string','integer','number','boolean') or any(key in field for key in ('$ref','oneOf','anyOf','allOf')):simple=False;break
+            if not isinstance(field,dict) or field.get('type') not in ('string','integer','number','boolean','array') or any(key in field for key in ('$ref','anyOf','allOf')):simple=False;break
+            if 'oneOf' in field and (field.get('type')!='string' or string_choices(field,'oneOf') is None):simple=False;break
+            if field.get('type')=='array' and string_choices(field.get('items'),'anyOf') is None:simple=False;break
             if 'enum' in field and (not field['enum'] or any(type(item) not in (str,int,float,bool) for item in field['enum'])):simple=False;break
         self.switching=True;self.tabs.setTabEnabled(0,simple);self.tabs.setCurrentIndex(0 if simple else 1);self.switching=False
         if not simple:return
         required=set(schema.get('required',[]))
         for name,field in properties.items():
-            row=QWidget();row_layout=QHBoxLayout(row);row_layout.setContentsMargins(0,0,0,0);include=None
+            row=QWidget();row_layout=QHBoxLayout(row);row_layout.setContentsMargins(0,0,0,0);row_layout.setAlignment(Qt.AlignmentFlag.AlignTop);include=None
             if name not in required:
                 include=QCheckBox(self.tr('Include'));include.setChecked(name in values);row_layout.addWidget(include)
-            enum=field.get('enum')
-            if enum is not None or field['type']=='boolean':
+            enum=field.get('enum');titled=string_choices(field,'oneOf') if 'oneOf' in field else None
+            if field['type']=='array':
+                editor=QListWidget();editor.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection);editor.setMinimumHeight(70);editor.setMaximumHeight(150)
+                for value,label in string_choices(field['items'],'anyOf'):
+                    item=QListWidgetItem(label);item.setData(Qt.ItemDataRole.UserRole,value);item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable);item.setCheckState(Qt.CheckState.Unchecked);editor.addItem(item)
+            elif enum is not None or field['type']=='boolean' or titled is not None:
                 editor=QComboBox();editor.addItem(self.tr('Choose…'),None)
-                choices=enum if enum is not None else [True,False];labels=field.get('enumNames',[])
+                choices=[value for value,_ in titled] if titled is not None else enum if enum is not None else [True,False];labels=[label for _,label in titled] if titled is not None else field.get('enumNames',[])
                 for index,value in enumerate(choices):
                     label=labels[index] if isinstance(labels,list) and len(labels)==len(choices) and isinstance(labels[index],str) else (self.tr('Yes') if value is True else self.tr('No') if value is False else str(value))
                     editor.addItem(label,value)
             else:editor=QLineEdit()
             editor.setObjectName('mcpElicitationField');editor.setAccessibleName(str(field.get('title') or name));row_layout.addWidget(editor,1)
             if include:editor.setEnabled(include.isChecked());include.toggled.connect(editor.setEnabled)
-            title=field.get('title') if isinstance(field.get('title'),str) else name;label=QLabel(title+(' *' if name in required else ''));label.setTextFormat(Qt.TextFormat.PlainText);label.setWordWrap(True);label.setMaximumWidth(220);label.setBuddy(editor)
+            title=field.get('title') if isinstance(field.get('title'),str) else name;label=QLabel(title+(' *' if name in required else ''));label.setTextFormat(Qt.TextFormat.PlainText);label.setWordWrap(True);label.setMinimumWidth(min(140,max(80,label.fontMetrics().horizontalAdvance(label.text())+5)));label.setMaximumWidth(220);label.setBuddy(editor)
             if isinstance(field.get('description'),str):editor.setToolTip('<qt>'+html.escape(field['description'])+'</qt>')
             self.form_layout.addRow(label,row);self.fields[name]=(field,editor,include)
         self.extra_notice=QLabel();self.extra_notice.setTextFormat(Qt.TextFormat.PlainText);self.extra_notice.setWordWrap(True);self.form_layout.addRow(self.extra_notice)
@@ -211,6 +233,9 @@ class ElicitationDialog(QDialog):
             if name not in values:continue
             value=values[name];kind=field['type']
             if (kind=='string' and not isinstance(value,str)) or (kind=='integer' and type(value) is not int) or (kind=='number' and type(value) not in (int,float)) or (kind=='boolean' and type(value) is not bool):raise ValueError('Value cannot be represented by the form')
+            if isinstance(editor,QListWidget):
+                choices=[editor.item(i).data(Qt.ItemDataRole.UserRole) for i in range(editor.count())]
+                if not isinstance(value,list) or any(type(item) is not str or item not in choices for item in value) or len(value)!=len(set(value)):raise ValueError('Value cannot be represented by the form')
             if type(value) is float and not math.isfinite(value):raise ValueError('Value cannot be represented by the form')
             if isinstance(editor,QComboBox) and not any(type(editor.itemData(i)) is type(value) and editor.itemData(i)==value for i in range(1,editor.count())):raise ValueError('Value cannot be represented by the form')
         self.extra={key:value for key,value in values.items() if key not in self.fields}
@@ -221,7 +246,11 @@ class ElicitationDialog(QDialog):
             present=name in values
             if include:include.setChecked(present)
             value=values.get(name)
-            if isinstance(editor,QComboBox):
+            if isinstance(editor,QListWidget):
+                self.selection_orders[name]=list(value) if present else []
+                for i in range(editor.count()):
+                    item=editor.item(i);item.setCheckState(Qt.CheckState.Checked if present and item.data(Qt.ItemDataRole.UserRole) in value else Qt.CheckState.Unchecked)
+            elif isinstance(editor,QComboBox):
                 index=next((i for i in range(1,editor.count()) if type(editor.itemData(i)) is type(value) and editor.itemData(i)==value),0);editor.setCurrentIndex(index)
             else:editor.setText('' if not present else str(value))
 
@@ -229,7 +258,11 @@ class ElicitationDialog(QDialog):
         result=dict(self.extra)
         for name,(field,editor,include) in self.fields.items():
             if include and not include.isChecked():continue
-            if isinstance(editor,QComboBox):
+            if isinstance(editor,QListWidget):
+                selected=[editor.item(i).data(Qt.ItemDataRole.UserRole) for i in range(editor.count()) if editor.item(i).checkState()==Qt.CheckState.Checked]
+                value=[item for item in self.selection_orders.get(name,[]) if item in selected]+[item for item in selected if item not in self.selection_orders.get(name,[])]
+                self.selection_orders[name]=list(value)
+            elif isinstance(editor,QComboBox):
                 if editor.currentIndex()==0:
                     if incomplete:continue
                     raise ValueError(self.tr('Choose a value for {field}.').format(field=name))

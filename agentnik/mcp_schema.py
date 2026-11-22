@@ -15,6 +15,7 @@ MAX_NODES=1000
 MAX_DEPTH=24
 MAX_BRANCHES=32
 _pattern_deadline=ContextVar('mcp_pattern_deadline',default=0.0)
+_choice_cache=ContextVar('mcp_choice_cache',default=None)
 
 
 def _bounded_pattern(_validator,pattern,instance,_schema):
@@ -24,8 +25,27 @@ def _bounded_pattern(_validator,pattern,instance,_schema):
     if regex.search(pattern,instance,timeout=remaining) is None:yield ValidationError('The value does not match the requested pattern.')
 
 
-BOUNDED_2020=validators.extend(Draft202012Validator,{'pattern':_bounded_pattern})
-BOUNDED_7=validators.extend(Draft7Validator,{'pattern':_bounded_pattern})
+def _flat_string_choices(variants):
+    return isinstance(variants,list) and all(isinstance(item,dict) and 'const' in item and type(item['const']) is str and set(item).issubset({'const','title','description'}) for item in variants)
+
+
+def _bounded_alternatives(keyword):
+    def validate(validator,variants,instance,schema):
+        cache=_choice_cache.get();key=id(variants);counts=cache.get(key) if cache is not None else None
+        if len(variants)>8 and (counts is not None or _flat_string_choices(variants)):
+            if counts is None:
+                counts={}
+                for item in variants:counts[item['const']]=counts.get(item['const'],0)+1
+                if cache is not None:cache[key]=counts
+            matches=counts.get(instance,0) if isinstance(instance,str) else 0
+            if matches==0 or keyword=='oneOf' and matches!=1:yield ValidationError('The value does not match the requested choices.')
+        else:yield from Draft202012Validator.VALIDATORS[keyword](validator,variants,instance,schema)
+    return validate
+
+
+_bounded_keywords={'pattern':_bounded_pattern,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf')}
+BOUNDED_2020=validators.extend(Draft202012Validator,_bounded_keywords)
+BOUNDED_7=validators.extend(Draft7Validator,_bounded_keywords)
 
 
 class MCPArgumentValidationError(ValueError):
@@ -153,14 +173,19 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
         for keyword in ('anyOf','oneOf','allOf'):
             if keyword in node:
                 variants=node[keyword]
-                if not isinstance(variants,list) or not 1<=len(variants)<=8:raise ValueError('The tool schema has invalid or excessive alternatives.')
-                pending.extend((value,depth+1,width*len(variants),ancestors) for value in variants)
+                if not isinstance(variants,list) or not variants:raise ValueError('The tool schema has invalid or excessive alternatives.')
+                simple_choices=keyword in ('anyOf','oneOf') and _flat_string_choices(variants)
+                if len(variants)>8:
+                    if not simple_choices or len(variants)>128 or width*len(variants)>128:raise ValueError('The tool schema has invalid or excessive alternatives.')
+                    next_width=width
+                else:next_width=width*len(variants)
+                pending.extend((value,depth+1,next_width,ancestors) for value in variants)
     try:
         validator.check_schema(schema)
         bounded=BOUNDED_7 if validator is Draft7Validator else BOUNDED_2020
-        token=_pattern_deadline.set(time.monotonic()+.25)
+        token=_pattern_deadline.set(time.monotonic()+.25);choices_token=_choice_cache.set({})
         try:bounded(schema,registry=Registry(),format_checker=FormatChecker() if check_formats else None).validate(arguments)
-        finally:_pattern_deadline.reset(token)
+        finally:_choice_cache.reset(choices_token);_pattern_deadline.reset(token)
     except TimeoutError:raise ValueError('MCP schema pattern matching timed out.') from None
     except Exception as exc:
         from jsonschema.exceptions import SchemaError

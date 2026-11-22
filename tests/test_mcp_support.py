@@ -967,6 +967,21 @@ for line in sys.stdin:
         with self.assertRaisesRegex(ValueError,'complex'):validate_tool_arguments(broad,{})
         with self.assertRaises(ValueError):validate_tool_arguments({'type':'object','allOf':[]},{})
 
+    def test_schema_allows_large_flat_titled_choices_but_bounds_complex_branches(self):
+        from agentnik.mcp_schema import validate_tool_arguments,MCPArgumentValidationError
+        choices=[{'const':'v'+str(i),'title':'Choice '+str(i)} for i in range(20)]
+        schema={'type':'object','properties':{'single':{'type':'string','oneOf':choices},'multiple':{'type':'array','items':{'anyOf':choices}}}}
+        self.assertTrue(validate_tool_arguments(schema,{'single':'v19','multiple':['v2','v15']}))
+        with self.assertRaises(MCPArgumentValidationError):validate_tool_arguments(schema,{'single':'missing'})
+        duplicate=choices+[{'const':'v2','title':'Duplicate'}]
+        one_of={'type':'object','properties':{'x':{'oneOf':duplicate}}};any_of={'type':'object','properties':{'x':{'anyOf':duplicate}}}
+        with self.assertRaises(MCPArgumentValidationError):validate_tool_arguments(one_of,{'x':'v2'})
+        self.assertTrue(validate_tool_arguments(any_of,{'x':'v2'}))
+        too_many={'type':'object','properties':{'x':{'oneOf':[{'const':str(i)} for i in range(129)]}}}
+        with self.assertRaises(ValueError):validate_tool_arguments(too_many,{})
+        complex_choices={'type':'object','properties':{'x':{'oneOf':[{'type':'string','pattern':str(i)} for i in range(9)]}}}
+        with self.assertRaises(ValueError):validate_tool_arguments(complex_choices,{})
+
     def test_schema_legacy_definitions_and_cross_namespace_cycles(self):
         from agentnik.mcp_schema import validate_tool_arguments
         schema={'type':'object','definitions':{'key/name':{'type':'integer','minimum':1},'alias':{'$ref':'#/$defs/target'}},'$defs':{'target':{'$ref':'#/definitions/key~1name'}},'properties':{'id':{'$ref':'#/definitions/alias'}},'required':['id']}
