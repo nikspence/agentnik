@@ -37,7 +37,7 @@ class ChatImageControls(unittest.TestCase):
         from agentnik import core
         from agentnik.storage import Store
         from agentnik.ui import Window
-        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+        with tempfile.TemporaryDirectory() as root,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
             store=Store(root);image=QImage(4,3,QImage.Format.Format_ARGB32);image.fill(QColor('green'));data=Path(root,'original.png');image.save(str(data));stored=store.attach(path=str(data))
             session=store.new_session('chat','test',{'url':'http://localhost:11434','model':'test'});session['messages']=[{'role':'assistant','text':'Generated','images':[stored]}];store.save(session)
             window=Window(store)
