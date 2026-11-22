@@ -9,7 +9,7 @@ from .mcp_support import MAX_OUTPUT,validate_servers,initialize_request,parse_in
 class MCPServers(QDialog):
     def __init__(self,window):
         super().__init__(window);self.store=window.store;self.setWindowTitle(self.tr('MCP servers'));self.resize(680,520)
-        self.process=None;self.remote=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test(self.tr('Connection test timed out.')))
+        self.process=None;self.remote=None;self.oauth_discovery=None;self.oauth_challenge=None;self.oauth_challenge_url=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test(self.tr('Connection test timed out.')))
         outer=QVBoxLayout(self);scroll=QScrollArea();scroll.setObjectName('mcpSettingsScroll');scroll.setWidgetResizable(True);outer.addWidget(scroll)
         content=QWidget();scroll.setWidget(content);layout=QVBoxLayout(content)
         notice=QLabel(self.tr('Servers can access your data. Local commands and arguments are stored in plaintext; do not put secrets in them.'));notice.setWordWrap(True);layout.addWidget(notice)
@@ -22,8 +22,12 @@ class MCPServers(QDialog):
         self.transport.currentIndexChanged.connect(lambda index:(self.working_directory.setEnabled(index==0),self.working_directory_button.setEnabled(index==0)))
         form.addRow(self.tr('Name'),self.name);form.addRow(self.tr('Transport'),self.transport);form.addRow(self.tr('Executable'),self.command);form.addRow(self.tr('Arguments (JSON array)'),self.args);form.addRow(self.tr('Working directory'),directory_row);form.addRow(self.tr('Environment names (JSON object)'),self.env);form.addRow(self.tr('HTTPS URL'),self.url);form.addRow(self.tr('Bearer token'),self.token);form.addRow(self.tr('Operation timeout'),self.timeout);form.addRow('',self.enabled)
         row=QHBoxLayout();layout.addLayout(row)
-        for label,handler in ((self.tr('New'),self.new),(self.tr('Save'),self.save),(self.tr('Remove'),self.remove),(self.tr('Test connection'),self.test)):
+        for label,handler in ((self.tr('New'),self.new),(self.tr('Save'),self.save),(self.tr('Remove'),self.remove)):
             button=QPushButton(label);button.clicked.connect(handler);row.addWidget(button)
+        row.addStretch();connection_row=QHBoxLayout();layout.addLayout(connection_row)
+        for label,handler in ((self.tr('Test connection'),self.test),(self.tr('Discover sign-in'),self.discover_oauth)):
+            button=QPushButton(label);button.clicked.connect(handler);connection_row.addWidget(button)
+        connection_row.addStretch()
         self.status=QLabel(self.tr('No server has been tested.'));self.status.setTextFormat(Qt.TextFormat.PlainText);self.status.setWordWrap(True);layout.addWidget(self.status)
         layout.addWidget(QLabel(self.tr('Discovered tools (server-provided, untrusted):')))
         self.tool_details=QPlainTextEdit();self.tool_details.setReadOnly(True);self.tool_details.setPlaceholderText(self.tr('Test a server to inspect its tools.'));layout.addWidget(self.tool_details)
@@ -45,6 +49,9 @@ class MCPServers(QDialog):
         self.list.setCurrentRow(-1);self.name.clear();self.transport.setCurrentIndex(0);self.command.clear();self.args.setPlainText('[]');self.working_directory.clear();self.env.setPlainText('{}');self.url.clear();self.token.clear();self.timeout.setValue(DEFAULT_TIMEOUT_SECONDS);self.enabled.setChecked(True)
 
     def load_row(self,index):
+        if self.oauth_discovery:
+            discovery=self.oauth_discovery;self.oauth_discovery=None;discovery.stop()
+        self.oauth_challenge=None;self.oauth_challenge_url=None
         if self.process:self.finish_test(self.tr('Local MCP session closed.'))
         self.tool_details.clear();self.tool_choice.clear();self.tool_result.clear();self.discovered=None
         entries=self.store.config.get('mcp_servers',[])
@@ -121,7 +128,7 @@ class MCPServers(QDialog):
 
     def test(self):
         entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
-        if self.process or self.remote:
+        if self.process or self.remote or self.oauth_discovery:
             self.status.setText(self.tr('An MCP connection is already active. Close it or select another server before testing.'));return
         if not 0<=index<len(entries):
             self.status.setText(self.tr('Save and select a server before testing the connection.'));return
@@ -162,12 +169,36 @@ class MCPServers(QDialog):
 
     def done(self,result):
         self._closed=True
+        if self.oauth_discovery:
+            discovery=self.oauth_discovery;self.oauth_discovery=None;discovery.stop()
         if self.validation_job:self.validation_job.cancel.set()
         if self.process:self.finish_test(self.tr('Connection test cancelled.'))
         if self.remote:self.remote.stop()
         super().done(result)
 
+    def discover_oauth(self):
+        entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
+        if self.oauth_discovery or self.remote or self.process:self.status.setText(self.tr('An MCP connection is already active.'));return
+        if not 0<=index<len(entries) or entries[index].get('transport')!='http':self.status.setText(self.tr('Save and select a remote server before discovering sign-in.'));return
+        item=entries[index]
+        if not self.form_matches(item):self.status.setText(self.tr('Save your changes before testing this server.'));return
+        from .mcp_oauth_discovery import OAuthMetadataDiscovery
+        challenge=self.oauth_challenge if self.oauth_challenge_url==item['url'] else None
+        job=OAuthMetadataDiscovery(item['url'],challenge,self,timeout_ms=min(server_timeout(item)*1000,60000));self.oauth_discovery=job
+        job.finished.connect(lambda result,job=job,config=dict(item):self.oauth_discovered(job,config,result))
+        self.status.setText(self.tr('Discovering sign-in metadata…'));job.start()
+
+    def oauth_discovered(self,job,config,result):
+        if self.oauth_discovery is not job:return
+        self.oauth_discovery=None;job.deleteLater()
+        entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
+        if self._closed or not 0<=index<len(entries) or entries[index]!=config or not self.form_matches(config):return
+        if 'error' in result:self.status.setText(self.tr(result['error']));return
+        server=result['authorization_server'];state=self.tr('supports PKCE') if server['pkce_s256'] else self.tr('does not advertise PKCE')
+        self.status.setText(self.tr('Authorization server: {issuer} · {state}. OAuth sign-in is not yet available.').format(issuer=server['issuer'],state=state))
+
     def test_remote(self,item):
+        self.oauth_challenge=None;self.oauth_challenge_url=None
         token=''
         if item.get('credential_id'):
             try:
@@ -181,6 +212,8 @@ class MCPServers(QDialog):
 
     def remote_done(self,result):
         probe=self.remote;self.remote=None
+        if probe and getattr(probe,'oauth_challenge',None) is not None and self.discovered_config:
+            self.oauth_challenge=probe.oauth_challenge;self.oauth_challenge_url=self.discovered_config.get('url')
         if probe:probe.deleteLater()
         if 'error' in result:self.status.setText(result['error']+(self.tr(' Session close not confirmed.') if result.get('session_closed') is False else ''));return
         self.discovered={'config':self.discovered_config,'tools':result.get('tool_details',[]),'task_capabilities':result.get('task_capabilities',{})}

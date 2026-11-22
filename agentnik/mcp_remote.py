@@ -102,7 +102,7 @@ class RemoteProbe(QObject):
     progress=Signal(object)
     def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
-        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None
+        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
         self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
@@ -415,6 +415,7 @@ class RemoteProbe(QObject):
                 header=reply.rawHeader('WWW-Authenticate')
                 challenge=bearer_challenge(header if isinstance(header,str) else bytes(header).decode('latin-1'))
                 if challenge is not None:
+                    if not self.token or not contains_secret(challenge,self.token):self.oauth_challenge={key:challenge[key] for key in ('resource_metadata','scope') if key in challenge}
                     if status==403 and challenge.get('error')=='insufficient_scope':self.stop('MCP authorization has insufficient scope. Obtain a bearer token with the required permissions; automatic OAuth sign-in is not yet supported.');return
                     if status==401:self.stop('MCP server requires a valid bearer token. Enter one in MCP server settings; automatic OAuth sign-in is not yet supported.');return
             self.stop('MCP server returned an HTTP or network error'+(' ('+str(status)+').' if isinstance(status,int) else '.'));return

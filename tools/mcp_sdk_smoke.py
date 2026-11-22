@@ -177,7 +177,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['discovery','tool call and output schema','server ping','request-scoped server ping','resource list/read','template list/read','prompt list/get']}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False):
     import datetime
     import ipaddress
     import socket
@@ -229,6 +229,13 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False):
         sdk_app=make_server(cancelled if test_cancel else None,resume if resumption_test else None).streamable_http_app(event_store=event_store,retry_interval=100 if resumption_test else None)
         async def monitored_app(scope,receive,send):
             chunks=[]
+            if test_oauth and scope['type']=='http' and scope['method']=='GET':
+                from starlette.responses import JSONResponse
+                base='https://127.0.0.1:'+str(port)
+                if scope['path']=='/.well-known/oauth-protected-resource/mcp':
+                    await JSONResponse({'resource':base+'/mcp','authorization_servers':[base+'/tenant']})(scope,receive,send);return
+                if scope['path']=='/.well-known/oauth-authorization-server/tenant':
+                    await JSONResponse({'issuer':base+'/tenant','authorization_endpoint':base+'/authorize','token_endpoint':base+'/token','code_challenge_methods_supported':['S256']})(scope,receive,send);return
             if resumption_test and scope['type']=='http' and scope['method']=='GET':
                 resume['gets'].append(dict(scope['headers']).get(b'last-event-id'))
             async def monitored_send(item):
@@ -257,13 +264,26 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False):
                 with context.wrap_socket(connection,server_hostname='127.0.0.1') as secure:
                     negotiated=secure.version()
                     if negotiated not in ('TLSv1.2','TLSv1.3'):raise RuntimeError('Unexpected TLS protocol')
-            session=RemoteSession('https://127.0.0.1:'+str(port)+'/mcp','',timeout_seconds=15)
-            result=run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
+            url='https://127.0.0.1:'+str(port)+'/mcp'
+            if test_oauth:result=run_oauth_discovery(url)
+            else:
+                session=RemoteSession(url,'',timeout_seconds=15)
+                result=run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
             if thread.is_alive():raise RuntimeError('Local HTTPS server did not stop')
     return result
+
+
+def run_oauth_discovery(url):
+    from PySide6.QtCore import QEventLoop,QTimer
+    from agentnik.mcp_oauth_discovery import OAuthMetadataDiscovery
+    loop=QEventLoop();out=[];job=OAuthMetadataDiscovery(url,timeout_ms=10000);job.finished.connect(lambda value:(out.append(value),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(12000);job.start();loop.exec();timer.stop()
+    if not out or 'error' in out[0]:raise RuntimeError('OAuth metadata discovery failed')
+    if out[0]['resource']['resource']!=url or not out[0]['authorization_server']['pkce_s256']:raise RuntimeError('Unexpected OAuth discovery result')
+    job.manager.clearConnectionCache()
+    return {'sdk_version':version('mcp'),'transport':'https','checks':['protected resource metadata','authorization server metadata','issuer and resource validation','PKCE metadata']}
 
 
 def run_standalone_resume(session,resume):
@@ -347,9 +367,10 @@ if __name__=='__main__':
     elif sys.argv[1:]==['--https-cancel']:print(json.dumps(run_https(test_cancel=True)))
     elif sys.argv[1:]==['--https-resume']:print(json.dumps(run_https(test_resume=True)))
     elif sys.argv[1:]==['--https-standalone-resume']:print(json.dumps(run_https(test_standalone_resume=True)))
+    elif sys.argv[1:]==['--https-oauth-discovery']:print(json.dumps(run_https(test_oauth=True)))
     elif not sys.argv[1:]:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-cancel|--https-resume|--https-standalone-resume]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery]')

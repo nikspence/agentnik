@@ -3151,6 +3151,19 @@ Choose No to export connection settings without keys.</source>
     </context>
     <context>
         <name>MCPServers</name>
+        <message><source>Discover sign-in</source><translation>로그인 정보 찾기</translation></message>
+        <message><source>An MCP connection is already active.</source><translation>이미 MCP 연결이 활성화되어 있습니다.</translation></message>
+        <message><source>Save and select a remote server before discovering sign-in.</source><translation>로그인 정보를 찾으려면 원격 서버를 저장하고 선택하세요.</translation></message>
+        <message><source>Discovering sign-in metadata…</source><translation>로그인 메타데이터를 찾는 중…</translation></message>
+        <message><source>supports PKCE</source><translation>PKCE 지원</translation></message>
+        <message><source>does not advertise PKCE</source><translation>PKCE 지원을 명시하지 않음</translation></message>
+        <message><source>Authorization server: {issuer} · {state}. OAuth sign-in is not yet available.</source><translation>인증 서버: {issuer} · {state}. OAuth 로그인은 아직 사용할 수 없습니다.</translation></message>
+        <message><source>OAuth discovery timed out.</source><translation>OAuth 검색 시간이 초과되었습니다.</translation></message>
+        <message><source>Invalid OAuth resource metadata URL.</source><translation>OAuth 리소스 메타데이터 URL이 올바르지 않습니다.</translation></message>
+        <message><source>OAuth metadata could not be discovered.</source><translation>OAuth 메타데이터를 찾을 수 없습니다.</translation></message>
+        <message><source>OAuth metadata exceeded the size limit.</source><translation>OAuth 메타데이터가 크기 제한을 초과했습니다.</translation></message>
+        <message><source>OAuth metadata request failed.</source><translation>OAuth 메타데이터 요청에 실패했습니다.</translation></message>
+        <message><source>OAuth metadata was invalid or did not match the server.</source><translation>OAuth 메타데이터가 올바르지 않거나 서버와 일치하지 않습니다.</translation></message>
         <message>
             <location filename="../mcp_ui.py" line="11" />
             <location filename="../mcp_ui.py" line="78" />
