@@ -410,6 +410,13 @@ class RemoteProbe(QObject):
             except (ValueError,UnicodeError,TypeError,RecursionError):pass
             self.close_session();return
         if status not in ((202,) if self.phase=='initialized' else (200,)):
+            if status in (401,403):
+                from .mcp_oauth import bearer_challenge
+                header=reply.rawHeader('WWW-Authenticate')
+                challenge=bearer_challenge(header if isinstance(header,str) else bytes(header).decode('latin-1'))
+                if challenge is not None:
+                    if status==403 and challenge.get('error')=='insufficient_scope':self.stop('MCP authorization has insufficient scope. Obtain a bearer token with the required permissions; automatic OAuth sign-in is not yet supported.');return
+                    if status==401:self.stop('MCP server requires a valid bearer token. Enter one in MCP server settings; automatic OAuth sign-in is not yet supported.');return
             self.stop('MCP server returned an HTTP or network error'+(' ('+str(status)+').' if isinstance(status,int) else '.'));return
         try:
             if self.token and self.token.encode('ascii') in self.buffer:raise ValueError('Credential reflected in response')
