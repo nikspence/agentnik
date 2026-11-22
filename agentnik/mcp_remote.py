@@ -106,6 +106,8 @@ class RemoteProbe(QObject):
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
         self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
+        self.sse_event_end=0;self.sse_event_id=None;self.sse_last_id=b'';self.sse_retry_ms=1000;self.sse_resuming=False
+        self.sse_resume_timer=QTimer(self);self.sse_resume_timer.setSingleShot(True);self.sse_resume_timer.timeout.connect(self.resume_response_stream)
         self.server_pings={};self.server_ping_error=None;self.server_ping_replies=set()
         self.server_stream=None;self.server_stream_buffer=bytearray();self.server_stream_parts=[];self.server_stream_bytes=0;self.server_stream_first=True;self.server_stream_requests=deque();self.server_stream_pending=set()
         self.server_stream_enabled=False;self.server_stream_last_id=b'';self.server_stream_event_id=None;self.server_stream_seen=deque(maxlen=128);self.server_stream_retry_ms=1000;self.server_stream_retry_deadline=0;self.server_stream_notified=False
@@ -119,6 +121,7 @@ class RemoteProbe(QObject):
         if self.phase!='task_result':self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0
         self.progress_final_seen=False
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
+        self.sse_resume_timer.stop();self.sse_event_end=0;self.sse_event_id=None;self.sse_last_id=b'';self.sse_retry_ms=1000;self.sse_resuming=False
         self.server_pings={};self.server_ping_error=None
         if self.phase=='call' and message.get('method')=='tools/call':
             self.log_count=0;self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
@@ -157,6 +160,9 @@ class RemoteProbe(QObject):
                 self.sse_first_line=False
                 if line.startswith(b'\xef\xbb\xbf'):line=line[3:]
             if not line:
+                self.sse_event_end=self.sse_pos
+                if self.sse_event_id is not None:self.sse_last_id=self.sse_event_id
+                self.sse_event_id=None
                 if self.sse_parts and any(self.sse_parts):self._progress_event(b'\n'.join(self.sse_parts))
                 self.sse_parts=[];continue
             if line.startswith(b':'):continue
@@ -164,6 +170,23 @@ class RemoteProbe(QObject):
             if field==b'data':
                 if separator and value.startswith(b' '):value=value[1:]
                 self.sse_parts.append(value)
+            elif field==b'id':
+                if separator and value.startswith(b' '):value=value[1:]
+                try:
+                    value.decode('utf-8')
+                    if len(value)<=1024 and not any(ch<32 or ch==127 for ch in value) and not (self.token and self.token.encode('ascii') in value):self.sse_event_id=value
+                except UnicodeError:pass
+            elif field==b'retry':
+                if separator and value.startswith(b' '):value=value[1:]
+                if value.isdigit():self.sse_retry_ms=max(1000,int(value)) if len(value)<=9 else None
+
+    def resume_response_stream(self):
+        if not self.sse_resuming or self.reply is not None:return
+        request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy);tls.configure_qt_request(request)
+        request.setRawHeader(b'Accept',b'text/event-stream');request.setRawHeader(b'Last-Event-ID',self.sse_last_id);request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
+        if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
+        if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
+        self.reply=self.manager.get(request);self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
 
     def _progress_event(self,data):
         if self.server_ping_error:return
@@ -347,8 +370,18 @@ class RemoteProbe(QObject):
         if reply is None:return
         self.consume(final=True)
         if self.reply is not reply:return
-        self.reply=None;reply.deleteLater()
         status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+        ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
+        resumable_stream=status==200 and ctype=='text/event-stream'
+        transient_resume=self.sse_resuming and (status is None or isinstance(status,int) and 500<=status<600) and reply.error()!=QNetworkReply.NetworkError.SslHandshakeFailedError
+        if self.phase not in ('initialize','initialized','closing','task_cancel','request_cancel') and (resumable_stream or transient_resume) and not self.progress_final_seen and self.sse_last_id and self.sse_retry_ms is not None:
+            self.reply=None;reply.deleteLater();del self.buffer[self.sse_event_end:]
+            self.sse_pos=self.sse_event_end;self.sse_search=self.sse_event_end;self.sse_parts=[];self.sse_event_id=None;self.sse_first_line=False;self.sse_resuming=True
+            self.progress.emit('MCP response stream disconnected; resuming without repeating the request.')
+            if self.sse_resuming:self.sse_resume_timer.start(self.sse_retry_ms)
+            return
+        self.sse_resuming=False
+        self.reply=None;reply.deleteLater()
         if self.phase=='closing':
             self.complete(isinstance(status,int) and 200<=status<300);return
         if self.phase=='request_cancel':
@@ -471,6 +504,7 @@ class RemoteProbe(QObject):
     def finish_call(self):
         self.close_session()
     def close_session(self):
+        self.sse_resuming=False;self.sse_resume_timer.stop()
         self.close_server_stream()
         if not self.session:self.complete(None);return
         self.phase='closing';self.timer.start(3000)
@@ -497,9 +531,10 @@ class RemoteProbe(QObject):
             self.send({'jsonrpc':'2.0','method':'notifications/cancelled','params':{'requestId':request_id}});return
         self.close_session()
     def stop(self,message='MCP connection cancelled.'):
+        resuming=self.sse_resuming;self.sse_resuming=False;self.sse_resume_timer.stop()
         self.close_server_stream()
         self.timer.stop();reply=self.reply;self.reply=None
-        request_id=self.current_id if reply and self.phase=='call' and not self.task_mode and not self.progress_final_seen else None
+        request_id=self.current_id if (reply or resuming) and self.phase=='call' and not self.task_mode and not self.progress_final_seen else None
         if reply:
             reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort();reply.deleteLater()
         if self.phase=='closing' and (self.result is not None or self.failure is not None):self.complete(False);return
@@ -594,10 +629,11 @@ class RemoteSession(RemoteProbe):
 
     def shutdown(self):
         if self.closed:return
+        resuming=self.sse_resuming;self.sse_resuming=False;self.sse_resume_timer.stop()
         self.close_server_stream()
         self.closed=True;self.timer.stop()
         reply=self.reply;self.reply=None
-        request_id=self.current_id if reply and self.phase=='call' and not self.task_mode and not self.progress_final_seen else None
+        request_id=self.current_id if (reply or resuming) and self.phase=='call' and not self.task_mode and not self.progress_final_seen else None
         if reply:
             reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort();reply.deleteLater()
         self.cancel_task_or_close(request_id)

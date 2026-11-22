@@ -76,6 +76,46 @@ class MCPFoundation(unittest.TestCase):
         session.phase='resource_list';session.stop=Mock();session.server_stream_event(json.dumps(events[0]).encode());session.stop.assert_called_once()
         session.server_stream=None;session.closed=True
 
+    def test_remote_shutdown_during_response_resume_cancels_original_request(self):
+        from unittest.mock import Mock
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.phase='call';session.current_id=17;session.sse_resuming=True
+        session.cancel_task_or_close=Mock();session.sse_resume_timer.start(1000);session.shutdown()
+        session.cancel_task_or_close.assert_called_once_with(17);self.assertFalse(session.sse_resume_timer.isActive());self.assertFalse(session.sse_resuming)
+
+    def test_remote_tool_response_stream_resumes_without_repeating_call(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([]);calls=[];state={}
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];calls.append(method)
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if method=='tools/call':
+                    state['id']=body['id'];self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'id: cursor-one\nretry: 20\ndata:\n\ndata: {"truncated"');self.wfile.flush();return
+                result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fixture','version':'1'},'capabilities':{'tools':{}}} if method=='initialize' else {'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+                payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
+            def do_GET(self):
+                cursor=self.headers.get('Last-Event-ID');calls.append(('GET',cursor,self.headers.get('Mcp-Session-Id'),self.headers.get('Authorization')))
+                if not cursor:self.send_response(405);self.end_headers();return
+                if not state.get('retried'):
+                    state['retried']=True;self.send_response(503);self.end_headers();self.wfile.write(b'temporary error');return
+                payload=json.dumps({'jsonrpc':'2.0','id':state['id'],'result':{'content':[{'type':'text','text':'finished'}]}}).encode()
+                self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'id: cursor-two\ndata: '+payload+b'\n\n');self.wfile.flush()
+            def do_DELETE(self):self.send_response(204);self.end_headers()
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);loop=QEventLoop();out=[]
+        session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda error:(out.append(error),loop.quit()));session.start();timeout=QTimer();timeout.setSingleShot(True);timeout.timeout.connect(loop.quit);timeout.start(7000)
+        try:
+            loop.exec();timeout.stop();self.assertTrue(out);self.assertEqual(out[0]['call_result']['content'][0]['text'],'finished')
+            self.assertEqual(calls.count('tools/call'),1);self.assertEqual(calls.count(('GET','cursor-one','session-one','Bearer fixture-token')),2)
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_remote_server_stream_reconnects_without_replaying_calls(self):
         import threading,time
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -360,7 +400,7 @@ for line in sys.stdin:
                 calls=[];state={}
                 class Handler(BaseHTTPRequestHandler):
                     def log_message(self,*args):pass
-                    def do_POST(self):
+                    def do_POST(self,state=state,mode=mode,calls=calls):
                         req=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=req['method'];calls.append((method,self.headers.get('Mcp-Session-Id')))
                         if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                         if method=='initialize':
@@ -384,7 +424,7 @@ for line in sys.stdin:
                             return
                         else:raise AssertionError(method)
                         payload=json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
-                    def do_DELETE(self):calls.append(('DELETE',self.headers.get('Mcp-Session-Id')));self.send_response(204);self.end_headers()
+                    def do_DELETE(self,calls=calls):calls.append(('DELETE',self.headers.get('Mcp-Session-Id')));self.send_response(204);self.end_headers()
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
                 session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=1 if mode=='timeout' else 5);loop=QEventLoop();out=[];notices=[]
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.progress.connect(notices.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
