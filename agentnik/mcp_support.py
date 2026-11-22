@@ -157,8 +157,10 @@ def rpc_error(message):
     return 'MCP server error ('+str(error['code'])+'): '+(text or 'No details provided')+' [untrusted server message]'
 
 
-def initialize_request():
-    return {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':PROTOCOL,'capabilities':{'tasks':{}},'clientInfo':{'name':'Agentnik','version':'0.1'}}}
+def initialize_request(elicitation=False):
+    capabilities={'tasks':{}}
+    if elicitation:capabilities['elicitation']={}
+    return {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':PROTOCOL,'capabilities':capabilities,'clientInfo':{'name':'Agentnik','version':'0.1'}}}
 
 
 def created_task_id(result):

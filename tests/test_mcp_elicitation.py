@@ -149,6 +149,29 @@ class ElicitationTests(unittest.TestCase):
             poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
             self.assertFalse(thread.is_alive());open_url.assert_called_once();self.assertEqual(out[0]['call_result']['content'][0]['text'],'url continued');self.assertNotIn('example.test',str(out));self.assertNotIn('private-state',str(out))
 
+    def test_2025_local_server_receives_answer_to_original_request(self):
+        for protocol in ('2025-06-18','2025-11-25'):
+            with self.subTest(protocol=protocol):self.check_2025_local_server(protocol)
+        self.check_2025_local_server('2025-11-25',decline=True)
+
+    def check_2025_local_server(self,protocol,decline=False):
+        from agentnik.mcp_code import CodingMCPBridge
+        from agentnik.tools import Runtime,Limits
+        server_path=Path(__file__).parent/'fixtures'/'mcp_legacy_elicitation_stdio.py';server={'name':'Legacy','command':sys.executable,'args':['-u',str(server_path),protocol],'enabled':True}
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
+        def worker():
+            info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime));bridge.close_signal.emit()
+        thread=threading.Thread(target=worker);thread.start();loop=QEventLoop();poll=QTimer()
+        def tick():
+            dialog=bridge.elicitation_dialog
+            if dialog and not presented:
+                presented.append(True);self.assertEqual(out,[])
+                if decline:dialog.decline()
+                else:dialog.fields['choice'][1].setText('yes');dialog.submit()
+            if not thread.is_alive():loop.quit()
+        poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+        self.assertFalse(thread.is_alive());self.assertEqual(presented,[True]);self.assertEqual(out[0]['call_result']['content'][0]['text'],'decline' if decline else 'accept')
+
     def test_dialog_cancellation_stops_call_without_continuing(self):
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits

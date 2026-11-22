@@ -345,6 +345,7 @@ def run_modern_elicitation(session,transport):
     from PySide6.QtCore import QEventLoop,QTimer,QCoreApplication
     session.elicitation_enabled=True;loop=QEventLoop();result={'forms':[]};timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit)
     def discovered(info):
+        result['protocol']=info.get('protocol')
         tool=next(item for item in info['tool_details'] if item['name']=='interactive')
         if not session.call(tool,{}):result['error']='Call rejected';loop.quit()
     def requested(forms):
@@ -356,10 +357,10 @@ def run_modern_elicitation(session,transport):
         blocks=result.get('response',{}).get('call_result',{}).get('content',[])
         if result.get('error') or len(result['forms'])!=1 or not any(item.get('text')=='Chosen yes' for item in blocks):raise RuntimeError('SDK elicitation failed: '+str(result))
     finally:
-        if transport=='stdio-modern':session.close()
+        if transport.startswith('stdio'):session.close()
         else:session.shutdown();session.manager.clearConnectionCache()
         QCoreApplication.processEvents()
-    return {'sdk_version':version('mcp'),'transport':transport,'protocol':'2026-07-28','checks':['form request','validated input','explicit continuation','final result']}
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['form request','validated input','explicit continuation','final result']}
 
 
 def run_modern_notifications(session,transport='https-modern'):
@@ -603,4 +604,9 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    elif sys.argv[1:]==['--stdio-elicitation']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

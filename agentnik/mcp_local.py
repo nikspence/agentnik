@@ -73,7 +73,7 @@ class LocalSession(QObject):
         if self.job:
             try:self.job.assign_pid(self.process.processId())
             except OSError:self.fail('Unable to isolate the local MCP process for cleanup.');return
-        self.send(initialize_request())
+        self.send(initialize_request(elicitation=self.elicitation_enabled))
         if not self.closed:self.probe_timer.start(min(1000,max(250,self.timeout_ms//3)))
 
     def probe_modern(self):
@@ -90,13 +90,21 @@ class LocalSession(QObject):
         if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')
 
     def continue_elicitation(self,responses):
-        if self.closed or self.elicitation_pending is None or self.elicitation_original is None:return False
+        if self.closed or self.elicitation_pending is None:return False
+        legacy_id=self.elicitation_pending.get('legacy_id')
+        if legacy_id is None and self.elicitation_original is None:return False
         try:
             from .mcp_elicitation import continuation
-            message=continuation(self.elicitation_original,self.elicitation_pending,responses)
+            original=self.elicitation_original if legacy_id is None else {'params':{}}
+            message=continuation(original,self.elicitation_pending,responses)
             if any(contains_secret(responses,secret) for secret in self.environment_secrets):raise ValueError()
         except (ValueError,TypeError,UnicodeError,RecursionError):self.fail('Invalid MCP input response; the request was not continued.');return False
-        self.elicitation_pending=None;self.next_id+=1;message['id']=self.next_id;self.timer.start(self.timeout_ms);self.send(message);return not self.closed
+        self.elicitation_pending=None;self.timer.start(self.timeout_ms)
+        if legacy_id is not None:
+            self.send({'jsonrpc':'2.0','id':legacy_id,'result':responses['request']})
+        else:
+            self.next_id+=1;message['id']=self.next_id;self.send(message)
+        return not self.closed
 
     def open_subscription(self):
         filters=self.info.get('subscription_filters',{})
@@ -163,6 +171,13 @@ class LocalSession(QObject):
                     while self.server_requests and self.server_requests[0]<=now-10:self.server_requests.popleft()
                     if len(self.server_requests)>=32:raise ValueError('Too many MCP server requests')
                     self.server_requests.append(now)
+                    if method=='elicitation/create' and self.elicitation_enabled and self.phase in ('call','resource_read','prompt_get') and (self.info or {}).get('protocol') in ('2025-06-18','2025-11-25') and self.elicitation_pending is None and isinstance(params,dict) and params.get('mode','form')=='form':
+                        from .mcp_elicitation import parse_input_required
+                        try:
+                            self.elicitation_pending=parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':method,'params':params}}});self.elicitation_pending['legacy_id']=ident
+                        except (ValueError,TypeError,RecursionError):
+                            self.send({'jsonrpc':'2.0','id':ident,'error':{'code':-32602,'message':'Unsupported elicitation request'}});continue
+                        self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);continue
                     response={'jsonrpc':'2.0','id':ident}
                     if method=='ping':response['result']={}
                     else:response['error']={'code':-32601,'message':'Method not supported'}
@@ -203,6 +218,7 @@ class LocalSession(QObject):
                     try:parse_discovery(message.get('result'))
                     except (ValueError,TypeError,RecursionError):self.probe_id=None;continue
                     self.modern=True;self.phase='modern_discovery';self.ignored_id=1;self.next_id=self.probe_id;self.probe_id=None
+                if self.elicitation_pending is not None and not self.modern:raise ValueError('MCP server completed an operation while input was pending')
                 if type(message['id']) is not int or message['id'] != self.next_id: raise ValueError()
                 self.request_active=False
                 if self.phase=='task_cancel':
