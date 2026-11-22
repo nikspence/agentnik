@@ -134,7 +134,7 @@ class MCPServers(QDialog):
         try:self.process=LocalSession(item['command'],item['args'],self,env_refs=item.get('env',{}),timeout_seconds=server_timeout(item),working_directory=item.get('working_directory',''))
         except ValueError:self.status.setText(self.tr('The MCP environment or working directory is invalid on this system.'));return
         self.discovered_config=dict(item)
-        self.process.discovered.connect(self.local_discovered);self.process.called.connect(self.local_called);self.process.ended.connect(self.local_ended)
+        self.process.discovered.connect(self.local_discovered);self.process.called.connect(self.local_called);self.process.ended.connect(self.local_ended);self.process.shutdown_finished.connect(lambda _result,session=self.process:session.deleteLater())
         self.status.setText(self.tr('Connecting…'));self.process.start()
 
     def local_discovered(self,result):
@@ -147,14 +147,13 @@ class MCPServers(QDialog):
 
     def local_ended(self,result):
         session=self.process;self.process=None;self.call_tool=None
-        if session:session.deleteLater()
         self.discovered=None;self.tool_choice.clear()
         self.status.setText(result['error']+(self.tr(' The call may have completed; inspect server state before retrying.') if result.get('call_uncertain') else ''))
 
     def finish_test(self,message):
         process=self.process
         if process is None:return
-        self.process=None;process.close();process.deleteLater();self.discovered=None;self.status.setText(message)
+        self.process=None;process.close();self.discovered=None;self.status.setText(message)
 
     def done(self,result):
         self._closed=True

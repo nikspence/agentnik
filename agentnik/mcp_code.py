@@ -58,7 +58,7 @@ class CodingMCPBridge(QObject):
             if self.environment_error:self._reply(request, {'error':self.environment_error});return
             try:self.session = LocalSession(self.server['command'], self.server['args'], self,env_values=self.environment_values,timeout_seconds=server_timeout(self.server),working_directory=self.server.get('working_directory',''))
             except ValueError:self._reply(request, {'error':'MCP working directory or timeout is invalid on this system.'});return
-            self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called);self.session.progress.connect(self._progress)
+            self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called);self.session.progress.connect(self._progress);self.session.shutdown_finished.connect(lambda _result,session=self.session:session.deleteLater())
             self.session.start()
         elif request['action'] in ('prompts_list','prompts_get') and self.session:
             if not self.session.list_prompts(request['payload'] if request['action']=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})
@@ -148,5 +148,5 @@ class CodingMCPBridge(QObject):
         if self.session:
             session=self.session;self.session=None
             if self.server.get('transport')=='http':session.shutdown()
-            else:session.close();session.deleteLater()
+            else:session.close()
         if self.pending:self._reply(self.pending, {'error':'MCP session closed; an in-flight call may have completed.', 'call_uncertain':True})

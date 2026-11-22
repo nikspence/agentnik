@@ -20,6 +20,7 @@ class LocalSession(QObject):
     resources = Signal(object)
     prompts = Signal(object)
     progress = Signal(object)
+    shutdown_finished = Signal(object)
 
     def __init__(self, command, args, parent=None, env_refs=None, env_values=None, timeout_seconds=60, working_directory=''):
         super().__init__(parent)
@@ -51,7 +52,7 @@ class LocalSession(QObject):
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None
 
     def start(self):
         if os.name=='nt':
@@ -104,7 +105,12 @@ class LocalSession(QObject):
                     if message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
                         self.fail('MCP tools changed; reconnect before making another call.')
                     continue
+                if self.phase=='task_cancel' and type(message['id']) is int and message['id']==self.cancelled_result_id:continue
                 if type(message['id']) is not int or message['id'] != self.next_id: raise ValueError()
+                if self.phase=='task_cancel':
+                    task=message.get('result')
+                    self.task_cancelled=isinstance(task,dict) and task.get('taskId')==self.task_id and task.get('status')=='cancelled' and 'error' not in message
+                    self._close_now();return
                 if 'error' in message:
                     error=rpc_error(message)
                     if self.phase in ('prompt_list','prompt_get'):
@@ -258,6 +264,7 @@ class LocalSession(QObject):
     def fail(self, message):
         from shiboken6 import isValid
         if not isValid(self) or self.closed: return
+        if self.phase=='task_cancel':self.task_cancelled=False;self._close_now();return
         uncertain = self.phase in ('call','task_result')
         if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
         self.close()
@@ -265,6 +272,15 @@ class LocalSession(QObject):
 
     def close(self):
         if self.closed: return
+        if self.phase=='task_cancel':return
+        caps=(self.info or {}).get('task_capabilities',{})
+        if self.phase=='task_result' and self.task_id and caps.get('cancel'):
+            self.task_cancelled=False;self.cancelled_result_id=self.next_id;self.phase='task_cancel';self.next_id+=1;self.timer.start(3000)
+            self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tasks/cancel','params':{'taskId':self.task_id}});return
+        self._close_now()
+
+    def _close_now(self):
+        if self.closed:return
         self.closed = True
         from shiboken6 import isValid
         self.environment_secrets=[]
@@ -276,3 +292,6 @@ class LocalSession(QObject):
         if self.job:self.job.close();self.job=None
         if isValid(self.process) and self.process.state()!=QProcess.ProcessState.NotRunning:
             self.process.kill();self.process.waitForFinished(250)
+        result={}
+        if self.task_cancelled is not None:result['task_cancelled']=self.task_cancelled
+        self.shutdown_finished.emit(result)

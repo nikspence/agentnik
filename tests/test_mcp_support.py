@@ -11,6 +11,46 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_local_shutdown_attempts_task_cancellation_and_handles_result_race(self):
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'local_cancel.py';marker=Path(folder)/'cancelled'
+            server.write_text('''import json,sys,pathlib
+mode=sys.argv[1];old_id=None
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':
+  tasks={'requests':{'tools':{'call':{}}}}
+  if mode!='not-advertised':tasks['cancel']={}
+  result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'tasks':tasks}}
+ elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'},'execution':{'taskSupport':'required'}}]}
+ elif method=='tools/call':result={'task':{'taskId':'task-123','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttl':60000}}
+ elif method=='tasks/result':old_id=req['id'];continue
+ elif method=='tasks/cancel':
+  pathlib.Path(sys.argv[2]).write_text(req['params']['taskId'])
+  if mode=='timeout':continue
+  if mode=='race':print(json.dumps({'jsonrpc':'2.0','id':old_id,'result':{'content':[],'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'task-123'}}}}),flush=True)
+  result={'taskId':'task-123','status':'working' if mode=='rejected' else 'cancelled'}
+ else:raise RuntimeError('unexpected '+method)
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            for mode in ('confirmed','race','rejected','timeout','not-advertised','operation-timeout'):
+                with self.subTest(mode=mode):
+                    marker.unlink(missing_ok=True);timeout=1 if mode=='operation-timeout' else 5
+                    session=LocalSession(sys.executable,[str(server),mode,str(marker)],timeout_seconds=timeout);loop=QEventLoop();finished=[];ended=[]
+                    session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
+                    if mode!='operation-timeout':session.progress.connect(lambda text:QTimer.singleShot(100,session.close) if text.startswith('Task started:') else None)
+                    session.ended.connect(ended.append);session.shutdown_finished.connect(lambda value:(finished.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
+                    loop.exec();self.assertTrue(finished,mode);self.assertTrue(session.closed)
+                    if mode=='not-advertised':self.assertFalse(marker.exists());self.assertNotIn('task_cancelled',finished[0])
+                    else:
+                        self.assertEqual(marker.read_text(),'task-123');self.assertEqual(finished[0].get('task_cancelled'),mode in ('confirmed','race','operation-timeout'))
+                    if mode=='operation-timeout':self.assertTrue(ended[0]['call_uncertain']);self.assertIn('task-123',ended[0]['error'])
+
     def test_remote_shutdown_cancels_active_task_when_advertised(self):
         import threading,time
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
