@@ -5195,6 +5195,50 @@ Connections are discovered from your environment and local servers.</source>
             <source>Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web starts off.</source>
             <translation>以前的每个选项卡网页、限制和决策设置仍保留在历史记录中，但不再使用。在这里配置全局设置；网络开始。</translation>
         </message>
+        <message>
+            <source>Enable image generation tool</source>
+            <translation>启用图像生成工具</translation>
+        </message>
+        <message>
+            <source>Image connection</source>
+            <translation>图像连接</translation>
+        </message>
+        <message>
+            <source>Choose image model…</source>
+            <translation>选择图像模型…</translation>
+        </message>
+        <message>
+            <source>Image model</source>
+            <translation>图像模型</translation>
+        </message>
+        <message>
+            <source>Default: connection URL + /images</source>
+            <translation>默认：连接 URL + /images</translation>
+        </message>
+        <message>
+            <source>Image endpoint (optional)</source>
+            <translation>图像端点（可选）</translation>
+        </message>
+        <message>
+            <source>Image prompts and selected reference images are sent to the image connection. Generation may incur charges.</source>
+            <translation>图像提示词和所选参考图像会发送到图像连接。生成可能产生费用。</translation>
+        </message>
+        <message>
+            <source>Choose image model</source>
+            <translation>选择图像模型</translation>
+        </message>
+        <message>
+            <source>Image model listing failed. You can enter an alias manually.</source>
+            <translation>无法获取图像模型列表。您可以手动输入别名。</translation>
+        </message>
+        <message>
+            <source>Choose an image connection and model before enabling the image tool.</source>
+            <translation>启用图像工具前，请选择图像连接和模型。</translation>
+        </message>
+        <message>
+            <source>The image endpoint must use the selected connection host and scheme.</source>
+            <translation>图像端点必须使用所选连接的主机和协议。</translation>
+        </message>
     </context>
     <context>
         <name>ModelPicker</name>

@@ -5195,6 +5195,50 @@ Las conexiones se descubren desde su entorno y servidores locales.</translation>
             <source>Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web starts off.</source>
             <translation>La web por pestaña anterior, los límites y las configuraciones de decisión permanecen en el historial, pero ya no se utilizan. Configure los ajustes globales aquí; Comienza la web.</translation>
         </message>
+        <message>
+            <source>Enable image generation tool</source>
+            <translation>Activar herramienta de generación de imágenes</translation>
+        </message>
+        <message>
+            <source>Image connection</source>
+            <translation>Conexión de imágenes</translation>
+        </message>
+        <message>
+            <source>Choose image model…</source>
+            <translation>Elegir modelo de imágenes…</translation>
+        </message>
+        <message>
+            <source>Image model</source>
+            <translation>Modelo de imágenes</translation>
+        </message>
+        <message>
+            <source>Default: connection URL + /images</source>
+            <translation>Predeterminado: URL de conexión + /images</translation>
+        </message>
+        <message>
+            <source>Image endpoint (optional)</source>
+            <translation>Endpoint de imágenes (opcional)</translation>
+        </message>
+        <message>
+            <source>Image prompts and selected reference images are sent to the image connection. Generation may incur charges.</source>
+            <translation>Los prompts y las imágenes de referencia seleccionadas se envían a la conexión de imágenes. La generación puede tener costo.</translation>
+        </message>
+        <message>
+            <source>Choose image model</source>
+            <translation>Elegir modelo de imágenes</translation>
+        </message>
+        <message>
+            <source>Image model listing failed. You can enter an alias manually.</source>
+            <translation>No se pudo obtener la lista de modelos de imágenes. Puede escribir un alias.</translation>
+        </message>
+        <message>
+            <source>Choose an image connection and model before enabling the image tool.</source>
+            <translation>Elija una conexión y un modelo de imágenes antes de activar la herramienta.</translation>
+        </message>
+        <message>
+            <source>The image endpoint must use the selected connection host and scheme.</source>
+            <translation>El endpoint de imágenes debe usar el host y esquema de la conexión seleccionada.</translation>
+        </message>
     </context>
     <context>
         <name>ModelPicker</name>

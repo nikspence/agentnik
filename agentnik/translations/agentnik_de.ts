@@ -5195,6 +5195,50 @@ Verbindungen werden von Ihrer Umgebung und lokalen Servern erkannt.</translation
             <source>Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web starts off.</source>
             <translation>Vorherige Web-, Limit- und Entscheidungseinstellungen pro Registerkarte bleiben im Verlauf, werden aber nicht mehr verwendet. Konfigurieren Sie hier globale Einstellungen. Web beginnt.</translation>
         </message>
+        <message>
+            <source>Enable image generation tool</source>
+            <translation>Bildgenerierung aktivieren</translation>
+        </message>
+        <message>
+            <source>Image connection</source>
+            <translation>Bildverbindung</translation>
+        </message>
+        <message>
+            <source>Choose image model…</source>
+            <translation>Bildmodell auswählen…</translation>
+        </message>
+        <message>
+            <source>Image model</source>
+            <translation>Bildmodell</translation>
+        </message>
+        <message>
+            <source>Default: connection URL + /images</source>
+            <translation>Standard: Verbindungs-URL + /images</translation>
+        </message>
+        <message>
+            <source>Image endpoint (optional)</source>
+            <translation>Bildendpunkt (optional)</translation>
+        </message>
+        <message>
+            <source>Image prompts and selected reference images are sent to the image connection. Generation may incur charges.</source>
+            <translation>Bildanfragen und ausgewählte Referenzbilder werden an die Bildverbindung gesendet. Dabei können Kosten entstehen.</translation>
+        </message>
+        <message>
+            <source>Choose image model</source>
+            <translation>Bildmodell auswählen</translation>
+        </message>
+        <message>
+            <source>Image model listing failed. You can enter an alias manually.</source>
+            <translation>Bildmodelle konnten nicht geladen werden. Sie können eine Modellkennung eingeben.</translation>
+        </message>
+        <message>
+            <source>Choose an image connection and model before enabling the image tool.</source>
+            <translation>Wählen Sie vor dem Aktivieren eine Bildverbindung und ein Modell.</translation>
+        </message>
+        <message>
+            <source>The image endpoint must use the selected connection host and scheme.</source>
+            <translation>Der Bildendpunkt muss denselben Host und dasselbe Schema wie die Verbindung verwenden.</translation>
+        </message>
     </context>
     <context>
         <name>ModelPicker</name>

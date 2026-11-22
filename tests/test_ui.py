@@ -12,6 +12,23 @@ HAS_QT = importlib.util.find_spec('PySide6') is not None
 
 @unittest.skipUnless(HAS_QT,'PySide6 is not installed')
 class Desktop(unittest.TestCase):
+    def test_image_tool_settings_persist_without_credentials(self):
+        from agentnik.storage import Store
+        from agentnik.ui import Window,SettingsDialog
+        with tempfile.TemporaryDirectory() as root,patch('agentnik.core.discover',return_value={}),patch('agentnik.core.environment_connections',return_value={}):
+            store=Store(root);store.config['connections']={'Gateway':{'url':'https://gateway.example/v1','api_key':'test-secret','protocol':'responses'}};window=Window(store)
+            try:
+                dialog=SettingsDialog(window);dialog.image_enabled.setChecked(True)
+                dialog.image_connection.setCurrentIndex(dialog.image_connection.findData('Gateway'));dialog.image_model.setText('openai/gpt-image-2')
+                dialog.image_endpoint.setText('https://gateway.example:4000/openrouter/v1/images');dialog.accept()
+                self.assertEqual(window.image_tool_config()['model'],'openai/gpt-image-2')
+                saved=store.config['settings']['image_generation'];self.assertEqual(saved['endpoint'],'https://gateway.example:4000/openrouter/v1/images')
+                self.assertNotIn('test-secret',str(saved))
+            finally:window.close();self.app.processEvents();store.db.close()
+            store=Store(root)
+            try:self.assertEqual(store.config['settings']['image_generation']['model'],'openai/gpt-image-2')
+            finally:store.db.close()
+
     def test_connection_service_tier_selection(self):
         from agentnik.ui import ConnectionDialog
         dialog=ConnectionDialog(None,'Router',{'url':'https://openrouter.ai/api/v1','protocol':'responses','service_tier':'priority'})

@@ -52,6 +52,9 @@ def load_config(path):
         if 'coding_limits' in settings:coding_limits(settings['coding_limits'])
         if 'coding_goal_limits' in settings:goal_limits(settings['coding_goal_limits'])
         if 'chat_research_limits' in settings:chat_limits(settings['chat_research_limits'])
+        if 'image_generation' in settings:
+            from .image_settings import validate_image_settings
+            validate_image_settings(settings['image_generation'])
         if 'decision_model' in settings:
             value=settings['decision_model']
             if not isinstance(value,dict) or set(value)!={'connection','model'} or any(not isinstance(v,str) or len(v)>512 for v in value.values()):raise ValueError()

@@ -5195,6 +5195,50 @@ Connections are discovered from your environment and local servers.</source>
             <source>Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web starts off.</source>
             <translation>以前的每個選項卡網頁、限制和決策設定仍保留在歷史記錄中，但不再使用。在這裡配置全域設定；網路開始。</translation>
         </message>
+        <message>
+            <source>Enable image generation tool</source>
+            <translation>啟用影像生成工具</translation>
+        </message>
+        <message>
+            <source>Image connection</source>
+            <translation>影像連線</translation>
+        </message>
+        <message>
+            <source>Choose image model…</source>
+            <translation>選擇影像模型…</translation>
+        </message>
+        <message>
+            <source>Image model</source>
+            <translation>影像模型</translation>
+        </message>
+        <message>
+            <source>Default: connection URL + /images</source>
+            <translation>預設：連線 URL + /images</translation>
+        </message>
+        <message>
+            <source>Image endpoint (optional)</source>
+            <translation>影像端點（選填）</translation>
+        </message>
+        <message>
+            <source>Image prompts and selected reference images are sent to the image connection. Generation may incur charges.</source>
+            <translation>影像提示詞與所選參考影像會傳送至影像連線。生成可能產生費用。</translation>
+        </message>
+        <message>
+            <source>Choose image model</source>
+            <translation>選擇影像模型</translation>
+        </message>
+        <message>
+            <source>Image model listing failed. You can enter an alias manually.</source>
+            <translation>無法取得影像模型清單。您可以手動輸入別名。</translation>
+        </message>
+        <message>
+            <source>Choose an image connection and model before enabling the image tool.</source>
+            <translation>啟用影像工具前，請選擇影像連線與模型。</translation>
+        </message>
+        <message>
+            <source>The image endpoint must use the selected connection host and scheme.</source>
+            <translation>影像端點必須使用所選連線的主機與協定。</translation>
+        </message>
     </context>
     <context>
         <name>ModelPicker</name>

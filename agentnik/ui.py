@@ -1035,6 +1035,17 @@ class SettingsDialog(QDialog):
         button(self.tr('Code and goal limits…'),self.code_limits,layout)
         button(self.tr('Chat research limits…'),self.research_limits,layout)
         button(self.tr('Forget remembered subagent tool support'),self.forget_subagents,layout)
+        from .image_settings import validate_image_settings
+        image_settings=validate_image_settings(settings.get('image_generation'));self.image_job=None
+        self.image_enabled=QCheckBox(self.tr('Enable image generation tool'));self.image_enabled.setObjectName('imageGenerationEnabled');self.image_enabled.setChecked(image_settings['enabled']);layout.addWidget(self.image_enabled)
+        image_form=QFormLayout();layout.addLayout(image_form);self.image_connection=QComboBox();self.image_connection.setObjectName('imageGenerationConnection');self.image_connection.addItem(self.tr('Not configured'),'')
+        for name in window.connections:self.image_connection.addItem(name,name)
+        name=image_settings['connection']
+        if name and self.image_connection.findData(name)<0:self.image_connection.addItem(name+self.tr(' (unavailable)'),name)
+        self.image_connection.setCurrentIndex(max(0,self.image_connection.findData(name)));image_form.addRow(self.tr('Image connection'),self.image_connection)
+        self.image_model=QLineEdit(image_settings['model']);self.image_model.setObjectName('imageGenerationModel');image_model_row=QHBoxLayout();image_model_row.addWidget(self.image_model,1);button(self.tr('Choose image model…'),self.choose_image_model,image_model_row);image_form.addRow(self.tr('Image model'),image_model_row)
+        self.image_endpoint=QLineEdit(image_settings['endpoint']);self.image_endpoint.setObjectName('imageGenerationEndpoint');self.image_endpoint.setPlaceholderText(self.tr('Default: connection URL + /images'));image_form.addRow(self.tr('Image endpoint (optional)'),self.image_endpoint)
+        image_notice=QLabel(self.tr('Image prompts and selected reference images are sent to the image connection. Generation may incur charges.'));image_notice.setWordWrap(True);layout.addWidget(image_notice)
         form=QFormLayout();layout.addLayout(form);self.decision_connection=QComboBox();self.decision_connection.setObjectName('globalDecisionConnection');self.decision_connection.addItem(self.tr('Not configured'),'')
         for name in window.connections:self.decision_connection.addItem(name,name)
         saved=settings.get('decision_model',{});name=saved.get('connection','')
@@ -1061,6 +1072,21 @@ class SettingsDialog(QDialog):
     def research_limits(self):
         dialog=ResearchLimitsDialog(self,self.chat_limits)
         if dialog.exec()==QDialog.DialogCode.Accepted:self.chat_limits=dialog.values()
+    def choose_image_model(self):
+        name=self.image_connection.currentData();connection=dict(self.window.connections.get(name,{}));endpoint=self.image_endpoint.text().strip()
+        if not connection or self.image_job:return
+        from .image_generation import list_models
+        def done(names):
+            self.image_job=None
+            if not self.isVisible() or self.image_connection.currentData()!=name or self.image_endpoint.text().strip()!=endpoint:return
+            from .code_ui import ModelPicker
+            dialog=ModelPicker(self,self.tr('Choose image model'),names)
+            if dialog.exec()==QDialog.DialogCode.Accepted:self.image_model.setText(dialog.selected_model)
+        def failed(_):
+            self.image_job=None
+            if self.isVisible():QMessageBox.warning(self,self.tr('Settings'),self.tr('Image model listing failed. You can enter an alias manually.'))
+        self.image_job=Job(lambda *_,listing=list_models:listing(connection,endpoint),done,failed)
+
     def choose_decision_model(self):
         name=self.decision_connection.currentData();connection=dict(self.window.connections.get(name,{}))
         if not connection or self.model_job:return
@@ -1079,13 +1105,24 @@ class SettingsDialog(QDialog):
     def accept(self):
         if self.advice.isChecked() and (not self.decision_connection.currentData() or not self.decision_model.text().strip()):
             QMessageBox.warning(self,self.tr('Settings'),self.tr('Choose a Decision connection and model before enabling advice.'));return
+        image_config={'enabled':self.image_enabled.isChecked(),'connection':self.image_connection.currentData() or '', 'model':self.image_model.text().strip(), 'endpoint':self.image_endpoint.text().strip()}
+        if image_config['enabled']:
+            connection=self.window.connections.get(image_config['connection'])
+            if not connection or not image_config['model']:
+                QMessageBox.warning(self,self.tr('Settings'),self.tr('Choose an image connection and model before enabling the image tool.'));return
+            try:
+                from .image_generation import image_endpoint
+                image_endpoint(connection,image_config['endpoint'])
+            except ValueError:
+                QMessageBox.warning(self,self.tr('Settings'),self.tr('The image endpoint must use the selected connection host and scheme.'));return
         from .repositories import validate_git_author
         if self._git_author_id is not None:self.git_authors[self._git_author_id]={'name':self.git_author_name.text(),'email':self.git_author_email.text()}
         try:authors={ident:validate_git_author(author) for ident,author in self.git_authors.items()}
         except ValueError:
             QMessageBox.warning(self,self.tr('Settings'),self.tr('Enter both a valid Git author name and email, or leave both blank.'));return
         for ident,author in authors.items():self.window.repositories.set_git_author(ident,author)
-        settings=self.store.config['settings'];settings.update(relaxed_tls=self.relaxed.isChecked(),coding_limits=self.coding_limits,coding_goal_limits=self.goal_limits,decision_advice_enabled=self.advice.isChecked(),decision_model={'connection':self.decision_connection.currentData(),'model':self.decision_model.text().strip()})
+        settings=self.store.config['settings'];settings['image_generation']=image_config
+        settings.update(relaxed_tls=self.relaxed.isChecked(),coding_limits=self.coding_limits,coding_goal_limits=self.goal_limits,decision_advice_enabled=self.advice.isChecked(),decision_model={'connection':self.decision_connection.currentData(),'model':self.decision_model.text().strip()})
         if self.chat_limits is not None:settings['chat_research_limits']=self.chat_limits
         settings['theme']=self.theme.currentData();settings['language']=self.language.currentData();settings['research_policy']=self.research_policy.currentData();settings['research_access_policy']=self.research_access.currentData();settings['mcp_priority']=self.mcp_priority.currentData()
         self.store.flush();self.window.apply_theme();super().accept()
@@ -1154,6 +1191,16 @@ class Window(QMainWindow):
         self.store.config['settings']['web_search_enabled']=bool(enabled);self.store.flush()
     def save_global_mcp_access(self,enabled):
         self.store.config['settings']['mcp_access_enabled']=bool(enabled);self.store.flush()
+    def image_tool_config(self):
+        from .image_settings import validate_image_settings
+        from .image_generation import image_endpoint
+        settings=validate_image_settings(self.store.config['settings'].get('image_generation'))
+        if not settings['enabled']:return None
+        connection=self.connections.get(settings['connection'])
+        if not connection or not settings['model']:raise ValueError('The configured image connection or model is unavailable')
+        image_endpoint(connection,settings['endpoint'])
+        return {'connection':dict(connection),'model':settings['model'],'endpoint':settings['endpoint']}
+
     def decision_connection(self):
         settings=self.store.config['settings'];binding=settings.get('decision_model',{})
         if not settings.get('decision_advice_enabled',False):return None,''

@@ -5195,6 +5195,50 @@ Connections are discovered from your environment and local servers.</source>
             <source>Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web starts off.</source>
             <translation>이전 탭별 웹, 제한 및 Decision 설정은 기록에 남지만 더 이상 사용되지 않습니다. 여기에서 전역 설정을 구성하세요. 웹은 기본적으로 꺼져 있습니다.</translation>
         </message>
+        <message>
+            <source>Enable image generation tool</source>
+            <translation>이미지 생성 도구 사용</translation>
+        </message>
+        <message>
+            <source>Image connection</source>
+            <translation>이미지 연결</translation>
+        </message>
+        <message>
+            <source>Choose image model…</source>
+            <translation>이미지 모델 선택…</translation>
+        </message>
+        <message>
+            <source>Image model</source>
+            <translation>이미지 모델</translation>
+        </message>
+        <message>
+            <source>Default: connection URL + /images</source>
+            <translation>기본값: 연결 URL + /images</translation>
+        </message>
+        <message>
+            <source>Image endpoint (optional)</source>
+            <translation>이미지 엔드포인트(선택 사항)</translation>
+        </message>
+        <message>
+            <source>Image prompts and selected reference images are sent to the image connection. Generation may incur charges.</source>
+            <translation>이미지 프롬프트와 선택한 참조 이미지가 이미지 연결로 전송됩니다. 생성 시 요금이 부과될 수 있습니다.</translation>
+        </message>
+        <message>
+            <source>Choose image model</source>
+            <translation>이미지 모델 선택</translation>
+        </message>
+        <message>
+            <source>Image model listing failed. You can enter an alias manually.</source>
+            <translation>이미지 모델 목록을 불러오지 못했습니다. 별칭을 직접 입력할 수 있습니다.</translation>
+        </message>
+        <message>
+            <source>Choose an image connection and model before enabling the image tool.</source>
+            <translation>이미지 도구를 사용하기 전에 이미지 연결과 모델을 선택하세요.</translation>
+        </message>
+        <message>
+            <source>The image endpoint must use the selected connection host and scheme.</source>
+            <translation>이미지 엔드포인트는 선택한 연결과 동일한 호스트와 스킴을 사용해야 합니다.</translation>
+        </message>
     </context>
     <context>
         <name>ModelPicker</name>

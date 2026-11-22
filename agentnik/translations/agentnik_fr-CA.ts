@@ -5195,6 +5195,50 @@ Les connexions sont découvertes à partir de votre environnement et des serveur
             <source>Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web starts off.</source>
             <translation>Les paramètres Web, limites et décisions précédents par onglet restent dans l'historique mais ne sont plus utilisés. Configurez les paramètres globaux ici ; Le Web démarre.</translation>
         </message>
+        <message>
+            <source>Enable image generation tool</source>
+            <translation>Activer l’outil de génération d’images</translation>
+        </message>
+        <message>
+            <source>Image connection</source>
+            <translation>Connexion d’images</translation>
+        </message>
+        <message>
+            <source>Choose image model…</source>
+            <translation>Choisir un modèle d’images…</translation>
+        </message>
+        <message>
+            <source>Image model</source>
+            <translation>Modèle d’images</translation>
+        </message>
+        <message>
+            <source>Default: connection URL + /images</source>
+            <translation>Par défaut : URL de connexion + /images</translation>
+        </message>
+        <message>
+            <source>Image endpoint (optional)</source>
+            <translation>Point de terminaison d’images (facultatif)</translation>
+        </message>
+        <message>
+            <source>Image prompts and selected reference images are sent to the image connection. Generation may incur charges.</source>
+            <translation>Les prompts et les images de référence sélectionnées sont envoyés à la connexion d’images. La génération peut entraîner des frais.</translation>
+        </message>
+        <message>
+            <source>Choose image model</source>
+            <translation>Choisir un modèle d’images</translation>
+        </message>
+        <message>
+            <source>Image model listing failed. You can enter an alias manually.</source>
+            <translation>Impossible de lister les modèles d’images. Vous pouvez saisir un alias.</translation>
+        </message>
+        <message>
+            <source>Choose an image connection and model before enabling the image tool.</source>
+            <translation>Choisissez une connexion et un modèle d’images avant d’activer l’outil.</translation>
+        </message>
+        <message>
+            <source>The image endpoint must use the selected connection host and scheme.</source>
+            <translation>Le point de terminaison doit utiliser l’hôte et le protocole de la connexion sélectionnée.</translation>
+        </message>
     </context>
     <context>
         <name>ModelPicker</name>
