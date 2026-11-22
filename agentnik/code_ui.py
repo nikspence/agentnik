@@ -379,7 +379,7 @@ class CodeTab(QWidget):
         def failed(_):
             self.model_jobs.pop(role,None)
             if not self._closed:QMessageBox.warning(self,self.tr('Coding models'),self.tr('Model listing failed. You can enter an alias manually.'))
-        self.model_jobs[role]=Job(lambda *_:core.models(c),done,failed)
+        self.model_jobs[role]=Job(lambda *_,models=core.models:models(c),done,failed)
 
     def save_coding_auto_compact(self,enabled):
         self.session['coding_auto_compact']=bool(enabled);self.store.save(self.session);self.updated.emit()

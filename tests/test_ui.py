@@ -99,7 +99,7 @@ class Desktop(unittest.TestCase):
     def test_forms_tabs_charts_and_history(self):
         from agentnik.storage import Store
         from agentnik.ui import Window, SessionTab, Connections, DecisionResult
-        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}):
+        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]):
             store=Store(root); store.config['connections']={'local':{'url':'http://localhost:11434/v1','protocol':'chat','model':'test'}}
             with patch.object(store,'connections',return_value=store.config['connections']):
                 w=Window(store); w.show(); self.app.processEvents()
@@ -147,7 +147,7 @@ class Desktop(unittest.TestCase):
         from agentnik.ui import Window, MessageBubble, MessageText, metrics_text
         def settle():
             for _ in range(25): self.app.processEvents()
-        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}):
+        with tempfile.TemporaryDirectory() as root, patch('agentnik.core.discover',return_value={}), patch('agentnik.core.environment_connections',return_value={}), patch('agentnik.core.models',return_value=[]):
             store=Store(root)
             w=Window(store)
             try:

@@ -387,7 +387,7 @@ class Connections(QDialog):
         self.refresh_button.setEnabled(False); self.status.setText(self.tr('Checking loopback endpoints…'))
         def done(found):
             self.window.local = found; self.window.reload_connections(); self.populate(); self.refresh_button.setEnabled(True); self.status.setText(self.tr('{count} local endpoint(s) found.').format(count=len(found)))
-        self.job = Job(lambda *_:core.discover(),done,lambda e:(self.refresh_button.setEnabled(True),self.status.setText(e)))
+        self.job = Job(lambda *_,discover=core.discover:discover(),done,lambda e:(self.refresh_button.setEnabled(True),self.status.setText(e)))
     def edit(self, selected):
         item = self.list.currentItem(); name = item.data(Qt.ItemDataRole.UserRole) if selected and item else ''
         data = self.window.connections.get(name,{})
@@ -732,7 +732,7 @@ class SessionTab(QWidget):
         def failed(e):
             from shiboken6 import isValid
             if isValid(self) and not self._closed: self.models_button.setEnabled(True); self.info.setText(e)
-        self.model_job = Job(lambda *_:core.models(c),done,failed)
+        self.model_job = Job(lambda *_,models=core.models:models(c),done,failed)
     def form_value(self):
         return dict(state=self.state.toPlainText(),json_state=self.json_state.isChecked(),images=list(self.attachments.paths),questions=[q.value() for q in self.questions])
     def current_prompt(self):
@@ -1064,7 +1064,7 @@ class SettingsDialog(QDialog):
         def failed(_):
             self.model_job=None
             if self.isVisible():QMessageBox.warning(self,self.tr('Settings'),self.tr('Model listing failed. You can enter an alias manually.'))
-        self.model_job=Job(lambda *_:core.models(connection),done,failed)
+        self.model_job=Job(lambda *_,models=core.models:models(connection),done,failed)
     def forget_subagents(self):
         self.store.config.pop('subagent_tool_capabilities',None);self.store.flush()
     def accept(self):
@@ -1113,7 +1113,7 @@ class Window(QMainWindow):
         self.sidebar.setVisible(store.config['settings'].get('history_visible',True)); self.reload_connections(); self.refresh_history(); self.apply_theme()
         self.apply_font_size(store.config['settings'].get('font_size',max(8,self.font().pointSize())))
         self.statusBar().showMessage(self.tr('Discovering local endpoints…'))
-        self.discovery = Job(lambda *_:core.discover(),self.discovered,lambda e:self.statusBar().showMessage(e))
+        self.discovery = Job(lambda *_,discover=core.discover:discover(),self.discovered,lambda e:self.statusBar().showMessage(e))
         QShortcut(QKeySequence('Ctrl+N'),self,activated=lambda:self.new_session('chat'))
         QShortcut(QKeySequence('Ctrl+B'),self,activated=self.toggle_history)
         self.empty = QWidget(); welcome = QVBoxLayout(self.empty); welcome.addStretch()
