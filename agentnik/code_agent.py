@@ -1307,14 +1307,16 @@ class CodingRun:
                             if not tool:raise ProjectToolError('MCP tool not found on the selected server: '+args['tool'][:200])
                             if tool['schema_status']!='available' or tool['description_clipped'] or tool.get('output_schema_status','available')!='available':raise ProjectToolError('MCP tool metadata is incomplete; the call was not sent.')
                             if tool.get('task_support')=='required' and not mcp_state['task_capabilities'].get('tool_calls'):raise ProjectToolError('This tool requires MCP task execution on a capable server.')
+                            from .mcp_schema import validate_tool_arguments,MCPArgumentValidationError
                             try:
                                 if len(args['arguments'].encode('utf-8'))>16000:raise ValueError()
                                 arguments=json.loads(args['arguments'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
                                 if not isinstance(arguments,dict):raise ValueError()
                                 canonical=json.dumps(arguments,ensure_ascii=False,allow_nan=False)
                                 if any(secret and secret in canonical for secret in secrets):raise ValueError()
-                                from .mcp_schema import validate_tool_arguments
                                 validate_tool_arguments(tool['schema'],arguments)
+                            except MCPArgumentValidationError as exc:
+                                raise ProjectToolError(scrub(str(exc),secrets)) from None
                             except (ValueError,UnicodeError,RecursionError):raise ProjectToolError('MCP arguments are invalid, unsupported, or do not match the schema.') from None
                             server=mcp_bridge.server
                             proposal={'server':server['name'],'tool':tool['name'],'description':tool['description'],'schema':tool['schema'],'arguments':arguments}

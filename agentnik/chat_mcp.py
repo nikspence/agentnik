@@ -5,7 +5,7 @@ import threading
 from PySide6.QtCore import QObject,Signal,QTimer
 from .mcp_code import CodingMCPBridge
 from .mcp_content import model_tool_result
-from .mcp_schema import validate_tool_arguments,validate_tool_result
+from .mcp_schema import validate_tool_arguments,validate_tool_result,MCPArgumentValidationError
 from .tools import ToolDefinition,ResearchError
 
 
@@ -49,6 +49,9 @@ class ChatMCP(QObject):
         from .mcp_remote import contains_secret
         if any(secret and contains_secret(value,secret) for secret in self.secret_values):raise ResearchError('MCP tool arguments are invalid or unsupported.')
         try:validate_tool_arguments(tool['schema'],value['arguments'])
+        except MCPArgumentValidationError as exc:
+            from .research import scrub
+            raise ResearchError(scrub(str(exc),self.secret_values)) from None
         except (ValueError,RecursionError,UnicodeError):raise ResearchError('MCP tool arguments do not match its supported input schema.') from None
         return value,tool
 

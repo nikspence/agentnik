@@ -44,6 +44,16 @@ class ChatMCPIntegration(unittest.TestCase):
         self.assertIn('description',serialized);self.assertIn('Image inspection is disabled or unavailable',serialized);self.assertIn('audio content is not supported',serialized)
         self.assertNotIn('secret-payload',serialized)
 
+    def test_chat_reports_schema_field_without_echoing_argument_values(self):
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        server={'name':'Test','command':sys.executable,'args':[],'enabled':True}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock()
+        controller.tools=[{'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object','properties':{'count':{'type':'integer'}},'required':['count']}}]
+        args={'request':json.dumps({'tool':'query','arguments':{'count':'private-value'}})}
+        with self.assertRaises(ResearchError) as error:controller.invoke('mcp_call',args,Runtime())
+        self.assertIn('count',str(error.exception));self.assertIn('wrong type',str(error.exception));self.assertNotIn('private-value',str(error.exception));controller.bridge.request.assert_not_called()
+
     def test_cancelled_chat_records_confirmed_task_cleanup_in_original_run(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
             root=Path(folder);server=root/'server.py'

@@ -11,8 +11,27 @@ MAX_DEPTH=24
 MAX_BRANCHES=32
 
 
+class MCPArgumentValidationError(ValueError):
+    """A schema mismatch with value-free feedback for the calling model."""
+
+
+def _validation_feedback(error):
+    path=list(error.absolute_schema_path);fields=[]
+    for index,part in enumerate(path[:-1]):
+        if part=='properties' and isinstance(path[index+1],str):
+            field=path[index+1]
+            if field.isascii() and field.isidentifier() and len(field)<=64:fields.append(field)
+    if error.validator=='required' and isinstance(error.validator_value,list) and isinstance(error.instance,dict):
+        missing=[name for name in error.validator_value if isinstance(name,str) and name not in error.instance and name.isascii() and name.isidentifier() and len(name)<=64]
+        if missing:fields.append(missing[0])
+    reasons={'required':'a required field is missing','type':'the value has the wrong type','enum':'the value is not an allowed choice','const':'the value does not match the required constant','minimum':'the value is below the minimum','maximum':'the value is above the maximum','minItems':'the array has too few items','maxItems':'the array has too many items','additionalProperties':'an unexpected field was supplied'}
+    reason=reasons.get(error.validator,'a schema constraint was not met')
+    location=' for field '+'.'.join(fields[:4]) if fields else ''
+    return 'MCP arguments do not match the tool input schema'+location+': '+reason+'.'
+
+
 def validate_tool_arguments(schema,arguments):
-    """Validate bounded schemas, allowing only acyclic root-local definition references."""
+    """Validate bounded schemas, allowing acyclic local subschema references."""
     if not isinstance(schema,dict) or schema.get('type')!='object' or not isinstance(arguments,dict):raise ValueError('The tool must have an object input schema and JSON object arguments.')
     dialect=schema.get('$schema',SCHEMA_URL)
     if dialect in (SCHEMA_URL,SCHEMA_URL+'#'):validator=Draft202012Validator
@@ -109,7 +128,7 @@ def validate_tool_arguments(schema,arguments):
         validator(schema,registry=Registry()).validate(arguments)
     except Exception as exc:
         from jsonschema.exceptions import ValidationError,SchemaError
-        if isinstance(exc,ValidationError):raise ValueError('Arguments do not match the tool input schema.') from None
+        if isinstance(exc,ValidationError):raise MCPArgumentValidationError(_validation_feedback(exc)) from None
         if isinstance(exc,SchemaError):raise ValueError('The tool input schema is invalid.') from None
         raise ValueError('The tool input schema could not be validated.') from None
     return True
@@ -126,6 +145,6 @@ def validate_tool_result(tool,result):
         raise ValueError('MCP tool declared an output schema but did not return a structured object.')
     try:validate_tool_arguments(tool['output_schema'],result['structuredContent'])
     except (ValueError,RecursionError,UnicodeError) as exc:
-        if str(exc)=='Arguments do not match the tool input schema.':raise ValueError('MCP structured result does not match the declared output schema.') from None
+        if isinstance(exc,MCPArgumentValidationError):raise ValueError('MCP structured result does not match the declared output schema.') from None
         raise ValueError('MCP output schema is invalid or uses unsupported validation features.') from None
     return True

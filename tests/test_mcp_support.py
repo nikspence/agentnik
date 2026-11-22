@@ -536,6 +536,14 @@ for line in sys.stdin:
             bad=dict(schema,properties={'bad':{'$ref':ref},**schema['properties']})
             with self.subTest(ref=ref),self.assertRaises(ValueError):validate_tool_arguments(bad,valid)
 
+    def test_schema_mismatch_feedback_omits_argument_values(self):
+        from agentnik.mcp_schema import validate_tool_arguments,MCPArgumentValidationError
+        schema={'type':'object','properties':{'profile':{'type':'object','properties':{'age':{'type':'integer'}},'required':['age']}},'required':['profile']}
+        with self.assertRaises(MCPArgumentValidationError) as missing:validate_tool_arguments(schema,{'profile':{}})
+        self.assertIn('profile.age',str(missing.exception));self.assertIn('required',str(missing.exception))
+        with self.assertRaises(MCPArgumentValidationError) as wrong:validate_tool_arguments(schema,{'profile':{'age':'private-value'}})
+        self.assertIn('profile.age',str(wrong.exception));self.assertIn('wrong type',str(wrong.exception));self.assertNotIn('private-value',str(wrong.exception))
+
     def test_draft7_tool_schema_uses_declared_dialect_and_bounded_references(self):
         from agentnik.mcp_schema import validate_tool_arguments
         for uri in ('http://json-schema.org/draft-07/schema#','https://json-schema.org/draft-07/schema'):
