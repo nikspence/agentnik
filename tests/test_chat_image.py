@@ -48,4 +48,3 @@ class ChatImageTests(unittest.TestCase):
         for protocol in ('chat','responses','messages'):
             body=core.chat_body({'url':'https://example.org/v1','model':'text','protocol':protocol},[{'role':'assistant','text':'Created','images':['missing.png']}])
             self.assertNotIn('missing.png',json.dumps(body))
-
