@@ -13,7 +13,9 @@ def parse_discovery(result):
     versions=result.get('supportedVersions') if isinstance(result,dict) else None
     capabilities=result.get('capabilities') if isinstance(result,dict) else None
     if not isinstance(versions,list) or PROTOCOL not in versions or any(not isinstance(version,str) for version in versions) or not isinstance(capabilities,dict) or result.get('resultType','complete')!='complete':raise ValueError('Invalid MCP discovery response')
-    return {'name':'MCP server','version':'unknown','protocol':PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if isinstance(capabilities.get(name),dict)],'task_capabilities':{'tool_calls':False,'list':False,'cancel':False}}
+    meta=result.get('_meta');info=meta.get('io.modelcontextprotocol/serverInfo') if isinstance(meta,dict) else None
+    valid=(isinstance(info,dict) and isinstance(info.get('name'),str) and bool(info['name']) and len(info['name'])<=256 and isinstance(info.get('version'),str) and len(info['version'])<=256 and all(ch.isprintable() for ch in info['name']+info['version']))
+    return {'name':info['name'] if valid else 'MCP server','version':(info['version'] or 'unknown') if valid else 'unknown','server_identity_reported':valid,'protocol':PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if isinstance(capabilities.get(name),dict)],'task_capabilities':{'tool_calls':False,'list':False,'cancel':False}}
 
 
 def header_value(value):

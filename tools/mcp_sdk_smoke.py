@@ -111,6 +111,7 @@ def run(session,transport):
 
     def discovered(info):
         try:
+            if transport in ('https-modern','stdio-modern') and (info.get('name')!='Agentnik smoke' or info.get('version')!='1' or info.get('server_identity_reported') is not True):raise RuntimeError('Server response metadata was not discovered')
             tool=next(item for item in info['tool_details'] if item['name']=='add')
             result['ping_tool']=next(item for item in info['tool_details'] if item['name']=='ping_client')
             result['ping_scoped_tool']=next(item for item in info['tool_details'] if item['name']=='ping_scoped_client')

@@ -2,6 +2,7 @@
 import copy
 import queue
 import threading
+import uuid
 from PySide6.QtCore import QObject, Signal, Slot
 from .mcp_local import LocalSession
 from .mcp_support import resolve_environment_references,server_timeout
@@ -19,7 +20,7 @@ class CodingMCPBridge(QObject):
         if self.server.get('transport')!='http':
             try:self.environment_values=resolve_environment_references(self.server.get('env',{}))
             except ValueError:self.environment_error='A configured MCP environment variable is missing or invalid.'
-        self.cache_scope = None
+        self.cache_scope = None;self.cache_partition=uuid.uuid4().hex
         self.session = None; self.pending = None; self.closed = False; self.identity = None; self.uncertain = False
         self.request_signal.connect(self._dispatch); self.close_signal.connect(self.close)
 
@@ -147,7 +148,9 @@ class CodingMCPBridge(QObject):
     def _discovered(self, result):
         from . import search_cache
         token=getattr(self.session,'token','')
-        self.cache_scope=search_cache.key(self.server,self.environment_values,token,{key:result.get(key) for key in ('name','version','protocol')}).hex()
+        identity={key:result.get(key) for key in ('name','version','protocol')}
+        if result.get('protocol')=='2026-07-28' and result.get('server_identity_reported') is not True:identity['connection']=self.cache_partition
+        self.cache_scope=search_cache.key(self.server,self.environment_values,token,identity).hex()
         if self.pending:self._reply(self.pending, result)
     def _called(self, result):
         if self.pending:self._reply(self.pending, result)
