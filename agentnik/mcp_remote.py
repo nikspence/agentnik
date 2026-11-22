@@ -4,7 +4,7 @@ import time
 import uuid
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
-from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError,task_status_notice
+from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError,task_status_notice,server_log_notice
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
@@ -99,7 +99,7 @@ class RemoteProbe(QObject):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
         self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
-        self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0
+        self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
@@ -111,7 +111,7 @@ class RemoteProbe(QObject):
         self.progress_final_seen=False
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
         if self.phase=='call' and message.get('method')=='tools/call':
-            self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
+            self.log_count=0;self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
         tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
@@ -160,6 +160,9 @@ class RemoteProbe(QObject):
         if type(message.get('id')) is int and message['id']==self.current_id:
             self.progress_final_seen=True;return
         if self.progress_final_seen:return
+        if self.log_count<20:
+            detail=server_log_notice(message)
+            if detail:self.log_count+=1;self.progress.emit(detail)
         if self.phase=='task_result' and self.task_status_count<40:
             status=task_status_notice(message,self.task_id,self.task_status_last)
             if status:self.task_status_last,detail=status;self.task_status_count+=1;self.progress.emit(detail)

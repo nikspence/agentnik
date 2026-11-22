@@ -24,6 +24,16 @@ class MCPListChangedError(ValueError):
     """A server changed a catalog that must remain stable for an operation."""
 
 
+def server_log_notice(message):
+    """Summarize actionable server logs; never serialize arbitrary structured data."""
+    if not isinstance(message,dict) or message.get('method')!='notifications/message' or 'id' in message:return None
+    params=message.get('params')
+    if not isinstance(params,dict) or params.get('level') not in ('warning','error','critical','alert','emergency') or 'data' not in params:return None
+    value=params['data']
+    text=' '.join(''.join(ch if ch.isprintable() else ' ' for ch in value[:1000]).split())[:240] if isinstance(value,str) else ''
+    return 'MCP server '+params['level']+(': '+text if text else ' (details omitted)')+' [untrusted server message]'
+
+
 def task_status_notice(message,task_id,previous):
     """Describe an active task's status without displaying server-supplied text."""
     if not task_id or not isinstance(message,dict) or message.get('method')!='notifications/tasks/status' or 'id' in message:return None

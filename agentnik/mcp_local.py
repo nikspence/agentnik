@@ -7,7 +7,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
-from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError,task_status_notice
+from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError,task_status_notice,server_log_notice
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
@@ -52,7 +52,7 @@ class LocalSession(QObject):
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
 
     def start(self):
         if os.name=='nt':
@@ -96,6 +96,9 @@ class LocalSession(QObject):
                     else:response['error']={'code':-32601,'message':'Method not supported'}
                     self.send(response);continue
                 if 'id' not in message:
+                    if self.phase in ('call','task_result') and self.log_count<20:
+                        detail=server_log_notice(message)
+                        if detail:self.log_count+=1;self.progress.emit(detail)
                     if self.phase=='task_result' and self.task_status_count<40:
                         status=task_status_notice(message,self.task_id,self.task_status_last)
                         if status:self.task_status_last,detail=status;self.task_status_count+=1;self.progress.emit(detail)
@@ -204,7 +207,7 @@ class LocalSession(QObject):
             if self.invocation.get('verify_only'):
                 self.invocation=None;self.phase='ready';self.timer.stop();self.called.emit({'verified':True});return
             args=self.invocation['arguments'];self.invocation=None
-            self.phase='call';self.next_id+=1;self.progress_token=uuid.uuid4().hex;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0
+            self.phase='call';self.next_id+=1;self.progress_token=uuid.uuid4().hex;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.log_count=0
             self.task_mode=current.get('task_support')=='required';self.task_id=None
             params={'name':current['name'],'arguments':args,'_meta':{'progressToken':self.progress_token}}
             if self.task_mode:params['task']={}
