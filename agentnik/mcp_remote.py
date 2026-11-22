@@ -103,7 +103,7 @@ class RemoteProbe(QObject):
     progress=Signal(object)
     def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
-        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None;self.modern=False;self.call_schema=None
+        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None;self.modern=False;self.call_schema=None;self.legacy_rejection=None
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
         self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
@@ -468,14 +468,10 @@ class RemoteProbe(QObject):
             except (ValueError,UnicodeError,TypeError,RecursionError):pass
             self.close_session();return
         if status not in ((202,) if self.phase=='initialized' else (200,)):
-            if self.phase=='initialize' and status==400 and ctype=='application/json':
-                try:
-                    error=json.loads(bytes(self.buffer)).get('error',{})
-                    modern_error=isinstance(error,dict) and error.get('code') in (-32020,-32022)
-                except (ValueError,UnicodeError,TypeError,RecursionError):modern_error=False
-                if modern_error:
-                    self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
-                    self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
+            if self.phase=='initialize' and status in (400,404,405):
+                self.legacy_rejection='HTTP '+str(status);self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
+                self.progress.emit('Legacy MCP initialization was rejected; checking 2026 discovery.')
+                self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
             if status in (401,403):
                 from .mcp_oauth import bearer_challenge
                 header=reply.rawHeader('WWW-Authenticate')
@@ -484,6 +480,8 @@ class RemoteProbe(QObject):
                     if not self.token or not contains_secret(challenge,self.token):self.oauth_challenge={key:challenge[key] for key in ('resource_metadata','scope') if key in challenge}
                     if status==403 and challenge.get('error')=='insufficient_scope':self.stop('MCP authorization has insufficient scope. Sign in again or use a bearer token with the required permissions.');return
                     if status==401:self.stop('MCP server requires a valid bearer token. Sign in or enter one in MCP server settings.');return
+            if self.phase=='modern_discovery' and self.legacy_rejection is not None and isinstance(status,int):
+                self.stop('MCP server rejected legacy initialization ('+self.legacy_rejection+') and 2026 discovery (HTTP '+str(status)+').');return
             self.stop('MCP server returned an HTTP or network error'+(' ('+str(status)+').' if isinstance(status,int) else '.'));return
         try:
             if self.token and self.token.encode('ascii') in self.buffer:raise ValueError('Credential reflected in response')
@@ -498,6 +496,10 @@ class RemoteProbe(QObject):
             message=response_message(bytes(self.buffer),ctype,self.current_id,self.list_changed,None if self.modern else self.verify_server_ping)
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
             if 'error' in message:
+                if self.phase=='initialize' and isinstance(message['error'],dict) and message['error'].get('code') in (-32601,-32022):
+                    self.legacy_rejection='JSON-RPC '+str(message['error']['code']);self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
+                    self.progress.emit('Legacy MCP initialization was rejected; checking 2026 discovery.')
+                    self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
                 error=rpc_error(message)
                 if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error});return
                 self.stop(error);return

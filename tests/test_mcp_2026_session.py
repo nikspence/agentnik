@@ -13,6 +13,87 @@ class ModernRemoteSession(unittest.TestCase):
     @classmethod
     def setUpClass(cls):cls.app=QApplication.instance() or QApplication([])
 
+    def test_unstructured_initialization_rejection_probes_modern_without_replaying(self):
+        for status in (400,404,405):
+            with self.subTest(status=status):
+                calls=[]
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append((request['method'],self.headers.get('Authorization')))
+                        if request['method']=='initialize':self.send_response(status);self.send_header('Content-Length','0');self.end_headers();return
+                        body={'jsonrpc':'2.0','id':request['id'],'result':{'supportedVersions':[PROTOCOL],'capabilities':{}}};payload=json.dumps(body).encode()
+                        self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','synthetic-token',timeout_seconds=5);loop=QEventLoop();out=[]
+                session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['protocol'],PROTOCOL)
+                    self.assertEqual(calls,[('initialize','Bearer synthetic-token'),('server/discover','Bearer synthetic-token')])
+                finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_json_rpc_initialization_rejection_probes_modern(self):
+        for code in (-32601,-32022):
+            with self.subTest(code=code):
+                calls=[]
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method'])
+                        content={'error':{'code':code,'message':'unsupported'}} if request['method']=='initialize' else {'result':{'supportedVersions':[PROTOCOL],'capabilities':{}}}
+                        payload=json.dumps(dict(content,jsonrpc='2.0',id=request['id'])).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+                session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:
+                    loop.exec();timer.stop();self.assertEqual(out[0]['protocol'],PROTOCOL);self.assertEqual(calls,['initialize','server/discover'])
+                finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_authentication_rejection_does_not_probe_another_protocol(self):
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method'])
+                self.send_response(401);self.send_header('WWW-Authenticate','Bearer');self.send_header('Content-Length','0');self.end_headers()
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','synthetic-token',timeout_seconds=5);loop=QEventLoop();out=[]
+        session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(out);self.assertIn('bearer token',out[0]['error'].lower());self.assertEqual(calls,['initialize'])
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_failed_protocol_probe_reports_both_statuses_without_server_text(self):
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method']);status=400 if request['method']=='initialize' else 404
+                payload=b'private server diagnostic';self.send_response(status);self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(out);self.assertIn('HTTP 400',out[0]['error']);self.assertIn('HTTP 404',out[0]['error']);self.assertNotIn('private',out[0]['error']);self.assertEqual(calls,['initialize','server/discover'])
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_access_rate_and_server_failures_do_not_trigger_protocol_probe(self):
+        for status in (403,429,500):
+            with self.subTest(status=status):
+                calls=[]
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method'])
+                        self.send_response(status);self.send_header('Content-Length','0');self.end_headers()
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+                session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(calls,['initialize'])
+                finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_modern_only_server_discovery_and_call(self):
         calls=[]
         class Handler(BaseHTTPRequestHandler):
