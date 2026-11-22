@@ -18,14 +18,8 @@ def validate_answer(schema,value):
     try:
         if len(json.dumps(value,ensure_ascii=False,allow_nan=False).encode('utf-8'))>65536:raise ValueError('Answer is too large.')
     except (TypeError,UnicodeError,RecursionError):raise ValueError('Enter a valid JSON object.') from None
-    validate_tool_arguments(schema,value)
-    from jsonschema import Draft202012Validator,Draft7Validator,FormatChecker
-    from jsonschema.exceptions import ValidationError
-    from referencing import Registry
-    dialect=schema.get('$schema','')
-    validator=Draft7Validator if 'draft-07' in dialect else Draft202012Validator
-    try:validator(schema,registry=Registry(),format_checker=FormatChecker()).validate(value)
-    except ValidationError:raise ValueError('Answer does not match the requested format.') from None
+    try:validate_tool_arguments(schema,value,check_formats=True)
+    except MCPArgumentValidationError:raise ValueError('Answer does not match the requested format.') from None
 
 
 def parse_input_required(result):

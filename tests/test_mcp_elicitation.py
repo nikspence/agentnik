@@ -188,6 +188,12 @@ class ElicitationTests(unittest.TestCase):
         dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);dialog.tabs.setCurrentIndex(1);dialog.answer.setPlainText('{"address":"private-invalid"}');dialog.submit()
         self.assertTrue(dialog.error.text());self.assertNotIn('private-invalid',dialog.error.text());self.assertEqual(dialog.responses,{})
 
+    def test_form_pattern_is_validated_without_exposing_answer(self):
+        value=request();value['inputRequests']['item']['params']['requestedSchema']={'type':'object','properties':{'code':{'type':'string','pattern':'^[A-Z]{2}-[0-9]{3}$'}},'required':['code']}
+        dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);dialog.fields['code'][1].setText('private-invalid');dialog.submit()
+        self.assertTrue(dialog.error.text());self.assertNotIn('private-invalid',dialog.error.text());self.assertEqual(dialog.responses,{})
+        dialog.fields['code'][1].setText('AB-123');dialog.submit();self.assertEqual(dialog.responses['item']['content'],{'code':'AB-123'})
+
     def test_form_controls_preserve_types_optional_fields_and_defaults(self):
         value=request();value['inputRequests']['item']['params']['requestedSchema']={'type':'object','properties':{'format':{'type':'string','enum':['csv','json'],'enumNames':['CSV','JSON'],'default':'csv'},'enabled':{'type':'boolean'},'count':{'type':'integer'},'note':{'type':'string'}},'required':['format','enabled','count']}
         dialog=ElicitationDialog('Example',parse_input_required(value)['forms']);self.assertEqual(dialog.tabs.currentIndex(),0)

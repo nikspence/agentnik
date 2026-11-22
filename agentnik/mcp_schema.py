@@ -1,14 +1,31 @@
 """Bounded subset of JSON Schema for untrusted MCP input definitions."""
-from jsonschema import Draft202012Validator,Draft7Validator
+import time
+import re
+import regex
+from contextvars import ContextVar
+from jsonschema import Draft202012Validator,Draft7Validator,FormatChecker,validators
+from jsonschema.exceptions import ValidationError
 from referencing import Registry
 
 SCHEMA_URL='https://json-schema.org/draft/2020-12/schema'
 DRAFT7_URLS=('http://json-schema.org/draft-07/schema','https://json-schema.org/draft-07/schema')
 ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment','format','discriminator','x-mcp-header','enumNames'}
-KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','required','additionalProperties','items','prefixItems','additionalItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
+KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','required','additionalProperties','items','prefixItems','additionalItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
 MAX_NODES=1000
 MAX_DEPTH=24
 MAX_BRANCHES=32
+_pattern_deadline=ContextVar('mcp_pattern_deadline',default=0.0)
+
+
+def _bounded_pattern(_validator,pattern,instance,_schema):
+    if not isinstance(instance,str):return
+    remaining=_pattern_deadline.get()-time.monotonic()
+    if remaining<=0:raise TimeoutError('MCP pattern validation timed out')
+    if regex.search(pattern,instance,timeout=remaining) is None:yield ValidationError('The value does not match the requested pattern.')
+
+
+BOUNDED_2020=validators.extend(Draft202012Validator,{'pattern':_bounded_pattern})
+BOUNDED_7=validators.extend(Draft7Validator,{'pattern':_bounded_pattern})
 
 
 class MCPArgumentValidationError(ValueError):
@@ -24,13 +41,13 @@ def _validation_feedback(error):
     if error.validator=='required' and isinstance(error.validator_value,list) and isinstance(error.instance,dict):
         missing=[name for name in error.validator_value if isinstance(name,str) and name not in error.instance and name.isascii() and name.isidentifier() and len(name)<=64]
         if missing:fields.append(missing[0])
-    reasons={'required':'a required field is missing','type':'the value has the wrong type','enum':'the value is not an allowed choice','const':'the value does not match the required constant','minimum':'the value is below the minimum','maximum':'the value is above the maximum','minItems':'the array has too few items','maxItems':'the array has too many items','additionalProperties':'an unexpected field was supplied'}
+    reasons={'required':'a required field is missing','type':'the value has the wrong type','enum':'the value is not an allowed choice','const':'the value does not match the required constant','pattern':'the value does not match the required pattern','minimum':'the value is below the minimum','maximum':'the value is above the maximum','minItems':'the array has too few items','maxItems':'the array has too many items','additionalProperties':'an unexpected field was supplied'}
     reason=reasons.get(error.validator,'a schema constraint was not met')
     location=' for field '+'.'.join(fields[:4]) if fields else ''
     return 'MCP arguments do not match the tool input schema'+location+': '+reason+'.'
 
 
-def validate_tool_arguments(schema,arguments):
+def validate_tool_arguments(schema,arguments,check_formats=False):
     """Validate bounded schemas, allowing acyclic local subschema references."""
     if not isinstance(schema,dict) or schema.get('type')!='object' or not isinstance(arguments,dict):raise ValueError('The tool must have an object input schema and JSON object arguments.')
     dialect=schema.get('$schema',SCHEMA_URL)
@@ -72,7 +89,7 @@ def validate_tool_arguments(schema,arguments):
 
     # Traversing each reference in context catches cycles and bounds repeated work.
     # Combination width is multiplied along each path to cap nested alternatives.
-    pending=[(schema,0,1,frozenset())];count=0
+    pending=[(schema,0,1,frozenset())];count=0;pattern_deadline=time.monotonic()+.5
     while pending:
         node,depth,width,ancestors=pending.pop();count+=1
         if count>MAX_NODES or depth>MAX_DEPTH or width>MAX_BRANCHES:raise ValueError('The tool schema is too complex to validate.')
@@ -84,6 +101,21 @@ def validate_tool_arguments(schema,arguments):
         if not set(node).issubset(KEYWORDS):raise ValueError('The tool schema uses unsupported validation features.')
         if '$schema' in node and node is not schema:raise ValueError('The tool schema uses unsupported nested schema versions.')
         if 'enum' in node and (not isinstance(node['enum'],list) or len(node['enum'])>128):raise ValueError('The tool schema enumeration is too large.')
+        if 'pattern' in node:
+            if time.monotonic()>=pattern_deadline:raise ValueError('The tool schema patterns are too complex to validate.')
+            pattern=node['pattern']
+            if not isinstance(pattern,str) or len(pattern)>512:raise ValueError('The tool schema pattern is invalid or too large.')
+            repetitions=1
+            for match in re.finditer(r'\{([0-9]*)(?:,([0-9]*))?\}',pattern):
+                backslashes=0;position=match.start()-1
+                while position>=0 and pattern[position]=='\\':backslashes+=1;position-=1
+                if backslashes%2:continue
+                upper=match.group(2) or match.group(1) or '0'
+                if len(upper)>6:raise ValueError('The tool schema pattern repetition is too large.')
+                repetitions*=max(1,int(upper))
+                if repetitions>100000:raise ValueError('The tool schema pattern repetition is too large.')
+            try:regex.compile(pattern)
+            except (regex.error,OverflowError,RecursionError):raise ValueError('The tool schema pattern is invalid.') from None
         # format and OpenAPI discriminator are bounded annotations; the
         # JSON Schema validator still enforces every oneOf/type constraint.
         if 'format' in node and (not isinstance(node['format'],str) or not 1<=len(node['format'])<=128):raise ValueError('The tool schema format annotation is invalid.')
@@ -125,9 +157,13 @@ def validate_tool_arguments(schema,arguments):
                 pending.extend((value,depth+1,width*len(variants),ancestors) for value in variants)
     try:
         validator.check_schema(schema)
-        validator(schema,registry=Registry()).validate(arguments)
+        bounded=BOUNDED_7 if validator is Draft7Validator else BOUNDED_2020
+        token=_pattern_deadline.set(time.monotonic()+.25)
+        try:bounded(schema,registry=Registry(),format_checker=FormatChecker() if check_formats else None).validate(arguments)
+        finally:_pattern_deadline.reset(token)
+    except TimeoutError:raise ValueError('MCP schema pattern matching timed out.') from None
     except Exception as exc:
-        from jsonschema.exceptions import ValidationError,SchemaError
+        from jsonschema.exceptions import SchemaError
         if isinstance(exc,ValidationError):raise MCPArgumentValidationError(_validation_feedback(exc)) from None
         if isinstance(exc,SchemaError):raise ValueError('The tool input schema is invalid.') from None
         raise ValueError('The tool input schema could not be validated.') from None

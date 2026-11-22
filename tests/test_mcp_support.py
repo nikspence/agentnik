@@ -126,6 +126,35 @@ class MCPFoundation(unittest.TestCase):
         with self.assertRaises(ValueError):response_message(ping+final,'text/event-stream',7)
         session.closed=True
 
+    def test_schema_pattern_validates_and_bounds_untrusted_expressions(self):
+        import time
+        from agentnik.mcp_schema import validate_tool_arguments,MCPArgumentValidationError
+        for dialect in ('https://json-schema.org/draft/2020-12/schema','http://json-schema.org/draft-07/schema'):
+            schema={'$schema':dialect,'type':'object','properties':{'code':{'type':'string','pattern':'^[A-Z]{2}-[0-9]{3}$'}},'required':['code']}
+            self.assertTrue(validate_tool_arguments(schema,{'code':'AB-123'}))
+            with self.assertRaises(MCPArgumentValidationError):validate_tool_arguments(schema,{'code':'private-value'})
+        nested={'type':'object','properties':{'x':{'anyOf':[{'type':'string','pattern':'^ok$'},{'type':'integer'}]}}}
+        self.assertTrue(validate_tool_arguments(nested,{'x':'ok'}))
+        with self.assertRaises(MCPArgumentValidationError):validate_tool_arguments(nested,{'x':'bad'})
+        for pattern in ('[','x'*513,'(a{1000}){1000}','a{100000000}','a{,100000000}',r'\\{100000000}'):
+            with self.subTest(pattern=pattern[:30]),self.assertRaises(ValueError):validate_tool_arguments({'type':'object','properties':{'x':{'type':'string','pattern':pattern}}},{'x':'a'})
+        schema={'type':'object','properties':{'x':{'type':'string','pattern':'^(a|aa)+$'}}}
+        referenced={'$schema':'https://json-schema.org/draft/2020-12/schema','type':'object','$defs':{'s':{'type':'string','pattern':'^(a|aa)+$'}},'properties':{'x':{'$ref':'#/$defs/s'}}}
+        for guarded in (schema,referenced):
+            start=time.monotonic()
+            with self.assertRaises(ValueError) as caught:validate_tool_arguments(guarded,{'x':'a'*10000+'!'})
+            self.assertLess(time.monotonic()-start,2);self.assertNotIn('aaaa',str(caught.exception))
+        import threading
+        results=[]
+        def valid():results.append(validate_tool_arguments(schema,{'x':'a'}))
+        def timed_out():
+            try:validate_tool_arguments(schema,{'x':'a'*10000+'!'})
+            except ValueError:results.append(True)
+        threads=[threading.Thread(target=timed_out),threading.Thread(target=valid)]
+        for thread in threads:thread.start()
+        for thread in threads:thread.join(2)
+        self.assertTrue(all(not thread.is_alive() for thread in threads));self.assertEqual(results,[True,True])
+
     def test_remote_2025_form_request_on_both_event_streams(self):
         import threading
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -900,7 +929,7 @@ for line in sys.stdin:
         for arguments in ({},{'query':3},{'query':'ok','n':0},{'query':'ok','extra':True}):
             with self.subTest(arguments=arguments),self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,arguments)
         self.assertTrue(validate_tool_arguments({'type':'object','properties':{'database':{'anyOf':[{'type':'string'},{'type':'null'}]}}},{'database':None}))
-        for unsafe in ({'type':'object','$ref':'https://example.com/schema'},{'type':'object','properties':{'q':{'type':'string','pattern':'(a+)+$'}}}):
+        for unsafe in ({'type':'object','$ref':'https://example.com/schema'},{'type':'object','patternProperties':{'^x':{'type':'string'}}}):
             with self.subTest(schema=unsafe),self.assertRaisesRegex(ValueError,'unsupported'):validate_tool_arguments(unsafe,{})
 
     def test_schema_boolean_and_tuple_subschemas(self):
@@ -945,7 +974,7 @@ for line in sys.stdin:
         with self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,{'id':0})
         cycle={'type':'object','definitions':{'x':{'$ref':'#/$defs/y'}},'$defs':{'y':{'$ref':'#/definitions/x'}}}
         with self.assertRaisesRegex(ValueError,'recursive'):validate_tool_arguments(cycle,{})
-        for invalid in ({'type':'object','definitions':{'bad':{'pattern':'(a+)+$'}}}, {'type':'object','properties':{'x':{'definitions':{'y':{'type':'string'}}}}}, {'type':'object','definitions':{str(i):{} for i in range(129)}}, {'type':'object','definitions':{'a':{}},'properties':{'x':{'$ref':'#/definitions/a/extra'}}}):
+        for invalid in ({'type':'object','definitions':{'bad':{'patternProperties':{'x':{}}}}}, {'type':'object','properties':{'x':{'definitions':{'y':{'type':'string'}}}}}, {'type':'object','definitions':{str(i):{} for i in range(129)}}, {'type':'object','definitions':{'a':{}},'properties':{'x':{'$ref':'#/definitions/a/extra'}}}):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):validate_tool_arguments(invalid,{})
 
     def test_schema_references_to_nested_subschemas(self):
