@@ -51,7 +51,9 @@ def parse_authorization_metadata(document,issuer):
     if registration is not None:_https_parts(registration,allow_query=True)
     issuer_response=document.get('authorization_response_iss_parameter_supported',False)
     if type(issuer_response) is not bool:raise ValueError('Invalid OAuth issuer response metadata')
-    return {'issuer':issuer,'authorization_endpoint':authorization,'token_endpoint':token,'registration_endpoint':registration,'pkce_s256':'S256' in methods,'public_client_supported':auth_methods is None or 'none' in auth_methods,'refresh_grant_supported':'refresh_token' in grants,'authorization_response_iss_parameter_supported':issuer_response}
+    metadata_documents=document.get('client_id_metadata_document_supported',False)
+    if type(metadata_documents) is not bool:raise ValueError('Invalid OAuth client metadata document support')
+    return {'issuer':issuer,'authorization_endpoint':authorization,'token_endpoint':token,'registration_endpoint':registration,'pkce_s256':'S256' in methods,'public_client_supported':auth_methods is None or 'none' in auth_methods,'refresh_grant_supported':'refresh_token' in grants,'authorization_response_iss_parameter_supported':issuer_response,'client_id_metadata_document_supported':metadata_documents}
 
 
 class OAuthMetadataDiscovery(QObject):

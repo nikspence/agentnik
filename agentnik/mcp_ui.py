@@ -224,9 +224,12 @@ class MCPServers(QDialog):
                 from .mcp_oauth_credentials import read_record
                 import time
                 saved=read_record(config['credential_id'],config['url'])
-                if saved.get('client_id_expires_at') is None or saved['client_id_expires_at']>time.time():previous=saved['client_id']
+                if saved['issuer']==server['issuer'] and (saved.get('client_id_expires_at') is None or saved['client_id_expires_at']>time.time()):previous=saved['client_id']
             except Exception:pass
-        prompt=(self.tr('Enter a pre-registered public client ID for {issuer}, or leave it blank to register automatically. The client must allow a loopback redirect on 127.0.0.1.') if server.get('registration_endpoint') else self.tr('Enter a pre-registered public client ID for {issuer}. The client must allow a loopback redirect on 127.0.0.1.')).format(issuer=server['issuer'])
+        if server.get('client_id_metadata_document_supported'):
+            prompt=(self.tr('Enter a pre-registered public client ID or your hosted client metadata URL for {issuer}, or leave it blank to register automatically. The client must allow a loopback redirect on 127.0.0.1.') if server.get('registration_endpoint') else self.tr('Enter a pre-registered public client ID or your hosted client metadata URL for {issuer}. The client must allow a loopback redirect on 127.0.0.1.')).format(issuer=server['issuer'])
+        else:
+            prompt=(self.tr('Enter a pre-registered public client ID for {issuer}, or leave it blank to register automatically. The client must allow a loopback redirect on 127.0.0.1.') if server.get('registration_endpoint') else self.tr('Enter a pre-registered public client ID for {issuer}. The client must allow a loopback redirect on 127.0.0.1.')).format(issuer=server['issuer'])
         client_id,accepted=QInputDialog.getText(self,self.tr('OAuth sign-in'),prompt,QLineEdit.EchoMode.Normal,previous)
         if not accepted:return
         client_id=client_id.strip()
