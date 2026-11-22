@@ -1,9 +1,12 @@
 """Read-only discovery of repository-local Agent Skills."""
 import re
 import hashlib
+import json
 import os
 import yaml
 from pathlib import Path
+
+MAX_SKILL_INSTRUCTION_BYTES=64_000
 
 
 class SkillLoader(yaml.SafeLoader):
@@ -33,8 +36,19 @@ def parse_frontmatter(text,name):
     if not text.startswith('---\n'):return None
     end=re.search(r'^---[ \t]*$',text[4:],re.MULTILINE)
     if not end:return None
-    try:metadata=yaml.load(text[4:4+end.start()],Loader=SkillLoader)
-    except (yaml.YAMLError,ValueError,RecursionError):return None
+    frontmatter=text[4:4+end.start()]
+    try:metadata=yaml.load(frontmatter,Loader=SkillLoader)
+    except yaml.YAMLError:
+        # Some widely used skills leave a colon in a plain description unquoted.
+        # Repair only that single scalar, then apply the same safe YAML checks.
+        matches=list(re.finditer(r'^description:[ \t]*(.+)$',frontmatter,re.MULTILINE))
+        if len(matches)!=1:return None
+        match=matches[0];value=match.group(1).strip()
+        if not value or value[0] in "\"'|>{[&*!%@`" or not re.search(r':\s',value):return None
+        repaired=frontmatter[:match.start()]+'description: '+json.dumps(value,ensure_ascii=False)+frontmatter[match.end():]
+        try:metadata=yaml.load(repaired,Loader=SkillLoader)
+        except (yaml.YAMLError,ValueError,RecursionError):return None
+    except (ValueError,RecursionError):return None
     if not isinstance(metadata,dict):return None
     description=metadata.get('description')
     if metadata.get('name')!=name or not isinstance(description,str) or not description.strip() or len(description)>1024:return None
@@ -55,7 +69,7 @@ def _list_skills(files):
         if len(result)>=50: raise ValueError('Skill library exceeds 50 valid skills')
         if not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*',name) or len(name)>64: continue
         try:
-            text=files.read('.agents/skills/'+name+'/SKILL.md',remember=False,max_bytes=16000)
+            text=files.read('.agents/skills/'+name+'/SKILL.md',remember=False,max_bytes=MAX_SKILL_INSTRUCTION_BYTES)
         except (OSError,ValueError,UnicodeError): continue
         description=parse_frontmatter(text,name)
         if description is None:continue
@@ -85,7 +99,7 @@ def read_skill(files,name,user_root=None):
     skills={item['name']:item for item in _list_skills(files)}
     if name not in skills:raise ValueError('Skill is unavailable or invalid')
     skill=skills[name]
-    text=files.read(skill['path'],remember=False,max_bytes=16000)
+    text=files.read(skill['path'],remember=False,max_bytes=MAX_SKILL_INSTRUCTION_BYTES)
     description=parse_frontmatter(text,name)
     if description is None:raise ValueError('Skill is unavailable or invalid')
     skill=dict(skill,description=description)

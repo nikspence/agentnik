@@ -5,6 +5,23 @@ from agentnik.code_agent import ProjectFiles
 from agentnik.project_skills import list_skills,read_skill,read_resource,list_resources
 
 class ProjectSkills(unittest.TestCase):
+    def test_user_skills_with_long_instructions_and_unquoted_description_colon(self):
+        with tempfile.TemporaryDirectory() as project,tempfile.TemporaryDirectory() as user:
+            library=Path(user)/'.agents/skills'
+            for name,description,body in (
+                ('codex-ppt','Create decks in two modes: images or editable slides.','slides'),
+                ('hf-cli','Use the Hugging Face command line.','x'*34_000),
+            ):
+                skill=library/name;skill.mkdir(parents=True)
+                (skill/'SKILL.md').write_text(f'---\nname: {name}\ndescription: {description}\n---\n{body}',encoding='utf-8')
+            files=ProjectFiles(project);items=list_skills(files,user_root=user)
+            self.assertEqual([item['id'] for item in items],['user:codex-ppt','user:hf-cli'])
+            self.assertEqual(items[0]['description'],'Create decks in two modes: images or editable slides.')
+            self.assertTrue(read_skill(files,'user:hf-cli',user_root=user)['instructions'].endswith('x'*34_000))
+            self.assertIn('slides',read_skill(files,'user:codex-ppt',user_root=user)['instructions'])
+            (library/'hf-cli'/'SKILL.md').write_text('---\nname: hf-cli\ndescription: Tool\n---\n'+'x'*64_000,encoding='utf-8')
+            self.assertEqual([item['id'] for item in list_skills(files,user_root=user)],['user:codex-ppt'])
+
     def test_skill_changed_during_discovery_uses_validated_returned_snapshot(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as root:
@@ -174,6 +191,7 @@ class ProjectSkills(unittest.TestCase):
         self.assertEqual(parse_frontmatter(alias,'review'),'A valid description')
         for invalid in ('---\nname: review\ndescription: !!python/object/apply:os.system ["echo unsafe"]\n---\nBody','---\nname: review\nname: other\ndescription: text\n---\nBody','---\nname: review\ndescription: [one, two]\n---\nBody','---\nname: review\ndescription: text\n---extra\nBody','---\nname: review\ndescription: text\nmetadata: '+('['*31)+'0'+(']'*31)+'\n---\nBody'):
             with self.subTest(invalid=invalid):self.assertIsNone(parse_frontmatter(invalid,'review'))
+        self.assertIsNone(parse_frontmatter('---\nname: review\nname: other\ndescription: A task: details\n---\nBody','review'))
 
     def test_list_selected_skill_resources_is_bounded_and_relative(self):
         with tempfile.TemporaryDirectory() as root:
