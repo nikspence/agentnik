@@ -218,7 +218,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False,test_elicitation=False):
     import datetime
     import ipaddress
     import socket
@@ -333,7 +333,7 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
             elif test_oauth_ui or test_oauth_dynamic:result=run_oauth_ui(url,oauth_requests,dynamic=test_oauth_dynamic)
             else:
                 session=RemoteSession(url,'',timeout_seconds=15)
-                result=run_modern_elicitation(session,'https-modern') if test_modern_elicitation else run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
+                result=run_modern_elicitation(session,'https-modern' if test_modern else 'https') if test_modern_elicitation or test_elicitation else run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
@@ -573,6 +573,7 @@ if __name__=='__main__':
     if sys.argv[1:]==['--server']:make_server().run(transport='stdio')
     elif sys.argv[1:]==['--server-modern']:modern_stdio_server()
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
+    elif sys.argv[1:]==['--https-elicitation']:print(json.dumps(run_https(test_elicitation=True)))
     elif sys.argv[1:]==['--https-modern']:print(json.dumps(run_https(test_modern=True)))
     elif sys.argv[1:]==['--https-modern-notifications']:print(json.dumps(run_https(test_modern=True,test_modern_notifications=True)))
     elif sys.argv[1:]==['--https-modern-elicitation']:print(json.dumps(run_https(test_modern=True,test_modern_elicitation=True)))
@@ -609,4 +610,4 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

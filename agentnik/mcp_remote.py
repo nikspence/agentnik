@@ -119,7 +119,7 @@ class RemoteProbe(QObject):
         self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(self.subscription_timed_out)
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
-        self.timer.start(self.timeout_ms);self.send(initialize_request())
+        self.timer.start(self.timeout_ms);self.send(initialize_request(elicitation=self.elicitation_enabled))
     def send(self,message):
         if self.modern and message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
         if 'id' in message:
@@ -145,13 +145,21 @@ class RemoteProbe(QObject):
         self.buffer=bytearray();self.reply=self.manager.post(request,json.dumps(message).encode());self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
 
     def continue_elicitation(self,responses):
-        if self.elicitation_pending is None or self.elicitation_original is None or self.reply is not None:return False
+        if getattr(self,'closed',False) or self.elicitation_pending is None:return False
+        legacy=self.elicitation_pending.get('legacy_request')
+        if legacy is None and (self.elicitation_original is None or self.reply is not None):return False
         try:
             from .mcp_elicitation import continuation
-            message=continuation(self.elicitation_original,self.elicitation_pending,responses)
+            message=continuation(self.elicitation_original if legacy is None else {'params':{}},self.elicitation_pending,responses)
             if self.token and contains_secret(responses,self.token):raise ValueError()
         except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Invalid MCP input response; the request was not continued.');return False
-        self.elicitation_pending=None;self.timer.start(self.timeout_ms);self.send(message);return self.reply is not None
+        self.elicitation_pending=None;self.timer.start(self.timeout_ms)
+        if legacy is not None:
+            ident,standalone=legacy;key=(type(ident).__name__,ident)
+            try:self.post_server_response(ident,{'result':responses['request']},key,standalone)
+            except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Unable to send MCP input response.');return False
+            return True
+        self.send(message);return self.reply is not None
     def configure_reply(self):
         if tls.relaxed(): self.reply.sslErrors.connect(lambda _errors,reply=self.reply:reply.ignoreSslErrors())
     def consume(self,final=False):
@@ -221,6 +229,7 @@ class RemoteProbe(QObject):
             except ValueError:self.server_ping_error='Invalid or unsupported MCP server request.'
             return
         if type(message.get('id')) is int and message['id']==self.current_id:
+            if self.elicitation_pending is not None:self.server_ping_error='MCP operation completed while user input was pending.';return
             self.progress_final_seen=True;return
         if self.progress_final_seen:return
         if self.log_count<20:
@@ -247,7 +256,19 @@ class RemoteProbe(QObject):
         else:
             if key in self.server_pings or len(self.server_pings)>=32:raise ValueError('Excessive server requests')
             self.server_pings[key]=message
+        if method=='elicitation/create' and self.elicitation_enabled and self.protocol in ('2025-06-18','2025-11-25') and self.phase in ('call','resource_read','prompt_get') and self.elicitation_pending is None and isinstance(params,dict) and params.get('mode','form')=='form':
+            from .mcp_elicitation import parse_input_required
+            try:
+                self.elicitation_pending=parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':method,'params':params}}});self.elicitation_pending['legacy_request']=(ident,standalone)
+            except (ValueError,TypeError,RecursionError):
+                self.post_server_response(ident,{'error':{'code':-32602,'message':'Unsupported elicitation request'}},key,standalone);return
+            self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);return
+        response={'result':{}} if method=='ping' else {'error':{'code':-32601,'message':'Method not supported'}}
+        self.post_server_response(ident,response,key,standalone)
+
+    def post_server_response(self,ident,response,key,standalone):
         if len(self.server_ping_replies)>=4:raise ValueError('Excessive server requests')
+        is_elicitation=isinstance(response.get('result'),dict) and response['result'].get('action') in ('accept','decline','cancel')
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy);tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
         request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
@@ -262,9 +283,7 @@ class RemoteProbe(QObject):
                 session=session or self.session
         if session:request.setRawHeader(b'Mcp-Session-Id',session.encode('ascii'))
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
-        response={'jsonrpc':'2.0','id':ident}
-        if method=='ping':response['result']={}
-        else:response['error']={'code':-32601,'message':'Method not supported'}
+        response=dict(response,jsonrpc='2.0',id=ident)
         origin=self.reply;reply=self.manager.post(request,json.dumps(response).encode());self.server_ping_replies.add(reply)
         reply.setReadBufferSize(1024)
         ping_timer=QTimer(reply);ping_timer.setSingleShot(True);ping_timer.timeout.connect(reply.abort);ping_timer.start(min(self.timeout_ms,3000))
@@ -272,8 +291,9 @@ class RemoteProbe(QObject):
         def finished():
             status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute);invalid=status!=202 or reply.bytesAvailable()!=0
             self.server_ping_replies.discard(reply);self.server_stream_pending.discard(key);reply.deleteLater()
-            if invalid and standalone:self.close_server_stream()
-            elif invalid and self.reply is origin and self.phase not in ('closing','task_cancel','request_cancel'):self.stop('MCP server did not accept a ping response.')
+            if invalid and is_elicitation and self.phase not in ('closing','task_cancel','request_cancel'):self.stop('MCP server did not accept the input response.')
+            elif invalid and standalone:self.close_server_stream()
+            elif invalid and self.reply is origin and self.phase not in ('closing','task_cancel','request_cancel'):self.stop('MCP server did not accept a client response.')
         reply.finished.connect(finished)
 
     def verify_server_ping(self,message):
@@ -413,7 +433,7 @@ class RemoteProbe(QObject):
             if 'id' in message:
                 if 'method' not in message:raise ValueError()
                 ident=message['id'];key=(type(ident).__name__,ident) if type(ident) is int or isinstance(ident,str) else None
-                if duplicate and key in self.server_stream_pending:return
+                if duplicate and (key in self.server_stream_pending or message.get('method')=='elicitation/create'):return
                 self.server_request(message,standalone=True);return
             if duplicate:return
             if message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
@@ -506,6 +526,7 @@ class RemoteProbe(QObject):
                 self.phase='tools';self.pages=1;self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}});return
             ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
             message=response_message(bytes(self.buffer),ctype,self.current_id,self.list_changed,None if self.modern else self.verify_server_ping)
+            if not self.modern and self.elicitation_pending is not None:raise ValueError('MCP operation completed while user input was pending')
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
             if 'error' in message:
                 if self.phase=='initialize' and isinstance(message['error'],dict) and message['error'].get('code') in (-32601,-32022):

@@ -126,6 +126,78 @@ class MCPFoundation(unittest.TestCase):
         with self.assertRaises(ValueError):response_message(ping+final,'text/event-stream',7)
         session.closed=True
 
+    def test_remote_2025_form_request_on_both_event_streams(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([])
+        for stream in ('response','standalone'):
+            for action in ('accept','decline'):
+                with self.subTest(stream=stream,action=action):
+                    sent=threading.Event();answered=threading.Event();received=[]
+                    class Handler(BaseHTTPRequestHandler):
+                        def log_message(self,*args):pass
+                        def do_POST(self):
+                            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body.get('method')
+                            if method is None:
+                                received.append((body,self.headers.get('Mcp-Session-Id'),self.headers.get('Authorization'),self.headers.get('MCP-Protocol-Version')));self.send_response(202);self.end_headers();answered.set();return
+                            if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                            if method=='initialize':
+                                assert body['params']['capabilities']['elicitation']=={}
+                                result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+                            elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+                            elif method=='tools/call':
+                                self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
+                                request={'jsonrpc':'2.0','id':'input','method':'elicitation/create','params':{'message':'Choose','requestedSchema':{'type':'object','properties':{'choice':{'type':'string'}},'required':['choice']}}}
+                                if stream=='response':self.wfile.write(b'data: '+json.dumps(request).encode()+b'\n\n');self.wfile.flush()
+                                else:sent.set()
+                                if answered.wait(5):self.wfile.write(b'data: '+json.dumps({'jsonrpc':'2.0','id':body['id'],'result':{'content':[{'type':'text','text':'done'}]}}).encode()+b'\n\n');self.wfile.flush()
+                                return
+                            else:raise AssertionError(method)
+                            payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
+                        def do_GET(self):
+                            if stream!='standalone':self.send_response(405);self.end_headers();return
+                            self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b': ready\n\n');self.wfile.flush()
+                            if sent.wait(5):
+                                request={'jsonrpc':'2.0','id':'input','method':'elicitation/create','params':{'message':'Choose','requestedSchema':{'type':'object','properties':{'choice':{'type':'string'}},'required':['choice']}}}
+                                self.wfile.write(b'id: event-one\ndata: '+json.dumps(request).encode()+b'\n\n');self.wfile.flush();answered.wait(5)
+                        def do_DELETE(self):self.send_response(204);self.end_headers()
+                    server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                    session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[];presented=[]
+                    session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
+                    def request_input(forms):
+                        presented.append(forms);self.assertFalse(session.timer.isActive());self.assertEqual(received,[])
+                        response={'action':'accept','content':{'choice':'yes'}} if action=='accept' else {'action':'decline'}
+                        QTimer.singleShot(50,lambda:session.continue_elicitation({'request':response}))
+                    session.elicitation_requested.connect(request_input);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(8000,loop.quit)
+                    try:
+                        loop.exec();self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(presented),1);self.assertEqual(len(received),1)
+                        response,session_header,auth,protocol=received[0];self.assertEqual(response['id'],'input');self.assertEqual(response['result']['action'],action)
+                        if action=='accept':self.assertEqual(response['result']['content'],{'choice':'yes'})
+                        self.assertEqual((session_header,auth,protocol),('session-one','Bearer fixture-token',PROTOCOL));self.assertNotIn('yes',str(out))
+                    finally:sent.set();answered.set();session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_remote_2025_rejects_invalid_and_credential_answers_before_post(self):
+        from unittest.mock import Mock
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        from agentnik.mcp_elicitation import parse_input_required
+        app=QApplication.instance() or QApplication([])
+        pending=parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':'elicitation/create','params':{'message':'Choose','requestedSchema':{'type':'object','properties':{'choice':{'type':'string'}},'required':['choice']}}}}});pending['legacy_request']=('server-id',False)
+        for answer in ({'action':'accept','content':{}},{'action':'accept','content':{'choice':'fixture-token'}}):
+            session=RemoteSession('https://example.com/mcp','fixture-token');session.elicitation_pending=pending;session.post_server_response=Mock();session.stop=Mock()
+            self.assertFalse(session.continue_elicitation({'request':answer}));session.post_server_response.assert_not_called();session.stop.assert_called_once();session.closed=True
+
+    def test_remote_2025_does_not_repeat_replayed_elicitation(self):
+        from unittest.mock import Mock
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.server_request=Mock()
+        request=json.dumps({'jsonrpc':'2.0','id':'input','method':'elicitation/create','params':{}}).encode()
+        session.server_stream_event(request,duplicate=True);session.server_request.assert_not_called();session.closed=True
+
     def test_remote_standalone_stream_invalidates_unrelated_catalogs(self):
         from unittest.mock import Mock
         from PySide6.QtWidgets import QApplication
