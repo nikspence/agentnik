@@ -46,6 +46,19 @@ class ChatMCPIntegration(unittest.TestCase):
         with self.assertRaises(ResearchError):group.invoke('mcp_resources_read',{'request':json.dumps({'server':'First','uri':'test://doc'})},runtime)
         self.assertEqual(group.controllers[0].bridge.request.call_count,1)
 
+    def test_chat_tool_links_stay_with_originating_server(self):
+        from agentnik.chat_mcp import MultiChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers});runtime=Runtime()
+        first,second=group.controllers;first.bridge=Mock();first.bridge.request.return_value={'tool_details':[]}
+        tool={'name':'find','description':'Find','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        second.bridge=Mock();second.bridge.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[{'type':'resource_link','uri':'test://linked','name':'Link'}]}},{'contents':[{'uri':'test://linked','text':'Evidence'}]}]
+        group.invoke('mcp_discover',{'server':'connect'},runtime);group.invoke('mcp_call',{'request':json.dumps({'server':'Second','tool':'find','arguments':{}})},runtime)
+        with self.assertRaises(ResearchError):group.invoke('mcp_resources_read',{'request':json.dumps({'server':'First','uri':'test://linked'})},runtime)
+        result=group.invoke('mcp_resources_read',{'request':json.dumps({'server':'Second','uri':'test://linked'})},runtime)
+        self.assertEqual(result['contents'][0]['text'],'Evidence');self.assertEqual(first.bridge.request.call_count,1)
+
     def test_chat_prompts_are_server_scoped_and_keep_user_only_content_private(self):
         from agentnik.chat_mcp import MultiChatMCP
         from agentnik.tools import Runtime,ResearchError
@@ -161,7 +174,31 @@ for line in sys.stdin:
         replies=[Wire(response([function('mcp_resources_read',{'request':request},'one')]),False),Wire(response([function('mcp_resources_list',{'server':'Documents'},'two')]),False),Wire(response([message('Listed')]),False)]
         def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
         with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'List report'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
-        self.assertEqual(result['status'],'ok');self.assertIn('List MCP resources before reading one',bodies[1]);self.assertEqual([item.args[0] for item in controller.bridge.request.call_args_list],['discover','resources_list'])
+        self.assertEqual(result['status'],'ok');self.assertIn('List MCP resources or obtain a resource link',bodies[1]);self.assertEqual([item.args[0] for item in controller.bridge.request.call_args_list],['discover','resources_list'])
+
+    def test_chat_reads_tool_resource_link_without_listing(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            root=Path(folder);server=root/'server.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'resources':{}}}
+ elif method=='tools/list':result={'tools':[{'name':'find','inputSchema':{'type':'object'}}]}
+ elif method=='tools/call':result={'content':[{'type':'resource_link','uri':'test://public','name':'Public'},{'type':'resource_link','uri':'test://private','name':'Private','annotations':{'audience':['user']}}]}
+ elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'text':'Linked evidence'}]}
+ else:raise RuntimeError('unexpected '+method)
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            store=Store(root/'data');store.config['mcp_servers']=[{'name':'Documents','command':sys.executable,'args':[str(server)],'enabled':True}];store.flush();window=Window(store);window.connections={'test':dict(C)}
+            call=json.dumps({'tool':'find','arguments':{}});private=json.dumps({'server':'Documents','uri':'test://private'});public=json.dumps({'server':'Documents','uri':'test://public'});bodies=[]
+            replies=[Wire(response([function('mcp_discover',{'server':'connect'},'one')]),False),Wire(response([function('mcp_call',{'request':call},'two')]),False),Wire(response([function('mcp_resources_read',{'request':private},'three')]),False),Wire(response([function('mcp_resources_read',{'request':public},'four')]),False),Wire(response([message('Found evidence')]),False)]
+            def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget();tab.mcp_choice.setCurrentIndex(1);tab.composer.setPlainText('Find evidence')
+                with patch.object(core,'open_request',side_effect=send):tab.submit();self.settle(lambda:tab.job is None)
+                self.assertEqual(tab.session['messages'][-1]['text'],'Found evidence');self.assertIn('resource_links_available',bodies[2]);self.assertIn('Choose a listed resource',bodies[3]);self.assertIn('Linked evidence',bodies[-1])
+            finally:window.close();self.app.processEvents();store.db.close()
 
     def test_chat_reads_real_local_mcp_server_resource(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):

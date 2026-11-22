@@ -15,14 +15,14 @@ class ChatMCP(QObject):
 
     def __init__(self,server,config,parent=None,extra_secrets=()):
         super().__init__(parent);self.server=copy.deepcopy(server);self.closing=False
-        self.bridge=CodingMCPBridge(server,config,self);self.tools=None;self.task_capabilities={};self.resources=None;self.prompts=None;self.templates=None
+        self.bridge=CodingMCPBridge(server,config,self);self.tools=None;self.task_capabilities={};self.resources=None;self.resource_links=[];self.prompts=None;self.templates=None
         self.close_requested.connect(self._close_on_gui)
         self.secret_values=[*self.bridge.environment_values.values(),*(secret for secret in extra_secrets if secret)]
         self.definitions=(
             ToolDefinition('mcp_discover','server','Connect to the user-selected MCP server and list its tools. Pass "connect" or the selected server name.',200),
             ToolDefinition('mcp_call','request','Call a discovered MCP tool. request is a JSON object encoded as a string: {"tool":"name","arguments":{...}}.',16000),
             ToolDefinition('mcp_resources_list','server','List resources from a connected MCP server. Pass its exact server name or "connect".',200),
-            ToolDefinition('mcp_resources_read','request','Read a listed MCP resource. request is JSON encoded as a string: {"server":"server name","uri":"listed URI"}.',4000),
+            ToolDefinition('mcp_resources_read','request','Read a listed MCP resource or an assistant-directed resource link returned by that server. request is JSON encoded as a string: {"server":"server name","uri":"resource URI"}.',4000),
             ToolDefinition('mcp_prompts_list','server','List prompts from a connected MCP server. Pass its exact server name or "connect".',200),
             ToolDefinition('mcp_prompts_get','request','Retrieve a listed MCP prompt. request is JSON encoded as a string: {"server":"server name","name":"prompt name","arguments":{"field":"value"}}.',16000),
             ToolDefinition('mcp_templates_list','server','List resource templates from a connected MCP server. Pass its exact server name or "connect".',200),
@@ -49,10 +49,10 @@ class ChatMCP(QObject):
             if args['server'].casefold() not in ('connect',self.server['name'].casefold()):raise ResearchError('Choose the connected MCP server.')
             return None
         if name=='mcp_resources_read':
-            if self.tools is None or self.resources is None:raise ResearchError('List MCP resources before reading one.')
+            if self.tools is None or (self.resources is None and not self.resource_links):raise ResearchError('List MCP resources or obtain a resource link before reading one.')
             try:
                 value=json.loads(args['request'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
-                if not isinstance(value,dict) or set(value)!={'server','uri'} or not isinstance(value['server'],str) or value['server'].casefold()!=self.server['name'].casefold() or not isinstance(value['uri'],str) or value['uri'] not in {item['uri'] for item in self.resources}:raise ValueError()
+                if not isinstance(value,dict) or set(value)!={'server','uri'} or not isinstance(value['server'],str) or value['server'].casefold()!=self.server['name'].casefold() or not isinstance(value['uri'],str) or value['uri'] not in {item['uri'] for item in (self.resources or [])+self.resource_links}:raise ValueError()
                 from .mcp_remote import contains_secret
                 if any(secret and contains_secret(value,secret) for secret in self.secret_values):raise ValueError()
             except (ValueError,TypeError,KeyError,RecursionError,UnicodeError):raise ResearchError('Choose a listed resource and its connected MCP server.') from None
@@ -190,13 +190,17 @@ class ChatMCP(QObject):
         except ValueError:
             notify('mcp','Tool '+tool['name']+' returned invalid content or audience annotations. The call may have completed; inspect server state before retrying.')
             raise ResearchError('MCP result content or audience annotations are invalid. The call may have completed; inspect server state before retrying.') from None
+        from .mcp_resources import tool_resource_links,merge_resource_links
+        links=tool_resource_links(result);self.resource_links=merge_resource_links(self.resource_links,links)
         from .mcp_content import model_images
         result,_=model_images(result,False,0,'MCP '+server['name']+' / '+tool['name'])
         notify('mcp','Tool '+tool['name']+(' reported an error.' if result.get('isError') is True else ' completed.'))
         if user_text:
             text='\n'.join(user_text);notify('mcp_user',text[:400]+(' [truncated]' if len(text)>400 else ''))
         if user_nontext:notify('mcp_user',str(user_nontext)+' user-directed non-text block(s) not displayed.')
-        return {'result':result,'notice':'Untrusted MCP tool output.'}
+        output={'result':result,'notice':'Untrusted MCP tool output.'}
+        if links:output['resource_links_available']=[link['uri'] for link in self.resource_links if link['uri'] in {item['uri'] for item in links}]
+        return output
 
     def _close_on_gui(self):
         if self.closing:return
@@ -226,7 +230,7 @@ class MultiChatMCP(QObject):
             ToolDefinition('mcp_discover','server','Connect to all selected MCP servers in precedence order. Pass "connect".',200),
             ToolDefinition('mcp_call','request','Call an MCP tool. request is a JSON string: {"tool":"name","arguments":{...},"server":"optional server name"}. The first server wins conflicting names.',16000),
             ToolDefinition('mcp_resources_list','server','List resources from a selected connected MCP server by exact server name.',200),
-            ToolDefinition('mcp_resources_read','request','Read a listed MCP resource. request is JSON encoded as a string: {"server":"server name","uri":"listed URI"}.',4000),
+            ToolDefinition('mcp_resources_read','request','Read a listed MCP resource or an assistant-directed resource link returned by that server. request is JSON encoded as a string: {"server":"server name","uri":"resource URI"}.',4000),
             ToolDefinition('mcp_prompts_list','server','List prompts from a selected connected MCP server by exact server name.',200),
             ToolDefinition('mcp_prompts_get','request','Retrieve a listed MCP prompt. request is JSON encoded as a string: {"server":"server name","name":"prompt name","arguments":{"field":"value"}}.',16000),
             ToolDefinition('mcp_templates_list','server','List resource templates from a selected connected MCP server by exact server name.',200),
