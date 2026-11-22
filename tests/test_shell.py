@@ -14,10 +14,21 @@ from agentnik.tools import Limits,Runtime,LimitError
 class ShellExecutor(unittest.TestCase):
     def test_goal_deadline_stops_running_command_and_retains_prior_effects(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=Runtime();runtime.external_deadline=time.monotonic()+10
-            command="Set-Content -LiteralPath 'started.txt' -Value 'yes'; Start-Sleep -Seconds 30; Set-Content -LiteralPath 'late.txt' -Value 'no'" if os.name=='nt' else "printf yes > started.txt; sleep 30; printf no > late.txt"
-            with self.assertRaisesRegex(LimitError,'goal time limit'):shell.execute(command,directory,runtime)
-            self.assertTrue((root/'started.txt').exists());self.assertFalse((root/'late.txt').exists())
+            root=Path(directory);runtime=Runtime(limits=Limits(turn_seconds=90));out=[]
+            command="Set-Content -LiteralPath 'started.txt' -Value 'yes'; Start-Sleep -Seconds 60; Set-Content -LiteralPath 'late.txt' -Value 'no'" if os.name=='nt' else "printf yes > started.txt; sleep 60; printf no > late.txt"
+            def run():
+                try:shell.execute(command,directory,runtime)
+                except Exception as exc:out.append(exc)
+            thread=threading.Thread(target=run);thread.start()
+            try:
+                deadline=time.monotonic()+45
+                while not (root/'started.txt').exists() and thread.is_alive() and time.monotonic()<deadline:time.sleep(.05)
+                self.assertTrue((root/'started.txt').exists(),'Shell did not start the command')
+                runtime.external_deadline=time.monotonic()+.2;thread.join(5)
+                self.assertFalse(thread.is_alive());self.assertEqual(len(out),1);self.assertIsInstance(out[0],LimitError)
+                self.assertIn('goal time limit',str(out[0]));self.assertFalse((root/'late.txt').exists())
+            finally:
+                runtime.cancel.set();thread.join(5)
 
     def test_shell_uses_run_deadline_not_request_timeout(self):
         with tempfile.TemporaryDirectory() as directory:
