@@ -26,6 +26,10 @@ class ChatImageTests(unittest.TestCase):
                 result=research.run({'url':'https://example.org/v1','model':'text','protocol':'chat','stream':False},[{'role':'user','text':'Edit','images':[source]}],'',events.append,threading.Event(),config={'local_tools':True,'web_enabled':False},image_tool=tool)
             self.assertEqual(result['status'],'ok',result.get('error'))
             self.assertTrue(Path(result['images'][0]).is_file());self.assertEqual(gen.call_args.args[3],[png()])
+            session={'id':'image-session','mode':'chat','connection':{},'messages':[{'role':'user','text':'Edit','images':[source]},{'role':'assistant',**result}]}
+            store.save(session); restored=store.list_sessions()[0]
+            self.assertEqual(restored['messages'][-1]['images'],result['images']);store.collect_attachments()
+            self.assertTrue(Path(result['images'][0]).exists())
             self.assertIn('generated:1',json.dumps(bodies[1]));self.assertNotIn(source,json.dumps(bodies[1]));self.assertNotIn('image-secret',json.dumps(result))
             self.assertTrue(any(e.get('images') for e in events))
             self.assertEqual(tool.prepare(json.dumps({'prompt':'again','references':['generated:1']}))[1],[png()])
@@ -44,3 +48,4 @@ class ChatImageTests(unittest.TestCase):
         for protocol in ('chat','responses','messages'):
             body=core.chat_body({'url':'https://example.org/v1','model':'text','protocol':protocol},[{'role':'assistant','text':'Created','images':['missing.png']}])
             self.assertNotIn('missing.png',json.dumps(body))
+
