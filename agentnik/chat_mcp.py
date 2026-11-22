@@ -27,6 +27,7 @@ class ChatMCP(QObject):
             ToolDefinition('mcp_prompts_get','request','Retrieve a listed MCP prompt. request is JSON encoded as a string: {"server":"server name","name":"prompt name","arguments":{"field":"value"}}.',16000),
             ToolDefinition('mcp_templates_list','server','List resource templates from a connected MCP server. Pass its exact server name or "connect".',200),
             ToolDefinition('mcp_templates_read','request','Read a listed supported resource template. request is JSON encoded as a string: {"server":"server name","template":"exact URI template","variables":{"name":"value"}}. Values may be strings, lists of strings, objects with string values, or null.',16000),
+            ToolDefinition('mcp_complete_argument','request','Get suggestions for an argument of a listed prompt or resource template. request is JSON encoded as a string: {"server":"server name","kind":"prompt" or "resource","target":"exact prompt name or URI template","argument":"argument name","value":"partial value","context":{"other":"value"}}.',16000),
         )
 
     def approve(self,proposal,runtime):
@@ -48,6 +49,20 @@ class ChatMCP(QObject):
             if self.tools is None:raise ResearchError('Connect to the MCP server before listing resources, templates, or prompts.')
             if args['server'].casefold() not in ('connect',self.server['name'].casefold()):raise ResearchError('Choose the connected MCP server.')
             return None
+        if name=='mcp_complete_argument':
+            if self.tools is None:raise ResearchError('Connect to the MCP server before requesting completions.')
+            try:
+                value=json.loads(args['request'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
+                if not isinstance(value,dict) or set(value)!={'server','kind','target','argument','value','context'} or not isinstance(value['server'],str) or value['server'].casefold()!=self.server['name'].casefold() or not isinstance(value['target'],str):raise ValueError()
+                if value['kind']=='prompt':target=next((item for item in (self.prompts or []) if item['name']==value['target']),None)
+                elif value['kind']=='resource':target=next((item for item in (self.templates or []) if item['uriTemplate']==value['target']),None)
+                else:raise ValueError()
+                from .mcp_completion import completion_params
+                from .mcp_remote import contains_secret
+                completion_params(value['kind'],target,value['argument'],value['value'],value['context'])
+                if any(secret and contains_secret(value,secret) for secret in self.secret_values):raise ValueError()
+            except (ValueError,TypeError,KeyError,RecursionError,UnicodeError):raise ResearchError('Choose a listed MCP prompt or resource template and valid completion arguments.') from None
+            return value,target
         if name=='mcp_resources_read':
             if self.tools is None or (self.resources is None and not self.resource_links):raise ResearchError('List MCP resources or obtain a resource link before reading one.')
             try:
@@ -131,6 +146,12 @@ class ChatMCP(QObject):
             self.tools=response.get('tool_details',[]);self.task_capabilities=response.get('task_capabilities',{})
             notify('mcp','Connected to '+server['name']+'; discovered '+str(len(self.tools))+' tool(s).'+(' More tools were not listed.' if response.get('more_tools',False) else ''))
             return {'server':server['name'],'tools':self.tools,'task_capabilities':self.task_capabilities,'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata. Task-required execution is supported for capable servers.'}
+        if name=='mcp_complete_argument':
+            value,target=validated
+            response=self.bridge.request('complete',{'kind':value['kind'],'target':target,'argument':value['argument'],'value':value['value'],'context':value['context']},runtime)
+            if 'error' in response:raise ResearchError(response['error'])
+            notify('mcp','Argument suggestions received from '+server['name']+'.')
+            return {'server':server['name'],'completion':response['completion'],'notice':'Untrusted server-provided suggestions.'}
         if name in ('mcp_resources_list','mcp_resources_read'):
             uri=validated['uri'] if name=='mcp_resources_read' else ''
             response=self.bridge.request('resources_read' if uri else 'resources_list',{'uri':uri} if uri else {},runtime)
@@ -235,6 +256,7 @@ class MultiChatMCP(QObject):
             ToolDefinition('mcp_prompts_get','request','Retrieve a listed MCP prompt. request is JSON encoded as a string: {"server":"server name","name":"prompt name","arguments":{"field":"value"}}.',16000),
             ToolDefinition('mcp_templates_list','server','List resource templates from a selected connected MCP server by exact server name.',200),
             ToolDefinition('mcp_templates_read','request','Read a listed supported resource template. request is JSON encoded as a string: {"server":"server name","template":"exact URI template","variables":{"name":"value"}}. Values may be strings, lists of strings, objects with string values, or null.',16000),
+            ToolDefinition('mcp_complete_argument','request','Get suggestions for an argument of a listed prompt or resource template. request is JSON encoded as a string: {"server":"server name","kind":"prompt" or "resource","target":"exact prompt name or URI template","argument":"argument name","value":"partial value","context":{"other":"value"}}.',16000),
         )
 
     def _parse(self,args):
@@ -251,7 +273,7 @@ class MultiChatMCP(QObject):
         if name=='mcp_discover':
             if args.get('server','').casefold()!='connect' or self.tools is not None:raise ResearchError('Use connect once to discover the selected MCP servers.')
             return None
-        if name in ('mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read'):
+        if name in ('mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read','mcp_complete_argument'):
             if self.tools is None:raise ResearchError('Connect to the selected MCP servers before accessing resources.')
             if name in ('mcp_resources_list','mcp_prompts_list','mcp_templates_list'):server_name=args.get('server','')
             else:
@@ -288,7 +310,7 @@ class MultiChatMCP(QObject):
 
     def invoke(self,name,args,runtime):
         validated=self.validate_call(name,args)
-        if name in ('mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read'):
+        if name in ('mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read','mcp_complete_argument'):
             controller,payload=validated
             return controller.invoke(name,payload,runtime)
         # The caller charges one discovery; additional server requests are charged here.

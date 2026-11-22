@@ -1230,6 +1230,22 @@ class ModelCoding(unittest.TestCase):
             self.assertTrue(any(message.get('role')=='tool' and 'untrusted' in message.get('content','').lower() and 'Review this' in message.get('content','') for message in bodies[-1]['messages']))
             self.assertIn('Useful guide',json.dumps(bodies[-1]));self.assertNotIn('Private note',json.dumps(bodies));self.assertTrue(any('Private note' in e.get('text','') for e in events))
 
+    def test_mcp_prompt_argument_completion_reaches_model(self):
+        from unittest.mock import Mock
+        prompt={'name':'review','arguments':[{'name':'file'}]}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Remote','transport':'http','url':'https://example.com/mcp','enabled':True}
+            bridge.request.side_effect=[{'tool_details':[],'capabilities':['prompts','completions']},{'prompts':[prompt]},{'completion':{'values':['main.py']}}]
+            request=json.dumps({'kind':'prompt','target':'review','argument':'file','value':'ma','context':{}})
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_prompts',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_complete_argument',{'request':request})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Review',mcp_bridge=bridge).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertEqual([item.args[0] for item in bridge.request.call_args_list],['discover','prompts_list','complete'])
+            self.assertIn('main.py',json.dumps(bodies[-1]))
+            self.assertIn('untrusted',json.dumps(bodies[-1]).lower())
+
     def test_mcp_tool_resource_link_can_be_read_without_listing(self):
         from unittest.mock import Mock
         detail={'name':'find','description':'Find','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}

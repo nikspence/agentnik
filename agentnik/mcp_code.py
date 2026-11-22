@@ -63,6 +63,9 @@ class CodingMCPBridge(QObject):
             self.session.start()
         elif request['action'] in ('prompts_list','prompts_get') and self.session:
             if not self.session.list_prompts(request['payload'] if request['action']=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})
+        elif request['action']=='complete' and self.session:
+            payload=request['payload']
+            if not self.session.complete_argument(payload['kind'],payload['target'],payload['argument'],payload['value'],payload['context']):self._reply(request, {'error':'MCP completion unavailable or invalid.'})
         elif request['action'] in ('templates_list','templates_read') and self.session:
             payload=request['payload'];ok=self.session.list_resource_templates() if request['action']=='templates_list' else self.session.read_resource_template(payload['template'],payload['arguments'],payload['uri'])
             if not ok:self._reply(request, {'error':'MCP resource template unavailable or invalid.'})
@@ -98,6 +101,10 @@ class CodingMCPBridge(QObject):
             self._start_remote(token);return
         if action in ('prompts_list','prompts_get') and self.session:
             if not self.session.list_prompts(request['payload'] if action=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})
+            return
+        if action=='complete' and self.session:
+            payload=request['payload']
+            if not self.session.complete_argument(payload['kind'],payload['target'],payload['argument'],payload['value'],payload['context']):self._reply(request, {'error':'MCP completion unavailable or invalid.'})
             return
         if action in ('templates_list','templates_read') and self.session:
             payload=request['payload'];ok=self.session.list_resource_templates() if action=='templates_list' else self.session.read_resource_template(payload['template'],payload['arguments'],payload['uri'])

@@ -431,7 +431,10 @@ class RemoteProbe(QObject):
             ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
             message=response_message(bytes(self.buffer),ctype,self.current_id,self.list_changed,self.verify_server_ping)
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
-            if 'error' in message:self.stop(rpc_error(message));return
+            if 'error' in message:
+                error=rpc_error(message)
+                if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error});return
+                self.stop(error);return
             if self.phase=='initialize':
                 self.result=parse_initialize(json.dumps(message).encode(),HTTP_PROTOCOLS);self.protocol=self.result['protocol']
                 session=reply.rawHeader('Mcp-Session-Id')
@@ -440,6 +443,11 @@ class RemoteProbe(QObject):
                 self.session=session
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
                 self.phase='initialized';self.send({'jsonrpc':'2.0','method':'notifications/initialized'});return
+            if self.phase=='completion':
+                from .mcp_completion import parse_completion
+                outcome=parse_completion(message.get('result'))
+                if self.token and contains_secret(outcome,self.token):raise ValueError('Credential reflected in response')
+                self.timer.stop();self.phase='ready';self.called.emit({'completion':outcome});return
             if self.phase in ('prompt_list','prompt_get'):
                 outcome=message.get('result')
                 if not isinstance(outcome,dict):raise ValueError('Invalid MCP prompt response')
@@ -643,6 +651,17 @@ class RemoteSession(RemoteProbe):
             except (ValueError,UnicodeError,RecursionError):return False
         self.prompt_invocation=invocation;self.prompt_items=[];self.prompt_pages=PromptPages();self.phase='prompt_list';self.timer.start(self.timeout_ms)
         self.prompt_list_page(None);return True
+
+    def complete_argument(self,kind,target,argument,value,context):
+        if self.closed or self.phase!='ready' or 'completions' not in self.result['capabilities']:return False
+        if target not in getattr(self,'prompt_items' if kind=='prompt' else 'template_items',[]):return False
+        try:
+            from .mcp_completion import completion_params
+            params=completion_params(kind,target,argument,value,context)
+            if self.token and contains_secret(params,self.token):return False
+        except (ValueError,TypeError,UnicodeError,RecursionError):return False
+        self.completion_kind=kind;self.phase='completion';self.timer.start(self.timeout_ms)
+        self.send({'jsonrpc':'2.0','id':0,'method':'completion/complete','params':params});return True
 
     def prompt_list_page(self,cursor):
         self.send({'jsonrpc':'2.0','id':0,'method':'prompts/list','params':{'cursor':cursor} if cursor else {}})

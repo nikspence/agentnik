@@ -51,12 +51,12 @@ def invalidate_server_list(session,method):
         raise MCPListChangedError('MCP tools changed; reconnect before making another call.')
     if method=='notifications/resources/list_changed':
         session.resource_items=[];session.template_items=[]
-        if session.phase in ('resource_list','template_list'):
+        if session.phase in ('resource_list','template_list') or session.phase=='completion' and getattr(session,'completion_kind',None)=='resource':
             raise MCPListChangedError('MCP resources changed during discovery; reconnect and list them again.')
         return 'MCP resources changed; list them again before reading.'
     if method=='notifications/prompts/list_changed':
         session.prompt_items=[]
-        if session.phase in ('prompt_list','prompt_get'):
+        if session.phase in ('prompt_list','prompt_get') or session.phase=='completion' and getattr(session,'completion_kind',None)=='prompt':
             raise MCPListChangedError('MCP prompts changed during retrieval; reconnect and list them again.')
         return 'MCP prompts changed; list them again before retrieval.'
     return ''

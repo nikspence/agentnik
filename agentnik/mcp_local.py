@@ -122,6 +122,8 @@ class LocalSession(QObject):
                     self._close_now();return
                 if 'error' in message:
                     error=rpc_error(message)
+                    if self.phase=='completion':
+                        self.phase='ready';self.timer.stop();self.called.emit({'error':error});continue
                     if self.phase in ('prompt_list','prompt_get'):
                         self.phase='ready';self.timer.stop();self.prompts.emit({'error':error});continue
                     if self.phase in ('resource_list','resource_read','template_list'):
@@ -134,6 +136,11 @@ class LocalSession(QObject):
                     self.list_page(None); continue
                 result = message.get('result')
                 if not isinstance(result, dict): raise ValueError()
+                if self.phase=='completion':
+                    from .mcp_completion import parse_completion
+                    outcome=parse_completion(result)
+                    if any(contains_secret(outcome,secret) for secret in self.environment_secrets):self.fail('MCP response contained a mapped environment value and was blocked.');return
+                    self.phase='ready';self.timer.stop();self.called.emit({'completion':outcome});continue
                 if self.phase == 'prompt_list':
                     cursor,outcome=self.prompt_pages.accept(result)
                     if cursor:self.prompt_list_page(cursor);continue
@@ -274,6 +281,17 @@ class LocalSession(QObject):
             except (ValueError,UnicodeError,RecursionError):return False
         self.prompt_invocation=invocation;self.prompt_items=[];self.prompt_pages=PromptPages();self.phase='prompt_list';self.timer.start(self.timeout_ms)
         self.prompt_list_page(None);return True
+
+    def complete_argument(self,kind,target,argument,value,context):
+        if self.closed or self.phase!='ready' or 'completions' not in self.info['capabilities']:return False
+        if target not in getattr(self,'prompt_items' if kind=='prompt' else 'template_items',[]):return False
+        try:
+            from .mcp_completion import completion_params
+            params=completion_params(kind,target,argument,value,context)
+            if any(contains_secret(params,secret) for secret in self.environment_secrets):return False
+        except (ValueError,TypeError,UnicodeError,RecursionError):return False
+        self.completion_kind=kind;self.phase='completion';self.next_id+=1;self.timer.start(self.timeout_ms)
+        self.send({'jsonrpc':'2.0','id':self.next_id,'method':'completion/complete','params':params});return True
 
     def prompt_list_page(self,cursor):
         self.next_id+=1

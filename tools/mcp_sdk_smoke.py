@@ -50,6 +50,13 @@ def make_server(cancelled=None,resumption=None):
     def greet(name:str)->str:
         return 'Hello '+name
 
+    @server.completion()
+    async def complete_argument(ref,argument,context):
+        from mcp.types import Completion
+        if argument.name=='item' and argument.value=='al':return Completion(values=['alpha'],total=1,hasMore=False)
+        if argument.name=='name' and argument.value=='wor':return Completion(values=['world'],total=1,hasMore=False)
+        return Completion(values=[])
+
     if cancelled is not None:
         import asyncio
         @server.tool()
@@ -116,6 +123,16 @@ def run(session,transport):
     def called(message):
         try:
             if 'error' in message:raise RuntimeError(message['error'])
+            if result['step']=='template_completion':
+                if message.get('completion',{}).get('values')!=['alpha']:raise RuntimeError('Unexpected resource completion')
+                result['step']='template_read'
+                if not session.read_resource_template(result['template'],{'item':'alpha'},'smoke://items/alpha'):raise RuntimeError('Template read was rejected')
+                return
+            if result['step']=='prompt_completion':
+                if message.get('completion',{}).get('values')!=['world']:raise RuntimeError('Unexpected prompt completion')
+                result['step']='prompt_get'
+                if not session.list_prompts({'prompt':result['prompt'],'arguments':{'name':'world'}}):raise RuntimeError('Prompt retrieval was rejected')
+                return
             output=message['call_result']
             if result['step']=='call':
                 validate_tool_result(result['tool'],output)
@@ -145,8 +162,8 @@ def run(session,transport):
                 if not session.list_resource_templates():raise RuntimeError('Template listing was rejected')
             elif result['step']=='templates':
                 template=next(item for item in message['templates'] if item['uriTemplate']=='smoke://items/{item}')
-                result['step']='template_read'
-                if not session.read_resource_template(template,{'item':'alpha'},'smoke://items/alpha'):raise RuntimeError('Template read was rejected')
+                result['template']=template;result['step']='template_completion'
+                if not session.complete_argument('resource',template,'item','al',{}):raise RuntimeError('Resource completion was rejected')
             else:
                 if message['contents'][0]['text']!='Synthetic item alpha':raise RuntimeError('Unexpected template contents')
                 result['step']='prompts'
@@ -157,8 +174,8 @@ def run(session,transport):
         try:
             if 'error' in message:raise RuntimeError(message['error'])
             if result['step']=='prompts':
-                prompt=next(item for item in message['prompts'] if item['name']=='greet');result['step']='prompt_get'
-                if not session.list_prompts({'prompt':prompt,'arguments':{'name':'world'}}):raise RuntimeError('Prompt retrieval was rejected')
+                prompt=next(item for item in message['prompts'] if item['name']=='greet');result['prompt']=prompt;result['step']='prompt_completion'
+                if not session.complete_argument('prompt',prompt,'name','wor',{}):raise RuntimeError('Prompt completion was rejected')
             else:
                 if message['messages'][0]['content']['text']!='Hello world':raise RuntimeError('Unexpected prompt content')
                 result['step']='complete';loop.quit()
@@ -174,7 +191,7 @@ def run(session,transport):
             if not closed or closed[0].get('session_closed') is not True:fail('HTTPS session shutdown was not confirmed')
         session.manager.clearConnectionCache();app.processEvents()
     if result.get('error'):raise RuntimeError(result['step']+': '+result['error'])
-    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['discovery','tool call and output schema','server ping','request-scoped server ping','resource list/read','template list/read','prompt list/get']}
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['discovery','tool call and output schema','server ping','request-scoped server ping','resource list/read','template list/read/completion','prompt list/get/completion']}
 
 
 def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False):

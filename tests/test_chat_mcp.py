@@ -402,6 +402,22 @@ for line in sys.stdin:
         self.assertNotIn('private-for-user',json.dumps(result));self.assertIn('model-evidence',json.dumps(result));self.assertIn('private-for-user',str(events))
         self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','call'])
 
+    def test_prompt_completion_uses_listed_server_prompt(self):
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Runtime
+        server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock();controller.tools=[]
+        controller.prompts=[{'name':'review','arguments':[{'name':'file'}]}]
+        controller.bridge.request.return_value={'completion':{'values':['main.py']}}
+        request={'server':'Remote','kind':'prompt','target':'review','argument':'file','value':'ma','context':{}}
+        result=controller.invoke('mcp_complete_argument',{'request':json.dumps(request)},Runtime())
+        self.assertEqual(result['completion']['values'],['main.py'])
+        self.assertIn('untrusted',result['notice'].lower())
+        self.assertEqual(controller.bridge.request.call_args.args[0],'complete')
+        request['target']='unlisted'
+        with self.assertRaises(Exception):controller.invoke('mcp_complete_argument',{'request':json.dumps(request)},Runtime())
+        controller.bridge.request.assert_called_once()
+
     def test_tool_call_runs_without_approval(self):
         from agentnik.chat_mcp import ChatMCP
         from agentnik.tools import Runtime
