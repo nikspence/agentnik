@@ -6,7 +6,7 @@ from unittest.mock import patch
 from pathlib import Path
 from PySide6.QtCore import QEventLoop,QTimer,QObject,Signal
 from PySide6.QtWidgets import QApplication
-from agentnik.mcp_elicitation import ElicitationDialog,parse_input_required,continuation
+from agentnik.mcp_elicitation import ElicitationDialog,parse_input_required,parse_legacy_request,continuation
 
 
 def request():
@@ -48,6 +48,33 @@ class ElicitationTests(unittest.TestCase):
         with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True):
             dialog=ElicitationDialog('Example',parse_input_required(data)['forms']);dialog.submit();dialog.submit()
         self.assertEqual(dialog.responses,{'item':{'action':'accept'},'second':{'action':'accept','content':{'format':'csv'}}})
+
+    def test_legacy_url_requires_new_protocol_and_safe_identifier(self):
+        params={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'}
+        self.assertEqual(parse_legacy_request(params,'2025-11-25')['forms'][0]['mode'],'url')
+        for ident in ('',None,'bad\nvalue','x'*257):
+            with self.subTest(ident=ident),self.assertRaises(ValueError):parse_legacy_request(dict(params,elicitationId=ident),'2025-11-25')
+        with self.assertRaises(ValueError):parse_legacy_request(params,'2025-06-18')
+        with self.assertRaises(ValueError):parse_legacy_request(dict(params,url='http://example.test/'),'2025-11-25')
+
+    def test_legacy_remote_url_only_opens_after_consent(self):
+        from unittest.mock import Mock
+        from agentnik.mcp_remote import RemoteSession
+        params={'mode':'url','message':'Review','url':'https://example.test/path','elicitationId':'synthetic'}
+        for standalone,decline in ((False,False),(True,False),(False,True),(True,True)):
+            session=RemoteSession('https://example.test/mcp','');session.elicitation_enabled=True;session.protocol='2025-11-25';session.phase='call';session.post_server_response=Mock();dialogs=[]
+            with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True) as open_url:
+                def show(forms):
+                    dialog=ElicitationDialog('Example',forms);dialogs.append(dialog);open_url.assert_not_called()
+                    if decline:dialog.decline()
+                    else:dialog.submit()
+                    self.assertTrue(session.continue_elicitation(dialog.responses))
+                session.elicitation_requested.connect(show)
+                session.server_request({'jsonrpc':'2.0','id':'input','method':'elicitation/create','params':params},standalone=standalone)
+                if decline:open_url.assert_not_called()
+                else:open_url.assert_called_once_with(params['url'])
+                session.post_server_response.assert_called_once_with('input',{'result':{'action':'decline' if decline else 'accept'}},('str','input'),standalone)
+            session.timer.stop();session.closed=True
 
     def test_parse_and_review_valid_answer(self):
         parsed=parse_input_required(request());self.assertEqual(parsed['request_state'],'opaque-state')
@@ -154,10 +181,10 @@ class ElicitationTests(unittest.TestCase):
             with self.subTest(protocol=protocol):self.check_2025_local_server(protocol)
         self.check_2025_local_server('2025-11-25',decline=True)
 
-    def check_2025_local_server(self,protocol,decline=False):
+    def check_2025_local_server(self,protocol,decline=False,url=False):
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits
-        server_path=Path(__file__).parent/'fixtures'/'mcp_legacy_elicitation_stdio.py';server={'name':'Legacy','command':sys.executable,'args':['-u',str(server_path),protocol],'enabled':True}
+        server_path=Path(__file__).parent/'fixtures'/'mcp_legacy_elicitation_stdio.py';server={'name':'Legacy','command':sys.executable,'args':['-u',str(server_path),protocol]+(['url'] if url else []),'enabled':True}
         bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
         def worker():
             info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime));bridge.close_signal.emit()
@@ -167,10 +194,16 @@ class ElicitationTests(unittest.TestCase):
             if dialog and not presented:
                 presented.append(True);self.assertEqual(out,[])
                 if decline:dialog.decline()
+                elif url:dialog.submit()
                 else:dialog.fields['choice'][1].setText('yes');dialog.submit()
             if not thread.is_alive():loop.quit()
         poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
         self.assertFalse(thread.is_alive());self.assertEqual(presented,[True]);self.assertEqual(out[0]['call_result']['content'][0]['text'],'decline' if decline else 'accept')
+
+    def test_2025_local_url_uses_review_dialog(self):
+        with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True) as open_url:
+            self.check_2025_local_server('2025-11-25',url=True)
+            open_url.assert_called_once_with('https://example.test/consent')
 
     def test_dialog_cancellation_stops_call_without_continuing(self):
         from agentnik.mcp_code import CodingMCPBridge

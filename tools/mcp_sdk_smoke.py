@@ -54,6 +54,12 @@ def make_server(cancelled=None,resumption=None):
         """Request synthetic user input before finishing."""
         return 'Chosen '+answer.choice
 
+    @server.tool()
+    async def interactive_url(ctx:Context)->str:
+        """Request consent for a synthetic external interaction."""
+        answer=await ctx.elicit_url('Review synthetic URL','https://example.test/consent','synthetic-id')
+        return 'URL '+answer.action
+
     @server.resource('smoke://fixture')
     def fixture()->str:
         return 'Synthetic resource'
@@ -218,7 +224,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False,test_elicitation=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False,test_elicitation=False,test_url=False):
     import datetime
     import ipaddress
     import socket
@@ -333,7 +339,7 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
             elif test_oauth_ui or test_oauth_dynamic:result=run_oauth_ui(url,oauth_requests,dynamic=test_oauth_dynamic)
             else:
                 session=RemoteSession(url,'',timeout_seconds=15)
-                result=run_modern_elicitation(session,'https-modern' if test_modern else 'https') if test_modern_elicitation or test_elicitation else run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
+                result=run_modern_elicitation(session,'https-modern' if test_modern else 'https',url=test_url) if test_modern_elicitation or test_elicitation or test_url else run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
@@ -341,26 +347,27 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
     return result
 
 
-def run_modern_elicitation(session,transport):
+def run_modern_elicitation(session,transport,url=False):
     from PySide6.QtCore import QEventLoop,QTimer,QCoreApplication
     session.elicitation_enabled=True;loop=QEventLoop();result={'forms':[]};timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit)
     def discovered(info):
         result['protocol']=info.get('protocol')
-        tool=next(item for item in info['tool_details'] if item['name']=='interactive')
+        tool=next(item for item in info['tool_details'] if item['name']==('interactive_url' if url else 'interactive'))
         if not session.call(tool,{}):result['error']='Call rejected';loop.quit()
     def requested(forms):
         result['forms'].append(forms)
-        if not session.continue_elicitation({forms[0]['id']:{'action':'accept','content':{'choice':'yes'}}}):result['error']='Input rejected';loop.quit()
+        response={'action':'accept'} if url else {'action':'accept','content':{'choice':'yes'}}
+        if not session.continue_elicitation({forms[0]['id']:response}):result['error']='Input rejected';loop.quit()
     session.discovered.connect(discovered);session.elicitation_requested.connect(requested);session.called.connect(lambda value:(result.update(response=value),loop.quit()));session.ended.connect(lambda value:(result.update(error=value.get('error')),loop.quit()))
     timer.start(15000);session.start();loop.exec();timer.stop()
     try:
         blocks=result.get('response',{}).get('call_result',{}).get('content',[])
-        if result.get('error') or len(result['forms'])!=1 or not any(item.get('text')=='Chosen yes' for item in blocks):raise RuntimeError('SDK elicitation failed: '+str(result))
+        if result.get('error') or len(result['forms'])!=1 or not any(item.get('text')==('URL accept' if url else 'Chosen yes') for item in blocks):raise RuntimeError('SDK elicitation failed: '+str(result))
     finally:
         if transport.startswith('stdio'):session.close()
         else:session.shutdown();session.manager.clearConnectionCache()
         QCoreApplication.processEvents()
-    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['form request','validated input','explicit continuation','final result']}
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['url request' if url else 'form request','validated input','explicit continuation','final result']}
 
 
 def run_modern_notifications(session,transport='https-modern'):
@@ -574,6 +581,7 @@ if __name__=='__main__':
     elif sys.argv[1:]==['--server-modern']:modern_stdio_server()
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
     elif sys.argv[1:]==['--https-elicitation']:print(json.dumps(run_https(test_elicitation=True)))
+    elif sys.argv[1:]==['--https-url-elicitation']:print(json.dumps(run_https(test_url=True)))
     elif sys.argv[1:]==['--https-modern']:print(json.dumps(run_https(test_modern=True)))
     elif sys.argv[1:]==['--https-modern-notifications']:print(json.dumps(run_https(test_modern=True,test_modern_notifications=True)))
     elif sys.argv[1:]==['--https-modern-elicitation']:print(json.dumps(run_https(test_modern=True,test_modern_elicitation=True)))
@@ -610,4 +618,9 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    elif sys.argv[1:]==['--stdio-url-elicitation']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio',url=True)))
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

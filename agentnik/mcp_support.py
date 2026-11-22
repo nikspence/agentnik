@@ -159,7 +159,7 @@ def rpc_error(message):
 
 def initialize_request(elicitation=False):
     capabilities={'tasks':{}}
-    if elicitation:capabilities['elicitation']={}
+    if elicitation:capabilities['elicitation']={'form':{},'url':{}}
     return {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':PROTOCOL,'capabilities':capabilities,'clientInfo':{'name':'Agentnik','version':'0.1'}}}
 
 

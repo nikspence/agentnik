@@ -171,10 +171,10 @@ class LocalSession(QObject):
                     while self.server_requests and self.server_requests[0]<=now-10:self.server_requests.popleft()
                     if len(self.server_requests)>=32:raise ValueError('Too many MCP server requests')
                     self.server_requests.append(now)
-                    if method=='elicitation/create' and self.elicitation_enabled and self.phase in ('call','resource_read','prompt_get') and (self.info or {}).get('protocol') in ('2025-06-18','2025-11-25') and self.elicitation_pending is None and isinstance(params,dict) and params.get('mode','form')=='form':
-                        from .mcp_elicitation import parse_input_required
+                    if method=='elicitation/create' and self.elicitation_enabled and self.phase in ('call','resource_read','prompt_get') and (self.info or {}).get('protocol') in ('2025-06-18','2025-11-25') and self.elicitation_pending is None:
+                        from .mcp_elicitation import parse_legacy_request
                         try:
-                            self.elicitation_pending=parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':method,'params':params}}});self.elicitation_pending['legacy_id']=ident
+                            self.elicitation_pending=parse_legacy_request(params,self.info['protocol']);self.elicitation_pending['legacy_id']=ident
                         except (ValueError,TypeError,RecursionError):
                             self.send({'jsonrpc':'2.0','id':ident,'error':{'code':-32602,'message':'Unsupported elicitation request'}});continue
                         self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);continue

@@ -145,7 +145,7 @@ class MCPFoundation(unittest.TestCase):
                                 received.append((body,self.headers.get('Mcp-Session-Id'),self.headers.get('Authorization'),self.headers.get('MCP-Protocol-Version')));self.send_response(202);self.end_headers();answered.set();return
                             if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                             if method=='initialize':
-                                assert body['params']['capabilities']['elicitation']=={}
+                                assert body['params']['capabilities']['elicitation']=={'form':{},'url':{}}
                                 result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
                             elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
                             elif method=='tools/call':

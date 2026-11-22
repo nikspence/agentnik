@@ -256,10 +256,10 @@ class RemoteProbe(QObject):
         else:
             if key in self.server_pings or len(self.server_pings)>=32:raise ValueError('Excessive server requests')
             self.server_pings[key]=message
-        if method=='elicitation/create' and self.elicitation_enabled and self.protocol in ('2025-06-18','2025-11-25') and self.phase in ('call','resource_read','prompt_get') and self.elicitation_pending is None and isinstance(params,dict) and params.get('mode','form')=='form':
-            from .mcp_elicitation import parse_input_required
+        if method=='elicitation/create' and self.elicitation_enabled and self.protocol in ('2025-06-18','2025-11-25') and self.phase in ('call','resource_read','prompt_get') and self.elicitation_pending is None:
+            from .mcp_elicitation import parse_legacy_request
             try:
-                self.elicitation_pending=parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':method,'params':params}}});self.elicitation_pending['legacy_request']=(ident,standalone)
+                self.elicitation_pending=parse_legacy_request(params,self.protocol);self.elicitation_pending['legacy_request']=(ident,standalone)
             except (ValueError,TypeError,RecursionError):
                 self.post_server_response(ident,{'error':{'code':-32602,'message':'Unsupported elicitation request'}},key,standalone);return
             self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);return

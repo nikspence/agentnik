@@ -62,6 +62,17 @@ def parse_input_required(result):
     return {'forms':forms,'request_state':state}
 
 
+def parse_legacy_request(params,protocol):
+    """Validate a 2025 server-initiated form or URL request."""
+    if not isinstance(params,dict):raise ValueError('Invalid MCP input request')
+    mode=params.get('mode','form')
+    if protocol not in ('2025-06-18','2025-11-25') or mode not in ('form','url'):raise ValueError('Unsupported MCP input request')
+    if mode=='url':
+        ident=params.get('elicitationId')
+        if protocol!='2025-11-25' or not isinstance(ident,str) or not ident or len(ident)>256 or any(unicodedata.category(ch).startswith('C') for ch in ident):raise ValueError('Invalid MCP input request')
+    return parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':'elicitation/create','params':params}}})
+
+
 def continuation(original,pending,responses):
     """Validate user responses and build the next explicit protocol round."""
     if not isinstance(original,dict) or not isinstance(original.get('params'),dict) or not isinstance(responses,dict):raise ValueError('Invalid MCP input response')
