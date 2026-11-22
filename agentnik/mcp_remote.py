@@ -237,6 +237,9 @@ class RemoteProbe(QObject):
             try:session=raw_session if isinstance(raw_session,str) else bytes(raw_session).decode('ascii')
             except UnicodeError:raise ValueError('Invalid MCP session identifier') from None
             if len(session)>512 or any(ord(ch)<33 or ord(ch)>126 for ch in session):raise ValueError('Invalid MCP session identifier')
+            if self.sse_resuming:
+                if session and self.session and session!=self.session:raise ValueError('MCP session identifier changed')
+                session=session or self.session
         if session:request.setRawHeader(b'Mcp-Session-Id',session.encode('ascii'))
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
         response={'jsonrpc':'2.0','id':ident}
@@ -382,14 +385,21 @@ class RemoteProbe(QObject):
         ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
         resumable_stream=status==200 and ctype=='text/event-stream'
         transient_resume=self.sse_resuming and (status is None or isinstance(status,int) and 500<=status<600) and reply.error()!=QNetworkReply.NetworkError.SslHandshakeFailedError
-        if self.phase not in ('initialize','initialized','closing','task_cancel','request_cancel') and (resumable_stream or transient_resume) and not self.progress_final_seen and self.sse_last_id and self.sse_retry_ms is not None:
+        if self.phase not in ('initialized','closing','task_cancel','request_cancel') and (resumable_stream or transient_resume) and not self.progress_final_seen and self.sse_last_id and self.sse_retry_ms is not None:
+            if self.phase=='initialize' and not self.sse_resuming:
+                try:
+                    session=reply.rawHeader('Mcp-Session-Id')
+                    if not isinstance(session,str):session=bytes(session).decode('ascii')
+                    if len(session)>512 or any(ord(ch)<33 or ord(ch)>126 for ch in session):raise ValueError()
+                    self.session=session
+                except (ValueError,UnicodeError,TypeError):self.stop('Invalid MCP session identifier.');return
             self.reply=None;reply.deleteLater();del self.buffer[self.sse_event_end:]
             self.sse_pos=self.sse_event_end;self.sse_search=self.sse_event_end;self.sse_parts=[];self.sse_event_id=None;self.sse_first_line=False;self.sse_resuming=True
             self.progress.emit('MCP response stream disconnected; resuming without repeating the request.')
             if self.sse_resuming:self.sse_resume_timer.start(self.sse_retry_ms)
             return
         stream_finished=resumable_stream and self.progress_final_seen
-        self.sse_resuming=False
+        was_resuming=self.sse_resuming;self.sse_resuming=False
         self.reply=None
         if stream_finished:
             reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort()
@@ -440,7 +450,8 @@ class RemoteProbe(QObject):
                 session=reply.rawHeader('Mcp-Session-Id')
                 if not isinstance(session,str):session=bytes(session).decode('ascii')
                 if len(session)>512 or any(ord(ch)<33 or ord(ch)>126 for ch in session):raise ValueError('Invalid MCP session identifier')
-                self.session=session
+                if was_resuming and session and self.session and session!=self.session:raise ValueError('MCP session identifier changed')
+                if session or not was_resuming:self.session=session
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
                 self.phase='initialized';self.send({'jsonrpc':'2.0','method':'notifications/initialized'});return
             if self.phase=='completion':
