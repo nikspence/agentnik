@@ -59,7 +59,7 @@ def contains_secret(value,secret):
     return False
 
 
-def response_message(data,content_type,expected_id,on_list_changed=None):
+def response_message(data,content_type,expected_id,on_list_changed=None,on_server_request=None):
     if content_type=='application/json':messages=[data]
     elif content_type=='text/event-stream':
         messages=[];parts=[]
@@ -83,7 +83,10 @@ def response_message(data,content_type,expected_id,on_list_changed=None):
         try:message=json.loads(raw)
         except (ValueError,UnicodeError,RecursionError):raise ValueError('Invalid MCP response') from None
         if not isinstance(message,dict) or message.get('jsonrpc')!='2.0':raise ValueError('Invalid MCP response')
-        if message.get('id')==expected_id and type(message.get('id')) is int:found.append(message)
+        if 'id' in message and 'method' in message:
+            if on_server_request is None:raise ValueError('Unsupported server request or unexpected response')
+            on_server_request(message)
+        elif message.get('id')==expected_id and type(message.get('id')) is int:found.append(message)
         elif 'id' in message:raise ValueError('Unsupported server request or unexpected response')
         elif message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
             if on_list_changed is None:raise MCPListChangedError('MCP server list changed')
@@ -101,6 +104,7 @@ class RemoteProbe(QObject):
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
         self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
+        self.server_pings={};self.server_ping_error=None;self.server_ping_replies=set()
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(self.timeout_ms);self.send(initialize_request())
@@ -110,6 +114,7 @@ class RemoteProbe(QObject):
         if self.phase!='task_result':self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0
         self.progress_final_seen=False
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
+        self.server_pings={};self.server_ping_error=None
         if self.phase=='call' and message.get('method')=='tools/call':
             self.log_count=0;self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
@@ -128,7 +133,9 @@ class RemoteProbe(QObject):
         if len(self.buffer)>response_limit(self.phase):self.stop('MCP response exceeded the output limit.');return
         ctype=str(self.reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
         status=self.reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
-        if self.phase in ('call','task_result') and self.progress_token and status==200 and ctype=='text/event-stream':self.consume_progress(final)
+        if self.phase not in ('initialize','initialized','closing','task_cancel','request_cancel') and status==200 and ctype=='text/event-stream':
+            self.consume_progress(final)
+            if self.server_ping_error:self.stop(self.server_ping_error)
 
     def consume_progress(self,final=False):
         """Inspect completed SSE events while retaining the full response for validation."""
@@ -154,9 +161,15 @@ class RemoteProbe(QObject):
                 self.sse_parts.append(value)
 
     def _progress_event(self,data):
+        if self.server_ping_error:return
         try:message=json.loads(data)
         except (ValueError,UnicodeError,RecursionError):return
         if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or (self.token and contains_secret(message,self.token)):return
+        if 'id' in message and 'method' in message:
+            if self.progress_final_seen:self.server_ping_error='Unexpected MCP server request after the response.';return
+            try:self.server_ping(message)
+            except ValueError:self.server_ping_error='Invalid or unsupported MCP server request.'
+            return
         if type(message.get('id')) is int and message['id']==self.current_id:
             self.progress_final_seen=True;return
         if self.progress_final_seen:return
@@ -171,6 +184,31 @@ class RemoteProbe(QObject):
             self.progress_last,detail=notice;now=time.monotonic()
             if self.progress_count<40 and now-self.progress_emitted_at>=.25:
                 self.progress_count+=1;self.progress_emitted_at=now;self.progress.emit(detail)
+
+    def server_ping(self,message):
+        ident=message.get('id');params=message.get('params')
+        if message.get('method')!='ping' or (type(ident) is not int and (not isinstance(ident,str) or len(ident)>128)) or (params is not None and not isinstance(params,dict)) or 'result' in message or 'error' in message:raise ValueError('Invalid server request')
+        key=(type(ident).__name__,ident)
+        if key in self.server_pings or len(self.server_pings)>=32 or len(self.server_ping_replies)>=4:raise ValueError('Excessive server requests')
+        self.server_pings[key]=message
+        request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy);tls.configure_qt_request(request)
+        request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
+        request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
+        if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
+        if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
+        origin=self.reply;reply=self.manager.post(request,json.dumps({'jsonrpc':'2.0','id':ident,'result':{}}).encode());self.server_ping_replies.add(reply)
+        reply.setReadBufferSize(1024)
+        ping_timer=QTimer(reply);ping_timer.setSingleShot(True);ping_timer.timeout.connect(reply.abort);ping_timer.start(min(self.timeout_ms,3000))
+        if tls.relaxed():reply.sslErrors.connect(lambda _errors,reply=reply:reply.ignoreSslErrors())
+        def finished():
+            status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute);invalid=status!=202 or reply.bytesAvailable()!=0
+            self.server_ping_replies.discard(reply);reply.deleteLater()
+            if invalid and self.reply is origin and self.phase not in ('closing','task_cancel','request_cancel'):self.stop('MCP server did not accept a ping response.')
+        reply.finished.connect(finished)
+
+    def verify_server_ping(self,message):
+        ident=message.get('id');key=(type(ident).__name__,ident) if type(ident) is int or isinstance(ident,str) else None
+        if key not in self.server_pings or self.server_pings[key]!=message:raise ValueError('Unsupported server request')
 
     def list_changed(self,method):
         notice=invalidate_server_list(self,method)
@@ -207,7 +245,7 @@ class RemoteProbe(QObject):
                     self.result['tools']=[];self.result['tool_details']=[];self.result['more_tools']=False;self.finish_discovery();return
                 self.phase='tools';self.pages=1;self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}});return
             ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
-            message=response_message(bytes(self.buffer),ctype,self.current_id,self.list_changed)
+            message=response_message(bytes(self.buffer),ctype,self.current_id,self.list_changed,self.verify_server_ping)
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
             if 'error' in message:self.stop(rpc_error(message));return
             if self.phase=='initialize':

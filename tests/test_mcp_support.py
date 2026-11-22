@@ -11,6 +11,54 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_remote_stream_answers_server_ping_without_interrupting_tool(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([])
+        for mode in ('same-id','string-id'):
+            with self.subTest(mode=mode):
+                received=[];ping_answered=threading.Event()
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body.get('method')
+                        if method is None:
+                            received.append((body,self.headers.get('Mcp-Session-Id'),self.headers.get('Authorization'),self.headers.get('MCP-Protocol-Version')));ping_answered.set();self.send_response(202);self.end_headers();return
+                        if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                        if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+                        elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+                        elif method=='tools/call':
+                            ping={'jsonrpc':'2.0','id':body['id'] if mode=='same-id' else 'server-ping','method':'ping'}
+                            self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'data: '+json.dumps(ping).encode()+b'\n\n');self.wfile.flush()
+                            if ping_answered.wait(4):self.wfile.write(b'data: '+json.dumps({'jsonrpc':'2.0','id':body['id'],'result':{'content':[{'type':'text','text':'done'}]}}).encode()+b'\n\n');self.wfile.flush()
+                            return
+                        else:raise AssertionError(method)
+                        payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
+                    def do_DELETE(self):self.send_response(204);self.end_headers()
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);loop=QEventLoop();out=[]
+                session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
+                try:
+                    loop.exec();self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(received),1)
+                    response,session_header,auth,protocol=received[0];self.assertEqual(response['result'],{});self.assertEqual(response['id'],4 if mode=='same-id' else 'server-ping');self.assertEqual(session_header,'session-one');self.assertEqual(auth,'Bearer fixture-token');self.assertEqual(protocol,PROTOCOL)
+                finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_remote_server_ping_rejects_invalid_or_duplicate_requests(self):
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession,response_message
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','')
+        invalid=[{'id':True,'method':'ping'},{'id':'x','method':'other'},{'id':'x','method':'ping','params':[]},{'id':'x','method':'ping','result':{}},{'id':'x'*129,'method':'ping'}]
+        session.server_pings[('int',7)]={'jsonrpc':'2.0','id':7,'method':'ping'};invalid.append({'id':7,'method':'ping'})
+        for request in invalid:
+            with self.subTest(request=request),self.assertRaises(ValueError):session.server_ping(request)
+        ping=b'data: {"jsonrpc":"2.0","id":7,"method":"ping"}\n\n';final=b'data: {"jsonrpc":"2.0","id":7,"result":{}}\n\n'
+        self.assertEqual(response_message(ping+final,'text/event-stream',7,on_server_request=session.verify_server_ping)['result'],{})
+        with self.assertRaises(ValueError):response_message(ping+final,'text/event-stream',7)
+        session.closed=True
+
     def test_local_stopped_tool_sends_cancellation_notification(self):
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
