@@ -215,7 +215,7 @@ def chat_body(c, messages):
         from .document_reader import message_text
         text = message_text(m)
         content = text
-        if m.get('images'):
+        if m.get('images') and m['role']=='user':
             content = [{'type':text_type if protocol == 'responses' else 'text', 'text':text}, *[image_block(p, protocol) for p in m['images']]]
         history.append({'role':m['role'], 'content':content})
     body = {'model':c['model'], 'input' if protocol == 'responses' else 'messages':history, 'stream':c.get('stream', True)}

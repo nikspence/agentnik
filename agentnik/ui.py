@@ -167,12 +167,17 @@ class MessageBubble(QFrame):
         self.thinking_toggle.toggled.connect(self.toggle_thinking); layout.addWidget(self.thinking_toggle)
         self.thinking_view = MessageText(); self.thinking_view.setObjectName('thinkingText'); layout.addWidget(self.thinking_view)
         self.text = MessageText(); layout.addWidget(self.text)
-        for path in message.get('images',[]):
-            label = QLabel(); label.setPixmap(QPixmap(path).scaled(280,180,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)); layout.addWidget(label)
+        self.image_layout=QVBoxLayout(); layout.addLayout(self.image_layout); self.image_paths=[]
+        self.set_images(message.get('images',[]))
         if message.get('metrics'):
             label = QLabel(metrics_text(message['metrics'])); label.setObjectName('metrics'); label.setWordWrap(True); layout.addWidget(label)
         self.set_stream(message.get('text',''),message.get('thinking',''))
         self.restyle()
+    def set_images(self,paths):
+        if list(paths)==self.image_paths:return
+        clear_layout(self.image_layout); self.image_paths=list(paths)
+        for path in paths:
+            label=QLabel(); label.setPixmap(QPixmap(path).scaled(280,180,Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.SmoothTransformation)); self.image_layout.addWidget(label)
     def toggle_thinking(self,visible):
         self.thinking_view.setVisible(visible); self.thinking_toggle.setText(self.tr('Hide thinking') if visible else self.tr('Show thinking'))
     def set_stream(self,text,thinking,research_data=None):
@@ -834,6 +839,12 @@ class SessionTab(QWidget):
                 research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{})),'local_tools':True,'web_enabled':self.web_access.isChecked(),'mcp_priority':self.store.config['settings'].get('mcp_priority','first')}
                 backend_specs=self.store.web_backend_specs()
                 key=next((b['key'] for b in backend_specs if b.get('key')),'')
+            image_tool=None
+            if self.research_running:
+                image_config=self.window.image_tool_config()
+                if image_config:
+                    from .chat_image import ChatImageTool
+                    image_tool=ChatImageTool(image_config,self.store,chat_messages)
             self._continuing_chat=bool(continuation and mode=='chat')
             self.partial = {'text':'','thinking':''}
             self.busy(True); self.info.setText(self.tr('Running…')); self.render()
@@ -849,7 +860,7 @@ class SessionTab(QWidget):
             chat_mcp=self.chat_mcp if mcp_ref else None
             def work(emit,cancel):
                 try:
-                    return research.run(c,request_messages,key,emit,cancel,limits=research_limits,run_id=token,config=research_config,policy=selected_policy,backends=backend_specs,access_policy=access_policy,mcp=chat_mcp) if research_enabled else core.run_request(c,mode,body,emit,cancel)
+                    return research.run(c,request_messages,key,emit,cancel,limits=research_limits,run_id=token,config=research_config,policy=selected_policy,backends=backend_specs,access_policy=access_policy,mcp=chat_mcp,image_tool=image_tool) if research_enabled else core.run_request(c,mode,body,emit,cancel)
                 finally:
                     if chat_mcp:chat_mcp.close()
             self.job = Job(work,
@@ -872,7 +883,9 @@ class SessionTab(QWidget):
                     if not hasattr(self.live_bubble,'research_details'):
                         self.live_bubble.research_details = ResearchDetails(); self.live_bubble.layout().addWidget(self.live_bubble.research_details)
                     self.live_bubble.research_details.set_data(value['research'])
-            if hasattr(self,'live_bubble'): self.live_bubble.set_stream(value['text'],value['thinking'],value.get('research'))
+            if hasattr(self,'live_bubble'):
+                self.live_bubble.set_stream(value['text'],value['thinking'],value.get('research'))
+                self.live_bubble.set_images(value.get('images',[]))
             self.follow_stream()
     def finished(self,result):
         if self.research_running: return self.complete_research(result)

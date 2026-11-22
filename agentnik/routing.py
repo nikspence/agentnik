@@ -58,12 +58,12 @@ def aggregate(values,runtime):
     return metrics
 
 
-def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=None,run_id=None,backend=None,mcp=None):
+def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=None,run_id=None,backend=None,mcp=None,image_tool=None):
     runtime=Runtime(cancel,limits,run_id); c=copy.deepcopy(c); messages=copy.deepcopy(messages)
     if policy not in POLICIES or access_policy not in ACCESS_POLICIES: raise ValueError('Invalid research policy')
     specs=copy.deepcopy(backends if backends is not None else [{'id':'ollama-search','kind':'ollama','name':'Ollama search','key':key}])
     if len(specs)>5: raise ValueError('At most five managed search backends are supported')
-    secrets=(c.get('api_key',''),key,*[b.get('key','') for b in specs])
+    secrets=(c.get('api_key',''),key,*[b.get('key','') for b in specs],*getattr(image_tool,'secret_values',[]))
     order={'Provider first':['hosted','managed'],'Agentnik first':['managed','hosted'],
            'Provider only':['hosted'],'Agentnik only':['managed']}[policy]
     attempts=[]; events=[]; completed=[]; updates=[]; last=None
@@ -94,9 +94,9 @@ def run(c,messages,key,emit,cancel,config,policy,backends,access_policy,limits=N
                 if len(attempts)>=runtime.limits.attempts: raise LimitError('Research attempt limit reached')
                 if route=='managed':
                     service=backend or OrderedSearch(specs,allow_fallback=True)
-                    last=research.run_managed(c,messages,key,lambda v:emit(merged(v)),cancel,backend=service,runtime=runtime,local_tools=bool(config.get('local_tools')),mcp=mcp,mcp_priority=config.get('mcp_priority','first'))
+                    last=research.run_managed(c,messages,key,lambda v:emit(merged(v)),cancel,backend=service,runtime=runtime,local_tools=bool(config.get('local_tools')),mcp=mcp,mcp_priority=config.get('mcp_priority','first'),image_tool=image_tool)
                 else:
-                    last=research.run_managed(c,messages,key,lambda v:emit(merged(v)),cancel,runtime=runtime,local_tools=True,web_tools=False,mcp=mcp,hosted_web=True,mcp_priority=config.get('mcp_priority','first')) if config.get('local_tools') else hosted.run_hosted(c,messages,key,lambda v:emit(merged(v)),cancel,runtime=runtime)
+                    last=research.run_managed(c,messages,key,lambda v:emit(merged(v)),cancel,runtime=runtime,local_tools=True,web_tools=False,mcp=mcp,hosted_web=True,mcp_priority=config.get('mcp_priority','first'),image_tool=image_tool) if config.get('local_tools') or image_tool else hosted.run_hosted(c,messages,key,lambda v:emit(merged(v)),cancel,runtime=runtime)
                 state=last['research']; capability_state=state.get('capability_state')
                 if capability_state in ('verified','unsupported'):
                     updates.append({'field':'hosted_search' if route=='hosted' else 'managed_tools','state':capability_state,

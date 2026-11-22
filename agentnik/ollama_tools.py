@@ -23,7 +23,7 @@ def history_messages(messages):
         else:
             from .document_reader import message_text
             item={'role':m['role'],'content':message_text(m)}
-            if m.get('images'): item['images']=[base64.b64encode(Path(p).read_bytes()).decode() for p in m['images']]
+            if m.get('images') and m['role']=='user': item['images']=[base64.b64encode(Path(p).read_bytes()).decode() for p in m['images']]
             history.append(item)
     return history
 
