@@ -14,6 +14,34 @@ from test_routing import Wire
 from test_image_generation import png
 
 class CodeVisionTests(unittest.TestCase):
+    def test_mcp_image_result_is_visual_only_when_enabled(self):
+        from unittest.mock import Mock
+        encoded=base64.b64encode(png()).decode()
+        detail={'name':'chart','description':'Chart','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        for enabled in (True,False):
+            with self.subTest(enabled=enabled),tempfile.TemporaryDirectory() as root:
+                bridge=Mock();bridge.server={'name':'Charts','command':'server','args':[],'enabled':True}
+                bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'image','data':encoded,'mimeType':'image/png'},{'type':'image','data':encoded,'mimeType':'image/png','annotations':{'audience':['user']}}]}}]
+                replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'chart','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                bodies=[];events=[]
+                def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Inspect chart',mcp_bridge=bridge,vision_enabled=enabled).run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events)
+                messages=bodies[-1]['messages'];tool=next(m for m in reversed(messages) if m['role']=='tool')
+                self.assertNotIn(encoded,tool['content']);self.assertNotIn(encoded,json.dumps(events))
+                if enabled:
+                    self.assertEqual(messages[-1]['content'][1]['image_url']['url'],'data:image/png;base64,'+encoded)
+                    self.assertEqual(len(messages[-1]['content']),2)
+                else:self.assertIn('inspection is disabled',tool['content']);self.assertNotIn(encoded,json.dumps(messages))
+
+    def test_mcp_invalid_images_are_not_forwarded(self):
+        from agentnik.mcp_content import model_images
+        encoded=base64.b64encode(png()).decode()
+        result={'content':[{'type':'image','data':'not-base64','mimeType':'image/png'},{'type':'image','data':encoded,'mimeType':'image/jpeg'},{'type':'image','data':encoded,'mimeType':'image/png'}]}
+        safe,images=model_images(result,True,1,'MCP chart')
+        self.assertEqual(len(images),1);self.assertNotIn(encoded,json.dumps(safe));self.assertIn('invalid',safe['content'][0]['text']);self.assertIn('invalid',safe['content'][1]['text'])
+        safe,images=model_images(result,True,0,'MCP chart');self.assertEqual(images,[]);self.assertIn('batch limit',safe['content'][0]['text'])
+
     def test_model_receives_image_after_tool_result(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root,'image.png').write_bytes(png());events=[];bodies=[]

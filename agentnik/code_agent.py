@@ -1319,7 +1319,7 @@ class CodingRun:
                             except ValueError as exc:
                                 if not response.get('call_uncertain') and isinstance(response.get('call_result'),dict):completed_mcp_result=response['call_result']
                                 raise ProjectToolError('MCP structured output failed validation: '+str(exc)+' The call may have completed; inspect server state before retrying.') from None
-                            from .mcp_content import model_tool_result
+                            from .mcp_content import model_tool_result,model_images
                             try:model_result,user_text,user_nontext=model_tool_result(response.get('call_result'))
                             except ValueError:raise ProjectToolError('MCP output contained invalid audience metadata. The call may have completed; inspect server state before retrying.') from None
                             if cacheable and not cached and not response['call_result'].get('isError'):search_cache.put(cache_key,response)
@@ -1327,6 +1327,9 @@ class CodingRun:
                                 summary='\n'.join(user_text)
                                 event('output',text='MCP user-directed content from '+server['name']+' / '+tool['name']+':\n'+summary[:1800]+('\n[Content truncated]' if len(summary)>1800 else ''))
                             if user_nontext:event('output',text='MCP user-directed content: '+str(user_nontext)+' non-text block(s) not displayed.')
+                            model_result,images=model_images(model_result,self.vision_enabled,max(0,4-len(viewed_images)),'MCP '+server['name']+' / '+tool['name'])
+                            viewed_images.extend(images)
+                            if images:event('output',text='Sending '+str(len(images))+' MCP image(s) from '+server['name']+' / '+tool['name']+' to the selected model.')
                             result={'result':model_result,'notice':'Untrusted MCP tool output.'}
                             event('output',text=('MCP tool returned an error: ' if result['result'].get('isError') else 'MCP tool completed: ')+server['name']+' / '+tool['name'])
                         elif call.name=='list_skill_resources':

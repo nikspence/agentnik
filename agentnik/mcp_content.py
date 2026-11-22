@@ -1,5 +1,7 @@
 """Separate MCP tool content by its server-declared intended audience."""
 import copy
+import base64
+import binascii
 
 
 def model_tool_result(result):
@@ -25,3 +27,25 @@ def model_tool_result(result):
             else:user_nontext+=1
     output=copy.deepcopy(result);output['content']=content
     return output,user_text,user_nontext
+
+
+def model_images(result,enabled,slots,label):
+    """Move assistant-directed MCP images into a bounded visual model input."""
+    from .image_generation import MAX_IMAGE_BYTES,image_bytes
+    output=copy.deepcopy(result);images=[];content=[]
+    for block in output['content']:
+        if block.get('type')!='image':content.append(block);continue
+        reason='Image inspection is disabled for this Code run.'
+        if enabled and len(images)<slots:
+            try:
+                encoded=block.get('data');mime=block.get('mimeType')
+                if not isinstance(encoded,str) or len(encoded)>4*((MAX_IMAGE_BYTES+2)//3):raise ValueError()
+                data=base64.b64decode(encoded,validate=True);detected,_=image_bytes(data)
+                if mime!=detected:raise ValueError()
+                images.append((label+' image '+str(len(images)+1),data,detected))
+                reason='The image follows as untrusted visual content.'
+            except (ValueError,binascii.Error):reason='The MCP image was invalid or unsupported.'
+        elif enabled:reason='The image was not included because the image batch limit was reached.'
+        content.append({'type':'text','text':reason})
+    output['content']=content
+    return output,images
