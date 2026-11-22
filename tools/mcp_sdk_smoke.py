@@ -72,6 +72,24 @@ def make_server(cancelled=None,resumption=None):
             await asyncio.sleep(.2)
             return 'Resumed result'
 
+        @server.tool()
+        async def reconnect_standalone(ctx:Context)->str:
+            """Close the notification stream and send a notification during the gap."""
+            async def wait_event(event):
+                for _ in range(200):
+                    if event.is_set():return True
+                    await asyncio.sleep(.02)
+                return False
+            resumption['calls']+=1
+            if not await wait_event(resumption['initial_get']):raise RuntimeError('Standalone stream did not open')
+            await asyncio.sleep(.1)
+            await ctx.session.send_resource_list_changed()
+            if not await wait_event(resumption['first_notice']):raise RuntimeError('First notification was not received')
+            await ctx.close_standalone_sse_stream()
+            if not await wait_event(resumption['disconnected']):raise RuntimeError('Standalone disconnect was not observed')
+            await ctx.session.send_resource_list_changed()
+            return 'Standalone stream closed'
+
     return server
 
 
@@ -159,7 +177,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['discovery','tool call and output schema','server ping','request-scoped server ping','resource list/read','template list/read','prompt list/get']}
 
 
-def run_https(test_cancel=False,test_resume=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False):
     import datetime
     import ipaddress
     import socket
@@ -191,13 +209,14 @@ def run_https(test_cancel=False,test_resume=False):
         listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(64);port=listener.getsockname()[1]
         def ssl_context(_config,factory):
             context=factory();context.minimum_version=ssl.TLSVersion.TLSv1_2;return context
-        cancelled=threading.Event();observed=[];resume={'calls':0,'gets':[]}
+        cancelled=threading.Event();observed=[];resume={'calls':0,'gets':[],'initial_get':threading.Event(),'first_notice':threading.Event(),'disconnected':threading.Event(),'stored_before_reconnect':False};resumption_test=test_resume or test_standalone_resume
         event_store=None
-        if test_resume:
+        if resumption_test:
             from mcp.server.streamable_http import EventStore,EventMessage
             class MemoryEventStore(EventStore):
                 def __init__(self):self.events=[]
                 async def store_event(self,stream_id,message):
+                    if test_standalone_resume and getattr(message,'method',None)=='notifications/resources/list_changed' and resume['disconnected'].is_set() and not any(resume['gets']):resume['stored_before_reconnect']=True
                     event_id=str(len(self.events)+1);self.events.append((event_id,stream_id,message));return event_id
                 async def replay_events_after(self,last_event_id,send_callback):
                     position=next((i for i,event in enumerate(self.events) if event[0]==last_event_id),None)
@@ -207,11 +226,14 @@ def run_https(test_cancel=False,test_resume=False):
                         if event_stream==stream_id and message is not None:await send_callback(EventMessage(message,event_id))
                     return stream_id
             event_store=MemoryEventStore()
-        sdk_app=make_server(cancelled if test_cancel else None,resume if test_resume else None).streamable_http_app(event_store=event_store,retry_interval=100 if test_resume else None)
+        sdk_app=make_server(cancelled if test_cancel else None,resume if resumption_test else None).streamable_http_app(event_store=event_store,retry_interval=100 if resumption_test else None)
         async def monitored_app(scope,receive,send):
             chunks=[]
-            if test_resume and scope['type']=='http' and scope['method']=='GET':
+            if resumption_test and scope['type']=='http' and scope['method']=='GET':
                 resume['gets'].append(dict(scope['headers']).get(b'last-event-id'))
+            async def monitored_send(item):
+                await send(item)
+                if test_standalone_resume and scope['type']=='http' and scope['method']=='GET' and not dict(scope['headers']).get(b'last-event-id') and item['type']=='http.response.start' and item['status']==200:resume['initial_get'].set()
             async def monitored_receive():
                 item=await receive()
                 if scope['type']=='http' and item['type']=='http.request':
@@ -222,7 +244,7 @@ def run_https(test_cancel=False,test_resume=False):
                             if payload.get('method') in ('tools/call','notifications/cancelled'):observed.append(payload)
                         except (ValueError,AttributeError):pass
                 return item
-            await sdk_app(scope,monitored_receive,send)
+            await sdk_app(scope,monitored_receive,monitored_send)
         settings=uvicorn.Config(monitored_app,host='127.0.0.1',port=port,ssl_certfile=str(cert_path),ssl_keyfile=str(key_path),ssl_context_factory=ssl_context,log_level='error',timeout_graceful_shutdown=2)
         server=uvicorn.Server(settings);thread=threading.Thread(target=lambda:server.run(sockets=[listener]),daemon=True);thread.start()
         try:
@@ -236,12 +258,39 @@ def run_https(test_cancel=False,test_resume=False):
                     negotiated=secure.version()
                     if negotiated not in ('TLSv1.2','TLSv1.3'):raise RuntimeError('Unexpected TLS protocol')
             session=RemoteSession('https://127.0.0.1:'+str(port)+'/mcp','',timeout_seconds=15)
-            result=run_cancel(session,cancelled,observed) if test_cancel else run_resume(session,resume) if test_resume else run(session,'https')
+            result=run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
             if thread.is_alive():raise RuntimeError('Local HTTPS server did not stop')
     return result
+
+
+def run_standalone_resume(session,resume):
+    from PySide6.QtCore import QEventLoop,QTimer
+    loop=QEventLoop();out={'result':None,'error':None,'notices':0,'disconnected':False}
+    def maybe_done():
+        if out['result'] is not None and out['notices']>=2:loop.quit()
+    def discovered(info):
+        tool=next((item for item in info['tool_details'] if item['name']=='reconnect_standalone'),None)
+        if not tool or not session.call(tool,{}):out['error']='Unable to start synthetic tool';loop.quit()
+    def progress(detail):
+        if detail.startswith('MCP resources changed;'):out['notices']+=1;resume['first_notice'].set()
+        if detail.startswith('MCP server event stream disconnected;'):out['disconnected']=True;resume['disconnected'].set()
+        maybe_done()
+    def called(value):out['result']=value;maybe_done()
+    session.discovered.connect(discovered);session.progress.connect(progress);session.called.connect(called)
+    session.ended.connect(lambda value:(out.update(error=value.get('error','Session ended')),loop.quit()))
+    timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(lambda:(out.update(error='Standalone resumption test timed out'),loop.quit()));timer.start(15000)
+    session.start();loop.exec();timer.stop()
+    cleanup=QEventLoop();closed=[];session.finished.connect(lambda message:(closed.append(message),cleanup.quit()));QTimer.singleShot(4000,cleanup.quit)
+    if not session.closed:session.shutdown();cleanup.exec()
+    session.manager.clearConnectionCache()
+    if out['error']:raise RuntimeError(out['error'])
+    if not out['disconnected'] or out['notices']!=2 or resume['calls']!=1 or not any(resume['gets']) or not resume['stored_before_reconnect']:raise RuntimeError('SDK standalone stream did not replay both notifications')
+    if out['result']['call_result']['content'][0]['text']!='Standalone stream closed':raise RuntimeError('Unexpected synthetic tool result')
+    if not closed or closed[0].get('session_closed') is not True:raise RuntimeError('HTTPS session shutdown was not confirmed')
+    return {'sdk_version':version('mcp'),'transport':'https','checks':['SDK-initiated standalone stream close','resume GET with event ID','notification replay','one tool execution','session closed']}
 
 
 def run_resume(session,resume):
@@ -297,9 +346,10 @@ if __name__=='__main__':
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
     elif sys.argv[1:]==['--https-cancel']:print(json.dumps(run_https(test_cancel=True)))
     elif sys.argv[1:]==['--https-resume']:print(json.dumps(run_https(test_resume=True)))
+    elif sys.argv[1:]==['--https-standalone-resume']:print(json.dumps(run_https(test_standalone_resume=True)))
     elif not sys.argv[1:]:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-cancel|--https-resume]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-cancel|--https-resume|--https-standalone-resume]')
