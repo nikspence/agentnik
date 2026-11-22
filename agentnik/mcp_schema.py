@@ -5,7 +5,7 @@ from referencing import Registry
 SCHEMA_URL='https://json-schema.org/draft/2020-12/schema'
 DRAFT7_URLS=('http://json-schema.org/draft-07/schema','https://json-schema.org/draft-07/schema')
 ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment','format','discriminator'}
-KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','required','additionalProperties','items','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
+KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','required','additionalProperties','items','prefixItems','additionalItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
 MAX_NODES=1000
 MAX_DEPTH=24
 MAX_BRANCHES=32
@@ -44,6 +44,7 @@ def validate_tool_arguments(schema,arguments):
     while pending:
         node,depth,width,ancestors=pending.pop();count+=1
         if count>MAX_NODES or depth>MAX_DEPTH or width>MAX_BRANCHES:raise ValueError('The tool schema is too complex to validate.')
+        if type(node) is bool:continue
         if not isinstance(node,dict):raise ValueError('The tool schema contains an unsupported schema form.')
         ident=id(node)
         if ident in ancestors:raise ValueError('The tool schema uses recursive references.')
@@ -70,7 +71,19 @@ def validate_tool_arguments(schema,arguments):
         properties=node.get('properties',{})
         if not isinstance(properties,dict) or len(properties)>256:raise ValueError('Invalid tool schema properties.')
         pending.extend((value,depth+1,width,ancestors) for value in properties.values())
-        if 'items' in node:pending.append((node['items'],depth+1,width,ancestors))
+        if 'items' in node:
+            items=node['items']
+            if isinstance(items,list):
+                if validator is not Draft7Validator or len(items)>128:raise ValueError('Invalid tool schema tuple items.')
+                pending.extend((value,depth+1,width,ancestors) for value in items)
+            else:pending.append((items,depth+1,width,ancestors))
+        if 'prefixItems' in node:
+            items=node['prefixItems']
+            if validator is not Draft202012Validator or not isinstance(items,list) or not 1<=len(items)<=128:raise ValueError('Invalid tool schema prefix items.')
+            pending.extend((value,depth+1,width,ancestors) for value in items)
+        if 'additionalItems' in node:
+            if validator is not Draft7Validator:raise ValueError('Invalid tool schema additional items.')
+            pending.append((node['additionalItems'],depth+1,width,ancestors))
         extra=node.get('additionalProperties',True)
         if not isinstance(extra,bool):pending.append((extra,depth+1,width,ancestors))
         for keyword in ('anyOf','oneOf','allOf'):

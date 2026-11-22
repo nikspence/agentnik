@@ -477,6 +477,20 @@ for line in sys.stdin:
         self.assertTrue(validate_tool_arguments({'type':'object','properties':{'database':{'anyOf':[{'type':'string'},{'type':'null'}]}}},{'database':None}))
         for unsafe in ({'type':'object','$ref':'https://example.com/schema'},{'type':'object','properties':{'q':{'type':'string','pattern':'(a+)+$'}}}):
             with self.subTest(schema=unsafe),self.assertRaisesRegex(ValueError,'unsupported'):validate_tool_arguments(unsafe,{})
+
+    def test_schema_boolean_and_tuple_subschemas(self):
+        from agentnik.mcp_schema import validate_tool_arguments,validate_tool_result
+        for dialect,tuple_schema in (('https://json-schema.org/draft/2020-12/schema',{'prefixItems':[{'type':'string'},{'type':'integer'}],'items':False}),('http://json-schema.org/draft-07/schema#',{'items':[{'type':'string'},{'type':'integer'}],'additionalItems':False})):
+            schema={'$schema':dialect,'type':'object','$defs':{'allow':True,'deny':False},'properties':{'pair':dict(type='array',minItems=2,**tuple_schema),'anything':{'$ref':'#/$defs/allow'},'forbidden':{'$ref':'#/$defs/deny'}},'required':['pair']}
+            with self.subTest(dialect=dialect):
+                self.assertTrue(validate_tool_arguments(schema,{'pair':['x',2],'anything':{'a':1}}))
+                for invalid in ({'pair':['x',2,3]},{'pair':['x','2']},{'pair':['x',2],'forbidden':None}):
+                    with self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,invalid)
+                tool={'output_schema_status':'available','output_schema':schema}
+                self.assertTrue(validate_tool_result(tool,{'structuredContent':{'pair':['x',2]}}))
+                with self.assertRaisesRegex(ValueError,'does not match'):validate_tool_result(tool,{'structuredContent':{'pair':['x',2,3]}})
+        for invalid in ({'type':'object','properties':{'x':{'prefixItems':[True]}} ,'$schema':'http://json-schema.org/draft-07/schema#'}, {'type':'object','properties':{'x':{'items':[True]}}}, {'type':'object','properties':{'x':{'prefixItems':[True]*129}}}):
+            with self.subTest(schema=invalid),self.assertRaises(ValueError):validate_tool_arguments(invalid,{})
         with self.assertRaisesRegex(ValueError,'invalid'):validate_tool_arguments({'type':'object','required':'query'}, {})
 
     def test_schema_local_definitions_unions_and_bounds(self):
