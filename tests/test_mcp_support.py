@@ -76,6 +76,55 @@ class MCPFoundation(unittest.TestCase):
         session.phase='resource_list';session.stop=Mock();session.server_stream_event(json.dumps(events[0]).encode());session.stop.assert_called_once()
         session.server_stream=None;session.closed=True
 
+    def test_remote_server_stream_reconnects_without_replaying_calls(self):
+        import threading,time
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([]);requests=[];ready=threading.Event();release=threading.Event()
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];requests.append(('POST',method))
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fixture','version':'1'},'capabilities':{'tools':{},'resources':{}}} if method=='initialize' else {'tools':[]}
+                payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
+            def do_GET(self):
+                requests.append(('GET',self.headers.get('Last-Event-ID'),self.headers.get('Mcp-Session-Id'),self.headers.get('Authorization'),time.monotonic()));index=sum(r[0]=='GET' for r in requests)
+                ready.wait(4);self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
+                event=b'data: {"jsonrpc":"2.0","method":"notifications/resources/list_changed"}\n\n'
+                try:
+                    self.wfile.write(b'id: first\nretry: 25\n'+event);self.wfile.flush()
+                    if index>1:self.wfile.write(b'id: second\n'+event);self.wfile.flush();release.wait(5)
+                except OSError:pass
+            def do_DELETE(self):release.set();self.send_response(204);self.end_headers()
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);loop=QEventLoop();notices=[]
+        def on_progress(message):
+            notices.append(message)
+            if sum('MCP resources changed' in x for x in notices)>=2:loop.quit()
+        session.discovered.connect(lambda _:ready.set());session.progress.connect(on_progress);session.start();timeout=QTimer();timeout.setSingleShot(True);timeout.timeout.connect(loop.quit);timeout.start(6000)
+        try:
+            loop.exec();timeout.stop();gets=[r for r in requests if r[0]=='GET']
+            self.assertEqual(len(gets),2);self.assertIsNone(gets[0][1]);self.assertEqual(gets[1][1:4],('first','session-one','Bearer fixture-token'));self.assertGreaterEqual(gets[1][4]-gets[0][4],0.9)
+            self.assertEqual(sum('MCP resources changed' in x for x in notices),2);self.assertNotIn(('POST','tools/call'),requests)
+        finally:release.set();session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_remote_server_stream_resumption_tracks_complete_event_ids(self):
+        from unittest.mock import Mock
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','fixture-token');session.phase='call'
+        notices=[];session.progress.connect(notices.append);reply=Mock();reply.attribute.return_value=200;reply.header.return_value='text/event-stream';session.server_stream=reply
+        event=b'data: {"jsonrpc":"2.0","method":"notifications/resources/list_changed"}\n'
+        reply.readAll.side_effect=[b'id: first\nretry: 2400\n'+event,b'\n',b'id: first\n'+event+b'\n',b'id: fixture-token\n'+event+b'\n']
+        session.read_server_stream(reply);self.assertEqual(session.server_stream_last_id,b'');self.assertEqual(session.server_stream_retry_ms,2400)
+        session.read_server_stream(reply);self.assertEqual(session.server_stream_last_id,b'first');self.assertEqual(len(notices),1)
+        session.read_server_stream(reply);self.assertEqual(len(notices),1)
+        session.read_server_stream(reply);self.assertEqual(session.server_stream_last_id,b'first');self.assertEqual(len(notices),2)
+        session.server_stream=None;session.closed=True
+
     def test_remote_optional_server_stream_rejects_bad_content_and_is_bounded(self):
         from unittest.mock import Mock
         from PySide6.QtWidgets import QApplication
