@@ -10,6 +10,7 @@ from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initia
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
+from .mcp_2026 import PROTOCOL as MODERN_PROTOCOL,prepare_request,header_fields
 
 HTTP_PROTOCOLS=(PROTOCOL,'2025-06-18','2025-03-26')
 MAX_PAGES=5
@@ -102,7 +103,7 @@ class RemoteProbe(QObject):
     progress=Signal(object)
     def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
-        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None
+        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None;self.modern=False;self.call_schema=None
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
         self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
@@ -125,11 +126,15 @@ class RemoteProbe(QObject):
         self.server_pings={};self.server_ping_error=None
         if self.phase=='call' and message.get('method')=='tools/call':
             self.log_count=0;self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
+        modern_headers={}
+        if self.modern:message,modern_headers=prepare_request(message,self.call_schema if message.get('method')=='tools/call' else None)
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
         tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
-        if self.phase!='initialize':
+        if self.modern:
+            for name,value in modern_headers.items():request.setRawHeader(name.encode('ascii'),value.encode('ascii'))
+        elif self.phase!='initialize':
             request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
             if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         self.buffer=bytearray();self.reply=self.manager.post(request,json.dumps(message).encode());self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
@@ -195,6 +200,7 @@ class RemoteProbe(QObject):
         except (ValueError,UnicodeError,RecursionError):return
         if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or (self.token and contains_secret(message,self.token)):return
         if 'id' in message and 'method' in message:
+            if self.modern:self.server_ping_error='Unexpected server request in MCP 2026 response.';return
             if self.phase=='initialize' and message.get('method')!='ping':self.server_ping_error='Unexpected MCP server request during initialization.';return
             if self.progress_final_seen:self.server_ping_error='Unexpected MCP server request after the response.';return
             try:self.server_request(message)
@@ -385,7 +391,7 @@ class RemoteProbe(QObject):
         ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
         resumable_stream=status==200 and ctype=='text/event-stream'
         transient_resume=self.sse_resuming and (status is None or isinstance(status,int) and 500<=status<600) and reply.error()!=QNetworkReply.NetworkError.SslHandshakeFailedError
-        if self.phase not in ('initialized','closing','task_cancel','request_cancel') and (resumable_stream or transient_resume) and not self.progress_final_seen and self.sse_last_id and self.sse_retry_ms is not None:
+        if not self.modern and self.phase not in ('initialized','closing','task_cancel','request_cancel') and (resumable_stream or transient_resume) and not self.progress_final_seen and self.sse_last_id and self.sse_retry_ms is not None:
             if self.phase=='initialize' and not self.sse_resuming:
                 try:
                     session=reply.rawHeader('Mcp-Session-Id')
@@ -420,6 +426,14 @@ class RemoteProbe(QObject):
             except (ValueError,UnicodeError,TypeError,RecursionError):pass
             self.close_session();return
         if status not in ((202,) if self.phase=='initialized' else (200,)):
+            if self.phase=='initialize' and status==400 and ctype=='application/json':
+                try:
+                    error=json.loads(bytes(self.buffer)).get('error',{})
+                    modern_error=isinstance(error,dict) and error.get('code') in (-32020,-32022)
+                except (ValueError,UnicodeError,TypeError,RecursionError):modern_error=False
+                if modern_error:
+                    self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
+                    self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
             if status in (401,403):
                 from .mcp_oauth import bearer_challenge
                 header=reply.rawHeader('WWW-Authenticate')
@@ -439,12 +453,21 @@ class RemoteProbe(QObject):
                     self.result['tools']=[];self.result['tool_details']=[];self.result['more_tools']=False;self.finish_discovery();return
                 self.phase='tools';self.pages=1;self.send({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}});return
             ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
-            message=response_message(bytes(self.buffer),ctype,self.current_id,self.list_changed,self.verify_server_ping)
+            message=response_message(bytes(self.buffer),ctype,self.current_id,self.list_changed,None if self.modern else self.verify_server_ping)
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
             if 'error' in message:
                 error=rpc_error(message)
                 if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error});return
                 self.stop(error);return
+            if self.phase=='modern_discovery':
+                result=message.get('result');versions=result.get('supportedVersions') if isinstance(result,dict) else None;caps=result.get('capabilities') if isinstance(result,dict) else None
+                if not isinstance(versions,list) or MODERN_PROTOCOL not in versions or any(not isinstance(version,str) for version in versions) or not isinstance(caps,dict) or result.get('resultType','complete')!='complete':raise ValueError('Invalid MCP discovery response')
+                self.result={'name':'MCP server','version':'unknown','protocol':MODERN_PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if isinstance(caps.get(name),dict)],'task_capabilities':{'tool_calls':False,'list':False,'cancel':False}}
+                if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
+                if 'tools' not in self.result['capabilities']:
+                    if self.invocation:raise ValueError('MCP tools unavailable')
+                    self.result.update(tools=[],tool_details=[],more_tools=False);self.finish_discovery();return
+                self.phase='tools';self.pages=1;self.send({'jsonrpc':'2.0','id':0,'method':'tools/list','params':{}});return
             if self.phase=='initialize':
                 self.result=parse_initialize(json.dumps(message).encode(),HTTP_PROTOCOLS);self.protocol=self.result['protocol']
                 session=reply.rawHeader('Mcp-Session-Id')
@@ -494,6 +517,7 @@ class RemoteProbe(QObject):
                 self.send({'jsonrpc':'2.0','id':0,'method':'tasks/result','params':{'taskId':self.task_id}});return
             if self.phase in ('call','task_result'):
                 outcome=message.get('result')
+                if self.modern and isinstance(outcome,dict) and outcome.get('resultType','complete')!='complete':raise ValueError('MCP multi-round-trip input is not supported')
                 if self.phase=='task_result':validate_task_result(outcome,self.task_id)
                 from .mcp_content import decode_tool_text_resources,normalize_tool_result
                 outcome=normalize_tool_result(outcome)
@@ -510,6 +534,9 @@ class RemoteProbe(QObject):
                 self.names.append(name)
                 if len(self.details)<MAX_TOOLS:
                     detail=preview_tool(item);detail['name']=name
+                    if self.modern and detail['schema_status']=='available':
+                        try:header_fields(detail['schema'])
+                        except (ValueError,RecursionError):detail['schema_status']='invalid header annotations'
                     size=len(json.dumps(detail,ensure_ascii=True).encode('ascii'))
                     if self.detail_bytes+size>MAX_DETAILS:detail={'name':name,'description':'','description_clipped':True,'schema':None,'schema_status':'details budget exceeded'};size=len(json.dumps(detail).encode())
                     self.detail_bytes+=size;self.details.append(detail)
@@ -529,6 +556,7 @@ class RemoteProbe(QObject):
                 args=self.invocation['arguments'];payload=json.dumps(args,ensure_ascii=False,allow_nan=False)
                 if not isinstance(args,dict) or len(payload.encode())>16000 or (self.token and self.token in payload):raise ValueError('Invalid MCP tool arguments')
                 self.phase='call';self.task_mode=current.get('task_support')=='required';self.task_id=None
+                self.call_schema=current.get('schema')
                 params={'name':current['name'],'arguments':args}
                 if self.task_mode:params['task']={}
                 self.send({'jsonrpc':'2.0','id':self.pages+2,'method':'tools/call','params':params});return
@@ -561,6 +589,7 @@ class RemoteProbe(QObject):
         self.finished.emit(result)
 
     def cancel_task_or_close(self,request_id=None):
+        if self.modern:self.close_session();return
         caps=(self.result or {}).get('task_capabilities',{})
         if self.task_id and self.phase=='task_result' and caps.get('cancel'):
             self.task_cancelled=False;self.phase='task_cancel';self.timer.start(3000)

@@ -137,6 +137,10 @@ def run(session,transport):
             if result['step']=='call':
                 validate_tool_result(result['tool'],output)
                 if output.get('structuredContent',{}).get('sum')!=5:raise RuntimeError('Unexpected synthetic tool result: '+json.dumps(output))
+                if transport=='https-modern':
+                    result['step']='resources'
+                    if not session.list_resources():raise RuntimeError('Resource listing was rejected')
+                    return
                 result['step']='ping'
                 if not session.call(result['ping_tool'],{}):raise RuntimeError('Ping tool call was rejected')
                 return
@@ -185,16 +189,19 @@ def run(session,transport):
     session.ended.connect(lambda message:fail(message.get('error','Server exited')) if result['step']!='complete' else None)
     timer.timeout.connect(lambda:fail('Smoke test timed out'));timer.start(30000);session.start();loop.exec();timer.stop()
     if transport=='stdio':session.close()
+    elif transport=='https-modern':session.shutdown();session.manager.clearConnectionCache();app.processEvents()
     else:
         if not session.closed:
             cleanup=QEventLoop();closed=[];session.finished.connect(lambda message:(closed.append(message),cleanup.quit()));QTimer.singleShot(4000,cleanup.quit);session.shutdown();cleanup.exec()
             if not closed or closed[0].get('session_closed') is not True:fail('HTTPS session shutdown was not confirmed')
         session.manager.clearConnectionCache();app.processEvents()
     if result.get('error'):raise RuntimeError(result['step']+': '+result['error'])
-    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['discovery','tool call and output schema','server ping','request-scoped server ping','resource list/read','template list/read/completion','prompt list/get/completion']}
+    checks=['discovery','tool call and output schema','resource list/read','template list/read/completion','prompt list/get/completion']
+    if transport!='https-modern':checks[2:2]=['server ping','request-scoped server ping']
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False):
     import datetime
     import ipaddress
     import socket
@@ -246,9 +253,12 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
                         if event_stream==stream_id and message is not None:await send_callback(EventMessage(message,event_id))
                     return stream_id
             event_store=MemoryEventStore()
-        sdk_app=make_server(cancelled if test_cancel else None,resume if resumption_test else None).streamable_http_app(event_store=event_store,retry_interval=100 if resumption_test else None)
+        sdk_app=make_server(cancelled if test_cancel else None,resume if resumption_test else None).streamable_http_app(event_store=event_store,retry_interval=100 if resumption_test else None,stateless_http=test_modern)
         async def monitored_app(scope,receive,send):
             chunks=[]
+            if test_modern and scope['type']=='http' and scope['method']=='POST' and scope['path']=='/mcp' and not dict(scope['headers']).get(b'mcp-method'):
+                from starlette.responses import JSONResponse
+                await JSONResponse({'jsonrpc':'2.0','id':None,'error':{'code':-32020,'message':'modern request headers required'}},status_code=400)(scope,receive,send);return
             if test_oauth_dynamic and scope['type']=='http' and scope['method']=='POST' and scope['path']=='/register':
                 from starlette.responses import JSONResponse
                 body=await receive();oauth_requests.append(('/register',body.get('body',b'')));registration=json.loads(body.get('body',b''))
@@ -306,7 +316,7 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
             elif test_oauth_ui or test_oauth_dynamic:result=run_oauth_ui(url,oauth_requests,dynamic=test_oauth_dynamic)
             else:
                 session=RemoteSession(url,'',timeout_seconds=15)
-                result=run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
+                result=run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
@@ -473,6 +483,7 @@ def run_cancel(session,cancelled,observed):
 if __name__=='__main__':
     if sys.argv[1:]==['--server']:make_server().run(transport='stdio')
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
+    elif sys.argv[1:]==['--https-modern']:print(json.dumps(run_https(test_modern=True)))
     elif sys.argv[1:]==['--https-cancel']:print(json.dumps(run_https(test_cancel=True)))
     elif sys.argv[1:]==['--https-resume']:print(json.dumps(run_https(test_resume=True)))
     elif sys.argv[1:]==['--https-standalone-resume']:print(json.dumps(run_https(test_standalone_resume=True)))
@@ -486,4 +497,4 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-modern|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

@@ -1,7 +1,4 @@
-"""MCP 2026-07-28 request metadata and HTTP routing header construction.
-
-This module is not yet wired into the session transports.
-"""
+"""MCP 2026-07-28 request metadata and HTTP routing header construction."""
 import base64
 import re
 
