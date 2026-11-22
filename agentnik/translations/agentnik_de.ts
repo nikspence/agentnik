@@ -5184,4 +5184,15 @@ Verbindungen werden von Ihrer Umgebung und lokalen Servern erkannt.</translation
             <translation>Vorherige Web-, Limit- und Entscheidungseinstellungen pro Registerkarte bleiben im Verlauf, werden aber nicht mehr verwendet. Konfigurieren Sie hier globale Einstellungen. Web beginnt.</translation>
         </message>
     </context>
+    <context>
+        <name>ModelPicker</name>
+        <message>
+            <source>Filter models or enter an alias</source>
+            <translation>Modelle filtern oder Modellkennung eingeben</translation>
+        </message>
+        <message>
+            <source>Use typed alias</source>
+            <translation>Eingegebene Modellkennung verwenden</translation>
+        </message>
+    </context>
 </TS>

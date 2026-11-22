@@ -4995,11 +4995,26 @@ Connections are discovered from your environment and local servers.</source>
     </context>
     <context>
         <name>SettingsDialog</name>
-        <message><source>Git author repository</source><translation>Git 작성자 저장소</translation></message>
-        <message><source>Git author name</source><translation>Git 작성자 이름</translation></message>
-        <message><source>Git author email</source><translation>Git 작성자 이메일</translation></message>
-        <message><source>Leave both fields blank to use the repository Git configuration. Changes apply to new Code runs.</source><translation>저장소의 Git 설정을 사용하려면 두 필드를 모두 비워 두세요. 변경 사항은 새 Code 실행에 적용됩니다.</translation></message>
-        <message><source>Enter both a valid Git author name and email, or leave both blank.</source><translation>유효한 Git 작성자 이름과 이메일을 모두 입력하거나 둘 다 비워 두세요.</translation></message>
+        <message>
+            <source>Git author repository</source>
+            <translation>Git 작성자 저장소</translation>
+        </message>
+        <message>
+            <source>Git author name</source>
+            <translation>Git 작성자 이름</translation>
+        </message>
+        <message>
+            <source>Git author email</source>
+            <translation>Git 작성자 이메일</translation>
+        </message>
+        <message>
+            <source>Leave both fields blank to use the repository Git configuration. Changes apply to new Code runs.</source>
+            <translation>저장소의 Git 설정을 사용하려면 두 필드를 모두 비워 두세요. 변경 사항은 새 Code 실행에 적용됩니다.</translation>
+        </message>
+        <message>
+            <source>Enter both a valid Git author name and email, or leave both blank.</source>
+            <translation>유효한 Git 작성자 이름과 이메일을 모두 입력하거나 둘 다 비워 두세요.</translation>
+        </message>
         <message>
             <source>Settings</source>
             <translation>설정</translation>
@@ -5167,6 +5182,17 @@ Connections are discovered from your environment and local servers.</source>
         <message>
             <source>Previous per-tab web, limits and Decision settings remain in history but are no longer used. Configure global settings here; Web starts off.</source>
             <translation>이전 탭별 웹, 제한 및 Decision 설정은 기록에 남지만 더 이상 사용되지 않습니다. 여기에서 전역 설정을 구성하세요. 웹은 기본적으로 꺼져 있습니다.</translation>
+        </message>
+    </context>
+    <context>
+        <name>ModelPicker</name>
+        <message>
+            <source>Filter models or enter an alias</source>
+            <translation>모델 필터링 또는 별칭 입력</translation>
+        </message>
+        <message>
+            <source>Use typed alias</source>
+            <translation>입력한 별칭 사용</translation>
         </message>
     </context>
 </TS>

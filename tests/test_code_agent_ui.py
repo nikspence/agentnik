@@ -14,6 +14,23 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_model_picker_filters_large_list_and_accepts_manual_alias(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication,QDialog
+        from agentnik.code_ui import ModelPicker
+        app=QApplication.instance() or QApplication([])
+        models=[f'provider/model-{i:03}' for i in range(600)]+['vendor/Special-Model']
+        dialog=ModelPicker(None,'Choose model',models)
+        self.assertEqual(dialog.items.count(),601)
+        dialog.filter.setText('SPECIAL');self.assertEqual(dialog.items.count(),1)
+        dialog.choose();self.assertEqual(dialog.result(),QDialog.DialogCode.Accepted);self.assertEqual(dialog.selected_model,'vendor/Special-Model')
+        dialog=ModelPicker(None,'Choose model',models);dialog.filter.setText('custom/new-alias')
+        self.assertEqual(dialog.items.count(),0);dialog.choose();self.assertEqual(dialog.selected_model,'custom/new-alias')
+        dialog=ModelPicker(None,'Choose model',models);dialog.filter.setText('model-59');dialog.choose_typed();self.assertEqual(dialog.selected_model,'model-59')
+        dialog=ModelPicker(None,'Choose model',models);dialog.filter.setText('model-599');dialog.reject()
+        self.assertEqual(dialog.result(),QDialog.DialogCode.Rejected);self.assertIsNone(dialog.selected_model)
+        app.processEvents()
+
     def test_steering_drafts_are_independent_and_not_sent_on_reopen(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

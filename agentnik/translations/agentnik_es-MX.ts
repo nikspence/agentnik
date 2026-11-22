@@ -5184,4 +5184,15 @@ Las conexiones se descubren desde su entorno y servidores locales.</translation>
             <translation>La web por pestaña anterior, los límites y las configuraciones de decisión permanecen en el historial, pero ya no se utilizan. Configure los ajustes globales aquí; Comienza la web.</translation>
         </message>
     </context>
+    <context>
+        <name>ModelPicker</name>
+        <message>
+            <source>Filter models or enter an alias</source>
+            <translation>Filtrar modelos o escribir un alias</translation>
+        </message>
+        <message>
+            <source>Use typed alias</source>
+            <translation>Usar el alias escrito</translation>
+        </message>
+    </context>
 </TS>

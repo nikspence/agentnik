@@ -5184,4 +5184,15 @@ Connections are discovered from your environment and local servers.</source>
             <translation>以前的每个选项卡网页、限制和决策设置仍保留在历史记录中，但不再使用。在这里配置全局设置；网络开始。</translation>
         </message>
     </context>
+    <context>
+        <name>ModelPicker</name>
+        <message>
+            <source>Filter models or enter an alias</source>
+            <translation>筛选模型或输入别名</translation>
+        </message>
+        <message>
+            <source>Use typed alias</source>
+            <translation>使用输入的别名</translation>
+        </message>
+    </context>
 </TS>

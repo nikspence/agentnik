@@ -46,6 +46,33 @@ class CodingComposer(QPlainTextEdit):
         super().keyPressEvent(event)
 
 
+class ModelPicker(QDialog):
+    def __init__(self,parent,title,models):
+        super().__init__(parent);self.setWindowTitle(title);self.resize(600,480)
+        self.models=models;self.selected_model=None
+        layout=QVBoxLayout(self)
+        self.filter=QLineEdit();self.filter.setObjectName('modelFilter');self.filter.setPlaceholderText(self.tr('Filter models or enter an alias'));layout.addWidget(self.filter)
+        self.items=QListWidget();self.items.setObjectName('modelResults');layout.addWidget(self.items)
+        self.filter.textChanged.connect(self.refresh);self.filter.returnPressed.connect(self.choose)
+        self.items.itemDoubleClicked.connect(lambda *_:self.choose())
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(self.choose);buttons.rejected.connect(self.reject)
+        manual=buttons.addButton(self.tr('Use typed alias'),QDialogButtonBox.ButtonRole.ActionRole);manual.setObjectName('useTypedModelAlias');manual.clicked.connect(self.choose_typed);layout.addWidget(buttons)
+        self.refresh();self.filter.setFocus()
+
+    def refresh(self):
+        query=self.filter.text().strip().casefold();self.items.clear()
+        self.items.addItems([name for name in self.models if query in name.casefold()])
+        if self.items.count():self.items.setCurrentRow(0)
+
+    def choose_typed(self):
+        alias=self.filter.text().strip()
+        if alias:self.selected_model=alias;self.accept()
+
+    def choose(self):
+        item=self.items.currentItem();alias=item.text() if item else self.filter.text().strip()
+        if alias:self.selected_model=alias;self.accept()
+
+
 class RepositoryPicker(QDialog):
     def __init__(self,parent,registry,select=True):
         super().__init__(parent);self.registry=registry;self.selected_id=None;self.select=select
@@ -346,8 +373,9 @@ class CodeTab(QWidget):
             if self._closed or self.job or self.roles[role][0].currentData()!=name:return
             choices=[value for value in names if isinstance(value,str) and len(value)<=512][:2000]
             title={'heavy':self.tr('Choose model'),'decision':self.tr('Choose Decision model')}[role]
-            model,ok=QInputDialog.getItem(self,title,self.tr('Model alias:'),choices,0,True)
-            if ok:self.roles[role][1].setText(model);self.save_models()
+            dialog=ModelPicker(self,title,choices)
+            if dialog.exec()==QDialog.DialogCode.Accepted:
+                self.roles[role][1].setText(dialog.selected_model);self.save_models()
         def failed(_):
             self.model_jobs.pop(role,None)
             if not self._closed:QMessageBox.warning(self,self.tr('Coding models'),self.tr('Model listing failed. You can enter an alias manually.'))

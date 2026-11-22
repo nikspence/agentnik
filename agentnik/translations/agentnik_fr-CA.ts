@@ -5184,4 +5184,15 @@ Les connexions sont découvertes à partir de votre environnement et des serveur
             <translation>Les paramètres Web, limites et décisions précédents par onglet restent dans l'historique mais ne sont plus utilisés. Configurez les paramètres globaux ici ; Le Web démarre.</translation>
         </message>
     </context>
+    <context>
+        <name>ModelPicker</name>
+        <message>
+            <source>Filter models or enter an alias</source>
+            <translation>Filtrer les modèles ou saisir un alias</translation>
+        </message>
+        <message>
+            <source>Use typed alias</source>
+            <translation>Utiliser l’alias saisi</translation>
+        </message>
+    </context>
 </TS>
