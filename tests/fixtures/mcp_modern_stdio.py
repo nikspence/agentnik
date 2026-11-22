@@ -19,7 +19,12 @@ for line in sys.stdin:
         elif method=='server/discover':
             capabilities={'tools':{}}
             if '--subscriptions' in sys.argv:capabilities.update(resources={'listChanged':True},prompts={'listChanged':True})
+            if '--resource-input' in sys.argv:capabilities['resources']={}
+            if '--prompt-input' in sys.argv:capabilities['prompts']={}
             response={'result':{'supportedVersions':['2026-07-28'],'capabilities':capabilities}}
+        elif method=='resources/list':response={'result':{'resources':[{'uri':'test://resource','name':'Resource'}]}}
+        elif method=='prompts/list':response={'result':{'prompts':[{'name':'prompt','arguments':[]}]}}
+        elif method in ('resources/read','prompts/get'):response={'result':{'resultType':'input_required','inputRequests':{'question':{'method':'elicitation/create','params':{'message':'private-server-text'}}},'requestState':'private-state'}}
         elif method=='subscriptions/listen':
             subscription=ident;subscription_count+=1
             print(json.dumps({'jsonrpc':'2.0','method':'notifications/subscriptions/acknowledged','params':{'notifications':message['params']['notifications'],'_meta':{'io.modelcontextprotocol/subscriptionId':ident}}}),flush=True)
@@ -27,6 +32,9 @@ for line in sys.stdin:
             continue
         elif method=='tools/list':response={'result':{'tools':[{'name':'echo','inputSchema':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}]}}
         elif method=='tools/call':
+            if message['params']['arguments']['text']=='input':
+                response={'result':{'resultType':'input_required','inputRequests':{'question':{'method':'elicitation/create','params':{'message':'private-server-text'}}},'requestState':'private-state'}}
+                print(json.dumps(dict(response,jsonrpc='2.0',id=ident)),flush=True);continue
             if message['params']['arguments']['text']=='notify':
                 for kind in ('resources','prompts'):
                     print(json.dumps({'jsonrpc':'2.0','method':'notifications/'+kind+'/list_changed','params':{'_meta':{'io.modelcontextprotocol/subscriptionId':subscription}}}),flush=True)

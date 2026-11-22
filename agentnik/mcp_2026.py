@@ -7,6 +7,7 @@ _TOKEN=re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 _PREFIX='=?base64?'
 _SUFFIX='?='
 _SAFE_INTEGER=2**53-1
+INPUT_REQUIRED_ERROR='The MCP server requested interactive input, which Agentnik cannot provide yet. The request was not continued.'
 
 
 def parse_discovery(result):

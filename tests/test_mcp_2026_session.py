@@ -156,6 +156,29 @@ class ModernRemoteSession(unittest.TestCase):
             loop.exec();timer.stop();self.assertTrue(out[0]['call_uncertain']);self.assertEqual(calls.count('tools/call'),1);self.assertNotIn('GET',calls);self.assertNotIn('notifications/cancelled',calls)
         finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
+    def test_input_required_reports_uncertainty_without_continuation(self):
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method'];calls.append(method)
+                if method=='initialize':status=400;body={'jsonrpc':'2.0','id':request['id'],'error':{'code':-32020,'message':'headers required'}}
+                else:
+                    status=200
+                    if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{}}}
+                    elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+                    elif method=='tools/call':result={'resultType':'input_required','inputRequests':{'question':{'method':'elicitation/create','params':{'message':'private-server-text'}}},'requestState':'private-state'}
+                    else:raise AssertionError(method)
+                    body={'jsonrpc':'2.0','id':request['id'],'result':result}
+                payload=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda result:(out.append(('called',result)),loop.quit()));session.ended.connect(lambda result:(out.append(('ended',result)),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertEqual(out[0][0],'ended');self.assertIn('interactive input',out[0][1]['error']);self.assertTrue(out[0][1]['call_uncertain']);self.assertNotIn('private',str(out));self.assertEqual(calls.count('tools/call'),1)
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_subscription_requires_acknowledgement_and_matching_request_id(self):
         session=RemoteSession('https://example.com/mcp','');session.modern=True;session.subscription_id=9
         session.result={'subscription_filters':{'resourcesListChanged':True,'promptsListChanged':True}}

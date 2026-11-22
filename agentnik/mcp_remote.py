@@ -10,7 +10,7 @@ from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initia
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
-from .mcp_2026 import PROTOCOL as MODERN_PROTOCOL,prepare_request,header_fields,parse_discovery
+from .mcp_2026 import PROTOCOL as MODERN_PROTOCOL,prepare_request,header_fields,parse_discovery,INPUT_REQUIRED_ERROR
 
 HTTP_PROTOCOLS=(PROTOCOL,'2025-06-18','2025-03-26')
 MAX_PAGES=5
@@ -503,6 +503,8 @@ class RemoteProbe(QObject):
                 error=rpc_error(message)
                 if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error});return
                 self.stop(error);return
+            if self.modern and self.phase in ('call','resource_read','prompt_get') and isinstance(message.get('result'),dict) and message['result'].get('resultType')=='input_required':
+                self.stop(INPUT_REQUIRED_ERROR);return
             if self.phase=='modern_discovery':
                 self.result=parse_discovery(message.get('result'))
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')

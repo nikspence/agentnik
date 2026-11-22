@@ -98,3 +98,26 @@ for line in sys.stdin:
         try:
             loop.exec();timer.stop();poll.stop();self.assertEqual(session.subscription_id,-2);self.assertTrue(session.subscription_active);self.assertIsNotNone(session.subscription_ack);self.assertTrue(any('subscription ended' in text for text in events))
         finally:session.close()
+
+    def test_input_required_is_reported_without_continuation(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=5);loop=QEventLoop();out=[]
+        session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':'input'}));session.called.connect(lambda result:(out.append(('called',result)),loop.quit()));session.ended.connect(lambda result:(out.append(('ended',result)),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertEqual(out[0][0],'ended');self.assertIn('interactive input',out[0][1]['error']);self.assertTrue(out[0][1]['call_uncertain']);self.assertNotIn('private',str(out))
+        finally:session.close()
+
+    def test_prompt_and_resource_input_requirements_are_reported(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        for kind in ('resource','prompt'):
+            with self.subTest(kind=kind):
+                session=LocalSession(sys.executable,['-u',str(server),'--'+kind+'-input'],timeout_seconds=5);loop=QEventLoop();out=[]
+                def discovered(_):session.list_resources() if kind=='resource' else session.list_prompts()
+                def resources(result):session.read_resource(result['resources'][0]['uri'])
+                def prompts(result):session.list_prompts({'prompt':result['prompts'][0],'arguments':{}})
+                session.discovered.connect(discovered);session.resources.connect(resources);session.prompts.connect(prompts);session.ended.connect(lambda result:(out.append(result),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertIn('interactive input',out[0]['error']);self.assertFalse(out[0]['call_uncertain']);self.assertNotIn('private',str(out))
+                finally:session.close()

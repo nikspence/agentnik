@@ -11,7 +11,7 @@ from .mcp_support import response_limit, initialize_request, parse_initialize, r
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
-from .mcp_2026 import prepare_request,parse_discovery
+from .mcp_2026 import prepare_request,parse_discovery,INPUT_REQUIRED_ERROR
 
 
 class LocalSession(QObject):
@@ -221,6 +221,8 @@ class LocalSession(QObject):
                     self.list_page(None); continue
                 result = message.get('result')
                 if not isinstance(result, dict): raise ValueError()
+                if self.modern and self.phase in ('call','resource_read','prompt_get') and result.get('resultType')=='input_required':
+                    self.fail(INPUT_REQUIRED_ERROR);return
                 if self.phase=='modern_discovery':
                     self.info=parse_discovery(result)
                     self.open_subscription()
