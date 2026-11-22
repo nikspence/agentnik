@@ -47,6 +47,42 @@ for line in sys.stdin:
             thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1);bridge.close()
             self.assertFalse(thread.is_alive());self.assertEqual(out[0],('progress','Local','Progress 1 / 4: Loading'));self.assertEqual(out[1][0],'result');self.assertEqual(len(out),2)
 
+    def test_remote_stream_progress_reaches_worker_before_response(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_code import CodingMCPBridge
+        from agentnik.tools import Runtime
+        progress_received=threading.Event();release=threading.Event();calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                req=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=req['method'];calls.append(method)
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+                elif method=='tools/list':result={'tools':[{'name':'long_job','inputSchema':{'type':'object'}}]}
+                elif method=='tools/call':
+                    token=req['params']['_meta']['progressToken']
+                    def progress(token,value):return b'data: '+json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':token,'progress':value,'total':4,'message':'Loading'}}).encode()+b'\r\n\r\n'
+                    before=progress('wrong',1)+progress(token,1);response=b'data: '+json.dumps({'jsonrpc':'2.0','id':req['id'],'result':{'content':[{'type':'text','text':'done'}]}}).encode()+b'\r\n\r\n';after=progress(token,2)
+                    self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(before+response+after)));self.end_headers()
+                    self.wfile.write(before[:-1]);self.wfile.flush();self.wfile.write(before[-1:]);self.wfile.flush();release.wait(3);self.wfile.write(response+after);self.wfile.flush();return
+                else:raise AssertionError(method)
+                body=json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+        app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);server_thread=threading.Thread(target=server.serve_forever,daemon=True);server_thread.start()
+        config={'mcp_servers':[{'name':'Remote','transport':'http','url':'http://127.0.0.1:'+str(server.server_port)+'/mcp','credential_id':'','enabled':True}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config);runtime=Runtime();out=[]
+        def on_progress(name,detail):out.append(('progress',name,detail));progress_received.set();release.set()
+        runtime.mcp_progress=on_progress
+        def work():
+            info=bridge.request('discover',{},runtime);result=bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime);out.append(('result',result));bridge.close_signal.emit()
+        thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() else None);timer.start(10);QTimer.singleShot(5000,loop.quit)
+        try:
+            loop.exec();timer.stop();thread.join(1)
+            self.assertTrue(progress_received.is_set());self.assertFalse(thread.is_alive());self.assertEqual(out[0],('progress','Remote','Progress 1 / 4: Loading'));self.assertEqual(out[1][0],'result');self.assertEqual(len(out),2)
+            self.assertEqual(calls.count('tools/call'),1)
+        finally:release.set();bridge.close();server.shutdown();server.server_close();server_thread.join(2)
+
     def test_parallel_mcp_documented_tool_selector_only(self):
         profile={'name':'Parallel','transport':'http','url':'https://mcp.parallel.ai/mcp?tools=web_search,web_research,find_verticals,search_vertical','credential_id':'','enabled':True}
         self.assertEqual(validate_servers([profile]),[profile])

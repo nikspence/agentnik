@@ -92,7 +92,7 @@ class CodingMCPBridge(QObject):
                     self._reply(request, {'error':'MCP credential is unavailable or invalid.'}); return
             from .mcp_remote import RemoteSession
             session=RemoteSession(self.server['url'],token,self,timeout_seconds=server_timeout(self.server));self.session=session
-            session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended);session.resources.connect(self._called);session.prompts.connect(self._called)
+            session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended);session.resources.connect(self._called);session.prompts.connect(self._called);session.progress.connect(self._progress)
             session.finished.connect(lambda _result:session.deleteLater());session.start();return
         if action in ('prompts_list','prompts_get') and self.session:
             if not self.session.list_prompts(request['payload'] if action=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})

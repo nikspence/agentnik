@@ -1,8 +1,10 @@
 """Bounded, asynchronous HTTP MCP discovery and explicitly reviewed calls."""
 import json
+import time
+import uuid
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
-from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout
+from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout,progress_notice
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
@@ -90,15 +92,22 @@ def response_message(data,content_type,expected_id):
 
 class RemoteProbe(QObject):
     finished=Signal(object)
+    progress=Signal(object)
     def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
         self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None
+        self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
+        self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(self.timeout_ms);self.send(initialize_request())
     def send(self,message):
         if 'id' in message:
             self.next_id+=1;self.current_id=self.next_id;message=dict(message,id=self.current_id)
+        self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
+        self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
+        if self.phase=='call' and message.get('method')=='tools/call':
+            self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
         tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
@@ -109,14 +118,53 @@ class RemoteProbe(QObject):
         self.buffer=bytearray();self.reply=self.manager.post(request,json.dumps(message).encode());self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
     def configure_reply(self):
         if tls.relaxed(): self.reply.sslErrors.connect(lambda _errors,reply=self.reply:reply.ignoreSslErrors())
-    def consume(self):
+    def consume(self,final=False):
         if not self.reply:return
         self.buffer.extend(bytes(self.reply.readAll()))
-        if len(self.buffer)>response_limit(self.phase):self.stop('MCP response exceeded the output limit.')
+        if len(self.buffer)>response_limit(self.phase):self.stop('MCP response exceeded the output limit.');return
+        ctype=str(self.reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
+        status=self.reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+        if self.phase=='call' and self.progress_token and status==200 and ctype=='text/event-stream':self.consume_progress(final)
+
+    def consume_progress(self,final=False):
+        """Inspect completed SSE events while retaining the full response for validation."""
+        data=self.buffer;length=len(data)
+        while self.sse_search<length:
+            cr=data.find(b'\r',self.sse_search);lf=data.find(b'\n',self.sse_search)
+            ends=[index for index in (cr,lf) if index>=0]
+            if not ends:self.sse_search=length;break
+            end=min(ends)
+            if data[end]==13 and end+1==length and not final:self.sse_search=end;break
+            line=bytes(data[self.sse_pos:end]);step=2 if data[end]==13 and end+1<length and data[end+1]==10 else 1
+            self.sse_pos=end+step;self.sse_search=self.sse_pos
+            if self.sse_first_line:
+                self.sse_first_line=False
+                if line.startswith(b'\xef\xbb\xbf'):line=line[3:]
+            if not line:
+                if self.sse_parts and any(self.sse_parts):self._progress_event(b'\n'.join(self.sse_parts))
+                self.sse_parts=[];continue
+            if line.startswith(b':'):continue
+            field,separator,value=line.partition(b':')
+            if field==b'data':
+                if separator and value.startswith(b' '):value=value[1:]
+                self.sse_parts.append(value)
+
+    def _progress_event(self,data):
+        try:message=json.loads(data)
+        except (ValueError,UnicodeError,RecursionError):return
+        if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or (self.token and contains_secret(message,self.token)):return
+        if type(message.get('id')) is int and message['id']==self.current_id:
+            self.progress_final_seen=True;return
+        if self.progress_final_seen:return
+        notice=progress_notice(message,self.progress_token,self.progress_last)
+        if notice:
+            self.progress_last,detail=notice;now=time.monotonic()
+            if self.progress_count<40 and now-self.progress_emitted_at>=.25:
+                self.progress_count+=1;self.progress_emitted_at=now;self.progress.emit(detail)
     def received(self):
         reply=self.reply
         if reply is None:return
-        self.consume()
+        self.consume(final=True)
         if self.reply is not reply:return
         self.reply=None;reply.deleteLater()
         status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
