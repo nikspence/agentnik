@@ -4,7 +4,7 @@ import html
 import math
 import unicodedata
 from urllib.parse import urlsplit
-from PySide6.QtCore import Qt,QUrl
+from PySide6.QtCore import Qt,QUrl,Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QApplication,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QPlainTextEdit,QDialogButtonBox,QTabWidget,QWidget,QScrollArea,QLineEdit,QComboBox,QCheckBox)
 from .mcp_schema import validate_tool_arguments,MCPArgumentValidationError
@@ -70,7 +70,28 @@ def parse_legacy_request(params,protocol):
     if mode=='url':
         ident=params.get('elicitationId')
         if protocol!='2025-11-25' or not isinstance(ident,str) or not ident or len(ident)>256 or any(unicodedata.category(ch).startswith('C') for ch in ident):raise ValueError('Invalid MCP input request')
-    return parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':'elicitation/create','params':params}}})
+    pending=parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':'elicitation/create','params':params}}})
+    if mode=='url':pending['forms'][0]['elicitation_id']=ident
+    return pending
+
+
+def track_opened(session,ident):
+    """Track only URLs the user opened during the current request."""
+    pending=getattr(session,'elicitation_pending',None)
+    if not isinstance(ident,str) or not isinstance(pending,dict) or not any(form.get('elicitation_id')==ident for form in pending.get('forms',[])):return
+    tracked=session.elicitation_urls
+    if ident in tracked:return
+    if len(tracked)>=128:tracked.pop(next(iter(tracked)))
+    tracked[ident]='open'
+
+
+def track_completion(session,message):
+    """Accept one completion report for a known URL, without trusting its outcome."""
+    if not isinstance(message,dict) or message.get('method')!='notifications/elicitation/complete' or 'id' in message:return
+    params=message.get('params');ident=params.get('elicitationId') if isinstance(params,dict) else None
+    if not isinstance(ident,str) or session.elicitation_urls.get(ident)!='open':return
+    session.elicitation_urls[ident]='complete';session.elicitation_completed.emit(ident)
+    session.progress.emit('MCP server reports an external interaction completed [untrusted server notification].')
 
 
 def parse_url_required(error):
@@ -112,8 +133,9 @@ def continuation(original,pending,responses):
 
 class ElicitationDialog(QDialog):
     """Review server-provided forms without putting answers in the model context."""
+    url_opened=Signal(str)
     def __init__(self,server,forms,parent=None,retry_required=False):
-        super().__init__(parent);self.forms=forms;self.position=0;self.responses={};self.retry_required=retry_required;self.retry_confirmation=False;self.retry_confirmed=False;self.setWindowTitle(self.tr('MCP input request'))
+        super().__init__(parent);self.forms=forms;self.position=0;self.responses={};self.completed_ids=set();self.retry_required=retry_required;self.retry_confirmation=False;self.retry_confirmed=False;self.setWindowTitle(self.tr('MCP input request'))
         layout=QVBoxLayout(self)
         self.server=server;self.intro=QLabel();self.intro.setWordWrap(True);self.intro.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.intro)
         self.counter=QLabel();layout.addWidget(self.counter)
@@ -130,6 +152,7 @@ class ElicitationDialog(QDialog):
         self.url_host=QLabel();self.url_host.setWordWrap(True);self.url_host.setTextFormat(Qt.TextFormat.PlainText);url_layout.addWidget(self.url_host)
         url_label=QLabel(self.tr('Full URL'));url_layout.addWidget(url_label)
         self.url_text=QPlainTextEdit();self.url_text.setObjectName('mcpElicitationUrl');self.url_text.setReadOnly(True);url_label.setBuddy(self.url_text);url_layout.addWidget(self.url_text);layout.addWidget(self.url_box,1)
+        self.completion_status=QLabel();self.completion_status.setWordWrap(True);self.completion_status.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.completion_status)
         self.error=QLabel();self.error.setWordWrap(True);self.error.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.error)
         buttons=QDialogButtonBox();self.accept_button=buttons.addButton(self.tr('Send answer'),QDialogButtonBox.ButtonRole.AcceptRole);self.decline_button=buttons.addButton(self.tr('Decline'),QDialogButtonBox.ButtonRole.DestructiveRole);self.cancel_button=buttons.addButton(QDialogButtonBox.StandardButton.Cancel);layout.addWidget(buttons)
         self.accept_button.clicked.connect(self.submit);self.decline_button.clicked.connect(self.decline);self.cancel_button.clicked.connect(self.reject);self.show_form()
@@ -250,6 +273,7 @@ class ElicitationDialog(QDialog):
             except Exception:opened=False
             if not opened:
                 self.error.setText(self.tr('Could not open the browser. The request was not continued.'));return
+            if form.get('elicitation_id'):self.url_opened.emit(form['elicitation_id'])
             self.responses[form['id']]={'action':'accept'};self.position+=1
             if self.position==len(self.forms):self.finish_answers()
             else:self.show_form()
@@ -277,3 +301,9 @@ class ElicitationDialog(QDialog):
         self.retry_confirmation=True;self.tabs.hide();self.url_box.hide();self.counter.hide();self.message.hide();self.decline_button.hide();self.error.clear()
         self.intro.setText(self.tr('Complete the requested interactions in your browser. The previous operation may have performed actions; inspect the server state before retrying. Choose Retry request only when you are ready to submit the operation again.'))
         self.accept_button.setText(self.tr('Retry request'))
+
+    def report_completion(self,ident):
+        if ident in self.completed_ids or not any(form.get('elicitation_id')==ident for form in self.forms):return
+        self.completed_ids.add(ident)
+        total=sum(1 for form in self.forms if form.get('elicitation_id'))
+        self.completion_status.setText(self.tr('The server reports {completed} of {total} external steps complete. This is an untrusted server report.').format(completed=len(self.completed_ids),total=total))

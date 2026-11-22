@@ -24,6 +24,7 @@ class LocalSession(QObject):
     progress = Signal(object)
     shutdown_finished = Signal(object)
     elicitation_requested = Signal(object)
+    elicitation_completed = Signal(str)
 
     def __init__(self, command, args, parent=None, env_refs=None, env_values=None, timeout_seconds=60, working_directory=''):
         super().__init__(parent)
@@ -56,7 +57,7 @@ class LocalSession(QObject):
         self.probe_timer=QTimer(self);self.probe_timer.setSingleShot(True);self.probe_timer.timeout.connect(self.probe_modern)
         self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(lambda:self.stop_subscription('MCP change notification subscription was not acknowledged; list resources and prompts again.'))
         self.subscription_retry=QTimer(self);self.subscription_retry.setSingleShot(True);self.subscription_retry.timeout.connect(self.retry_subscription)
-        self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
+        self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1;self.elicitation_urls={}
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
         self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False;self.probe_id=None;self.ignored_id=None;self.subscription_id=-1;self.subscription_active=False;self.subscription_ack=None;self.retired_subscriptions=deque(maxlen=32);self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None
 
@@ -191,6 +192,9 @@ class LocalSession(QObject):
                     else:response['error']={'code':-32601,'message':'Method not supported'}
                     self.send(response);continue
                 if 'id' not in message:
+                    if not self.modern and message.get('method')=='notifications/elicitation/complete':
+                        from .mcp_elicitation import track_completion
+                        track_completion(self,message);continue
                     if self.modern and message.get('method') in ('notifications/subscriptions/acknowledged','notifications/cancelled','notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
                         self.subscription_notification(message);continue
                     if self.phase in ('call','task_result') and self.log_count<20:
@@ -466,7 +470,7 @@ class LocalSession(QObject):
         self.closed = True
         from shiboken6 import isValid
         self.environment_secrets=[]
-        self.elicitation_original=None;self.elicitation_pending=None
+        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear()
         if isValid(self.timer):self.timer.stop()
         if isValid(self.probe_timer):self.probe_timer.stop()
         if isValid(self.subscription_timer):self.subscription_timer.stop()

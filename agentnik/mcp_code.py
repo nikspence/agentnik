@@ -175,6 +175,8 @@ class CodingMCPBridge(QObject):
         parent=self.parent()
         while parent is not None and not isinstance(parent,QWidget):parent=parent.parent()
         session=self.session;retry_required=bool((getattr(session,'elicitation_pending',None) or {}).get('retry_required'));dialog=ElicitationDialog(self.server['name'],forms,parent,retry_required=retry_required);self.elicitation_dialog=dialog
+        from .mcp_elicitation import track_opened
+        dialog.url_opened.connect(lambda ident:track_opened(session,ident));session.elicitation_completed.connect(dialog.report_completion)
         def finished(code):
             if self.elicitation_dialog is not dialog:return
             self.elicitation_dialog=None;dialog.deleteLater()

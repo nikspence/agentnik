@@ -62,12 +62,16 @@ def make_server(cancelled=None,resumption=None):
 
     attempts={'required':0}
     @server.tool()
-    def url_required()->str:
+    async def url_required(ctx:Context)->str:
         """Require a synthetic external step before an explicitly retried call."""
         attempts['required']+=1
         if attempts['required']==1:
+            import asyncio
             from mcp.shared.exceptions import UrlElicitationRequiredError
             from mcp.types import ElicitRequestURLParams
+            async def notify():
+                await asyncio.sleep(.2);await ctx.session.send_elicit_complete('synthetic-id')
+            asyncio.create_task(notify())
             raise UrlElicitationRequiredError([ElicitRequestURLParams(message='Review synthetic URL',url='https://example.test/consent',elicitationId='synthetic-id')])
         return 'Required retry accepted'
 
@@ -368,18 +372,27 @@ def run_modern_elicitation(session,transport,url=False,required=False):
     def requested(forms):
         result['forms'].append(forms)
         response={'action':'accept'} if url or required else {'action':'accept','content':{'choice':'yes'}}
-        accepted=session.continue_elicitation({forms[0]['id']:response},retry=True) if required else session.continue_elicitation({forms[0]['id']:response})
+        if required:
+            from agentnik.mcp_elicitation import track_opened
+            track_opened(session,forms[0]['elicitation_id']);result['pending_response']={forms[0]['id']:response};return
+        accepted=session.continue_elicitation({forms[0]['id']:response})
         if not accepted:result['error']='Input rejected';loop.quit()
+    def completed(ident):
+        result['completion']=ident
+        if not session.continue_elicitation(result['pending_response'],retry=True):result['error']='Input rejected';loop.quit()
+    if required:session.elicitation_completed.connect(completed)
     session.discovered.connect(discovered);session.elicitation_requested.connect(requested);session.called.connect(lambda value:(result.update(response=value),loop.quit()));session.ended.connect(lambda value:(result.update(error=value.get('error')),loop.quit()))
     timer.start(15000);session.start();loop.exec();timer.stop()
     try:
         blocks=result.get('response',{}).get('call_result',{}).get('content',[])
-        if result.get('error') or len(result['forms'])!=1 or not any(item.get('text')==('Required retry accepted' if required else 'URL accept' if url else 'Chosen yes') for item in blocks):raise RuntimeError('SDK elicitation failed: '+str(result))
+        if result.get('error') or len(result['forms'])!=1 or required and result.get('completion')!='synthetic-id' or not any(item.get('text')==('Required retry accepted' if required else 'URL accept' if url else 'Chosen yes') for item in blocks):raise RuntimeError('SDK elicitation failed: '+str(result))
     finally:
         if transport.startswith('stdio'):session.close()
         else:session.shutdown();session.manager.clearConnectionCache()
         QCoreApplication.processEvents()
-    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['url required error' if required else 'url request' if url else 'form request','validated input','explicit continuation','final result']}
+    checks=['url required error' if required else 'url request' if url else 'form request','validated input','explicit continuation','final result']
+    if required:checks.insert(2,'completion notification')
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
 def run_modern_notifications(session,transport='https-modern'):

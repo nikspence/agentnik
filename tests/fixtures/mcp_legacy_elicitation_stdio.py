@@ -1,6 +1,8 @@
 """Small 2025 MCP server that waits for an elicitation response."""
 import json
 import sys
+import threading
+import time
 
 pending=None;calls=0
 for line in sys.stdin:
@@ -11,10 +13,16 @@ for line in sys.stdin:
     elif method=='tools/list':result={'tools':[{'name':'echo','inputSchema':{'type':'object','properties':{},'additionalProperties':False}}]}
     elif method=='tools/call':
         calls+=1
-        if len(sys.argv)>2 and sys.argv[2]=='required':
+        if len(sys.argv)>2 and sys.argv[2] in ('required','required-notification'):
             if calls==1:
                 error={'code':-32042,'message':'External action required','data':{'elicitations':[{'mode':'url','elicitationId':'synthetic-id','message':'Review','url':'https://example.test/consent'}]}}
                 print(json.dumps({'jsonrpc':'2.0','id':ident,'error':error}),flush=True)
+                if sys.argv[2]=='required-notification':
+                    def notify():
+                        time.sleep(.4)
+                        for value in ('unknown','synthetic-id','synthetic-id'):
+                            print(json.dumps({'jsonrpc':'2.0','method':'notifications/elicitation/complete','params':{'elicitationId':value}}),flush=True)
+                    threading.Thread(target=notify,daemon=True).start()
             else:print(json.dumps({'jsonrpc':'2.0','id':ident,'result':{'content':[{'type':'text','text':'retried'}]}}),flush=True)
             continue
         pending=ident

@@ -103,9 +103,10 @@ class RemoteProbe(QObject):
     finished=Signal(object)
     progress=Signal(object)
     elicitation_requested=Signal(object)
+    elicitation_completed=Signal(str)
     def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
-        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None;self.modern=False;self.call_schema=None;self.legacy_rejection=None;self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None
+        self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None;self.modern=False;self.call_schema=None;self.legacy_rejection=None;self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls={}
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
         self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
@@ -240,6 +241,9 @@ class RemoteProbe(QObject):
             if self.elicitation_pending is not None:self.server_ping_error='MCP operation completed while user input was pending.';return
             self.progress_final_seen=True;return
         if self.progress_final_seen:return
+        if not self.modern and message.get('method')=='notifications/elicitation/complete':
+            from .mcp_elicitation import track_completion
+            track_completion(self,message);return
         if self.log_count<20:
             detail=server_log_notice(message)
             if detail:self.log_count+=1;self.progress.emit(detail)
@@ -444,6 +448,9 @@ class RemoteProbe(QObject):
                 if duplicate and (key in self.server_stream_pending or message.get('method')=='elicitation/create'):return
                 self.server_request(message,standalone=True);return
             if duplicate:return
+            if message.get('method')=='notifications/elicitation/complete':
+                from .mcp_elicitation import track_completion
+                track_completion(self,message);return
             if message.get('method') in ('notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
                 self.list_changed(message['method']);return
             if self.phase in ('call','task_result'):
@@ -670,7 +677,7 @@ class RemoteProbe(QObject):
     def finish_call(self):
         self.close_session()
     def close_session(self):
-        self.elicitation_original=None;self.elicitation_pending=None
+        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear()
         self.sse_resuming=False;self.sse_resume_timer.stop()
         self.close_server_stream()
         if not self.session:self.complete(None);return

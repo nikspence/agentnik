@@ -6,7 +6,7 @@ from unittest.mock import patch
 from pathlib import Path
 from PySide6.QtCore import QEventLoop,QTimer,QObject,Signal
 from PySide6.QtWidgets import QApplication
-from agentnik.mcp_elicitation import ElicitationDialog,parse_input_required,parse_legacy_request,parse_url_required,continuation
+from agentnik.mcp_elicitation import ElicitationDialog,parse_input_required,parse_legacy_request,parse_url_required,continuation,track_opened,track_completion
 
 
 def request():
@@ -99,6 +99,47 @@ class ElicitationTests(unittest.TestCase):
         for action,retry in (('accept',False),('decline',True)):
             session=RemoteSession('https://example.test/mcp','');session.elicitation_pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}});session.elicitation_original={'id':4,'method':'tools/call','params':{'name':'work','arguments':{}}};session.send=Mock();session.stop=Mock()
             self.assertFalse(session.continue_elicitation({'0':{'action':action}},retry=retry));session.send.assert_not_called();session.stop.assert_called_once();session.closed=True
+
+    def test_completion_notifications_ignore_unknown_duplicate_and_unopened_ids(self):
+        from agentnik.mcp_remote import RemoteSession
+        session=RemoteSession('https://example.test/mcp','');item={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'}
+        session.elicitation_pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}});notices=[];completed=[]
+        session.progress.connect(notices.append);session.elicitation_completed.connect(completed.append)
+        def message(ident):return {'jsonrpc':'2.0','method':'notifications/elicitation/complete','params':{'elicitationId':ident}}
+        track_completion(session,message('synthetic'));track_opened(session,'unknown');track_opened(session,'synthetic')
+        track_completion(session,message('unknown'));track_completion(session,message('synthetic'));track_completion(session,message('synthetic'));track_opened(session,'synthetic');track_completion(session,message('synthetic'))
+        self.assertEqual(completed,['synthetic']);self.assertEqual(len(notices),1);self.assertNotIn('synthetic',notices[0]);session.closed=True
+
+    def test_remote_completion_on_response_and_standalone_streams(self):
+        import json
+        from agentnik.mcp_remote import RemoteSession
+        item={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'}
+        event=json.dumps({'jsonrpc':'2.0','method':'notifications/elicitation/complete','params':{'elicitationId':'synthetic'}}).encode()
+        for standalone in (False,True):
+            session=RemoteSession('https://example.test/mcp','');session.phase='call';session.elicitation_pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}});out=[]
+            session.elicitation_completed.connect(out.append);track_opened(session,'synthetic')
+            if standalone:session.server_stream_event(event);session.server_stream_event(event,duplicate=True)
+            else:session._progress_event(event);session._progress_event(event)
+            self.assertEqual(out,['synthetic']);session.closed=True
+
+    def test_completion_notification_updates_retry_dialog_without_retrying(self):
+        from agentnik.mcp_code import CodingMCPBridge
+        from agentnik.tools import Runtime,Limits
+        path=Path(__file__).parent/'fixtures'/'mcp_legacy_elicitation_stdio.py';server={'name':'Legacy','command':sys.executable,'args':['-u',str(path),'2025-11-25','required-notification'],'enabled':True}
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];steps=[]
+        def worker():
+            info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime));bridge.close_signal.emit()
+        with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True):
+            thread=threading.Thread(target=worker);thread.start();loop=QEventLoop();poll=QTimer()
+            def tick():
+                dialog=bridge.elicitation_dialog
+                if dialog and not steps:steps.append('opened');dialog.submit()
+                if dialog and len(steps)==1 and dialog.completed_ids:
+                    self.assertEqual(out,[]);self.assertIn('1 of 1',dialog.completion_status.text());self.assertIn('untrusted',dialog.completion_status.text());self.assertFalse(dialog.retry_confirmed)
+                    steps.append('reported');dialog.submit()
+                if not thread.is_alive():loop.quit()
+            poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+        self.assertFalse(thread.is_alive());self.assertEqual(steps,['opened','reported']);self.assertEqual(out[0]['call_result']['content'][0]['text'],'retried')
 
     def test_legacy_remote_url_only_opens_after_consent(self):
         from unittest.mock import Mock

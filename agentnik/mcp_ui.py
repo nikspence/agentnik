@@ -186,6 +186,9 @@ class MCPServers(QDialog):
         if self._closed or session not in (self.process,self.remote):return
         from .mcp_elicitation import ElicitationDialog
         retry_required=bool((getattr(session,'elicitation_pending',None) or {}).get('retry_required'));dialog=ElicitationDialog(server,forms,self,retry_required=retry_required);self.elicitation_dialog=dialog
+        if hasattr(session,'elicitation_completed'):
+            from .mcp_elicitation import track_opened
+            dialog.url_opened.connect(lambda ident:track_opened(session,ident));session.elicitation_completed.connect(dialog.report_completion)
         def finished(code):
             if self.elicitation_dialog is not dialog:return
             self.elicitation_dialog=None;dialog.deleteLater()
