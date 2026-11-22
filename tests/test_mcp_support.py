@@ -179,7 +179,7 @@ for line in sys.stdin:
                         elif method=='tasks/result':
                             assert req['params']['taskId']=='task-123'
                             if mode=='timeout':time.sleep(2)
-                            result={'content':[{'type':'text','text':'task evidence'}],'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'different' if mode=='mismatch' else 'task-123'}}}
+                            result={'structuredContent':{'text':'task evidence'},'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'different' if mode=='mismatch' else 'task-123'}}}
                             progress={'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':state['token'],'progress':1,'total':2}}
                             status={'jsonrpc':'2.0','method':'notifications/tasks/status','params':{'taskId':'task-123','status':'input_required','statusMessage':'untrusted extra'}}
                             payload=b'data: '+json.dumps(status).encode()+b'\n\ndata: '+json.dumps(progress).encode()+b'\n\ndata: '+json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode()+b'\n\n'
@@ -194,7 +194,7 @@ for line in sys.stdin:
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.progress.connect(notices.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
                 try:
                     loop.exec();session.shutdown();self.assertTrue(out,mode)
-                    if mode=='success':self.assertEqual(out[0]['call_result']['content'][0]['text'],'task evidence');self.assertTrue(any('input_required' in value for value in notices));self.assertNotIn('untrusted extra',str(notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
+                    if mode=='success':self.assertEqual(out[0]['call_result']['structuredContent']['text'],'task evidence');self.assertEqual(out[0]['call_result']['content'],[]);self.assertTrue(any('input_required' in value for value in notices));self.assertNotIn('untrusted extra',str(notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
                     elif mode=='no-capability':self.assertFalse(out[0]['call_uncertain']);self.assertNotIn('tools/call',[item[0] for item in calls])
                     else:self.assertTrue(out[0]['call_uncertain']);self.assertIn('task-123',out[0]['error']);self.assertIn('may still be running',out[0]['error'])
                     self.assertLessEqual([item[0] for item in calls].count('tools/call'),1)
@@ -226,7 +226,7 @@ for line in sys.stdin:
   print(json.dumps({'jsonrpc':'2.0','method':'notifications/tasks/status','params':{'taskId':'task-123','status':'input_required','statusMessage':'untrusted extra'}}),flush=True)
   print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':token,'progress':1,'total':2}}),flush=True)
   if mode=='timeout':time.sleep(2)
-  result={'content':[{'type':'text','text':'task evidence'}],'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'different' if mode=='mismatch' else 'task-123'}}}
+  result={'structuredContent':{'text':'task evidence'},'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'different' if mode=='mismatch' else 'task-123'}}}
  else:raise RuntimeError('unexpected '+method)
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
@@ -239,7 +239,7 @@ for line in sys.stdin:
                         else:self.assertTrue(accepted)
                     session.discovered.connect(discovered);session.progress.connect(notices.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit);loop.exec();session.close()
                     self.assertTrue(out,mode)
-                    if mode=='success':self.assertEqual(out[0]['call_result']['content'][0]['text'],'task evidence');self.assertTrue(any('input_required' in value for value in notices));self.assertNotIn('untrusted extra',str(notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
+                    if mode=='success':self.assertEqual(out[0]['call_result']['structuredContent']['text'],'task evidence');self.assertEqual(out[0]['call_result']['content'],[]);self.assertTrue(any('input_required' in value for value in notices));self.assertNotIn('untrusted extra',str(notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
                     elif mode=='no-capability':self.assertFalse(out[0]['accepted'])
                     else:self.assertTrue(out[0]['call_uncertain']);self.assertIn('task-123',out[0]['error']);self.assertIn('may still be running',out[0]['error'])
 
@@ -1420,6 +1420,17 @@ for line in sys.stdin:
         self.assertEqual(visible['structuredContent'],{'ok':True});self.assertIn('blob',result['content'][0]['resource'])
         bad=block('hello','assistant');bad['resource']['blob']='bad!'
         with self.assertRaises(ValueError):decode_tool_text_resources({'content':[bad]})
+
+    def test_structured_only_tool_result_normalization(self):
+        from agentnik.mcp_content import normalize_tool_result,model_tool_result
+        from agentnik.mcp_schema import validate_tool_result
+        original={'structuredContent':{'count':1}};result=normalize_tool_result(original)
+        self.assertEqual(result['content'],[]);self.assertNotIn('content',original);self.assertEqual(model_tool_result(result)[0]['structuredContent'],{'count':1})
+        tool={'output_schema_status':'available','output_schema':{'type':'object','properties':{'count':{'type':'integer'}},'required':['count']}}
+        self.assertTrue(validate_tool_result(tool,result))
+        with self.assertRaises(ValueError):validate_tool_result(tool,normalize_tool_result({'structuredContent':{'count':'bad'}}))
+        for invalid in ({},{'structuredContent':[]},{'structuredContent':{},'content':None},{'structuredContent':{},'isError':'yes'}):
+            with self.subTest(result=invalid),self.assertRaises(ValueError):normalize_tool_result(invalid)
 
     def test_tool_audio_is_not_sent_as_text(self):
         from agentnik.mcp_content import model_images

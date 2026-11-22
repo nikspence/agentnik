@@ -249,8 +249,8 @@ class RemoteProbe(QObject):
             if self.phase in ('call','task_result'):
                 outcome=message.get('result')
                 if self.phase=='task_result':validate_task_result(outcome,self.task_id)
-                if not isinstance(outcome,dict) or not isinstance(outcome.get('content'),list) or ('isError' in outcome and type(outcome['isError']) is not bool) or ('structuredContent' in outcome and not isinstance(outcome['structuredContent'],dict)):raise ValueError('Invalid MCP tool result')
-                from .mcp_content import decode_tool_text_resources
+                from .mcp_content import decode_tool_text_resources,normalize_tool_result
+                outcome=normalize_tool_result(outcome)
                 outcome=decode_tool_text_resources(outcome)
                 if self.token and contains_secret(outcome,self.token):raise ValueError('Credential reflected in response')
                 self.task_id=None;self.task_mode=False;self.progress_token=None

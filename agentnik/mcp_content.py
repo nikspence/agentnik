@@ -4,6 +4,14 @@ import base64
 import binascii
 
 
+def normalize_tool_result(result):
+    """Accept structured-only results while rejecting malformed result shapes."""
+    if not isinstance(result,dict) or ('isError' in result and type(result['isError']) is not bool) or ('structuredContent' in result and not isinstance(result['structuredContent'],dict)):raise ValueError('Invalid MCP tool result')
+    if 'content' not in result and isinstance(result.get('structuredContent'),dict):return dict(result,content=[])
+    if not isinstance(result.get('content'),list):raise ValueError('Invalid MCP tool result')
+    return result
+
+
 def decode_tool_text_resources(result):
     """Decode supported embedded text resources before credential checks."""
     from .mcp_resources import parse_resource_contents,text_blob_mime
