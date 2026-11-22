@@ -181,7 +181,8 @@ for line in sys.stdin:
                             if mode=='timeout':time.sleep(2)
                             result={'content':[{'type':'text','text':'task evidence'}],'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'different' if mode=='mismatch' else 'task-123'}}}
                             progress={'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':state['token'],'progress':1,'total':2}}
-                            payload=b'data: '+json.dumps(progress).encode()+b'\n\ndata: '+json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode()+b'\n\n'
+                            status={'jsonrpc':'2.0','method':'notifications/tasks/status','params':{'taskId':'task-123','status':'input_required','statusMessage':'untrusted extra'}}
+                            payload=b'data: '+json.dumps(status).encode()+b'\n\ndata: '+json.dumps(progress).encode()+b'\n\ndata: '+json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode()+b'\n\n'
                             try:self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
                             except (BrokenPipeError,ConnectionResetError):pass
                             return
@@ -193,7 +194,7 @@ for line in sys.stdin:
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.progress.connect(notices.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
                 try:
                     loop.exec();session.shutdown();self.assertTrue(out,mode)
-                    if mode=='success':self.assertEqual(out[0]['call_result']['content'][0]['text'],'task evidence');self.assertTrue(any('task-123' in value for value in notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
+                    if mode=='success':self.assertEqual(out[0]['call_result']['content'][0]['text'],'task evidence');self.assertTrue(any('input_required' in value for value in notices));self.assertNotIn('untrusted extra',str(notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
                     elif mode=='no-capability':self.assertFalse(out[0]['call_uncertain']);self.assertNotIn('tools/call',[item[0] for item in calls])
                     else:self.assertTrue(out[0]['call_uncertain']);self.assertIn('task-123',out[0]['error']);self.assertIn('may still be running',out[0]['error'])
                     self.assertLessEqual([item[0] for item in calls].count('tools/call'),1)
@@ -222,6 +223,7 @@ for line in sys.stdin:
   result={'task':{'taskId':'task-123','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttl':60000}}
  elif method=='tasks/result':
   assert req['params']['taskId']=='task-123'
+  print(json.dumps({'jsonrpc':'2.0','method':'notifications/tasks/status','params':{'taskId':'task-123','status':'input_required','statusMessage':'untrusted extra'}}),flush=True)
   print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':token,'progress':1,'total':2}}),flush=True)
   if mode=='timeout':time.sleep(2)
   result={'content':[{'type':'text','text':'task evidence'}],'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'different' if mode=='mismatch' else 'task-123'}}}
@@ -237,9 +239,17 @@ for line in sys.stdin:
                         else:self.assertTrue(accepted)
                     session.discovered.connect(discovered);session.progress.connect(notices.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit);loop.exec();session.close()
                     self.assertTrue(out,mode)
-                    if mode=='success':self.assertEqual(out[0]['call_result']['content'][0]['text'],'task evidence');self.assertTrue(any('task-123' in value for value in notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
+                    if mode=='success':self.assertEqual(out[0]['call_result']['content'][0]['text'],'task evidence');self.assertTrue(any('input_required' in value for value in notices));self.assertNotIn('untrusted extra',str(notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
                     elif mode=='no-capability':self.assertFalse(out[0]['accepted'])
                     else:self.assertTrue(out[0]['call_uncertain']);self.assertIn('task-123',out[0]['error']);self.assertIn('may still be running',out[0]['error'])
+
+    def test_task_status_notice_filters_unrelated_and_duplicate_notifications(self):
+        from agentnik.mcp_support import task_status_notice
+        def msg(task,status):return {'jsonrpc':'2.0','method':'notifications/tasks/status','params':{'taskId':task,'status':status,'statusMessage':'untrusted'}}
+        status,text=task_status_notice(msg('one','input_required'),'one','working')
+        self.assertEqual(status,'input_required');self.assertIn('not supported',text);self.assertNotIn('untrusted',text)
+        for value in (msg('other','completed'),msg('one','working'),msg('one','unknown'),dict(msg('one','failed'),id=1)):
+            self.assertIsNone(task_status_notice(value,'one','working'))
 
     def test_progress_notice_requires_active_token_and_increasing_finite_values(self):
         from agentnik.mcp_support import progress_notice

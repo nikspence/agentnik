@@ -24,6 +24,17 @@ class MCPListChangedError(ValueError):
     """A server changed a catalog that must remain stable for an operation."""
 
 
+def task_status_notice(message,task_id,previous):
+    """Describe an active task's status without displaying server-supplied text."""
+    if not task_id or not isinstance(message,dict) or message.get('method')!='notifications/tasks/status' or 'id' in message:return None
+    params=message.get('params')
+    if not isinstance(params,dict) or params.get('taskId')!=task_id:return None
+    status=params.get('status')
+    if status not in ('working','input_required','completed','failed','cancelled') or status==previous:return None
+    suffix='; task input is not supported by Agentnik.' if status=='input_required' else '.'
+    return status,'MCP task '+task_id+' status: '+status+suffix
+
+
 def invalidate_server_list(session,method):
     """Invalidate only the changed catalog, rejecting affected in-flight work."""
     if method=='notifications/tools/list_changed':

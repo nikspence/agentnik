@@ -7,7 +7,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
-from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError
+from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError,task_status_notice
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
@@ -52,7 +52,7 @@ class LocalSession(QObject):
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0
 
     def start(self):
         if os.name=='nt':
@@ -96,6 +96,9 @@ class LocalSession(QObject):
                     else:response['error']={'code':-32601,'message':'Method not supported'}
                     self.send(response);continue
                 if 'id' not in message:
+                    if self.phase=='task_result' and self.task_status_count<40:
+                        status=task_status_notice(message,self.task_id,self.task_status_last)
+                        if status:self.task_status_last,detail=status;self.task_status_count+=1;self.progress.emit(detail)
                     if self.phase in ('call','task_result') and self.progress_token is not None:
                         notice=progress_notice(message,self.progress_token,self.progress_last)
                         if notice:
@@ -153,7 +156,7 @@ class LocalSession(QObject):
                     if any(contains_secret(outcome,secret) for secret in self.environment_secrets):self.fail('MCP response contained a mapped environment value and was blocked.');return
                     self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
                 if self.phase=='call' and self.task_mode:
-                    self.task_id=created_task_id(result);self.phase='task_result';self.next_id+=1
+                    self.task_id=created_task_id(result);self.task_status_last='working';self.task_status_count=0;self.phase='task_result';self.next_id+=1
                     self.progress.emit('Task started: '+self.task_id+'; awaiting result.')
                     self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tasks/result','params':{'taskId':self.task_id}});continue
                 if self.phase in ('call','task_result'):
