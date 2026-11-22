@@ -184,6 +184,8 @@ class RemoteProbe(QObject):
         status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
         if self.phase=='closing':
             self.complete(isinstance(status,int) and 200<=status<300);return
+        if self.phase=='request_cancel':
+            self.close_session();return
         if self.phase=='task_cancel':
             self.task_cancelled=False
             try:
@@ -315,21 +317,26 @@ class RemoteProbe(QObject):
         if self.task_cancelled is not None:result['task_cancelled']=self.task_cancelled
         self.finished.emit(result)
 
-    def cancel_task_or_close(self):
+    def cancel_task_or_close(self,request_id=None):
         caps=(self.result or {}).get('task_capabilities',{})
         if self.task_id and self.phase=='task_result' and caps.get('cancel'):
             self.task_cancelled=False;self.phase='task_cancel';self.timer.start(3000)
             self.send({'jsonrpc':'2.0','id':0,'method':'tasks/cancel','params':{'taskId':self.task_id}});return
+        if request_id is not None:
+            self.phase='request_cancel';self.timer.start(1500)
+            self.send({'jsonrpc':'2.0','method':'notifications/cancelled','params':{'requestId':request_id}});return
         self.close_session()
     def stop(self,message='MCP connection cancelled.'):
         self.timer.stop();reply=self.reply;self.reply=None
+        request_id=self.current_id if reply and self.phase=='call' and not self.task_mode and not self.progress_final_seen else None
         if reply:
             reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort();reply.deleteLater()
         if self.phase=='closing' and (self.result is not None or self.failure is not None):self.complete(False);return
         if self.phase=='task_cancel':self.task_cancelled=False;self.close_session();return
+        if self.phase=='request_cancel':self.close_session();return
         if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
         self.failure={'error':message,'call_uncertain':self.phase in ('call','task_result')}
-        self.cancel_task_or_close()
+        self.cancel_task_or_close(request_id)
 
 
 class RemoteSession(RemoteProbe):
@@ -418,9 +425,10 @@ class RemoteSession(RemoteProbe):
         if self.closed:return
         self.closed=True;self.timer.stop()
         reply=self.reply;self.reply=None
+        request_id=self.current_id if reply and self.phase=='call' and not self.task_mode and not self.progress_final_seen else None
         if reply:
             reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort();reply.deleteLater()
-        self.cancel_task_or_close()
+        self.cancel_task_or_close(request_id)
 
     def complete(self,closed):
         self.timer.stop();self.token='';result={'session_closed':closed}
@@ -429,7 +437,7 @@ class RemoteSession(RemoteProbe):
         self.finished.emit(result)
 
     def stop(self,message='MCP connection cancelled.'):
-        if self.phase in ('closing','task_cancel'):
+        if self.phase in ('closing','task_cancel','request_cancel'):
             super().stop(message);return
         uncertain=self.phase in ('call','task_result')
         if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
