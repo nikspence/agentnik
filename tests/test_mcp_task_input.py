@@ -71,7 +71,7 @@ class TaskInputTests(unittest.TestCase):
                         if started.wait(5):self.wfile.write(b'data: '+json.dumps(self.input_request()).encode()+b'\n\n');self.wfile.flush();answered.wait(5)
                     def do_DELETE(self):self.send_response(204);self.end_headers()
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5)
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False)
                 try:
                     self.run_session(session,mode=='matching')
                     if mode=='matching':self.assertEqual(received[0]['result'],{'action':'accept','content':{'choice':'yes'},'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'task-1'}}})

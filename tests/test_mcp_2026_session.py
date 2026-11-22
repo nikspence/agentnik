@@ -27,7 +27,7 @@ class ModernRemoteSession(unittest.TestCase):
                 else:raise AssertionError(method)
                 payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[];forms=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[];forms=[]
         session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.elicitation_requested.connect(forms.append)
         session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
@@ -49,7 +49,7 @@ class ModernRemoteSession(unittest.TestCase):
                 else:raise AssertionError(method)
                 payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(out.append)
         def check():
             if session.state_timer.isActive():session.stop();QTimer.singleShot(400,loop.quit)
@@ -72,7 +72,7 @@ class ModernRemoteSession(unittest.TestCase):
                 else:raise AssertionError(method)
                 payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[];forms=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[];forms=[]
         session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.elicitation_requested.connect(forms.append)
         session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
@@ -97,7 +97,7 @@ class ModernRemoteSession(unittest.TestCase):
                         else:raise AssertionError(method)
                         payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[];progress=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();out=[];progress=[]
                 session.discovered.connect(lambda result:session.call(result['tool_details'][0],{}))
                 def on_progress(message):
                     progress.append(message)
@@ -122,7 +122,7 @@ class ModernRemoteSession(unittest.TestCase):
                         body={'jsonrpc':'2.0','id':request['id'],'result':{'supportedVersions':[PROTOCOL],'capabilities':{}}};payload=json.dumps(body).encode()
                         self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','synthetic-token',timeout_seconds=5);loop=QEventLoop();out=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','synthetic-token',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
                 session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
                 timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                 try:
@@ -141,7 +141,7 @@ class ModernRemoteSession(unittest.TestCase):
                         content={'error':{'code':code,'message':'unsupported'}} if request['method']=='initialize' else {'result':{'supportedVersions':[PROTOCOL],'capabilities':{}}}
                         payload=json.dumps(dict(content,jsonrpc='2.0',id=request['id'])).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
                 session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
                 timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                 try:
@@ -158,7 +158,7 @@ class ModernRemoteSession(unittest.TestCase):
                 payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'error':{'code':code,'message':'private server diagnostic'}}).encode()
                 self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
             loop.exec();timer.stop();self.assertEqual(calls,['initialize','server/discover']);self.assertIn('-32602',out[0]['error']);self.assertIn('-32601',out[0]['error']);self.assertNotIn('private',out[0]['error'])
@@ -174,7 +174,7 @@ class ModernRemoteSession(unittest.TestCase):
                         request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method'])
                         payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'error':error}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
                 session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                 try:loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(calls,['initialize'])
                 finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
@@ -187,7 +187,7 @@ class ModernRemoteSession(unittest.TestCase):
                 request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method'])
                 self.send_response(401);self.send_header('WWW-Authenticate','Bearer');self.send_header('Content-Length','0');self.end_headers()
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','synthetic-token',timeout_seconds=5);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','synthetic-token',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
             loop.exec();timer.stop();self.assertTrue(out);self.assertIn('bearer token',out[0]['error'].lower());self.assertEqual(calls,['initialize'])
@@ -201,7 +201,7 @@ class ModernRemoteSession(unittest.TestCase):
                 request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method']);status=400 if request['method']=='initialize' else 404
                 payload=b'private server diagnostic';self.send_response(status);self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
             loop.exec();timer.stop();self.assertTrue(out);self.assertIn('HTTP 400',out[0]['error']);self.assertIn('HTTP 404',out[0]['error']);self.assertNotIn('private',out[0]['error']);self.assertEqual(calls,['initialize','server/discover'])
@@ -217,7 +217,7 @@ class ModernRemoteSession(unittest.TestCase):
                         request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method'])
                         self.send_response(status);self.send_header('Content-Length','0');self.end_headers()
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
                 session.ended.connect(lambda result:(out.append(result),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                 try:loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(calls,['initialize'])
                 finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
@@ -252,7 +252,7 @@ class ModernRemoteSession(unittest.TestCase):
             def do_GET(self):calls.append(('GET',{},{}));self.send_error(405)
             def do_DELETE(self):calls.append(('DELETE',{},{}));self.send_error(405)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         def discovered(result):
             self.assertEqual(result['protocol'],PROTOCOL)
             self.assertTrue(result['task_extension_advertised']);self.assertFalse(result['task_capabilities']['tool_calls'])
@@ -279,7 +279,7 @@ class ModernRemoteSession(unittest.TestCase):
                     body={'jsonrpc':'2.0','id':request['id'],'result':result}
                 payload=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
@@ -302,7 +302,7 @@ class ModernRemoteSession(unittest.TestCase):
                     body={'jsonrpc':'2.0','id':request['id'],'result':result}
                 payload=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda result:(out.append(('called',result)),loop.quit()));session.ended.connect(lambda result:(out.append(('ended',result)),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
@@ -327,7 +327,7 @@ class ModernRemoteSession(unittest.TestCase):
                     body={'jsonrpc':'2.0','id':request['id'],'result':result}
                 payload=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();out=[]
         session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.elicitation_requested.connect(lambda _:session.continue_elicitation({'question':{'action':'accept','content':{'choice':'yes'}}}));session.called.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
@@ -336,7 +336,7 @@ class ModernRemoteSession(unittest.TestCase):
         finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
     def test_subscription_requires_acknowledgement_and_matching_request_id(self):
-        session=RemoteSession('https://example.com/mcp','');session.modern=True;session.subscription_id=9
+        session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.modern=True;session.subscription_id=9
         session.result={'subscription_filters':{'resourcesListChanged':True,'promptsListChanged':True}}
         session.resource_items=[{'uri':'test://old'}];session.template_items=[{'uriTemplate':'test://{item}'}];session.prompt_items=[{'name':'old'}]
         events=[];session.progress.connect(events.append)
@@ -351,13 +351,13 @@ class ModernRemoteSession(unittest.TestCase):
         session.closed=True
 
     def test_subscription_does_not_accept_unacknowledged_notification(self):
-        session=RemoteSession('https://example.com/mcp','');session.modern=True;session.subscription_id=9;session.result={'subscription_filters':{'resourcesListChanged':True}}
+        session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.modern=True;session.subscription_id=9;session.result={'subscription_filters':{'resourcesListChanged':True}}
         session.resource_items=[{'uri':'test://old'}];session.prompt_items=[{'name':'old'}];events=[];session.progress.connect(events.append)
         session.server_stream_event(json.dumps({'jsonrpc':'2.0','method':'notifications/resources/list_changed','params':{'_meta':{'io.modelcontextprotocol/subscriptionId':9}}}).encode())
         self.assertEqual(session.resource_items,[]);self.assertEqual(session.prompt_items,[]);self.assertTrue(events);session.closed=True
 
     def test_subscription_acknowledgement_of_subset_clears_uncovered_listings(self):
-        session=RemoteSession('https://example.com/mcp','');session.modern=True;session.subscription_id=9
+        session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.modern=True;session.subscription_id=9
         session.result={'subscription_filters':{'resourcesListChanged':True,'promptsListChanged':True}}
         session.resource_items=[{'uri':'test://old'}];session.prompt_items=[{'name':'old'}];events=[];session.progress.connect(events.append)
         session.server_stream_event(json.dumps({'jsonrpc':'2.0','method':'notifications/subscriptions/acknowledged','params':{'notifications':{'resourcesListChanged':True},'_meta':{'io.modelcontextprotocol/subscriptionId':9}}}).encode())
@@ -365,7 +365,7 @@ class ModernRemoteSession(unittest.TestCase):
 
     def test_tool_change_requires_fresh_discovery(self):
         from unittest.mock import Mock
-        session=RemoteSession('https://example.com/mcp','');session.modern=True;session.subscription_id=9;session.subscription_ack={'toolsListChanged'};session.stop=Mock()
+        session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.modern=True;session.subscription_id=9;session.subscription_ack={'toolsListChanged'};session.stop=Mock()
         session.server_stream_event(json.dumps({'jsonrpc':'2.0','method':'notifications/tools/list_changed','params':{'_meta':{'io.modelcontextprotocol/subscriptionId':9}}}).encode())
         session.stop.assert_called_once();self.assertIn('reconnect',session.stop.call_args.args[0]);session.closed=True
 
@@ -389,7 +389,7 @@ class ModernRemoteSession(unittest.TestCase):
                     body={'jsonrpc':'2.0','id':request['id'],'result':result}
                 payload=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();events=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();events=[]
         session.discovered.connect(lambda _:session.list_resources());session.resources.connect(lambda _:release.set())
         session.progress.connect(lambda text:events.append(text));session.ended.connect(lambda _:loop.quit())
         poll=QTimer();poll.timeout.connect(lambda:loop.quit() if len(listens)>=2 and session.subscription_ack is not None else None);poll.start(25)

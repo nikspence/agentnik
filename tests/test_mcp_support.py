@@ -39,7 +39,7 @@ class MCPFoundation(unittest.TestCase):
                     def do_GET(self):self.send_response(405);self.end_headers()
                     def do_DELETE(self):self.send_response(204);self.end_headers()
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=2);loop=QEventLoop();out=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=2,prefer_modern=False);loop=QEventLoop();out=[]
                 session.discovered.connect(lambda value:(out.append(('discovered',value)),loop.quit()));session.ended.connect(lambda value:(out.append(('ended',value)),loop.quit()));session.start();timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(4000)
                 try:
                     loop.exec();timer.stop();self.assertTrue(out);self.assertFalse(release.is_set())
@@ -69,7 +69,7 @@ class MCPFoundation(unittest.TestCase):
             def do_GET(self):self.send_response(405);self.end_headers()
             def do_DELETE(self):self.send_response(204);self.end_headers()
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=3);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=3,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(5000)
         try:
             loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['call_result']['content'][0]['text'],'complete');self.assertFalse(release.is_set());self.assertEqual(calls.count('tools/call'),1)
@@ -103,7 +103,7 @@ class MCPFoundation(unittest.TestCase):
                         payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
                     def do_DELETE(self):self.send_response(204);self.end_headers()
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);loop=QEventLoop();out=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
                 try:
                     loop.exec();self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(received),1)
@@ -116,7 +116,7 @@ class MCPFoundation(unittest.TestCase):
     def test_remote_server_ping_rejects_invalid_or_duplicate_requests(self):
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession,response_message
-        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','')
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','',prefer_modern=False)
         invalid=[{'id':True,'method':'ping'},{'id':'x','method':''},{'id':'x','method':'ping','params':[]},{'id':'x','method':'ping','result':{}},{'id':'x'*129,'method':'ping'}]
         session.server_pings[('int',7)]={'jsonrpc':'2.0','id':7,'method':'ping'};invalid.append({'id':7,'method':'ping'})
         for request in invalid:
@@ -194,7 +194,7 @@ class MCPFoundation(unittest.TestCase):
                                 self.wfile.write(b'id: event-one\ndata: '+json.dumps(request).encode()+b'\n\n');self.wfile.flush();answered.wait(5)
                         def do_DELETE(self):self.send_response(204);self.end_headers()
                     server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                    session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[];presented=[]
+                    session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();out=[];presented=[]
                     session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
                     def request_input(forms):
                         presented.append(forms);self.assertFalse(session.timer.isActive());self.assertEqual(received,[])
@@ -216,14 +216,14 @@ class MCPFoundation(unittest.TestCase):
         app=QApplication.instance() or QApplication([])
         pending=parse_input_required({'resultType':'input_required','inputRequests':{'request':{'method':'elicitation/create','params':{'message':'Choose','requestedSchema':{'type':'object','properties':{'choice':{'type':'string'}},'required':['choice']}}}}});pending['legacy_request']=('server-id',False)
         for answer in ({'action':'accept','content':{}},{'action':'accept','content':{'choice':'fixture-token'}}):
-            session=RemoteSession('https://example.com/mcp','fixture-token');session.elicitation_pending=pending;session.post_server_response=Mock();session.stop=Mock()
+            session=RemoteSession('https://example.com/mcp','fixture-token',prefer_modern=False);session.elicitation_pending=pending;session.post_server_response=Mock();session.stop=Mock()
             self.assertFalse(session.continue_elicitation({'request':answer}));session.post_server_response.assert_not_called();session.stop.assert_called_once();session.closed=True
 
     def test_remote_2025_does_not_repeat_replayed_elicitation(self):
         from unittest.mock import Mock
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
-        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.server_request=Mock()
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.server_request=Mock()
         request=json.dumps({'jsonrpc':'2.0','id':'input','method':'elicitation/create','params':{}}).encode()
         session.server_stream_event(request,duplicate=True);session.server_request.assert_not_called();session.closed=True
 
@@ -232,7 +232,7 @@ class MCPFoundation(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         from PySide6.QtNetwork import QNetworkRequest
         from agentnik.mcp_remote import RemoteSession
-        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.phase='call';session.resource_items=[{'uri':'old'}];session.template_items=[{'uriTemplate':'old'}];session.prompt_items=[{'name':'old'}]
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.phase='call';session.resource_items=[{'uri':'old'}];session.template_items=[{'uriTemplate':'old'}];session.prompt_items=[{'name':'old'}]
         notices=[];session.progress.connect(notices.append);reply=Mock();reply.attribute.return_value=200;reply.header.return_value='text/event-stream';session.server_stream=reply
         events=[{'jsonrpc':'2.0','method':'notifications/resources/list_changed'},{'jsonrpc':'2.0','method':'notifications/prompts/list_changed'}]
         wire=b'\xef\xbb\xbf'+b''.join(b'data: '+json.dumps(event).encode()+b'\r\n\r\n' for event in events)
@@ -245,7 +245,7 @@ class MCPFoundation(unittest.TestCase):
         from unittest.mock import Mock
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
-        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.phase='call';session.current_id=17;session.sse_resuming=True
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.phase='call';session.current_id=17;session.sse_resuming=True
         session.cancel_task_or_close=Mock();session.sse_resume_timer.start(1000);session.shutdown()
         session.cancel_task_or_close.assert_called_once_with(17);self.assertFalse(session.sse_resume_timer.isActive());self.assertFalse(session.sse_resuming)
 
@@ -276,7 +276,7 @@ class MCPFoundation(unittest.TestCase):
                 payload=json.dumps({'jsonrpc':'2.0','id':state['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'id: ping\ndata: {"jsonrpc":"2.0","id":"ping-1","method":"ping"}\n\n');self.wfile.flush();ping_received.wait(3);self.wfile.write(b'id: init-result\ndata: '+payload+b'\n\n');self.wfile.flush()
             def do_DELETE(self):self.send_response(204);self.end_headers()
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda error:(out.append(error),loop.quit()));session.start();timeout=QTimer();timeout.setSingleShot(True);timeout.timeout.connect(loop.quit);timeout.start(7000)
         try:
             loop.exec();timeout.stop();self.assertTrue(out);self.assertEqual(out[0]['name'],'Fixture')
@@ -308,7 +308,7 @@ class MCPFoundation(unittest.TestCase):
                 self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'id: cursor-two\ndata: '+payload+b'\n\n');self.wfile.flush();release.wait(6)
             def do_DELETE(self):self.send_response(204);self.end_headers()
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda error:(out.append(error),loop.quit()));session.start();timeout=QTimer();timeout.setSingleShot(True);timeout.timeout.connect(loop.quit);timeout.start(7000)
         try:
             loop.exec();timeout.stop();self.assertTrue(out);self.assertEqual(out[0]['call_result']['content'][0]['text'],'finished')
@@ -339,7 +339,7 @@ class MCPFoundation(unittest.TestCase):
                 except OSError:pass
             def do_DELETE(self):release.set();self.send_response(204);self.end_headers()
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);loop=QEventLoop();notices=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();notices=[]
         def on_progress(message):
             notices.append(message)
             if sum('MCP resources changed' in x for x in notices)>=2:loop.quit()
@@ -354,7 +354,7 @@ class MCPFoundation(unittest.TestCase):
         from unittest.mock import Mock
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
-        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','fixture-token');session.phase='call'
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','fixture-token',prefer_modern=False);session.phase='call'
         notices=[];session.progress.connect(notices.append);reply=Mock();reply.attribute.return_value=200;reply.header.return_value='text/event-stream';session.server_stream=reply
         event=b'data: {"jsonrpc":"2.0","method":"notifications/resources/list_changed"}\n'
         reply.readAll.side_effect=[b'id: first\nretry: 2400\n'+event,b'\n',b'id: first\n'+event+b'\n',b'id: fixture-token\n'+event+b'\n']
@@ -368,7 +368,7 @@ class MCPFoundation(unittest.TestCase):
         from unittest.mock import Mock
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
-        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.phase='call';session.stop=Mock()
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.phase='call';session.stop=Mock()
         for status,content_type,wire in ((405,'text/plain',b''),(200,'application/json',b'{}'),(200,'text/event-stream',b'data: '+b'x'*65537)):
             with self.subTest(status=status,content_type=content_type):
                 reply=Mock();reply.attribute.return_value=status;reply.header.return_value=content_type;reply.readAll.return_value=wire;session.server_stream=reply
@@ -451,7 +451,7 @@ for line in sys.stdin:
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession,response_message
         from agentnik.mcp_support import MCPListChangedError
-        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','');session.phase='call';session.resource_items=[{'uri':'old'}];session.template_items=[{'uriTemplate':'old'}];session.prompt_items=[{'name':'old'}];notices=[];session.progress.connect(notices.append)
+        app=QApplication.instance() or QApplication([]);session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.phase='call';session.resource_items=[{'uri':'old'}];session.template_items=[{'uriTemplate':'old'}];session.prompt_items=[{'name':'old'}];notices=[];session.progress.connect(notices.append)
         def frame(message):return b'data: '+json.dumps(message).encode()+b'\n\n'
         response={'jsonrpc':'2.0','id':7,'result':{'content':[]}}
         notifications=[{'jsonrpc':'2.0','method':'notifications/'+name+'/list_changed'} for name in ('resources','prompts')]
@@ -534,7 +534,7 @@ for line in sys.stdin:
                         except OSError:pass
                     def do_DELETE(self):calls.append(('DELETE',self.headers.get('Mcp-Session-Id')));release.set();self.send_response(204);self.end_headers()
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','');loop=QEventLoop();finished=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',prefer_modern=False);loop=QEventLoop();finished=[]
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.finished.connect(lambda value:(finished.append(value),loop.quit()))
                 timer=QTimer();timer.timeout.connect(lambda:session.shutdown() if result_started.is_set() else None);timer.start(10);session.start();QTimer.singleShot(7000,loop.quit)
                 try:
@@ -576,7 +576,7 @@ for line in sys.stdin:
                         except OSError:pass
                     def do_DELETE(self):calls.append(('DELETE',None,None,self.headers.get('Mcp-Session-Id')));release.set();self.send_response(204);self.end_headers()
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=1 if mode=='call-timeout' else 5);loop=QEventLoop();finished=[];ended=[];called=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=1 if mode=='call-timeout' else 5,prefer_modern=False);loop=QEventLoop();finished=[];ended=[];called=[]
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda value:called.append(value));session.ended.connect(lambda value:ended.append(value));session.finished.connect(lambda value:(finished.append(value),loop.quit()))
                 timer=QTimer();timer.timeout.connect(lambda:session.shutdown() if mode!='call-timeout' and started.is_set() else None);timer.start(10);session.start();QTimer.singleShot(7000,loop.quit)
                 try:
@@ -625,7 +625,7 @@ for line in sys.stdin:
                         payload=json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
                     def do_DELETE(self,calls=calls):calls.append(('DELETE',self.headers.get('Mcp-Session-Id')));self.send_response(204);self.end_headers()
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=1 if mode=='timeout' else 5);loop=QEventLoop();out=[];notices=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=1 if mode=='timeout' else 5,prefer_modern=False);loop=QEventLoop();out=[];notices=[]
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.progress.connect(notices.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
                 try:
                     loop.exec();session.shutdown();self.assertTrue(out,mode)
@@ -742,7 +742,9 @@ for line in sys.stdin:
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_POST(self):
-                req=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=req['method'];calls.append(method)
+                req=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=req['method']
+                if method=='server/discover':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                calls.append(method)
                 if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                 if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
                 elif method=='tools/list':result={'tools':[{'name':'long_job','inputSchema':{'type':'object'}}]}
@@ -756,7 +758,8 @@ for line in sys.stdin:
                 body=json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
         app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);server_thread=threading.Thread(target=server.serve_forever,daemon=True);server_thread.start()
         config={'mcp_servers':[{'name':'Remote','transport':'http','url':'http://127.0.0.1:'+str(server.server_port)+'/mcp','credential_id':'','enabled':True}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config);runtime=Runtime();out=[]
-        def on_progress(name,detail):out.append(('progress',name,detail));progress_received.set();release.set()
+        def on_progress(name,detail):
+            if detail=='Progress 1 / 4: Loading':out.append(('progress',name,detail));progress_received.set();release.set()
         runtime.mcp_progress=on_progress
         def work():
             info=bridge.request('discover',{},runtime);result=bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime);out.append(('result',result));bridge.close_signal.emit()
@@ -814,7 +817,7 @@ for line in sys.stdin:
         self.assertEqual(len(results[0]['call_result']['content'][0]['text']),500000);session.close()
         for phase,amount,rejected in [('call',500000,False),('call',MAX_TOOL_RESULT_OUTPUT+1,True),('initialize',MAX_OUTPUT+1,True)]:
             with self.subTest(phase=phase,amount=amount):
-                probe=RemoteProbe('http://127.0.0.1/','');probe.phase=phase;probe.reply=unittest.mock.Mock();probe.reply.readAll.return_value=b'x'*amount
+                probe=RemoteProbe('http://127.0.0.1/','',prefer_modern=False);probe.phase=phase;probe.reply=unittest.mock.Mock();probe.reply.readAll.return_value=b'x'*amount
                 with patch.object(probe,'stop') as stop:probe.consume();self.assertEqual(stop.called,rejected)
 
     def test_local_discovery_accepts_large_page_and_enforces_128k(self):
@@ -861,7 +864,7 @@ for line in sys.stdin:
         app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
             for too_large in (False,True):
-                Handler.large=too_large;loop=QEventLoop();probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','');results=[]
+                Handler.large=too_large;loop=QEventLoop();probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','',prefer_modern=False);results=[]
                 probe.finished.connect(lambda result:(results.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
                 self.assertTrue(results)
                 if too_large:self.assertIn('output limit',results[0]['error'])
@@ -1096,11 +1099,11 @@ for line in sys.stdin:
             with patch.object(local,'list_page'):
                 self.assertTrue(local.call(tool,{}));self.assertEqual(local.timer.interval(),180000)
             local.timer.stop()
-            remote=RemoteSession('https://example.com/mcp','',timeout_seconds=240);remote.phase='ready'
+            remote=RemoteSession('https://example.com/mcp','',timeout_seconds=240,prefer_modern=False);remote.phase='ready'
             with patch.object(remote,'send'):
                 self.assertTrue(remote.call(tool,{}));self.assertEqual(remote.timer.interval(),240000)
             remote.timer.stop()
-            probe=RemoteProbe('https://example.com/mcp','',timeout_seconds=120)
+            probe=RemoteProbe('https://example.com/mcp','',timeout_seconds=120,prefer_modern=False)
             with patch.object(probe,'send'):
                 probe.start();self.assertEqual(probe.timer.interval(),120000)
             probe.timer.stop()
@@ -1360,7 +1363,7 @@ for line in sys.stdin:
             def do_DELETE(self):self.send_response(204);self.end_headers()
         app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
-            session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','');loop=QEventLoop();out=[]
+            session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',prefer_modern=False);loop=QEventLoop();out=[]
             session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda result:(out.append(result),loop.quit()))
             session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.shutdown()
             self.assertIn('-32603',out[0]['error']);self.assertIn('Database unavailable',out[0]['error']);self.assertNotIn('private data',str(out));self.assertTrue(out[0]['call_uncertain']);self.assertEqual(calls.count('tools/call'),1)
@@ -1421,22 +1424,22 @@ for line in sys.stdin:
                 calls.append(('DELETE',self.headers.get('Mcp-Session-Id'),self.headers.get('MCP-Protocol-Version'),self.headers.get('Authorization')));self.send_response(204);self.end_headers()
         app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
-            loop=QEventLoop();probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token');results=[]
+            loop=QEventLoop();probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token',prefer_modern=False);results=[]
             probe.finished.connect(lambda result:(results.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
             self.assertEqual(results[0]['tools'],['web_search','web_fetch']);self.assertEqual(results[0]['version'],'unknown');self.assertTrue(results[0]['session_closed'])
             self.assertEqual(results[0]['tool_details'][0]['description'],'Search the web');self.assertIn('query',results[0]['tool_details'][0]['schema']['properties'])
             self.assertEqual([call[0] for call in calls],['initialize','notifications/initialized','tools/list','tools/list','DELETE'])
             self.assertTrue(all(call[1:3]==('session-1',PROTOCOL) for call in calls[1:]));self.assertTrue(all(call[3]=='Bearer test-token' for call in calls))
-            loop2=QEventLoop();probe2=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token',invocation={'tool':results[0]['tool_details'][0],'arguments':{'query':'MCP'}});calls_result=[]
+            loop2=QEventLoop();probe2=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token',invocation={'tool':results[0]['tool_details'][0],'arguments':{'query':'MCP'}},prefer_modern=False);calls_result=[]
             probe2.finished.connect(lambda result:(calls_result.append(result),loop2.quit()));probe2.start();QTimer.singleShot(5000,loop2.quit);loop2.exec()
             self.assertEqual(calls_result[0]['call_result']['content'][0]['text'],'A search result');self.assertEqual([call[0] for call in calls].count('tools/call'),1)
-            altered=dict(results[0]['tool_details'][0],description='stale');loop3=QEventLoop();probe3=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token',invocation={'tool':altered,'arguments':{'query':'MCP'}});stale=[]
+            altered=dict(results[0]['tool_details'][0],description='stale');loop3=QEventLoop();probe3=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token',invocation={'tool':altered,'arguments':{'query':'MCP'}},prefer_modern=False);stale=[]
             probe3.finished.connect(lambda result:(stale.append(result),loop3.quit()));probe3.start();QTimer.singleShot(5000,loop3.quit);loop3.exec()
             self.assertIn('error',stale[0]);self.assertTrue(stale[0]['session_closed']);self.assertEqual(calls[-1][0],'DELETE');self.assertEqual([call[0] for call in calls].count('tools/call'),1)
-            changed_output=dict(results[0]['tool_details'][0],output_schema={'type':'object','required':['changed']});loop5=QEventLoop();probe5=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token',invocation={'tool':changed_output,'arguments':{'query':'MCP'}});out5=[]
+            changed_output=dict(results[0]['tool_details'][0],output_schema={'type':'object','required':['changed']});loop5=QEventLoop();probe5=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token',invocation={'tool':changed_output,'arguments':{'query':'MCP'}},prefer_modern=False);out5=[]
             probe5.finished.connect(lambda result:(out5.append(result),loop5.quit()));probe5.start();QTimer.singleShot(5000,loop5.quit);loop5.exec()
             self.assertIn('definition changed',out5[0]['error']);self.assertFalse(out5[0]['call_uncertain']);self.assertEqual([call[0] for call in calls].count('tools/call'),1)
-            loop4=QEventLoop();probe4=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token',invocation={'tool':results[0]['tool_details'][0],'arguments':{'query':'uncertain'}});uncertain=[]
+            loop4=QEventLoop();probe4=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','test-token',invocation={'tool':results[0]['tool_details'][0],'arguments':{'query':'uncertain'}},prefer_modern=False);uncertain=[]
             probe4.finished.connect(lambda result:(uncertain.append(result),loop4.quit()));probe4.start();QTimer.singleShot(5000,loop4.quit);loop4.exec()
             self.assertTrue(uncertain[0]['call_uncertain']);self.assertTrue(uncertain[0]['session_closed']);self.assertEqual(calls[-1][0],'DELETE');self.assertEqual([call[0] for call in calls].count('tools/call'),2)
         finally:server.shutdown();server.server_close();thread.join(2)
@@ -1463,7 +1466,7 @@ for line in sys.stdin:
                 calls.append(('DELETE',self.headers.get('Authorization'),self.headers.get('Mcp-Session-Id')));self.send_response(405);self.end_headers()
         app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
-            probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-secret');out=[];loop=QEventLoop()
+            probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-secret',prefer_modern=False);out=[];loop=QEventLoop()
             probe.finished.connect(lambda result:(out.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
             self.assertEqual(len(out),1);self.assertIn('503',out[0]['error']);self.assertFalse(out[0]['call_uncertain']);self.assertFalse(out[0]['session_closed'])
             self.assertEqual(calls[-1],('DELETE','Bearer fixture-secret','session'));self.assertNotIn('fixture-secret',str(out));self.assertEqual(probe.token,'')
@@ -1492,7 +1495,7 @@ for line in sys.stdin:
             for expected in ({'name':'Different'},None):
                 with self.subTest(expected=expected):
                     calls.clear();out=[];loop=QEventLoop()
-                    probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','',expected_identity=expected)
+                    probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','',expected_identity=expected,prefer_modern=False)
                     probe.finished.connect(lambda result:(out.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
                     self.assertEqual(len(out),1);self.assertIn('error',out[0]);self.assertTrue(out[0]['session_closed']);self.assertEqual(calls[-1],'DELETE')
                     self.assertFalse(out[0]['call_uncertain'])
@@ -1521,7 +1524,7 @@ for line in sys.stdin:
         app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
             tool=dict(preview_tool({'inputSchema':{'type':'object'}}),name='query');out=[];loop=QEventLoop()
-            probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','',invocation={'tool':tool,'arguments':{}},timeout_seconds=1)
+            probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','',invocation={'tool':tool,'arguments':{}},timeout_seconds=1,prefer_modern=False)
             probe.finished.connect(lambda result:(out.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
             self.assertEqual(len(out),1);self.assertIn('timed out',out[0]['error']);self.assertTrue(out[0]['call_uncertain']);self.assertTrue(out[0]['session_closed'])
             self.assertEqual(calls.count('tools/call'),1);self.assertEqual(calls[-1],'DELETE')
@@ -1552,14 +1555,14 @@ for line in sys.stdin:
             url='http://127.0.0.1:'+str(server.server_port)+'/mcp'
             for version in ('2025-06-18','2025-03-26'):
                 with self.subTest(version=version):
-                    selected[0]=version;calls.clear();loop=QEventLoop();session=RemoteSession(url,'');results=[]
+                    selected[0]=version;calls.clear();loop=QEventLoop();session=RemoteSession(url,'',prefer_modern=False);results=[]
                     def discovered(info):
                         results.append(info);self.assertTrue(session.call(info['tool_details'][0],{}))
                     session.discovered.connect(discovered);session.called.connect(lambda result:(results.append(result),session.shutdown()));session.finished.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec()
                     self.assertEqual(results[0]['protocol'],version);self.assertEqual(results[1]['call_result']['content'][0]['text'],'ok');self.assertTrue(results[2]['session_closed'])
                     self.assertEqual([item[0] for item in calls],['initialize','notifications/initialized','tools/list','tools/list','tools/call','DELETE'])
                     self.assertIsNone(calls[0][1]);self.assertTrue(all(header==version for _,header in calls[1:]))
-            selected[0]='2024-11-05';calls.clear();loop=QEventLoop();probe=RemoteProbe(url,'');results=[]
+            selected[0]='2024-11-05';calls.clear();loop=QEventLoop();probe=RemoteProbe(url,'',prefer_modern=False);results=[]
             probe.finished.connect(lambda result:(results.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
             self.assertIn('error',results[0]);self.assertEqual(calls,[('initialize',None)])
         finally:server.shutdown();server.server_close();thread.join(2)
@@ -1581,7 +1584,7 @@ for line in sys.stdin:
                 payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         try:
-            loop=QEventLoop();probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','');results=[]
+            loop=QEventLoop();probe=RemoteProbe('http://127.0.0.1:'+str(server.server_port)+'/mcp','',prefer_modern=False);results=[]
             probe.finished.connect(lambda result:(results.append(result),loop.quit()));probe.start();QTimer.singleShot(5000,loop.quit);loop.exec()
             self.assertIn('error',results[0]);self.assertEqual(calls.count('tools/list'),2)
         finally:server.shutdown();server.server_close();thread.join(2)
@@ -1984,7 +1987,7 @@ for line in sys.stdin:
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
         app=QApplication.instance() or QApplication([])
-        session=RemoteSession('https://example.com/mcp','');session.result={'call_result':{'content':[{'type':'resource_link','uri':'file:///public','name':'public'},{'type':'resource_link','uri':'file:///private','name':'private','annotations':{'audience':['user']}}]}}
+        session=RemoteSession('https://example.com/mcp','',prefer_modern=False);session.result={'call_result':{'content':[{'type':'resource_link','uri':'file:///public','name':'public'},{'type':'resource_link','uri':'file:///private','name':'private','annotations':{'audience':['user']}}]}}
         session.finish_call();session.send=Mock()
         self.assertFalse(session.read_resource('file:///private'));self.assertFalse(session.read_resource('file:///other'));self.assertTrue(session.read_resource('file:///public'))
         self.assertEqual(session.send.call_args.args[0]['params']['uri'],'file:///public');session.timer.stop();session.closed=True
@@ -2121,7 +2124,9 @@ for line in sys.stdin:
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_POST(self):
-                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];calls.append((method,self.headers.get('Mcp-Session-Id')))
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method']
+                if method=='server/discover':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                calls.append((method,self.headers.get('Mcp-Session-Id')))
                 if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                 if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'prompts':{}}}
                 elif method=='prompts/list':result={'prompts':[{'name':'review','arguments':[{'name':'code','required':True}]}]}
@@ -2152,7 +2157,9 @@ for line in sys.stdin:
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_POST(self):
-                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];calls.append((method,self.headers.get('Mcp-Session-Id'),self.headers.get('Authorization')))
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method']
+                if method=='server/discover':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                calls.append((method,self.headers.get('Mcp-Session-Id'),self.headers.get('Authorization')))
                 if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                 if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
                 elif method=='resources/list':result={'resources':[{'uri':'test://two','name':'Two'}]} if body.get('params',{}).get('cursor') else {'resources':[{'uri':'test://one','name':'One','description':'Example'}],'nextCursor':'next'}
@@ -2185,7 +2192,9 @@ for line in sys.stdin:
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_POST(self):
-                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];calls.append((method,body.get('id'),self.headers.get('Mcp-Session-Id')))
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method']
+                if method=='server/discover':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                calls.append((method,body.get('id'),self.headers.get('Mcp-Session-Id')))
                 if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                 if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
                 elif method=='tools/list':result={'tools':[{'name':'step','description':'Changed' if state['changed'] else 'Count','inputSchema':{'type':'object'}}]}
@@ -2218,7 +2227,9 @@ for line in sys.stdin:
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_POST(self):
-                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method'];calls.append(method)
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body['method']
+                if method=='server/discover':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                calls.append(method)
                 if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                 if method=='tools/call':self.connection.close();return
                 result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}} if method=='initialize' else {'tools':[{'name':'query','description':'Query','inputSchema':{'type':'object'}}]}

@@ -104,7 +104,7 @@ class RemoteProbe(QObject):
     progress=Signal(object)
     elicitation_requested=Signal(object)
     elicitation_completed=Signal(str)
-    def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60):
+    def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60,prefer_modern=True):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
         self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None;self.modern=False;self.call_schema=None;self.legacy_rejection=None;self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls={}
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
@@ -120,9 +120,18 @@ class RemoteProbe(QObject):
         self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(self.subscription_timed_out)
         self.modern_task_timer=QTimer(self);self.modern_task_timer.setSingleShot(True);self.modern_task_timer.timeout.connect(self.poll_modern_task);self.modern_task=None;self.modern_cancel_ack=None
         self.state_timer=QTimer(self);self.state_timer.setSingleShot(True);self.state_timer.timeout.connect(lambda:self.continue_elicitation({},state_only=True))
+        self.prefer_modern=prefer_modern;self.modern_first_probe=False;self.modern_probe_finished=False
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
-        self.timer.start(self.timeout_ms);self.send(initialize_request(elicitation=self.elicitation_enabled))
+        self.timer.start(self.timeout_ms)
+        if self.prefer_modern:
+            self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery';self.modern_first_probe=True
+            self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}})
+        else:self.send(initialize_request(elicitation=self.elicitation_enabled))
+    def fallback_legacy(self):
+        self.modern_first_probe=False;self.modern_probe_finished=True;self.modern=False;self.protocol=PROTOCOL;self.phase='initialize'
+        self.progress.emit('MCP 2026 discovery was rejected; checking legacy initialization.')
+        self.send(initialize_request(elicitation=self.elicitation_enabled))
     def send(self,message):
         if message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
         if 'id' in message:
@@ -549,7 +558,18 @@ class RemoteProbe(QObject):
             except (ValueError,UnicodeError,TypeError,RecursionError):pass
             self.close_session();return
         if status not in ((202,) if self.phase=='initialized' else (200,)):
-            if self.phase=='initialize' and status in (400,404,405):
+            if self.modern_first_probe and status in (400,404,405):
+                if status==400:
+                    if self.token and self.token.encode('ascii') in self.buffer:self.stop('MCP response contained a credential and was blocked.');return
+                    try:
+                        candidate=response_message(bytes(self.buffer),ctype,self.current_id)
+                        if self.token and contains_secret(candidate,self.token):self.stop('MCP response contained a credential and was blocked.');return
+                        error=candidate.get('error')
+                        if isinstance(error,dict) and error.get('code') in (-32020,-32021,-32022):
+                            self.stop('MCP 2026 discovery failed with a modern protocol error ('+str(error['code'])+').');return
+                    except (ValueError,UnicodeError,TypeError,RecursionError):pass
+                self.fallback_legacy();return
+            if self.phase=='initialize' and not self.modern_probe_finished and status in (400,404,405):
                 self.legacy_rejection='HTTP '+str(status);self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
                 self.progress.emit('Legacy MCP initialization was rejected; checking 2026 discovery.')
                 self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
@@ -580,7 +600,11 @@ class RemoteProbe(QObject):
             if 'error' in message:
                 error=rpc_error(message)
                 if self.modern_task is not None and self.modern_task.task_id in error:error='MCP task request failed; server error details were omitted.'
-                if self.phase=='initialize' and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
+                if self.modern_first_probe and message['error']['code'] in (-32600,-32601,-32602):
+                    self.fallback_legacy();return
+                if self.modern_first_probe and message['error']['code'] in (-32020,-32021,-32022):
+                    self.stop('MCP 2026 discovery failed with a modern protocol error ('+str(message['error']['code'])+').');return
+                if self.phase=='initialize' and not self.modern_probe_finished and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
                     self.legacy_rejection='JSON-RPC '+str(message['error']['code']);self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
                     self.progress.emit('Legacy MCP initialization was rejected; checking 2026 discovery.')
                     self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
@@ -628,6 +652,7 @@ class RemoteProbe(QObject):
             if self.modern and self.phase in ('call','resource_read','prompt_get'):self.elicitation_original=None;self.elicitation_pending=None
             if self.phase=='modern_discovery':
                 self.result=parse_discovery(message.get('result'))
+                self.modern_first_probe=False;self.modern_probe_finished=True
                 if self.elicitation_enabled and self.result.get('task_extension_advertised'):self.result['task_capabilities']={'tool_calls':True,'list':False,'cancel':True,'modern':True}
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
                 if self.result['subscription_filters']:
@@ -637,7 +662,7 @@ class RemoteProbe(QObject):
                     self.result.update(tools=[],tool_details=[],more_tools=False);self.finish_discovery();return
                 self.phase='tools';self.pages=1;self.send({'jsonrpc':'2.0','id':0,'method':'tools/list','params':{}});return
             if self.phase=='initialize':
-                self.result=parse_initialize(json.dumps(message).encode(),HTTP_PROTOCOLS);self.protocol=self.result['protocol']
+                self.result=parse_initialize(json.dumps(message).encode(),HTTP_PROTOCOLS,expected_id=self.current_id);self.protocol=self.result['protocol']
                 session=reply.rawHeader('Mcp-Session-Id')
                 if not isinstance(session,str):session=bytes(session).decode('ascii')
                 if len(session)>512 or any(ord(ch)<33 or ord(ch)>126 for ch in session):raise ValueError('Invalid MCP session identifier')
@@ -794,8 +819,8 @@ class RemoteSession(RemoteProbe):
     resources=Signal(object)
     prompts=Signal(object)
 
-    def __init__(self,url,token,parent=None,timeout_seconds=60):
-        super().__init__(url,token,parent,timeout_seconds=timeout_seconds)
+    def __init__(self,url,token,parent=None,timeout_seconds=60,prefer_modern=True):
+        super().__init__(url,token,parent,timeout_seconds=timeout_seconds,prefer_modern=prefer_modern)
         self.closed=False;self.resource_links=[]
 
     def finish_discovery(self):

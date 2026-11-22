@@ -112,12 +112,12 @@ class ElicitationTests(unittest.TestCase):
         from agentnik.mcp_remote import RemoteSession
         item={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'}
         for action,retry in (('accept',False),('decline',True)):
-            session=RemoteSession('https://example.test/mcp','');session.elicitation_pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}});session.elicitation_original={'id':4,'method':'tools/call','params':{'name':'work','arguments':{}}};session.send=Mock();session.stop=Mock()
+            session=RemoteSession('https://example.test/mcp','',prefer_modern=False);session.elicitation_pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}});session.elicitation_original={'id':4,'method':'tools/call','params':{'name':'work','arguments':{}}};session.send=Mock();session.stop=Mock()
             self.assertFalse(session.continue_elicitation({'0':{'action':action}},retry=retry));session.send.assert_not_called();session.stop.assert_called_once();session.closed=True
 
     def test_completion_notifications_ignore_unknown_duplicate_and_unopened_ids(self):
         from agentnik.mcp_remote import RemoteSession
-        session=RemoteSession('https://example.test/mcp','');item={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'}
+        session=RemoteSession('https://example.test/mcp','',prefer_modern=False);item={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'}
         session.elicitation_pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}});notices=[];completed=[]
         session.progress.connect(notices.append);session.elicitation_completed.connect(completed.append)
         def message(ident):return {'jsonrpc':'2.0','method':'notifications/elicitation/complete','params':{'elicitationId':ident}}
@@ -131,7 +131,7 @@ class ElicitationTests(unittest.TestCase):
         item={'mode':'url','message':'Review','url':'https://example.test/','elicitationId':'synthetic'}
         event=json.dumps({'jsonrpc':'2.0','method':'notifications/elicitation/complete','params':{'elicitationId':'synthetic'}}).encode()
         for standalone in (False,True):
-            session=RemoteSession('https://example.test/mcp','');session.phase='call';session.elicitation_pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}});out=[]
+            session=RemoteSession('https://example.test/mcp','',prefer_modern=False);session.phase='call';session.elicitation_pending=parse_url_required({'code':-32042,'data':{'elicitations':[item]}});out=[]
             session.elicitation_completed.connect(out.append);track_opened(session,'synthetic')
             if standalone:session.server_stream_event(event);session.server_stream_event(event,duplicate=True)
             else:session._progress_event(event);session._progress_event(event)
@@ -161,7 +161,7 @@ class ElicitationTests(unittest.TestCase):
         from agentnik.mcp_remote import RemoteSession
         params={'mode':'url','message':'Review','url':'https://example.test/path','elicitationId':'synthetic'}
         for standalone,decline in ((False,False),(True,False),(False,True),(True,True)):
-            session=RemoteSession('https://example.test/mcp','');session.elicitation_enabled=True;session.protocol='2025-11-25';session.phase='call';session.post_server_response=Mock();dialogs=[]
+            session=RemoteSession('https://example.test/mcp','',prefer_modern=False);session.elicitation_enabled=True;session.protocol='2025-11-25';session.phase='call';session.post_server_response=Mock();dialogs=[]
             with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True) as open_url:
                 def show(forms):
                     dialog=ElicitationDialog('Example',forms);dialogs.append(dialog);open_url.assert_not_called()

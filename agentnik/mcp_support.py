@@ -194,10 +194,10 @@ def task_cleanup_text(result):
     return 'MCP task '+ident+' on '+server+': '+detail+'.'
 
 
-def parse_initialize(line, supported_protocols=(PROTOCOL,)):
+def parse_initialize(line, supported_protocols=(PROTOCOL,),expected_id=1):
     try:message=json.loads(line)
     except (ValueError,UnicodeError,RecursionError):raise ValueError('Invalid MCP initialization response') from None
-    if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or type(message.get('id')) is not int or message['id']!=1 or not isinstance(message.get('result'),dict):raise ValueError('Invalid MCP initialization response')
+    if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or type(message.get('id')) is not int or message['id']!=expected_id or not isinstance(message.get('result'),dict):raise ValueError('Invalid MCP initialization response')
     result=message['result'];info=result.get('serverInfo');capabilities=result.get('capabilities')
     if result.get('protocolVersion') not in supported_protocols:raise ValueError('Server did not accept a supported MCP protocol version')
     if not isinstance(info,dict) or not isinstance(info.get('name'),str) or not info['name'] or len(info['name'])>256 or not isinstance(info.get('version'),str) or len(info['version'])>256 or not isinstance(capabilities,dict):raise ValueError('Invalid MCP server identity or capabilities')
