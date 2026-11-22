@@ -1,4 +1,16 @@
-# Agentnik v0.9.2
+# Agentnik v0.9.3
+
+Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
+
+## Changes since v0.9.2
+
+- **Connections and coding:** OpenRouter service tier support and scoped Code validation across multiple providers, routes, and models. See VALIDATION.md for the specific observations and limitations.
+- **Languages and Git:** Expanded language coverage and support for global or repository-based Git author settings.
+- **Offline validation:** An isolated test runner blocks unexpected Python network access; cross-platform CI and Windows timing and process-cleanup checks were improved.
+
+Offline tests use mocked endpoints and offscreen Qt. Build-host startup evidence is recorded in BUILD-MANIFEST.json. This release has not been separately qualified on a clean machine. macOS/Linux, signing and a complete bundled-library license review remain open.
+
+## Earlier release: v0.9.2
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
