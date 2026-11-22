@@ -193,18 +193,19 @@ for line in sys.stdin:
                 class Handler(BaseHTTPRequestHandler):
                     def log_message(self,*args):pass
                     def do_POST(self):
+                        mode_here=mode;release_here=release;started_here=started
                         req=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=req['method'];calls.append((method,req.get('id'),req.get('params'),self.headers.get('Mcp-Session-Id')))
                         if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                         if method=='notifications/cancelled':
-                            if mode=='notification-timeout':time.sleep(2)
-                            release.set()
-                            try:self.send_response(500 if mode=='rejected' else 202);self.end_headers()
+                            if mode_here=='notification-timeout':time.sleep(2)
+                            release_here.set()
+                            try:self.send_response(500 if mode_here=='rejected' else 202);self.end_headers()
                             except OSError:pass
                             return
                         if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
                         elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
                         elif method=='tools/call':
-                            started.set();release.wait(4);result={'content':[{'type':'text','text':'late'}]}
+                            started_here.set();release_here.wait(4);result={'content':[{'type':'text','text':'late'}]}
                         else:raise AssertionError(method)
                         body=json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode()
                         try:self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(body)
@@ -213,7 +214,7 @@ for line in sys.stdin:
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
                 session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=1 if mode=='call-timeout' else 5);loop=QEventLoop();finished=[];ended=[];called=[]
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda value:called.append(value));session.ended.connect(lambda value:ended.append(value));session.finished.connect(lambda value:(finished.append(value),loop.quit()))
-                timer=QTimer();timer.timeout.connect(lambda:session.stop('MCP connection timed out.') if mode=='call-timeout' and started.is_set() else session.shutdown() if mode!='call-timeout' and started.is_set() else None);timer.start(10);session.start();QTimer.singleShot(7000,loop.quit)
+                timer=QTimer();timer.timeout.connect(lambda:session.shutdown() if mode!='call-timeout' and started.is_set() else None);timer.start(10);session.start();QTimer.singleShot(7000,loop.quit)
                 try:
                     loop.exec();timer.stop();self.assertTrue(finished,(mode,calls,ended,session.phase));self.assertFalse(called)
                     call=next(item for item in calls if item[0]=='tools/call');cancel=next(item for item in calls if item[0]=='notifications/cancelled')
