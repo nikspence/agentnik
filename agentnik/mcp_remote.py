@@ -3,7 +3,7 @@ import json
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
 from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout
-from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
+from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
 
@@ -168,7 +168,7 @@ class RemoteProbe(QObject):
                     cursor,outcome=self.resource_pages.accept(outcome)
                     if cursor:self.resource_list_page(cursor);return
                     self.resource_items=outcome['resources']
-                else:outcome=parse_resource_text(outcome,self.resource_uri)
+                else:outcome=parse_resource_contents(outcome,self.resource_uri)
                 self.timer.stop();self.phase='ready';self.resources.emit(outcome);return
             if self.phase=='call':
                 outcome=message.get('result')

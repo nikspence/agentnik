@@ -1011,6 +1011,45 @@ for line in sys.stdin:
             session.discovered.connect(ready);session.resources.connect(resource);session.ended.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertEqual(results[0]['resources'][0]['name'],'Record');self.assertFalse(results[0]['more_resources']);self.assertEqual(results[0]['resources'][1]['name'],'Second');self.assertEqual(results[1]['contents'][0]['text'],'Resource text')
 
+    def test_resource_images_validate_mime_base64_and_requested_uri(self):
+        import base64
+        from test_image_generation import png
+        from agentnik.mcp_resources import parse_resource_contents
+        from agentnik.mcp_support import response_limit,MAX_RESOURCE_RESULT_OUTPUT
+        encoded=base64.b64encode(png()).decode()
+        item={'uri':'test://chart','mimeType':'image/png','blob':encoded}
+        self.assertEqual(parse_resource_contents({'contents':[item]},'test://chart')['contents'][0],item)
+        self.assertEqual(response_limit('resource_read'),MAX_RESOURCE_RESULT_OUTPUT)
+        for invalid in (dict(item,mimeType='image/jpeg'),dict(item,blob='bad base64'),dict(item,uri='test://other'),dict(item,mimeType='application/pdf'),dict(item,text='also text')):
+            with self.subTest(invalid=invalid),self.assertRaises(ValueError):parse_resource_contents({'contents':[invalid]},'test://chart')
+
+    def test_local_server_image_resource(self):
+        import base64
+        from test_image_generation import png
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([]);encoded=base64.b64encode(png()).decode()
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'image_resource.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
+ elif method=='resources/list':result={'resources':[{'uri':'test://chart','name':'chart','mimeType':'image/png'}]}
+ elif method=='resources/read':result={'contents':[{'uri':'test://chart','mimeType':'image/png','blob':sys.argv[1]}]}
+ else:raise RuntimeError('unexpected')
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server),encoded]);loop=QEventLoop();out=[]
+            def response(result):
+                out.append(result)
+                if len(out)==1:self.assertTrue(session.read_resource('test://chart'))
+                else:loop.quit()
+            session.discovered.connect(lambda _:session.list_resources());session.resources.connect(response);session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertEqual(out[1]['contents'][0]['blob'],encoded)
+
     def test_local_resource_read_rejects_binary_and_mismatched_uri(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer

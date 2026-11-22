@@ -49,3 +49,15 @@ def model_images(result,enabled,slots,label):
         content.append({'type':'text','text':reason})
     output['content']=content
     return output,images
+
+
+def model_resource_contents(contents,enabled,slots,label):
+    """Keep resource image bytes out of textual tool output and activity."""
+    safe=[];images=[]
+    for item in contents:
+        if 'blob' not in item:safe.append(copy.deepcopy(item));continue
+        block={'type':'image','data':item['blob'],'mimeType':item['mimeType']}
+        transformed,visual=model_images({'content':[block]},enabled,max(0,slots-len(images)),label)
+        images.extend(visual)
+        safe.append({'uri':item['uri'],'mimeType':item['mimeType'],'notice':transformed['content'][0]['text']})
+    return safe,images

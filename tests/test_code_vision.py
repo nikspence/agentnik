@@ -14,6 +14,29 @@ from test_routing import Wire
 from test_image_generation import png
 
 class CodeVisionTests(unittest.TestCase):
+    def test_mcp_image_resource_reaches_vision_model(self):
+        from unittest.mock import Mock
+        encoded=base64.b64encode(png()).decode()
+        for enabled in (True,False):
+            for templated in (True,False):
+                with self.subTest(enabled=enabled,templated=templated),tempfile.TemporaryDirectory() as root:
+                    bridge=Mock();bridge.server={'name':'Charts','command':'server','args':[],'enabled':True}
+                    resource={'uri':'chart://1','name':'chart','description':'','mimeType':'image/png'}
+                    template={'uriTemplate':'chart://{id}','name':'chart','description':'','mimeType':'image/png','supported':True,'variables':['id']}
+                    listing={'templates':[template]} if templated else {'resources':[resource]}
+                    bridge.request.side_effect=[{'tool_details':[]},listing,{'contents':[{'uri':'chart://1','mimeType':'image/png','blob':encoded}]}]
+                    list_name='mcp_list_resource_templates' if templated else 'mcp_list_resources'
+                    read_name='mcp_read_resource_template' if templated else 'mcp_read_resource'
+                    read_args={'template':'chart://{id}','variables':'{"id":"1"}'} if templated else {'uri':'chart://1'}
+                    replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call(list_name,{})],finish='tool_calls'),False),Wire(chat(calls=[call(read_name,read_args)],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                    bodies=[];events=[]
+                    def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+                    with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Inspect chart',mcp_bridge=bridge,vision_enabled=enabled).run(events.append)
+                    self.assertEqual(events[-1]['status'],'completed',events);messages=bodies[-1]['messages'];tool=next(m for m in reversed(messages) if m['role']=='tool')
+                    self.assertNotIn(encoded,tool['content']);self.assertNotIn(encoded,json.dumps(events))
+                    if enabled:self.assertEqual(messages[-1]['content'][1]['image_url']['url'],'data:image/png;base64,'+encoded)
+                    else:self.assertIn('inspection is disabled',tool['content']);self.assertNotIn(encoded,json.dumps(messages))
+
     def test_mcp_prompt_image_is_visual_only_when_enabled(self):
         from unittest.mock import Mock
         from agentnik.mcp_prompts import parse_prompt_messages

@@ -1,4 +1,6 @@
-"""Validate bounded MCP resource metadata and text responses."""
+"""Validate bounded MCP resource metadata and text or image responses."""
+import base64
+import binascii
 import json
 import re
 from urllib.parse import quote
@@ -24,6 +26,25 @@ def parse_resource_text(result,uri):
         if not isinstance(item,dict) or item.get('uri')!=uri or not isinstance(item.get('text'),str) or 'blob' in item or len(item['text'].encode('utf-8'))>32000:raise ValueError('Invalid MCP resource text')
         if 'mimeType' in item and (not isinstance(item['mimeType'],str) or len(item['mimeType'])>256):raise ValueError('Invalid MCP resource type')
         safe.append({key:item[key] for key in ('uri','text','mimeType') if key in item})
+    return {'contents':safe}
+
+
+def parse_resource_contents(result,uri):
+    """Accept text and validated image blobs for exactly the requested URI."""
+    from .image_generation import image_bytes
+    contents=result.get('contents')
+    if not isinstance(contents,list) or len(contents)>16:raise ValueError('Invalid MCP resource content')
+    safe=[]
+    for item in contents:
+        if not isinstance(item,dict) or item.get('uri')!=uri:raise ValueError('Invalid MCP resource URI')
+        if 'blob' not in item:
+            safe.extend(parse_resource_text({'contents':[item]},uri)['contents']);continue
+        blob=item.get('blob');mime=item.get('mimeType')
+        if 'text' in item or not isinstance(blob,str) or len(blob)>16*1024*1024 or mime not in ('image/png','image/jpeg','image/webp'):raise ValueError('Unsupported MCP resource blob')
+        try:data=base64.b64decode(blob,validate=True);actual,_=image_bytes(data)
+        except (ValueError,binascii.Error):raise ValueError('Invalid MCP image resource') from None
+        if actual!=mime:raise ValueError('MCP image resource type does not match its content')
+        safe.append({'uri':uri,'mimeType':mime,'blob':blob})
     return {'contents':safe}
 
 

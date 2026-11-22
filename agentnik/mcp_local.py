@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
-from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_text
+from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 
 
@@ -132,7 +132,7 @@ class LocalSession(QObject):
                     if cursor:self.resource_list_page(cursor);continue
                     self.resource_items=outcome['resources'];self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
                 if self.phase == 'resource_read':
-                    outcome=parse_resource_text(result,self.resource_uri);self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
+                    outcome=parse_resource_contents(result,self.resource_uri);self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
                 if self.phase == 'call':
                     if not isinstance(result.get('content'), list) or ('isError' in result and type(result['isError']) is not bool) or ('structuredContent' in result and not isinstance(result['structuredContent'],dict)): raise ValueError()
                     self.phase = 'ready'; self.timer.stop(); self.called.emit({'call_result':result}); continue
