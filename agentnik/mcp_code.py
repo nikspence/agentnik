@@ -83,6 +83,10 @@ class CodingMCPBridge(QObject):
         if action=='discover':
             if self.session:
                 self._reply(request, {'error':'MCP session already started.'}); return
+            if self.server.get('auth_type')=='oauth':
+                from .mcp_oauth_credentials import oauth_credential_broker
+                oauth_credential_broker().request(self.server,lambda value:self._oauth_ready(request,value),lambda:self.server in self.config.get('mcp_servers',[]))
+                return
             token=''
             if self.server['credential_id']:
                 try:
@@ -91,10 +95,7 @@ class CodingMCPBridge(QObject):
                 except Exception:token=''
                 if not token or len(token)>4096 or any(not 33<=ord(ch)<=126 for ch in token):
                     self._reply(request, {'error':'MCP credential is unavailable or invalid.'}); return
-            from .mcp_remote import RemoteSession
-            session=RemoteSession(self.server['url'],token,self,timeout_seconds=server_timeout(self.server));self.session=session
-            session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended);session.resources.connect(self._called);session.prompts.connect(self._called);session.progress.connect(self._progress)
-            session.finished.connect(self._cleanup);session.finished.connect(lambda _result:session.deleteLater());session.start();return
+            self._start_remote(token);return
         if action in ('prompts_list','prompts_get') and self.session:
             if not self.session.list_prompts(request['payload'] if action=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})
             return
@@ -119,6 +120,18 @@ class CodingMCPBridge(QObject):
                 self._reply(request, {'error':'MCP session is no longer available.'})
             return
         self._reply(request, {'error':'MCP session is unavailable; discover the server first.'})
+
+    def _oauth_ready(self,request,result):
+        if self.closed or self.pending is not request or request['cancelled'].is_set():return
+        if self.server not in self.config.get('mcp_servers',[]):self._reply(request,{'error':'Selected MCP server changed or is unavailable.'});return
+        if 'error' in result:self._reply(request,result);return
+        self._start_remote(result['token'])
+
+    def _start_remote(self,token):
+        from .mcp_remote import RemoteSession
+        session=RemoteSession(self.server['url'],token,self,timeout_seconds=server_timeout(self.server));self.session=session
+        session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended);session.resources.connect(self._called);session.prompts.connect(self._called);session.progress.connect(self._progress)
+        session.finished.connect(self._cleanup);session.finished.connect(lambda _result:session.deleteLater());session.start()
 
     def _reply(self, request, result):
         if self.pending is request:self.pending=None

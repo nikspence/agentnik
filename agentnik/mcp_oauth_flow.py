@@ -15,6 +15,20 @@ _RESERVED=frozenset(('client_id','response_type','redirect_uri','state','scope',
 _MAX_RESPONSE=65536
 
 
+def parse_token_response(data,status,ctype):
+    """Validate token material without exposing server-provided error text."""
+    if status!=200 or ctype!='application/json':raise ValueError('Invalid token response')
+    result=json.loads(bytes(data).decode('utf-8'),object_pairs_hook=_object_pairs)
+    if not isinstance(result,dict) or not isinstance(result.get('token_type'),str) or result['token_type'].lower()!='bearer':raise ValueError('Invalid token response')
+    token=result.get('access_token')
+    if not isinstance(token,str) or not token or len(token)>4096 or any(not 33<=ord(ch)<=126 for ch in token):raise ValueError('Invalid token response')
+    refresh=result.get('refresh_token')
+    if refresh is not None and (not isinstance(refresh,str) or not refresh or len(refresh)>4096 or any(not 33<=ord(ch)<=126 for ch in refresh)):raise ValueError('Invalid token response')
+    expiry=result.get('expires_in')
+    if expiry is not None and (type(expiry) is not int or expiry<=0):raise ValueError('Invalid token response')
+    return {'access_token':token,'refresh_token':refresh,'expires_in':expiry}
+
+
 def _endpoint(url):
     parts=_https_parts(url,allow_query=True)
     if any(key.lower() in _RESERVED for key,_ in parse_qsl(parts.query,keep_blank_values=True,max_num_fields=100)):raise ValueError('Reserved OAuth endpoint query parameter')
@@ -113,16 +127,8 @@ class OAuthAuthorization(QObject):
         if self.reply is not reply:return
         status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute);ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower();self.reply=None;reply.deleteLater()
         try:
-            if status!=200 or ctype!='application/json':raise ValueError()
-            result=json.loads(bytes(self.buffer).decode('utf-8'),object_pairs_hook=_object_pairs)
-            if not isinstance(result,dict) or not isinstance(result.get('token_type'),str) or result['token_type'].lower()!='bearer':raise ValueError()
-            token=result.get('access_token')
-            if not isinstance(token,str) or not token or len(token)>4096 or any(not 33<=ord(ch)<=126 for ch in token):raise ValueError()
-            refresh=result.get('refresh_token')
-            if refresh is not None and (not isinstance(refresh,str) or not refresh or len(refresh)>4096 or any(not 33<=ord(ch)<=126 for ch in refresh)):raise ValueError()
-            expiry=result.get('expires_in')
-            if expiry is not None and (type(expiry) is not int or expiry<=0):raise ValueError()
-            self.closed=True;self.timer.stop();self.verifier='';self.state='';self.buffer.clear();self.finished.emit({'access_token':token,'refresh_token':refresh,'expires_in':expiry})
+            result=parse_token_response(self.buffer,status,ctype)
+            self.closed=True;self.timer.stop();self.verifier='';self.state='';self.buffer.clear();self.finished.emit(result)
         except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('OAuth token exchange failed or returned an invalid token.')
 
     def stop(self,message='OAuth authorization cancelled.'):

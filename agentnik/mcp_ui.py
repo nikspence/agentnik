@@ -9,7 +9,7 @@ from .mcp_support import MAX_OUTPUT,validate_servers,initialize_request,parse_in
 class MCPServers(QDialog):
     def __init__(self,window):
         super().__init__(window);self.store=window.store;self.setWindowTitle(self.tr('MCP servers'));self.resize(680,520)
-        self.process=None;self.remote=None;self.oauth_discovery=None;self.oauth_challenge=None;self.oauth_challenge_url=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test(self.tr('Connection test timed out.')))
+        self.process=None;self.remote=None;self.oauth_pending=None;self.oauth_discovery=None;self.oauth_challenge=None;self.oauth_challenge_url=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test(self.tr('Connection test timed out.')))
         outer=QVBoxLayout(self);scroll=QScrollArea();scroll.setObjectName('mcpSettingsScroll');scroll.setWidgetResizable(True);outer.addWidget(scroll)
         content=QWidget();scroll.setWidget(content);layout=QVBoxLayout(content)
         notice=QLabel(self.tr('Servers can access your data. Local commands and arguments are stored in plaintext; do not put secrets in them.'));notice.setWordWrap(True);layout.addWidget(notice)
@@ -49,6 +49,7 @@ class MCPServers(QDialog):
         self.list.setCurrentRow(-1);self.name.clear();self.transport.setCurrentIndex(0);self.command.clear();self.args.setPlainText('[]');self.working_directory.clear();self.env.setPlainText('{}');self.url.clear();self.token.clear();self.timeout.setValue(DEFAULT_TIMEOUT_SECONDS);self.enabled.setChecked(True)
 
     def load_row(self,index):
+        self.oauth_pending=None
         if self.oauth_discovery:
             discovery=self.oauth_discovery;self.oauth_discovery=None;discovery.stop()
         self.oauth_challenge=None;self.oauth_challenge_url=None
@@ -79,6 +80,7 @@ class MCPServers(QDialog):
                 credential=old_id if prior.get('url')==url else ''
                 if token:credential=uuid.uuid4().hex;new_id=credential
                 item={'name':self.name.text().strip(),'transport':'http','url':url,'credential_id':credential,'enabled':self.enabled.isChecked()}
+                if credential and credential==old_id and prior.get('auth_type')=='oauth' and not token:item['auth_type']='oauth'
             else:
                 try:args=json.loads(self.args.toPlainText() or '[]')
                 except (ValueError,RecursionError):
@@ -128,7 +130,7 @@ class MCPServers(QDialog):
 
     def test(self):
         entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
-        if self.process or self.remote or self.oauth_discovery:
+        if self.process or self.remote or self.oauth_discovery or self.oauth_pending:
             self.status.setText(self.tr('An MCP connection is already active. Close it or select another server before testing.'));return
         if not 0<=index<len(entries):
             self.status.setText(self.tr('Save and select a server before testing the connection.'));return
@@ -168,7 +170,7 @@ class MCPServers(QDialog):
         self.process=None;process.close();self.discovered=None;self.status.setText(message)
 
     def done(self,result):
-        self._closed=True
+        self._closed=True;self.oauth_pending=None
         if self.oauth_discovery:
             discovery=self.oauth_discovery;self.oauth_discovery=None;discovery.stop()
         if self.validation_job:self.validation_job.cancel.set()
@@ -178,7 +180,7 @@ class MCPServers(QDialog):
 
     def discover_oauth(self):
         entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
-        if self.oauth_discovery or self.remote or self.process:self.status.setText(self.tr('An MCP connection is already active.'));return
+        if self.oauth_discovery or self.oauth_pending or self.remote or self.process:self.status.setText(self.tr('An MCP connection is already active.'));return
         if not 0<=index<len(entries) or entries[index].get('transport')!='http':self.status.setText(self.tr('Save and select a remote server before discovering sign-in.'));return
         item=entries[index]
         if not self.form_matches(item):self.status.setText(self.tr('Save your changes before testing this server.'));return
@@ -199,6 +201,8 @@ class MCPServers(QDialog):
 
     def test_remote(self,item):
         self.oauth_challenge=None;self.oauth_challenge_url=None
+        if item.get('auth_type')=='oauth':
+            self.resolve_oauth(item,lambda token:self.start_remote_test(item,token));return
         token=''
         if item.get('credential_id'):
             try:
@@ -207,6 +211,20 @@ class MCPServers(QDialog):
             except Exception:token=''
             if not token:self.status.setText(self.tr('MCP credential is unavailable in the credential store.'));return
             if len(token)>4096 or any(not 33<=ord(ch)<=126 for ch in token):self.status.setText(self.tr('MCP credential has an invalid format.'));return
+        self.start_remote_test(item,token)
+
+    def resolve_oauth(self,item,callback):
+        from .mcp_oauth_credentials import oauth_credential_broker
+        ticket=object();self.oauth_pending=ticket;self.status.setText(self.tr('Checking OAuth credential…'))
+        def completed(result):
+            if self._closed or self.oauth_pending is not ticket:return
+            self.oauth_pending=None;entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
+            if not 0<=index<len(entries) or entries[index]!=item or not self.form_matches(item):return
+            if 'error' in result:self.status.setText(self.tr(result['error']));return
+            callback(result['token'])
+        oauth_credential_broker().request(item,completed,lambda:item in self.store.config.get('mcp_servers',[]))
+
+    def start_remote_test(self,item,token):
         from .mcp_remote import RemoteProbe
         self.discovered_config=dict(item);self.remote=RemoteProbe(item['url'],token,self,timeout_seconds=server_timeout(item));self.remote.finished.connect(self.remote_done);self.status.setText(self.tr('Connecting…'));self.remote.start()
 
@@ -233,7 +251,7 @@ class MCPServers(QDialog):
         self.tool_details.setPlainText('\n\n'.join(sections))
 
     def call_remote(self):
-        if self.remote or self.validation_job or not self.discovered:return
+        if self.remote or self.oauth_pending or self.validation_job or not self.discovered:return
         index=self.list.currentRow();entries=self.store.config.get('mcp_servers',[])
         if not 0<=index<len(entries) or entries[index]!=self.discovered['config']:
             self.status.setText(self.tr('Server configuration changed. Test it again.'));return
@@ -265,6 +283,8 @@ class MCPServers(QDialog):
         entries=self.store.config.get('mcp_servers',[])
         if self.list.currentRow()!=index or not 0<=index<len(entries) or entries[index]!=item or not self.discovered or item!=self.discovered['config'] or self.tool_choice.currentText()!=tool['name'] or self.tool_args.toPlainText()!=raw:
             self.status.setText(self.tr('Server, tool, or arguments changed. Review and try again.'));return
+        if item.get('auth_type')=='oauth':
+            self.resolve_oauth(item,lambda token:self.validated_call_with_token(index,item,tool,args,raw,token));return
         token=''
         if item.get('credential_id'):
             try:
@@ -272,7 +292,14 @@ class MCPServers(QDialog):
                 token=keyring.get_password('Agentnik',item['credential_id']) or ''
             except Exception:token=''
             if not token or len(token)>4096 or any(not 33<=ord(ch)<=126 for ch in token):self.status.setText(self.tr('MCP credential is unavailable or invalid.'));return
-            if token in json.dumps(args,ensure_ascii=False):self.status.setText(self.tr('Arguments contain the configured credential.'));return
+        self.validated_call_with_token(index,item,tool,args,raw,token)
+
+    def validated_call_with_token(self,index,item,tool,args,raw,token):
+        if self._closed:return
+        if token and token in json.dumps(args,ensure_ascii=False):self.status.setText(self.tr('Arguments contain the configured credential.'));return
+        if self.list.currentRow()!=index or self.tool_choice.currentText()!=tool['name'] or self.tool_args.toPlainText()!=raw:self.status.setText(self.tr('Server, tool, or arguments changed. Review and try again.'));return
+        entries=self.store.config.get('mcp_servers',[])
+        if not 0<=index<len(entries):self.status.setText(self.tr('Server configuration changed. Test it again.'));return
         if self.list.currentRow()!=index or self.store.config.get('mcp_servers',[])!=entries or self.discovered is None or entries[index]!=self.discovered['config']:
             self.status.setText(self.tr('Server configuration changed. Test it again.'));return
         self.call_tool=dict(tool)

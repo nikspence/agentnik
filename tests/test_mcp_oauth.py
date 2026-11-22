@@ -4,6 +4,171 @@ from agentnik.mcp_oauth import bearer_challenge,protected_resource_metadata_urls
 
 
 class MCPOAuthDiscovery(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+        cls.app=QApplication.instance() or QApplication([])
+
+    def test_concurrent_oauth_refresh_is_shared_and_persisted_once(self):
+        from unittest.mock import patch
+        from PySide6.QtCore import QObject,Signal
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_oauth_credentials import OAuthCredentialBroker,make_record,read_record,write_record
+        app=QApplication.instance() or QApplication([]);jobs=[];values={};out=[]
+        class FakeRefresh(QObject):
+            finished=Signal(object)
+            def __init__(self,record,parent,timeout_ms):super().__init__(parent);self.record=record;self.timeout_ms=timeout_ms;jobs.append(self)
+            def start(self):pass
+        server={'url':'https://mcp.example/mcp','credential_id':'oauth-id','auth_type':'oauth'}
+        old=make_record(server['url'],'https://auth.example','https://auth.example/token','client',{'access_token':'old-secret','refresh_token':'old-refresh','expires_in':1},now=1)
+        new=make_record(server['url'],old['issuer'],old['token_endpoint'],old['client_id'],{'access_token':'new-secret','refresh_token':'rotated-secret','expires_in':600})
+        with patch('keyring.get_password',side_effect=lambda service,key:values.get(key)),patch('keyring.set_password',side_effect=lambda service,key,value:values.__setitem__(key,value)) as put:
+            write_record('oauth-id',old);put.reset_mock();broker=OAuthCredentialBroker(refresh_factory=FakeRefresh)
+            broker.request(server,lambda value:out.append(('first',value)),lambda:True);broker.request(server,lambda value:out.append(('second',value)),lambda:True)
+            self.assertEqual(len(jobs),1);self.assertEqual(jobs[0].timeout_ms,60000);self.assertTrue(read_record('oauth-id',server['url'])['refresh_pending']);jobs[0].finished.emit({'credential':new});self.assertEqual(put.call_count,2);self.assertEqual(read_record('oauth-id',server['url'])['refresh_token'],'rotated-secret')
+            self.assertEqual(out,[('first',{'token':'new-secret'}),('second',{'token':'new-secret'})]);self.assertFalse(broker.pending)
+            broker.request(server,lambda value:out.append(('third',value)),lambda:True);self.assertEqual(out[-1],('third',{'token':'new-secret'}));self.assertEqual(len(jobs),1)
+            from PySide6.QtCore import QCoreApplication,QEvent
+            QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+
+    def test_refresh_does_not_resurrect_changed_or_removed_server_credential(self):
+        from unittest.mock import patch
+        from PySide6.QtCore import QObject,Signal
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_oauth_credentials import OAuthCredentialBroker,make_record,write_record
+        app=QApplication.instance() or QApplication([]);jobs=[];values={};out=[];current=[True]
+        class FakeRefresh(QObject):
+            finished=Signal(object)
+            def __init__(self,record,parent,timeout_ms):super().__init__(parent);jobs.append(self)
+            def start(self):pass
+        server={'url':'https://mcp.example/mcp','credential_id':'oauth-id','auth_type':'oauth'}
+        old=make_record(server['url'],'https://auth.example','https://auth.example/token','client',{'access_token':'old','refresh_token':'refresh','expires_in':1},now=1)
+        new=make_record(server['url'],old['issuer'],old['token_endpoint'],old['client_id'],{'access_token':'new','refresh_token':'rotated','expires_in':600})
+        with patch('keyring.get_password',side_effect=lambda service,key:values.get(key)),patch('keyring.set_password',side_effect=lambda service,key,value:values.__setitem__(key,value)) as put:
+            write_record('oauth-id',old);broker=OAuthCredentialBroker(refresh_factory=FakeRefresh);broker.request(server,out.append,lambda:current[0]);put.reset_mock();current[0]=False;values.clear();jobs[0].finished.emit({'credential':new})
+            put.assert_not_called();self.assertNotIn('oauth-id',values);self.assertIn('changed',out[0]['error'])
+            from PySide6.QtCore import QCoreApplication,QEvent
+            QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+
+    def test_refresh_does_not_overwrite_a_credential_changed_during_request(self):
+        from unittest.mock import patch
+        from PySide6.QtCore import QObject,Signal,QCoreApplication,QEvent
+        from agentnik.mcp_oauth_credentials import OAuthCredentialBroker,make_record,read_record,write_record
+        jobs=[];values={};out=[]
+        class FakeRefresh(QObject):
+            finished=Signal(object)
+            def __init__(self,record,parent,timeout_ms):super().__init__(parent);jobs.append(self)
+            def start(self):pass
+        server={'url':'https://mcp.example/mcp','credential_id':'oauth-id','auth_type':'oauth'}
+        def record(access,refresh,now):return make_record(server['url'],'https://auth.example','https://auth.example/token','client',{'access_token':access,'refresh_token':refresh,'expires_in':1},now=now)
+        with patch('keyring.get_password',side_effect=lambda service,key:values.get(key)),patch('keyring.set_password',side_effect=lambda service,key,value:values.__setitem__(key,value)) as put:
+            write_record('oauth-id',record('old','old-refresh',1));broker=OAuthCredentialBroker(refresh_factory=FakeRefresh);broker.request(server,out.append,lambda:True)
+            replacement=record('replacement','new-refresh',1);write_record('oauth-id',replacement);put.reset_mock();jobs[0].finished.emit({'credential':record('stale','stale-refresh',1)})
+            put.assert_not_called();self.assertEqual(read_record('oauth-id',server['url']),replacement);self.assertIn('Sign in again',out[0]['error']);QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+
+    def test_uncertain_refresh_is_not_automatically_repeated(self):
+        from unittest.mock import patch
+        from PySide6.QtCore import QObject,Signal,QCoreApplication,QEvent
+        from agentnik.mcp_oauth_credentials import OAuthCredentialBroker,make_record,read_record,write_record
+        jobs=[];values={};out=[]
+        class FakeRefresh(QObject):
+            finished=Signal(object)
+            def __init__(self,record,parent,timeout_ms):super().__init__(parent);jobs.append(self)
+            def start(self):pass
+        server={'url':'https://mcp.example/mcp','credential_id':'oauth-id','auth_type':'oauth'}
+        old=make_record(server['url'],'https://auth.example','https://auth.example/token','client',{'access_token':'old','refresh_token':'refresh','expires_in':1},now=1)
+        with patch('keyring.get_password',side_effect=lambda service,key:values.get(key)),patch('keyring.set_password',side_effect=lambda service,key,value:values.__setitem__(key,value)):
+            write_record('oauth-id',old);broker=OAuthCredentialBroker(refresh_factory=FakeRefresh);broker.request(server,out.append,lambda:True);jobs[0].finished.emit({'error':'network failure'})
+            self.assertTrue(read_record('oauth-id',server['url'])['refresh_pending']);broker.request(server,out.append,lambda:True);self.assertEqual(len(jobs),1);self.assertIn('uncertain',out[-1]['error']);QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
+
+    def test_oauth_bridge_waits_for_credential_and_ignores_late_completion_after_close(self):
+        import threading
+        from unittest.mock import Mock,patch
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_code import CodingMCPBridge
+        app=QApplication.instance() or QApplication([]);server={'name':'OAuth','transport':'http','url':'https://mcp.example/mcp','credential_id':'oauth-id','auth_type':'oauth','enabled':True};config={'mcp_servers':[server]};callbacks=[]
+        class Broker:
+            def request(self,selected,callback,is_current):callbacks.append((callback,is_current))
+        with patch('agentnik.mcp_oauth_credentials.oauth_credential_broker',return_value=Broker()):
+            bridge=CodingMCPBridge(server,config);bridge._start_remote=Mock();request={'action':'discover','payload':{},'done':threading.Event(),'cancelled':threading.Event()};bridge._dispatch(request)
+            self.assertEqual(len(callbacks),1);self.assertFalse(request['done'].is_set());callbacks[0][0]({'token':'resolved-token'});bridge._start_remote.assert_called_once_with('resolved-token')
+            bridge.pending=None;bridge._start_remote.reset_mock();request2={'action':'discover','payload':{},'done':threading.Event(),'cancelled':threading.Event()};bridge._dispatch(request2);bridge.close();callbacks[1][0]({'token':'late-token'});bridge._start_remote.assert_not_called();self.assertTrue(request2['done'].is_set())
+
+    def test_settings_preserve_oauth_marker_and_use_resolved_access_token(self):
+        import tempfile
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QApplication
+        from agentnik import core
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        from agentnik.mcp_ui import MCPServers
+        app=QApplication.instance() or QApplication([])
+        class Broker:
+            def request(self,server,callback,is_current):
+                if is_current():callback({'token':'resolved-access-token'})
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch('agentnik.mcp_oauth_credentials.oauth_credential_broker',return_value=Broker()):
+            store=Store(folder);server={'name':'OAuth','transport':'http','url':'https://mcp.example/mcp','credential_id':'oauth-id','auth_type':'oauth','enabled':True};store.config['mcp_servers']=[server];store.flush();window=Window(store);dialog=MCPServers(window)
+            try:
+                dialog.list.setCurrentRow(0);dialog.name.setText('Renamed');dialog.save();self.assertEqual(store.config['mcp_servers'][0]['auth_type'],'oauth');self.assertEqual(store.config['mcp_servers'][0]['credential_id'],'oauth-id')
+                with patch('agentnik.mcp_remote.RemoteProbe') as probe:
+                    dialog.test();self.assertEqual(probe.call_args.args[1],'resolved-access-token');probe.return_value.start.assert_called_once();dialog.remote=None
+                item=dict(store.config['mcp_servers'][0]);tool={'name':'work','schema_status':'available','schema':{'type':'object'},'description_clipped':False};dialog.discovered={'config':item,'tools':[tool],'task_capabilities':{}};dialog.tool_choice.addItem('work');dialog.tool_args.setPlainText('{}')
+                with patch('agentnik.mcp_remote.RemoteProbe') as probe:
+                    dialog.validated_call(True,0,item,tool,{},'{}');self.assertEqual(probe.call_args.args[1],'resolved-access-token');dialog.remote=None
+                    probe.reset_mock();dialog.tool_args.setPlainText('{"value":"resolved-access-token"}');dialog.validated_call(True,0,item,tool,{'value':'resolved-access-token'},dialog.tool_args.toPlainText());probe.assert_not_called();self.assertIn('credential',dialog.status.text())
+                with patch('keyring.set_password'),patch('keyring.delete_password'):
+                    dialog.token.setText('manual-bearer');dialog.save();self.assertNotIn('auth_type',store.config['mcp_servers'][0])
+            finally:dialog.close();window.close();app.processEvents();store.db.close()
+
+    def test_oauth_keyring_records_bind_server_and_preserve_bearer_storage(self):
+        from agentnik.mcp_oauth_credentials import make_record,read_record,write_record,credential_state
+        class Backend:
+            def __init__(self):self.values={}
+            def set_password(self,service,name,value):self.values[(service,name)]=value
+            def get_password(self,service,name):return self.values.get((service,name))
+        backend=Backend();backend.set_password('Agentnik','legacy','legacy-token')
+        record=make_record('https://mcp.example/mcp','https://auth.example','https://auth.example/token','client',{'access_token':'access-secret','refresh_token':'refresh-secret','expires_in':100},now=1000)
+        write_record('oauth-id',record,backend);self.assertEqual(read_record('oauth-id','https://mcp.example/mcp',backend),record)
+        self.assertEqual(backend.get_password('Agentnik','legacy'),'legacy-token')
+        with self.assertRaises(ValueError):read_record('oauth-id','https://other.example/mcp',backend)
+        with self.assertRaises(ValueError):read_record('legacy','https://mcp.example/mcp',backend)
+        self.assertEqual(credential_state(record,now=1000),'ready');self.assertEqual(credential_state(record,now=1071),'refresh')
+        no_refresh=dict(record,refresh_token=None);self.assertEqual(credential_state(no_refresh,now=1099),'ready');self.assertEqual(credential_state(no_refresh,now=1100),'expired')
+        replacement=make_record(record['resource_url'],record['issuer'],record['token_endpoint'],record['client_id'],{'access_token':'new','refresh_token':None,'expires_in':200},now=1100,previous_refresh=record['refresh_token'])
+        self.assertEqual(replacement['refresh_token'],'refresh-secret');self.assertEqual(replacement['expires_at'],1300)
+
+    def test_oauth_refresh_rotates_token_once_without_credential_leak(self):
+        import json,threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from urllib.parse import parse_qs
+        from PySide6.QtCore import QEventLoop,QTimer,QUrl
+        from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QSsl
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_oauth_credentials import make_record,OAuthRefresh
+        app=QApplication.instance() or QApplication([])
+        for mode in ('success','redirect','invalid'):
+            with self.subTest(mode=mode):
+                calls=[]
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self,mode=mode,calls=calls):
+                        body=self.rfile.read(int(self.headers['Content-Length']));calls.append((self.path,parse_qs(body.decode()),self.headers.get('Authorization'),self.headers.get('Cookie')))
+                        if mode=='redirect':self.send_response(302);self.send_header('Location','https://attacker.invalid/token');self.end_headers();return
+                        payload=json.dumps({'access_token':'new-secret','refresh_token':'rotated-secret','token_type':'Bearer' if mode=='success' else 'Basic','expires_in':600}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();base='https://127.0.0.1:'+str(server.server_port)
+                class LoopbackManager:
+                    def __init__(self):self.manager=QNetworkAccessManager()
+                    def post(self,request,data):
+                        assert request.attribute(QNetworkRequest.Attribute.RedirectPolicyAttribute)==QNetworkRequest.RedirectPolicy.ManualRedirectPolicy
+                        assert request.sslConfiguration().protocol() in (QSsl.SslProtocol.TlsV1_2,QSsl.SslProtocol.TlsV1_2OrLater,QSsl.SslProtocol.TlsV1_3,QSsl.SslProtocol.TlsV1_3OrLater)
+                        replacement=QNetworkRequest(request);url=QUrl(request.url());url.setScheme('http');replacement.setUrl(url);return self.manager.post(replacement,data)
+                record=make_record(base+'/mcp',base+'/issuer',base+'/token','client',{'access_token':'old-secret','refresh_token':'refresh-secret','expires_in':60});manager=LoopbackManager();job=OAuthRefresh(record,manager=manager);loop=QEventLoop();out=[];job.finished.connect(lambda value:(out.append(value),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(5000);job.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(len(calls),1);self.assertEqual(calls[0][1]['refresh_token'],['refresh-secret']);self.assertEqual(calls[0][1]['resource'],[base+'/mcp']);self.assertIsNone(calls[0][2]);self.assertIsNone(calls[0][3]);self.assertIsNone(job.record)
+                    if mode=='success':self.assertEqual(out[0]['credential']['access_token'],'new-secret');self.assertEqual(out[0]['credential']['refresh_token'],'rotated-secret')
+                    else:self.assertIn('error',out[0]);self.assertNotIn('secret',str(out))
+                finally:job.stop();server.shutdown();server.server_close();thread.join(2)
+
     def test_authorization_pkce_state_and_token_exchange(self):
         import base64,hashlib,json,threading
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer

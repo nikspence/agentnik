@@ -98,7 +98,7 @@ def validate_servers(servers):
         if not isinstance(server,dict):raise ValueError('Invalid MCP server configuration')
         remote=server.get('transport')=='http'
         required=({'name','transport','url','credential_id','enabled'} if remote else {'name','command','args','enabled'})
-        if not required.issubset(server) or set(server)-required-({'env','timeout_seconds','working_directory'} if not remote else {'timeout_seconds'}):raise ValueError('Invalid MCP server configuration')
+        if not required.issubset(server) or set(server)-required-({'env','timeout_seconds','working_directory'} if not remote else {'timeout_seconds','auth_type'}):raise ValueError('Invalid MCP server configuration')
         server_timeout(server)
         name=server['name']
         if not isinstance(name,str) or not name.strip() or len(name)>80 or name.casefold() in names:raise ValueError('MCP server names must be unique and nonempty')
@@ -110,6 +110,7 @@ def validate_servers(servers):
             except ValueError:raise ValueError('Invalid MCP URL') from None
             if parts.scheme!='https' or not parts.hostname or parts.username or parts.password or parts.fragment or (parts.query and not safe_parallel_tool_query(parts)):raise ValueError('MCP URL must use HTTPS without credentials or a fragment; only the documented Parallel tool selector query is supported')
             if not isinstance(credential,str) or len(credential)>128:raise ValueError('Invalid MCP credential reference')
+            if 'auth_type' in server and (server['auth_type']!='oauth' or not credential):raise ValueError('Invalid MCP authentication type')
         else:
             command=server['command'];args=server['args']
             if not isinstance(command,str) or not command.strip() or len(command)>1024 or '\x00' in command:raise ValueError('Invalid MCP executable')

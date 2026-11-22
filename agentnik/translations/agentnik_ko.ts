@@ -3152,6 +3152,17 @@ Choose No to export connection settings without keys.</source>
     <context>
         <name>MCPServers</name>
         <message><source>Discover sign-in</source><translation>로그인 정보 찾기</translation></message>
+        <message><source>Checking OAuth credential…</source><translation>OAuth 자격 증명을 확인하는 중…</translation></message>
+        <message><source>Selected MCP server changed or is unavailable.</source><translation>선택한 MCP 서버가 변경되었거나 사용할 수 없습니다.</translation></message>
+        <message><source>OAuth credential is unavailable or invalid.</source><translation>OAuth 자격 증명을 사용할 수 없거나 올바르지 않습니다.</translation></message>
+        <message><source>OAuth credential does not match the MCP server.</source><translation>OAuth 자격 증명이 MCP 서버와 일치하지 않습니다.</translation></message>
+        <message><source>OAuth credential is unavailable or invalid. Sign in again.</source><translation>OAuth 자격 증명을 사용할 수 없거나 올바르지 않습니다. 다시 로그인하세요.</translation></message>
+        <message><source>OAuth refresh outcome is uncertain. Sign in again.</source><translation>OAuth 갱신 결과를 확인할 수 없습니다. 다시 로그인하세요.</translation></message>
+        <message><source>OAuth credential expired. Sign in again.</source><translation>OAuth 자격 증명이 만료되었습니다. 다시 로그인하세요.</translation></message>
+        <message><source>Could not prepare the OAuth credential for refresh. Sign in again.</source><translation>OAuth 자격 증명 갱신을 준비할 수 없습니다. 다시 로그인하세요.</translation></message>
+        <message><source>Could not start OAuth refresh. Sign in again.</source><translation>OAuth 갱신을 시작할 수 없습니다. 다시 로그인하세요.</translation></message>
+        <message><source>OAuth refresh failed. Sign in again.</source><translation>OAuth 갱신에 실패했습니다. 다시 로그인하세요.</translation></message>
+        <message><source>Could not save the refreshed OAuth credential. Sign in again.</source><translation>갱신된 OAuth 자격 증명을 저장할 수 없습니다. 다시 로그인하세요.</translation></message>
         <message><source>An MCP connection is already active.</source><translation>이미 MCP 연결이 활성화되어 있습니다.</translation></message>
         <message><source>Save and select a remote server before discovering sign-in.</source><translation>로그인 정보를 찾으려면 원격 서버를 저장하고 선택하세요.</translation></message>
         <message><source>Discovering sign-in metadata…</source><translation>로그인 메타데이터를 찾는 중…</translation></message>
