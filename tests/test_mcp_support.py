@@ -90,7 +90,7 @@ class MCPFoundation(unittest.TestCase):
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
-        app=QApplication.instance() or QApplication([]);calls=[];state={}
+        app=QApplication.instance() or QApplication([]);calls=[];state={};release=threading.Event()
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_POST(self):
@@ -106,7 +106,7 @@ class MCPFoundation(unittest.TestCase):
                 if not state.get('retried'):
                     state['retried']=True;self.send_response(503);self.end_headers();self.wfile.write(b'temporary error');return
                 payload=json.dumps({'jsonrpc':'2.0','id':state['id'],'result':{'content':[{'type':'text','text':'finished'}]}}).encode()
-                self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'id: cursor-two\ndata: '+payload+b'\n\n');self.wfile.flush()
+                self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'id: cursor-two\ndata: '+payload+b'\n\n');self.wfile.flush();release.wait(6)
             def do_DELETE(self):self.send_response(204);self.end_headers()
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);loop=QEventLoop();out=[]
@@ -114,7 +114,7 @@ class MCPFoundation(unittest.TestCase):
         try:
             loop.exec();timeout.stop();self.assertTrue(out);self.assertEqual(out[0]['call_result']['content'][0]['text'],'finished')
             self.assertEqual(calls.count('tools/call'),1);self.assertEqual(calls.count(('GET','cursor-one','session-one','Bearer fixture-token')),2)
-        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+        finally:release.set();session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
     def test_remote_server_stream_reconnects_without_replaying_calls(self):
         import threading,time

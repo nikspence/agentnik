@@ -12,7 +12,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 
 
-def make_server(cancelled=None):
+def make_server(cancelled=None,resumption=None):
     from mcp.server.mcpserver import MCPServer,Context
     from typing import TypedDict
     class Addition(TypedDict):
@@ -60,6 +60,17 @@ def make_server(cancelled=None):
                 await asyncio.sleep(30)
                 return 'Unexpected completion'
             finally:cancelled.set()
+
+    if resumption is not None:
+        import asyncio
+        @server.tool()
+        async def reconnect_tool(ctx:Context)->str:
+            """Close the response stream before finishing this synthetic call."""
+            resumption['calls']+=1
+            await asyncio.sleep(.2)
+            await ctx.close_sse_stream()
+            await asyncio.sleep(.2)
+            return 'Resumed result'
 
     return server
 
@@ -148,7 +159,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['discovery','tool call and output schema','server ping','request-scoped server ping','resource list/read','template list/read','prompt list/get']}
 
 
-def run_https(test_cancel=False):
+def run_https(test_cancel=False,test_resume=False):
     import datetime
     import ipaddress
     import socket
@@ -180,10 +191,27 @@ def run_https(test_cancel=False):
         listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(64);port=listener.getsockname()[1]
         def ssl_context(_config,factory):
             context=factory();context.minimum_version=ssl.TLSVersion.TLSv1_2;return context
-        cancelled=threading.Event();observed=[]
-        sdk_app=make_server(cancelled if test_cancel else None).streamable_http_app()
+        cancelled=threading.Event();observed=[];resume={'calls':0,'gets':[]}
+        event_store=None
+        if test_resume:
+            from mcp.server.streamable_http import EventStore,EventMessage
+            class MemoryEventStore(EventStore):
+                def __init__(self):self.events=[]
+                async def store_event(self,stream_id,message):
+                    event_id=str(len(self.events)+1);self.events.append((event_id,stream_id,message));return event_id
+                async def replay_events_after(self,last_event_id,send_callback):
+                    position=next((i for i,event in enumerate(self.events) if event[0]==last_event_id),None)
+                    if position is None:return None
+                    stream_id=self.events[position][1]
+                    for event_id,event_stream,message in self.events[position+1:]:
+                        if event_stream==stream_id and message is not None:await send_callback(EventMessage(message,event_id))
+                    return stream_id
+            event_store=MemoryEventStore()
+        sdk_app=make_server(cancelled if test_cancel else None,resume if test_resume else None).streamable_http_app(event_store=event_store,retry_interval=100 if test_resume else None)
         async def monitored_app(scope,receive,send):
             chunks=[]
+            if test_resume and scope['type']=='http' and scope['method']=='GET':
+                resume['gets'].append(dict(scope['headers']).get(b'last-event-id'))
             async def monitored_receive():
                 item=await receive()
                 if scope['type']=='http' and item['type']=='http.request':
@@ -208,12 +236,35 @@ def run_https(test_cancel=False):
                     negotiated=secure.version()
                     if negotiated not in ('TLSv1.2','TLSv1.3'):raise RuntimeError('Unexpected TLS protocol')
             session=RemoteSession('https://127.0.0.1:'+str(port)+'/mcp','',timeout_seconds=15)
-            result=run_cancel(session,cancelled,observed) if test_cancel else run(session,'https')
+            result=run_cancel(session,cancelled,observed) if test_cancel else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
             if thread.is_alive():raise RuntimeError('Local HTTPS server did not stop')
     return result
+
+
+def run_resume(session,resume):
+    from PySide6.QtCore import QEventLoop,QTimer
+    loop=QEventLoop();out={'result':None,'error':None,'resumed':False}
+    def discovered(info):
+        tool=next((item for item in info['tool_details'] if item['name']=='reconnect_tool'),None)
+        if not tool or not session.call(tool,{}):out['error']='Unable to start synthetic tool';loop.quit()
+    def progress(detail):
+        if 'response stream disconnected' in detail:out['resumed']=True
+    session.discovered.connect(discovered);session.progress.connect(progress)
+    session.called.connect(lambda value:(out.update(result=value),loop.quit()))
+    session.ended.connect(lambda value:(out.update(error=value.get('error','Session ended')),loop.quit()))
+    timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(lambda:(out.update(error='Resumption test timed out'),loop.quit()));timer.start(15000)
+    session.start();loop.exec();timer.stop()
+    cleanup=QEventLoop();closed=[];session.finished.connect(lambda message:(closed.append(message),cleanup.quit()));QTimer.singleShot(4000,cleanup.quit)
+    if not session.closed:session.shutdown();cleanup.exec()
+    session.manager.clearConnectionCache()
+    if out['error']:raise RuntimeError(out['error'])
+    if not out['resumed'] or resume['calls']!=1 or not any(resume['gets']):raise RuntimeError('SDK stream was not resumed without repeating the call')
+    if not out['result'] or out['result']['call_result']['content'][0]['text']!='Resumed result':raise RuntimeError('Unexpected resumed tool result')
+    if not closed or closed[0].get('session_closed') is not True:raise RuntimeError('HTTPS session shutdown was not confirmed')
+    return {'sdk_version':version('mcp'),'transport':'https','checks':['SDK-initiated response stream close','resume GET with event ID','one tool execution','resumed result','session closed']}
 
 
 def run_cancel(session,cancelled,observed):
@@ -245,9 +296,10 @@ if __name__=='__main__':
     if sys.argv[1:]==['--server']:make_server().run(transport='stdio')
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
     elif sys.argv[1:]==['--https-cancel']:print(json.dumps(run_https(test_cancel=True)))
+    elif sys.argv[1:]==['--https-resume']:print(json.dumps(run_https(test_resume=True)))
     elif not sys.argv[1:]:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-cancel]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-cancel|--https-resume]')

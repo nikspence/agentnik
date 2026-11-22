@@ -144,6 +144,7 @@ class RemoteProbe(QObject):
         if self.phase not in ('initialize','initialized','closing','task_cancel','request_cancel') and status==200 and ctype=='text/event-stream':
             self.consume_progress(final)
             if self.server_ping_error:self.stop(self.server_ping_error)
+            elif not final and self.sse_resuming and self.progress_final_seen:self.received()
 
     def consume_progress(self,final=False):
         """Inspect completed SSE events while retaining the full response for validation."""
@@ -380,8 +381,12 @@ class RemoteProbe(QObject):
             self.progress.emit('MCP response stream disconnected; resuming without repeating the request.')
             if self.sse_resuming:self.sse_resume_timer.start(self.sse_retry_ms)
             return
+        resumed_finished=self.sse_resuming and self.progress_final_seen
         self.sse_resuming=False
-        self.reply=None;reply.deleteLater()
+        self.reply=None
+        if resumed_finished:
+            reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort()
+        reply.deleteLater()
         if self.phase=='closing':
             self.complete(isinstance(status,int) and 200<=status<300);return
         if self.phase=='request_cancel':
