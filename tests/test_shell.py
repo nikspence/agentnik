@@ -11,6 +11,17 @@ from agentnik import shell
 from agentnik.tools import Limits,Runtime,LimitError
 
 
+class RetryingTemporaryDirectory(tempfile.TemporaryDirectory):
+    def cleanup(self):
+        # Windows can briefly retain a terminated process's working directory.
+        deadline=time.monotonic()+5
+        while True:
+            try:return super().cleanup()
+            except PermissionError:
+                if time.monotonic()>=deadline:raise
+                time.sleep(.05)
+
+
 class ShellExecutor(unittest.TestCase):
     def test_goal_deadline_stops_running_command_and_retains_prior_effects(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -48,7 +59,7 @@ class ShellExecutor(unittest.TestCase):
     @unittest.skipUnless(os.name=='nt','Windows job object process-tree check')
     def test_cancellation_stops_windows_child_process(self):
         import ctypes
-        with tempfile.TemporaryDirectory() as directory:
+        with RetryingTemporaryDirectory() as directory:
             pidfile=Path(directory)/'child.pid';escaped=str(pidfile).replace("'","''")
             command="$p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 30' -PassThru; Set-Content -LiteralPath '"+escaped+"' -Value $p.Id; Start-Sleep -Seconds 30"
             runtime=Runtime();out=[]
