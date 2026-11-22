@@ -11,6 +11,53 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_remote_task_required_tool_lifecycle_and_uncertain_failures(self):
+        import threading,time
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([])
+        for mode in ('success','mismatch','timeout','no-capability'):
+            with self.subTest(mode=mode):
+                calls=[];state={}
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        req=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=req['method'];calls.append((method,self.headers.get('Mcp-Session-Id')))
+                        if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                        if method=='initialize':
+                            caps={'tools':{}}
+                            if mode!='no-capability':caps['tasks']={'requests':{'tools':{'call':{}}}}
+                            result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':caps}
+                        elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'},'execution':{'taskSupport':'required'}}]}
+                        elif method=='tools/call':
+                            assert req['params']['task']=={};state['token']=req['params']['_meta']['progressToken']
+                            result={'task':{'taskId':'task-123','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttl':60000}}
+                        elif method=='tasks/result':
+                            assert req['params']['taskId']=='task-123'
+                            if mode=='timeout':time.sleep(2)
+                            result={'content':[{'type':'text','text':'task evidence'}],'_meta':{'io.modelcontextprotocol/related-task':{'taskId':'different' if mode=='mismatch' else 'task-123'}}}
+                            progress={'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':state['token'],'progress':1,'total':2}}
+                            payload=b'data: '+json.dumps(progress).encode()+b'\n\ndata: '+json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode()+b'\n\n'
+                            try:self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                            except (BrokenPipeError,ConnectionResetError):pass
+                            return
+                        else:raise AssertionError(method)
+                        payload=json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
+                    def do_DELETE(self):calls.append(('DELETE',self.headers.get('Mcp-Session-Id')));self.send_response(204);self.end_headers()
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=1 if mode=='timeout' else 5);loop=QEventLoop();out=[];notices=[]
+                session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.progress.connect(notices.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
+                try:
+                    loop.exec();session.shutdown();self.assertTrue(out,mode)
+                    if mode=='success':self.assertEqual(out[0]['call_result']['content'][0]['text'],'task evidence');self.assertTrue(any('task-123' in value for value in notices));self.assertTrue(any('Progress 1 / 2' in value for value in notices))
+                    elif mode=='no-capability':self.assertFalse(out[0]['call_uncertain']);self.assertNotIn('tools/call',[item[0] for item in calls])
+                    else:self.assertTrue(out[0]['call_uncertain']);self.assertIn('task-123',out[0]['error']);self.assertIn('may still be running',out[0]['error'])
+                    self.assertLessEqual([item[0] for item in calls].count('tools/call'),1)
+                    self.assertTrue(all(session_id=='session-one' for method,session_id in calls if method not in ('initialize',)))
+                finally:session.shutdown();server.shutdown();server.server_close();thread.join(3)
+
     def test_local_task_required_tool_lifecycle_and_uncertain_failures(self):
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication

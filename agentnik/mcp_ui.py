@@ -202,7 +202,7 @@ class MCPServers(QDialog):
             self.status.setText(self.tr('Server configuration changed. Test it again.'));return
         item=entries[index];tool=next((tool for tool in self.discovered['tools'] if tool['name']==self.tool_choice.currentText()),None)
         if not tool or tool['schema_status']!='available' or tool['description_clipped'] or tool.get('output_schema_status','available')!='available':self.status.setText(self.tr('This tool has incomplete metadata and cannot be called.'));return
-        if tool.get('task_support')=='required' and (item.get('transport')=='http' or not self.discovered['task_capabilities'].get('tool_calls')):self.status.setText(self.tr('This tool requires MCP task execution on a capable local server.'));return
+        if tool.get('task_support')=='required' and not self.discovered['task_capabilities'].get('tool_calls'):self.status.setText(self.tr('This tool requires MCP task execution on a capable server.'));return
         try:
             raw=self.tool_args.toPlainText()
             if len(raw.encode('utf-8'))>16000:raise ValueError()

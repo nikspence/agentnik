@@ -4,7 +4,7 @@ import time
 import uuid
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QNetworkReply
-from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout,progress_notice
+from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initialize,rpc_error,server_timeout,progress_notice,created_task_id,validate_task_result
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
@@ -97,6 +97,7 @@ class RemoteProbe(QObject):
         super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
         self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
+        self.task_mode=False;self.task_id=None
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
@@ -104,7 +105,8 @@ class RemoteProbe(QObject):
     def send(self,message):
         if 'id' in message:
             self.next_id+=1;self.current_id=self.next_id;message=dict(message,id=self.current_id)
-        self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
+        if self.phase!='task_result':self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0
+        self.progress_final_seen=False
         self.sse_pos=0;self.sse_search=0;self.sse_parts=[];self.sse_first_line=True
         if self.phase=='call' and message.get('method')=='tools/call':
             self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
@@ -124,7 +126,7 @@ class RemoteProbe(QObject):
         if len(self.buffer)>response_limit(self.phase):self.stop('MCP response exceeded the output limit.');return
         ctype=str(self.reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
         status=self.reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
-        if self.phase=='call' and self.progress_token and status==200 and ctype=='text/event-stream':self.consume_progress(final)
+        if self.phase in ('call','task_result') and self.progress_token and status==200 and ctype=='text/event-stream':self.consume_progress(final)
 
     def consume_progress(self,final=False):
         """Inspect completed SSE events while retaining the full response for validation."""
@@ -218,9 +220,15 @@ class RemoteProbe(QObject):
                     self.resource_items=outcome['resources']
                 else:outcome=parse_resource_contents(outcome,self.resource_uri)
                 self.timer.stop();self.phase='ready';self.resources.emit(outcome);return
-            if self.phase=='call':
+            if self.phase=='call' and self.task_mode:
+                self.task_id=created_task_id(message.get('result'));self.phase='task_result'
+                self.progress.emit('Task started: '+self.task_id+'; awaiting result.')
+                self.send({'jsonrpc':'2.0','id':0,'method':'tasks/result','params':{'taskId':self.task_id}});return
+            if self.phase in ('call','task_result'):
                 outcome=message.get('result')
+                if self.phase=='task_result':validate_task_result(outcome,self.task_id)
                 if not isinstance(outcome,dict) or not isinstance(outcome.get('content'),list) or ('isError' in outcome and type(outcome['isError']) is not bool) or ('structuredContent' in outcome and not isinstance(outcome['structuredContent'],dict)):raise ValueError('Invalid MCP tool result')
+                self.task_id=None;self.task_mode=False;self.progress_token=None
                 self.result['call_result']=outcome;self.finish_call();return
             result=message.get('result');tools=result.get('tools') if isinstance(result,dict) else None
             if not isinstance(tools,list) or len(tools)>MAX_TOOLS:raise ValueError('Invalid MCP tool list')
@@ -243,17 +251,23 @@ class RemoteProbe(QObject):
             self.result['tools']=self.names[:MAX_TOOLS];self.result['tool_details']=self.details;self.result['more_tools']=bool(cursor) or len(self.names)>MAX_TOOLS
             if self.invocation:
                 expected=self.invocation['tool'];current=next((item for item in self.details if item['name']==expected['name']),None)
-                if current!=expected or current.get('schema_status')!='available' or current.get('task_support')=='required':
+                if current!=expected or current.get('schema_status')!='available' or not self.supports_tool(current):
                     self.stop('MCP tool definition changed; test the server again before calling.');return
                 if self.invocation.get('verify_only'):
                     self.invocation=None;self.timer.stop();self.phase='ready';self.called.emit({'verified':True});return
                 args=self.invocation['arguments'];payload=json.dumps(args,ensure_ascii=False,allow_nan=False)
                 if not isinstance(args,dict) or len(payload.encode())>16000 or (self.token and self.token in payload):raise ValueError('Invalid MCP tool arguments')
-                self.phase='call';self.send({'jsonrpc':'2.0','id':self.pages+2,'method':'tools/call','params':{'name':current['name'],'arguments':args}});return
+                self.phase='call';self.task_mode=current.get('task_support')=='required';self.task_id=None
+                params={'name':current['name'],'arguments':args}
+                if self.task_mode:params['task']={}
+                self.send({'jsonrpc':'2.0','id':self.pages+2,'method':'tools/call','params':params});return
             self.finish_discovery()
         except (ValueError,UnicodeError,TypeError,RecursionError):self.stop('Invalid or unsupported MCP server response.')
     def finish_discovery(self):
         self.close_session()
+
+    def supports_tool(self,tool):
+        return tool.get('task_support')!='required' or bool((self.result or {}).get('task_capabilities',{}).get('tool_calls'))
     def finish_call(self):
         self.close_session()
     def close_session(self):
@@ -273,7 +287,8 @@ class RemoteProbe(QObject):
         if reply:
             reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort();reply.deleteLater()
         if self.phase=='closing' and (self.result is not None or self.failure is not None):self.complete(False);return
-        self.failure={'error':message,'call_uncertain':self.phase=='call'}
+        if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
+        self.failure={'error':message,'call_uncertain':self.phase in ('call','task_result')}
         if self.session:self.close_session();return
         self.complete(None)
 
@@ -377,6 +392,7 @@ class RemoteSession(RemoteProbe):
     def stop(self,message='MCP connection cancelled.'):
         if self.phase=='closing':
             super().stop(message);return
-        uncertain=self.phase=='call'
+        uncertain=self.phase in ('call','task_result')
+        if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
         self.ended.emit({'error':message,'call_uncertain':uncertain})
         self.shutdown()

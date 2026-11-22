@@ -35,7 +35,7 @@ class ChatMCPIntegration(unittest.TestCase):
         from agentnik.chat_mcp import ChatMCP
         from agentnik.tools import Runtime,ResearchError
         detail={'name':'work','description':'Work','description_clipped':False,'schema_status':'available','schema':{'type':'object'},'task_support':'required'}
-        for remote,advertised,allowed in ((False,True,True),(False,False,False),(True,True,False)):
+        for remote,advertised,allowed in ((False,True,True),(False,False,False),(True,True,True),(True,False,False)):
             server={'name':'Test','transport':'http','url':'https://example.com/mcp','credential_id':'','enabled':True} if remote else {'name':'Test','command':sys.executable,'args':[],'enabled':True}
             controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[detail],'task_capabilities':{'tool_calls':advertised}},{'call_result':{'content':[{'type':'text','text':'done'}]}}]
             controller.invoke('mcp_discover',{'server':'connect'},Runtime());args={'request':json.dumps({'tool':'work','arguments':{}})}

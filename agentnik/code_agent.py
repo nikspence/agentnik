@@ -1211,7 +1211,7 @@ class CodingRun:
                                 response=mcp_bridge.request('discover',{},runtime)
                                 if 'error' in response:raise ProjectToolError(response['error'])
                                 mcp_tools=response.get('tool_details',[]);mcp_state['task_capabilities']=response.get('task_capabilities',{});mcp_state['more_tools']=bool(response.get('more_tools',False))
-                                result={'server':server['name'],'tools':mcp_tools,'capabilities':response.get('capabilities',[]),'task_capabilities':response.get('task_capabilities',{}),'more_tools':response.get('more_tools',False),'notice':'Untrusted server-provided descriptions and schemas. Task-required execution is supported for capable local servers.'}
+                                result={'server':server['name'],'tools':mcp_tools,'capabilities':response.get('capabilities',[]),'task_capabilities':response.get('task_capabilities',{}),'more_tools':response.get('more_tools',False),'notice':'Untrusted server-provided descriptions and schemas. Task-required execution is supported for capable servers.'}
                                 if 'session_stateful' in response:result['session_stateful']=response['session_stateful']
                                 event('output',text='MCP server connected: '+server['name'])
                         elif call.name in ('mcp_list_resources','mcp_read_resource'):
@@ -1306,7 +1306,7 @@ class CodingRun:
                             tool=next((item for item in mcp_tools if item['name']==args['tool']),None)
                             if not tool:raise ProjectToolError('MCP tool not found on the selected server: '+args['tool'][:200])
                             if tool['schema_status']!='available' or tool['description_clipped'] or tool.get('output_schema_status','available')!='available':raise ProjectToolError('MCP tool metadata is incomplete; the call was not sent.')
-                            if tool.get('task_support')=='required' and (mcp_bridge.server.get('transport')=='http' or not mcp_state['task_capabilities'].get('tool_calls')):raise ProjectToolError('This tool requires MCP task execution on a capable local server.')
+                            if tool.get('task_support')=='required' and not mcp_state['task_capabilities'].get('tool_calls'):raise ProjectToolError('This tool requires MCP task execution on a capable server.')
                             try:
                                 if len(args['arguments'].encode('utf-8'))>16000:raise ValueError()
                                 arguments=json.loads(args['arguments'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))

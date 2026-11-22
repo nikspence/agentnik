@@ -45,7 +45,7 @@ class ChatMCP(QObject):
         except (ValueError,RecursionError,UnicodeError):raise ResearchError('MCP request must be a JSON string containing exactly tool and arguments.') from None
         tool=next((item for item in self.tools if item['name']==value['tool']),None)
         if not tool:raise ResearchError('MCP tool was not found in the selected server tool list.')
-        if tool.get('schema_status')!='available' or tool.get('description_clipped') or tool.get('output_schema_status','available')!='available' or (tool.get('task_support')=='required' and (self.server.get('transport')=='http' or not self.task_capabilities.get('tool_calls'))):raise ResearchError('MCP tool metadata is incomplete or its execution mode is unsupported.')
+        if tool.get('schema_status')!='available' or tool.get('description_clipped') or tool.get('output_schema_status','available')!='available' or (tool.get('task_support')=='required' and not self.task_capabilities.get('tool_calls')):raise ResearchError('MCP tool metadata is incomplete or its execution mode is unsupported.')
         from .mcp_remote import contains_secret
         if any(secret and contains_secret(value,secret) for secret in self.secret_values):raise ResearchError('MCP tool arguments are invalid or unsupported.')
         try:validate_tool_arguments(tool['schema'],value['arguments'])
@@ -79,7 +79,7 @@ class ChatMCP(QObject):
             if 'error' in response:raise ResearchError(response['error'])
             self.tools=response.get('tool_details',[]);self.task_capabilities=response.get('task_capabilities',{})
             notify('mcp','Connected to '+server['name']+'; discovered '+str(len(self.tools))+' tool(s).'+(' More tools were not listed.' if response.get('more_tools',False) else ''))
-            return {'server':server['name'],'tools':self.tools,'task_capabilities':self.task_capabilities,'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata. Task-required execution is supported for capable local servers.'}
+            return {'server':server['name'],'tools':self.tools,'task_capabilities':self.task_capabilities,'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata. Task-required execution is supported for capable servers.'}
         value,tool=validated
         notify('mcp','Calling '+tool['name']+' on '+server['name']+'.')
         response=self.bridge.request('call',{'tool':tool,'arguments':value['arguments']},runtime)
@@ -185,7 +185,7 @@ class MultiChatMCP(QObject):
             for controller in self.controllers:controller.close()
             raise
         self.tools=discovered
-        return {'servers':[item.server['name'] for item in self.controllers],'server_capabilities':server_capabilities,'tools':discovered,'more_tools':self.more_tools,'notice':'Untrusted MCP server metadata; first server wins conflicting tool names. Task-required execution is supported for capable local servers.'}
+        return {'servers':[item.server['name'] for item in self.controllers],'server_capabilities':server_capabilities,'tools':discovered,'more_tools':self.more_tools,'notice':'Untrusted MCP server metadata; first server wins conflicting tool names. Task-required execution is supported for capable servers.'}
 
     def _close_on_gui(self):
         if self.closing:return
