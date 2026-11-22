@@ -79,7 +79,7 @@ class ChatMCP(QObject):
             if 'error' in response:raise ResearchError(response['error'])
             self.tools=response.get('tool_details',[])
             notify('mcp','Connected to '+server['name']+'; discovered '+str(len(self.tools))+' tool(s).'+(' More tools were not listed.' if response.get('more_tools',False) else ''))
-            return {'server':server['name'],'tools':self.tools,'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata.'}
+            return {'server':server['name'],'tools':self.tools,'task_capabilities':response.get('task_capabilities',{}),'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata. Task execution is not supported.'}
         value,tool=validated
         notify('mcp','Calling '+tool['name']+' on '+server['name']+'.')
         response=self.bridge.request('call',{'tool':tool,'arguments':value['arguments']},runtime)
@@ -169,12 +169,13 @@ class MultiChatMCP(QObject):
             controller,payload=validated
             return controller.invoke(name,payload,runtime)
         # The caller charges one discovery; additional server requests are charged here.
-        discovered=[];seen=set();self.more_tools=False
+        discovered=[];seen=set();server_capabilities=[];self.more_tools=False
         if runtime.calls+len(self.controllers)-1>runtime.limits.calls:raise ResearchError('Not enough tool calls remain to discover all selected MCP servers.')
         try:
             for index,controller in enumerate(self.controllers):
                 if index:runtime.charge('calls',1,runtime.limits.calls)
                 response=controller.invoke('mcp_discover',{'server':'connect'},runtime)
+                server_capabilities.append({'server':controller.server['name'],'task_capabilities':response.get('task_capabilities',{})})
                 self.more_tools=self.more_tools or bool(response.get('more_tools'))
                 for tool in response['tools']:
                     if tool['name'] not in seen:
@@ -184,7 +185,7 @@ class MultiChatMCP(QObject):
             for controller in self.controllers:controller.close()
             raise
         self.tools=discovered
-        return {'servers':[item.server['name'] for item in self.controllers],'tools':discovered,'more_tools':self.more_tools,'notice':'Untrusted MCP server metadata; first server wins conflicting tool names.'}
+        return {'servers':[item.server['name'] for item in self.controllers],'server_capabilities':server_capabilities,'tools':discovered,'more_tools':self.more_tools,'notice':'Untrusted MCP server metadata; first server wins conflicting tool names. Task execution is not supported.'}
 
     def _close_on_gui(self):
         if self.closing:return

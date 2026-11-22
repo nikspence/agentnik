@@ -1211,7 +1211,7 @@ class CodingRun:
                                 response=mcp_bridge.request('discover',{},runtime)
                                 if 'error' in response:raise ProjectToolError(response['error'])
                                 mcp_tools=response.get('tool_details',[]);mcp_state['more_tools']=bool(response.get('more_tools',False))
-                                result={'server':server['name'],'tools':mcp_tools,'capabilities':response.get('capabilities',[]),'more_tools':response.get('more_tools',False),'notice':'Untrusted server-provided descriptions and schemas.'}
+                                result={'server':server['name'],'tools':mcp_tools,'capabilities':response.get('capabilities',[]),'task_capabilities':response.get('task_capabilities',{}),'more_tools':response.get('more_tools',False),'notice':'Untrusted server-provided descriptions and schemas. Task execution is not supported.'}
                                 if 'session_stateful' in response:result['session_stateful']=response['session_stateful']
                                 event('output',text='MCP server connected: '+server['name'])
                         elif call.name in ('mcp_list_resources','mcp_read_resource'):

@@ -540,6 +540,15 @@ sys.stdin.read()
         for message in (b'not json',json.dumps(dict(result,id=True)).encode(),json.dumps(dict(result,result={'protocolVersion':'different'})).encode()):
             with self.assertRaises(ValueError):parse_initialize(message)
 
+    def test_task_capabilities_are_reported_only_for_supported_protocol_and_shapes(self):
+        result={'jsonrpc':'2.0','id':1,'result':{'protocolVersion':PROTOCOL,'serverInfo':{'name':'Example','version':'1'},'capabilities':{'tools':{},'tasks':{'list':{},'cancel':{},'requests':{'tools':{'call':{}}}}}}}
+        parsed=parse_initialize(json.dumps(result).encode())
+        self.assertIn('tasks',parsed['capabilities']);self.assertEqual(parsed['task_capabilities'],{'tool_calls':True,'list':True,'cancel':True})
+        result['result']['capabilities']['tasks']={'list':True,'cancel':None,'requests':{'tools':{'call':True}}}
+        parsed=parse_initialize(json.dumps(result).encode());self.assertEqual(parsed['task_capabilities'],{'tool_calls':False,'list':False,'cancel':False})
+        result['result']['protocolVersion']='2025-06-18';result['result']['capabilities']['tasks']={'requests':{'tools':{'call':{}}}}
+        parsed=parse_initialize(json.dumps(result).encode(),(PROTOCOL,'2025-06-18'));self.assertNotIn('tasks',parsed['capabilities']);self.assertFalse(parsed['task_capabilities']['tool_calls'])
+
     def test_rpc_error_is_bounded_and_drops_error_data(self):
         from agentnik.mcp_support import rpc_error
         message={'jsonrpc':'2.0','id':2,'error':{'code':-32602,'message':'bad\nquery '+('x'*700),'data':{'secret':'never-show'}}}

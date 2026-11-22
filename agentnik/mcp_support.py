@@ -125,4 +125,12 @@ def parse_initialize(line, supported_protocols=(PROTOCOL,)):
     result=message['result'];info=result.get('serverInfo');capabilities=result.get('capabilities')
     if result.get('protocolVersion') not in supported_protocols:raise ValueError('Server did not accept a supported MCP protocol version')
     if not isinstance(info,dict) or not isinstance(info.get('name'),str) or not info['name'] or len(info['name'])>256 or not isinstance(info.get('version'),str) or len(info['version'])>256 or not isinstance(capabilities,dict):raise ValueError('Invalid MCP server identity or capabilities')
-    return {'name':info['name'],'version':info['version'] or 'unknown','protocol':result['protocolVersion'],'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if name in capabilities and isinstance(capabilities[name],dict)]}
+    names=[name for name in ('tools','resources','prompts','logging','completions') if name in capabilities and isinstance(capabilities[name],dict)]
+    tasks=capabilities.get('tasks') if result['protocolVersion']==PROTOCOL else None
+    task_capabilities={'tool_calls':False,'list':False,'cancel':False}
+    if isinstance(tasks,dict):
+        names.append('tasks')
+        requests=tasks.get('requests');tools=requests.get('tools') if isinstance(requests,dict) else None
+        task_capabilities={'tool_calls':isinstance(tools,dict) and isinstance(tools.get('call'),dict),
+                           'list':isinstance(tasks.get('list'),dict),'cancel':isinstance(tasks.get('cancel'),dict)}
+    return {'name':info['name'],'version':info['version'] or 'unknown','protocol':result['protocolVersion'],'capabilities':names,'task_capabilities':task_capabilities}
