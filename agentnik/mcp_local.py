@@ -51,9 +51,10 @@ class LocalSession(QObject):
         self.process.finished.connect(lambda *_: self.fail('Local MCP server exited.'))
         self.timer = QTimer(self); self.timer.setSingleShot(True)
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
+        self.probe_timer=QTimer(self);self.probe_timer.setSingleShot(True);self.probe_timer.timeout.connect(self.probe_modern)
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False;self.probe_id=None;self.ignored_id=None
 
     def start(self):
         if os.name=='nt':
@@ -69,6 +70,13 @@ class LocalSession(QObject):
             try:self.job.assign_pid(self.process.processId())
             except OSError:self.fail('Unable to isolate the local MCP process for cleanup.');return
         self.send(initialize_request())
+        if not self.closed:self.probe_timer.start(min(1000,max(250,self.timeout_ms//3)))
+
+    def probe_modern(self):
+        if self.closed or self.phase!='initialize' or self.probe_id is not None:return
+        self.probe_id=2
+        message,_=prepare_request({'jsonrpc':'2.0','id':self.probe_id,'method':'server/discover','params':{}})
+        self.send(message)
 
     def send(self, message):
         if self.modern and 'id' in message and 'method' in message:message,_=prepare_request(message)
@@ -117,6 +125,16 @@ class LocalSession(QObject):
                         if notice:self.progress.emit(notice)
                     continue
                 if self.phase=='task_cancel' and type(message['id']) is int and message['id']==self.cancelled_result_id:continue
+                if type(message['id']) is int and message['id']==self.ignored_id:
+                    self.ignored_id=None;continue
+                if self.phase=='initialize' and type(message['id']) is int and message['id']==self.probe_id:
+                    if 'error' in message:
+                        error=message.get('error')
+                        if isinstance(error,dict) and error.get('code')==-32022:self.fail('MCP server does not support the requested protocol version.');return
+                        self.probe_id=None;continue
+                    try:parse_discovery(message.get('result'))
+                    except (ValueError,TypeError,RecursionError):self.probe_id=None;continue
+                    self.modern=True;self.phase='modern_discovery';self.ignored_id=1;self.next_id=self.probe_id;self.probe_id=None
                 if type(message['id']) is not int or message['id'] != self.next_id: raise ValueError()
                 self.request_active=False
                 if self.phase=='task_cancel':
@@ -125,6 +143,9 @@ class LocalSession(QObject):
                     self._close_now();return
                 if 'error' in message:
                     if self.phase=='initialize' and isinstance(message['error'],dict) and message['error'].get('code') in (-32601,-32022):
+                        self.probe_timer.stop()
+                        if self.probe_id is not None:
+                            self.modern=True;self.phase='modern_discovery';self.next_id=self.probe_id;self.probe_id=None;continue
                         self.modern=True;self.phase='modern_discovery';self.next_id+=1
                         self.send({'jsonrpc':'2.0','id':self.next_id,'method':'server/discover','params':{}});continue
                     error=rpc_error(message)
@@ -136,6 +157,8 @@ class LocalSession(QObject):
                         self.phase='ready';self.timer.stop();self.resources.emit({'error':error});continue
                     self.fail(error);return
                 if self.phase == 'initialize':
+                    self.probe_timer.stop()
+                    if self.probe_id is not None:self.ignored_id=self.probe_id;self.next_id=self.probe_id;self.probe_id=None
                     self.info = parse_initialize(line, ('2025-11-25','2025-06-18','2025-03-26','2024-11-05'));  self.send({'jsonrpc':'2.0','method':'notifications/initialized'})
                     if 'tools' not in self.info['capabilities']:
                         self.finish_discovery(False); continue
@@ -335,6 +358,7 @@ class LocalSession(QObject):
         from shiboken6 import isValid
         self.environment_secrets=[]
         if isValid(self.timer):self.timer.stop()
+        if isValid(self.probe_timer):self.probe_timer.stop()
         if isValid(self.process):
             self.process.errorOccurred.disconnect(); self.process.finished.disconnect()
             self.process.closeWriteChannel()

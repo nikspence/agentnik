@@ -32,3 +32,42 @@ class ModernLocalSession(unittest.TestCase):
             try:
                 loop.exec();timer.stop();self.assertTrue(output.exists());record=json.loads(output.read_text());self.assertEqual(record['requestId'],record['original'])
             finally:session.close()
+
+    def test_silent_modern_server_is_probed(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        session=LocalSession(sys.executable,['-u',str(server),'--ignore-initialize'],timeout_seconds=5);loop=QEventLoop();out=[]
+        session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['protocol'],'2026-07-28')
+        finally:session.close()
+
+    def test_delayed_legacy_rejection_uses_existing_modern_probe(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        session=LocalSession(sys.executable,['-u',str(server),'--delay-reject'],timeout_seconds=5);loop=QEventLoop();out=[]
+        session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['protocol'],'2026-07-28')
+        finally:session.close()
+
+    def test_slow_legacy_server_ignores_outstanding_probe_response(self):
+        script='''import json,sys,time
+for line in sys.stdin:
+ m=json.loads(line);method=m.get("method")
+ if "id" not in m:continue
+ if method=="initialize":
+  time.sleep(1.3);result={"protocolVersion":"2025-11-25","serverInfo":{"name":"slow","version":"1"},"capabilities":{"tools":{}}};reply={"result":result}
+ elif method=="server/discover":reply={"error":{"code":-32601,"message":"unknown"}}
+ elif method=="tools/list":reply={"result":{"tools":[]}}
+ else:raise RuntimeError(method)
+ print(json.dumps(dict(reply,jsonrpc="2.0",id=m["id"])),flush=True)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            server=Path(directory)/'legacy.py';server.write_text(script,encoding='utf-8')
+            session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=5);loop=QEventLoop();out=[]
+            session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+            timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+            try:
+                loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['protocol'],'2025-11-25');self.assertEqual(out[0]['name'],'slow')
+            finally:session.close()

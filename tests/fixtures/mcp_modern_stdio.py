@@ -1,6 +1,7 @@
 """Synthetic modern-only MCP stdio server for offline tests."""
 import json
 import sys
+import time
 
 pending=None
 for line in sys.stdin:
@@ -9,6 +10,8 @@ for line in sys.stdin:
         with open(sys.argv[1],'w',encoding='utf-8') as file:json.dump({'requestId':message['params']['requestId'],'original':pending},file)
         continue
     if ident is None:continue
+    if method=='initialize' and '--ignore-initialize' in sys.argv:continue
+    if method=='initialize' and '--delay-reject' in sys.argv:time.sleep(1.3)
     if method=='initialize':response={'error':{'code':-32022,'message':'modern protocol required','data':{'supported':['2026-07-28']}}}
     else:
         metadata=message.get('params',{}).get('_meta',{})
