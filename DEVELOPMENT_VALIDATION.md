@@ -4,6 +4,8 @@
 
 Run `python tools/run_offline_tests.py` with the project dependencies installed. The runner uses a temporary profile, removes inherited provider credentials and proxy settings, and blocks unexpected Python DNS and network connections. Tests may connect to loopback servers they create in the same process; blocked attempts fail the run even if application code catches the error. The guard also loads in ordinary Python child processes. It is not an operating-system firewall and cannot prevent network access by native libraries or arbitrary non-Python child processes; do not run untrusted code as part of the test suite. Use an isolated virtual environment to keep dependencies separate from user-installed packages.
 
+For an optional real-server interoperability check, run `python tools/mcp_sdk_smoke.py` in an environment with MCP Python SDK 2.x installed separately. It starts a disposable SDK stdio server with synthetic in-memory data and checks discovery, a structured tool call, a resource, a resource template, and a prompt. It does not make inference or network requests, and the SDK is not an Agentnik runtime dependency. This check is separate from the hermetic test suite and does not qualify remote transports or arbitrary servers.
+
 ## Compatibility CLI
 
 `tools/live_compat.py` prints a plan by default. It does not read key files or make requests until you add `--execute`. Always select the exact URL, alias, protocol, and route. Use `chat`, `managed`, or `hosted`; managed currently requires `--backend ollama` and a separate Ollama search key. Hosted accepts only the official OpenAI Responses endpoint. There is no automatic model selection, retry, or route fallback. System One remains a separate test.
