@@ -223,7 +223,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     batch.append((call.name,arguments))
             except (AccessError,LimitError):raise
             except ResearchError as exc:
-                if not mcp or any(call.name not in ('mcp_discover','mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get') for call in calls):raise
+                if not mcp or any(call.name not in ('mcp_discover','mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read') for call in calls):raise
                 reject_mcp_batch(calls,exc)
                 continue
             try:
@@ -232,7 +232,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     event('mcp','Connecting to check for tools that take precedence over local tools.')
                     runtime.charge('calls',1,runtime.limits.calls);discovery=mcp.invoke('mcp_discover',{'server':'connect'},runtime)
                     if discovery.get('more_tools'):raise ResearchError('MCP tool list is incomplete; cannot safely choose between MCP and local tools.')
-                mcp_batch=[item for item in batch if item[0] in ('mcp_discover','mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get')]
+                mcp_batch=[item for item in batch if item[0] in ('mcp_discover','mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read')]
                 reconnect=bool(mcp and mcp_batch and hasattr(mcp,'needs_reconnect') and mcp.needs_reconnect(mcp_batch))
                 if not reconnect and mcp and mcp_batch:mcp.validate_batch(mcp_batch)
             except ResearchError as exc:

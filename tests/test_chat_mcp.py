@@ -69,8 +69,52 @@ class ChatMCPIntegration(unittest.TestCase):
         servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
         single=ChatMCP(servers[0],{'mcp_servers':servers});multi=MultiChatMCP(servers,{'mcp_servers':servers})
         self.assertTrue(single.needs_reconnect([('mcp_prompts_list',{'server':'First'})]));self.assertTrue(multi.needs_reconnect([('mcp_prompts_list',{'server':'Second'})]))
+        self.assertTrue(single.needs_reconnect([('mcp_templates_list',{'server':'First'})]));self.assertTrue(multi.needs_reconnect([('mcp_templates_list',{'server':'Second'})]))
         request={'request':json.dumps({'server':'First','name':'old','arguments':{}})}
         with self.assertRaises(ResearchError):single.validate_call('mcp_prompts_get',request)
+
+    def test_chat_templates_are_scoped_and_expand_validated_variables(self):
+        from agentnik.chat_mcp import MultiChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers});runtime=Runtime()
+        template={'uriTemplate':'test://item{/id}{?q*}','name':'Item','description':'','mimeType':'','supported':True,'variables':['id','q']}
+        for controller in group.controllers:
+            controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[]},{'templates':[template]},{'contents':[{'uri':'test://item/a%2Fb?q=x&q=y','text':'Found item'}]}]
+        group.invoke('mcp_discover',{'server':'connect'},runtime)
+        request={'request':json.dumps({'server':'Second','template':template['uriTemplate'],'variables':{'id':'a/b','q':['x','y']}})}
+        with self.assertRaises(ResearchError):group.invoke('mcp_templates_read',request,runtime)
+        group.invoke('mcp_templates_list',{'server':'Second'},runtime)
+        result=group.invoke('mcp_templates_read',request,runtime);self.assertEqual(result['contents'][0]['text'],'Found item')
+        payload=group.controllers[1].bridge.request.call_args.args[1];self.assertEqual(payload['uri'],'test://item/a%2Fb?q=x&q=y')
+        for bad in ({'server':'First','template':template['uriTemplate'],'variables':{'id':'x'}},{'server':'Second','template':'unlisted','variables':{}},{'server':'Second','template':template['uriTemplate'],'variables':{'id':123}}):
+            with self.assertRaises(ResearchError):group.invoke('mcp_templates_read',{'request':json.dumps(bad)},runtime)
+        group.controllers[1].secret_values=['sensitive']
+        with self.assertRaises(ResearchError):group.invoke('mcp_templates_read',{'request':json.dumps({'server':'Second','template':template['uriTemplate'],'variables':{'id':'sensitive'}})},runtime)
+        self.assertEqual(group.controllers[0].bridge.request.call_count,1)
+
+    def test_chat_reads_template_from_real_local_mcp_server(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            root=Path(folder);server=root/'server.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
+ elif method=='resources/templates/list':result={'resourceTemplates':[{'uriTemplate':'test://item{/id}{?q*}','name':'Item'}]}
+ elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'text':'Synthetic '+req['params']['uri']}]}
+ else:raise RuntimeError('unexpected '+method)
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            store=Store(root/'data');store.config['mcp_servers']=[{'name':'Documents','command':sys.executable,'args':[str(server)],'enabled':True}];store.flush();window=Window(store);window.connections={'test':dict(C)}
+            request=json.dumps({'server':'Documents','template':'test://item{/id}{?q*}','variables':{'id':'a/b','q':['one','two']}});bodies=[]
+            replies=[Wire(response([function('mcp_discover',{'server':'connect'},'one')]),False),Wire(response([function('mcp_templates_list',{'server':'Documents'},'two')]),False),Wire(response([function('mcp_templates_read',{'request':request},'three')]),False),Wire(response([message('Read')]),False)]
+            def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget();tab.mcp_choice.setCurrentIndex(1);tab.composer.setPlainText('Read item')
+                with patch.object(core,'open_request',side_effect=send):tab.submit();self.settle(lambda:tab.job is None)
+                self.assertEqual(tab.session['messages'][-1]['text'],'Read');self.assertIn('Synthetic test://item/a%2Fb?q=one&q=two',bodies[-1])
+            finally:window.close();self.app.processEvents();store.db.close()
 
     def test_chat_retrieves_real_local_mcp_server_prompt(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
