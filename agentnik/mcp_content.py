@@ -49,6 +49,8 @@ def model_images(result,enabled,slots,label):
     from .image_generation import MAX_IMAGE_BYTES,image_bytes
     output=copy.deepcopy(result);images=[];content=[]
     for block in output['content']:
+        if block.get('type')=='audio':
+            content.append({'type':'text','text':'MCP audio content is not supported for model input.'});continue
         if block.get('type')=='resource':
             resource=block.get('resource')
             if not isinstance(resource,dict):
@@ -62,7 +64,7 @@ def model_images(result,enabled,slots,label):
                 content.append({'type':'resource','resource':{'uri':uri,'mimeType':mime if isinstance(mime,str) and len(mime)<=256 else '', 'notice':transformed['content'][0]['text']}})
                 continue
         if block.get('type')!='image':content.append(block);continue
-        reason='Image inspection is disabled for this Code run.'
+        reason='Image inspection is disabled or unavailable for this request.'
         if enabled and len(images)<slots:
             try:
                 encoded=block.get('data');mime=block.get('mimeType')

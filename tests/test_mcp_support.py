@@ -1376,6 +1376,13 @@ for line in sys.stdin:
         bad=block('hello','assistant');bad['resource']['blob']='bad!'
         with self.assertRaises(ValueError):decode_tool_text_resources({'content':[bad]})
 
+    def test_tool_audio_is_not_sent_as_text(self):
+        from agentnik.mcp_content import model_images
+        result={'content':[{'type':'audio','mimeType':'audio/wav','data':'large-base64-audio'}]}
+        for enabled in (True,False):
+            visible,images=model_images(result,enabled,4,'test')
+            self.assertIn('audio content is not supported',visible['content'][0]['text']);self.assertNotIn('large-base64-audio',str(visible));self.assertEqual(images,[])
+
     def test_local_tool_text_blob_cannot_reflect_mapped_credential(self):
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication

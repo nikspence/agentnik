@@ -94,6 +94,8 @@ class ChatMCP(QObject):
         except ValueError:
             notify('mcp','Tool '+tool['name']+' returned invalid content or audience annotations. The call may have completed; inspect server state before retrying.')
             raise ResearchError('MCP result content or audience annotations are invalid. The call may have completed; inspect server state before retrying.') from None
+        from .mcp_content import model_images
+        result,_=model_images(result,False,0,'MCP '+server['name']+' / '+tool['name'])
         notify('mcp','Tool '+tool['name']+(' reported an error.' if result.get('isError') is True else ' completed.'))
         if user_text:
             text='\n'.join(user_text);notify('mcp_user',text[:400]+(' [truncated]' if len(text)>400 else ''))

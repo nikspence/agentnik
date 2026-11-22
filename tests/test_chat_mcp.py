@@ -31,6 +31,19 @@ class ChatMCPIntegration(unittest.TestCase):
         while not predicate() and time.monotonic()<end:self.app.processEvents();time.sleep(.005)
         self.assertTrue(predicate());self.app.processEvents()
 
+    def test_chat_replaces_mcp_binary_media_with_notices(self):
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Runtime
+        server={'name':'Test','command':sys.executable,'args':[],'enabled':True}
+        tool={'name':'media','description':'Media','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock()
+        controller.bridge.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[{'type':'text','text':'description'},{'type':'image','mimeType':'image/png','data':'image-secret-payload'},{'type':'audio','mimeType':'audio/wav','data':'audio-secret-payload'},{'type':'resource','resource':{'uri':'test://image','mimeType':'image/png','blob':'resource-secret-payload'}}]}}]
+        runtime=Runtime();controller.invoke('mcp_discover',{'server':'connect'},runtime)
+        result=controller.invoke('mcp_call',{'request':json.dumps({'tool':'media','arguments':{}})},runtime)
+        serialized=json.dumps(result)
+        self.assertIn('description',serialized);self.assertIn('Image inspection is disabled or unavailable',serialized);self.assertIn('audio content is not supported',serialized)
+        self.assertNotIn('secret-payload',serialized)
+
     def test_cancelled_chat_records_confirmed_task_cleanup_in_original_run(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
             root=Path(folder);server=root/'server.py'
