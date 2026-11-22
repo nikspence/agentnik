@@ -49,7 +49,9 @@ def parse_authorization_metadata(document,issuer):
     if not isinstance(grants,list) or any(not isinstance(value,str) for value in grants):raise ValueError('Invalid OAuth grant metadata')
     registration=document.get('registration_endpoint')
     if registration is not None:_https_parts(registration,allow_query=True)
-    return {'issuer':issuer,'authorization_endpoint':authorization,'token_endpoint':token,'registration_endpoint':registration,'pkce_s256':'S256' in methods,'public_client_supported':auth_methods is None or 'none' in auth_methods,'refresh_grant_supported':'refresh_token' in grants}
+    issuer_response=document.get('authorization_response_iss_parameter_supported',False)
+    if type(issuer_response) is not bool:raise ValueError('Invalid OAuth issuer response metadata')
+    return {'issuer':issuer,'authorization_endpoint':authorization,'token_endpoint':token,'registration_endpoint':registration,'pkce_s256':'S256' in methods,'public_client_supported':auth_methods is None or 'none' in auth_methods,'refresh_grant_supported':'refresh_token' in grants,'authorization_response_iss_parameter_supported':issuer_response}
 
 
 class OAuthMetadataDiscovery(QObject):

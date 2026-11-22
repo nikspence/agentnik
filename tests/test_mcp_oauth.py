@@ -36,7 +36,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
         metadata={'issuer':base+'/issuer','registration_endpoint':base+'/register','authorization_endpoint':base+'/authorize','token_endpoint':base+'/token','pkce_s256':True};manager=LoopbackManager();job=OAuthAuthorization(base+'/mcp',metadata,'',manager=manager,open_url=open_url,timeout_ms=5000);loop=QEventLoop();out=[];job.finished.connect(lambda value:(out.append(value),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);job.start()
         try:
             loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['client_id'],'dynamic-client');self.assertGreater(out[0]['client_id_expires_at'],int(time.time()));self.assertEqual(out[0]['access_token'],'synthetic-access');self.assertEqual([c[0] for c in calls],['/register','/token'])
-            registration=json.loads(calls[0][1]);authorization=parse_qs(urlsplit(browser[0]).query);token=parse_qs(calls[1][1].decode());self.assertEqual(registration['redirect_uris'],authorization['redirect_uri']);self.assertEqual(token['redirect_uri'],authorization['redirect_uri']);self.assertEqual(token['client_id'],['dynamic-client']);self.assertEqual(registration['token_endpoint_auth_method'],'none');self.assertTrue(all(auth is None and cookie is None for _,_,auth,cookie in calls))
+            registration=json.loads(calls[0][1]);authorization=parse_qs(urlsplit(browser[0]).query);token=parse_qs(calls[1][1].decode());self.assertEqual(registration['redirect_uris'],authorization['redirect_uri']);self.assertEqual(token['redirect_uri'],authorization['redirect_uri']);self.assertEqual(token['client_id'],['dynamic-client']);self.assertEqual(registration['token_endpoint_auth_method'],'none');self.assertEqual(registration['application_type'],'native');self.assertTrue(all(auth is None and cookie is None for _,_,auth,cookie in calls))
         finally:job.stop();server.shutdown();server.server_close();thread.join(2)
 
     def test_dynamic_registration_rejects_unsafe_responses_without_opening_browser(self):
@@ -379,15 +379,18 @@ class MCPOAuthDiscovery(unittest.TestCase):
                 reply=callback_manager.get(QNetworkRequest(QUrl(redirect+'?'+urlencode(values))));replies.append(reply)
             QTimer.singleShot(0,lambda:send({'code':'synthetic-code','state':'wrong'}))
             QTimer.singleShot(50,lambda:send({'code':'synthetic-code','state':'한글'}))
-            QTimer.singleShot(100,lambda:send({'code':'synthetic-code','state':state,'iss':base+'/issuer'}))
+            QTimer.singleShot(100,lambda:send({'code':'synthetic-code','state':state}))
+            QTimer.singleShot(150,lambda:send({'code':'synthetic-code','state':state,'iss':'https://wrong.example'}))
+            QTimer.singleShot(200,lambda:send({'code':'synthetic-code','state':state,'iss':base+'/issuer'}))
             return True
-        metadata={'issuer':base+'/issuer','authorization_endpoint':base+'/authorize?existing=value','token_endpoint':base+'/token','pkce_s256':True}
+        metadata={'issuer':base+'/issuer','authorization_endpoint':base+'/authorize?existing=value','token_endpoint':base+'/token','pkce_s256':True,'authorization_response_iss_parameter_supported':True}
         manager=LoopbackManager();job=OAuthAuthorization(base+'/mcp?tools=selected',metadata,'public-client','read write',manager=manager,open_url=open_url,timeout_ms=5000);loop=QEventLoop();out=[];job.finished.connect(lambda value:(out.append(value),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);job.start()
         try:
             loop.exec();timer.stop();self.assertEqual(out,[{'access_token':'synthetic-access','refresh_token':'synthetic-refresh','expires_in':600}]);self.assertEqual(len(received),1)
             sent=received[0][1];auth=parse_qs(urlsplit(browsed[0]).query)
             self.assertEqual(sent['code'],['synthetic-code']);self.assertEqual(sent['client_id'],['public-client']);self.assertEqual(sent['resource'],[base+'/mcp?tools=selected']);self.assertEqual(auth['resource'],sent['resource']);self.assertEqual(auth['scope'],['read write']);self.assertEqual(auth['code_challenge_method'],['S256'])
-            expected=base64.urlsafe_b64encode(hashlib.sha256(sent['code_verifier'][0].encode()).digest()).rstrip(b'=').decode();self.assertEqual(auth['code_challenge'],[expected]);self.assertIsNone(received[0][2]);self.assertIsNone(received[0][3]);self.assertEqual(len(replies),3)
+            expected=base64.urlsafe_b64encode(hashlib.sha256(sent['code_verifier'][0].encode()).digest()).rstrip(b'=').decode();self.assertEqual(auth['code_challenge'],[expected]);self.assertIsNone(received[0][2]);self.assertIsNone(received[0][3]);self.assertEqual(len(replies),5)
+            self.assertEqual([reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute) for reply in replies],[400,400,400,400,200])
         finally:job.stop();server.shutdown();server.server_close();thread.join(2)
 
     def test_authorization_refuses_unsafe_settings_and_clears_secrets_on_cancel(self):
@@ -441,6 +444,9 @@ class MCPOAuthDiscovery(unittest.TestCase):
             with self.subTest(claimed=claimed),self.assertRaises(ValueError):parse_resource_metadata({'resource':claimed,'authorization_servers':[issuer]},resource)
         meta={'issuer':issuer,'authorization_endpoint':'https://auth.example/authorize','token_endpoint':'https://auth.example/token','code_challenge_methods_supported':['S256']}
         self.assertTrue(parse_authorization_metadata(meta,issuer)['pkce_s256'])
+        self.assertFalse(parse_authorization_metadata(meta,issuer)['authorization_response_iss_parameter_supported'])
+        self.assertTrue(parse_authorization_metadata(dict(meta,authorization_response_iss_parameter_supported=True),issuer)['authorization_response_iss_parameter_supported'])
+        with self.assertRaises(ValueError):parse_authorization_metadata(dict(meta,authorization_response_iss_parameter_supported='true'),issuer)
         with self.assertRaises(ValueError):parse_authorization_metadata(dict(meta,issuer='https://attacker.example'),issuer)
         with self.assertRaises(ValueError):parse_authorization_metadata(dict(meta,token_endpoint='http://insecure.example'),issuer)
         self.assertFalse(parse_authorization_metadata(dict(meta,code_challenge_methods_supported=[]),issuer)['pkce_s256'])

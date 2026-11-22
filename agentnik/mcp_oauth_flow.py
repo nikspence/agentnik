@@ -70,7 +70,7 @@ class OAuthAuthorization(QObject):
     def register(self):
         request=QNetworkRequest(QUrl(self.metadata['registration_endpoint']));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy);request.setAttribute(QNetworkRequest.Attribute.CookieLoadControlAttribute,QNetworkRequest.LoadControl.Manual);request.setRawHeader(b'Accept',b'application/json');request.setRawHeader(b'Content-Type',b'application/json');tls.configure_qt_request(request)
         grants=['authorization_code']+(['refresh_token'] if self.metadata.get('refresh_grant_supported') is True else [])
-        body=json.dumps({'client_name':'Agentnik','redirect_uris':[self.redirect_uri],'grant_types':grants,'response_types':['code'],'token_endpoint_auth_method':'none'},separators=(',',':')).encode('utf-8')
+        body=json.dumps({'client_name':'Agentnik','application_type':'native','redirect_uris':[self.redirect_uri],'grant_types':grants,'response_types':['code'],'token_endpoint_auth_method':'none'},separators=(',',':')).encode('utf-8')
         self.buffer.clear();self.reply=self.manager.post(request,body);self.reply.setReadBufferSize(_MAX_RESPONSE+1)
         if tls.relaxed():self.reply.sslErrors.connect(lambda _errors,reply=self.reply:reply.ignoreSslErrors())
         self.reply.readyRead.connect(self.read_token);self.reply.finished.connect(self.registration_received)
@@ -134,6 +134,7 @@ class OAuthAuthorization(QObject):
             values=parse_qs(parts.query,keep_blank_values=True,strict_parsing=True,max_num_fields=16)
             state=values.get('state',[''])[0]
             if any(len(items)!=1 for items in values.values()) or not self.state or not state.isascii() or not secrets.compare_digest(state,self.state):raise ValueError()
+            if self.metadata.get('authorization_response_iss_parameter_supported') is True and 'iss' not in values:raise ValueError()
             if 'iss' in values and values['iss'][0]!=self.metadata['issuer']:raise ValueError()
             code=values.get('code',[''])[0]
             if 'error' in values:
