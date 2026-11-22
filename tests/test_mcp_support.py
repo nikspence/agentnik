@@ -843,7 +843,9 @@ for line in sys.stdin:
         self.assertEqual(expand_template('test://x{#x,y}',{'x':'a/b','y':'q r'}),'test://x#a/b,q%20r')
         self.assertEqual(expand_template('test://x{.x,y}{;x,y,empty}',{'x':'a/b','y':'hello','empty':''}),'test://x.a%2Fb.hello;x=a%2Fb;y=hello;empty')
         self.assertEqual(expand_template('test://x{#x}{.x}{;x}',{}),'test://x')
-        for template,values in [('{id}',{}),('test://x/{id}',{'id':['bad']}),('test://x/{id',{'id':'a'}),('test://x/{?x*}',{'x':'a'}),('test://x/{?x}',{'x':'a','extra':'b'}),('test://x/{/x}',{'x':'a'*2040})]:
+        self.assertEqual(expand_template('test://x/{name:3}{?name:2}',{'name':'雪山/p'}),'test://x/%E9%9B%AA%E5%B1%B1%2F?name=%E9%9B%AA%E5%B1%B1')
+        self.assertEqual(expand_template('test://x/{+path:4}',{'path':'abc/def'}),'test://x/abc/')
+        for template,values in [('{id}',{}),('test://x/{id}',{'id':['bad']}),('test://x/{id',{'id':'a'}),('test://x/{?x*}',{'x':'a'}),('test://x/{x:0}',{'x':'a'}),('test://x/{x:10000}',{'x':'a'}),('test://x/{?x}',{'x':'a','extra':'b'}),('test://x/{/x}',{'x':'a'*2040})]:
             with self.subTest(template=template),self.assertRaises(ValueError):expand_template(template,values)
         pages=TemplatePages();cursor,result=pages.accept({'resourceTemplates':[{'uriTemplate':'test://x/{id}','name':'One'},{'uriTemplate':'test://x/{+id}','name':'Complex'}],'nextCursor':'next'})
         self.assertEqual(cursor,'next');self.assertTrue(result['templates'][0]['supported']);self.assertTrue(result['templates'][1]['supported'])

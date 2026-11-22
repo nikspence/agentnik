@@ -51,7 +51,7 @@ class ResourcePages:
 
 
 def template_parts(template):
-    """Parse bounded scalar RFC 6570 expressions without value modifiers."""
+    """Parse bounded scalar RFC 6570 expressions, including prefix modifiers."""
     if not isinstance(template,str) or not template or len(template)>2048 or any(ord(ch)<33 or ord(ch)==127 for ch in template):raise ValueError('Invalid resource template')
     parts=[];variables=[];pos=0;literal=0
     while pos<len(template):
@@ -61,9 +61,11 @@ def template_parts(template):
         end=template.find('}',pos+1)
         if end<0:raise ValueError('Unsupported resource template')
         expression=template[pos+1:end];operator=expression[:1] if expression[:1] in ('+','#','.','/',';','?','&') else ''
-        names=expression[1:].split(',') if operator else expression.split(',')
-        if any(not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}',name) for name in names):raise ValueError('Unsupported resource template')
-        for name in names:
+        specs=expression[1:].split(',') if operator else expression.split(',')
+        matches=[re.fullmatch(r'([A-Za-z_][A-Za-z0-9_]{0,127})(?::([1-9][0-9]{0,3}))?',spec) for spec in specs]
+        if any(match is None for match in matches):raise ValueError('Unsupported resource template')
+        names=[(match.group(1),int(match.group(2)) if match.group(2) else None) for match in matches]
+        for name,_ in names:
             if name not in variables:variables.append(name)
         if len(variables)>32 or len(names)>32:raise ValueError('Resource template too complex')
         parts.append((operator,names));pos=end+1;literal=pos
@@ -88,13 +90,13 @@ def expand_template(template,arguments):
     for operator,value in parts:
         if operator is None:chunk=value
         else:
-            defined=[name for name in value if arguments.get(name) is not None]
-            encoded=[_reserved_quote(arguments[name]) if operator in ('+','#') else quote(arguments[name],safe='') for name in defined]
+            defined=[(name,prefix) for name,prefix in value if arguments.get(name) is not None]
+            encoded=[_reserved_quote(arguments[name][:prefix]) if operator in ('+','#') else quote(arguments[name][:prefix],safe='') for name,prefix in defined]
             if not defined:chunk=''
-            elif operator in ('?','&'):chunk=operator+'&'.join(name+'='+item for name,item in zip(defined,encoded))
+            elif operator in ('?','&'):chunk=operator+'&'.join(name+'='+item for (name,_),item in zip(defined,encoded))
             elif operator=='/':chunk='/'+'/'.join(encoded)
             elif operator=='.':chunk='.'+'.'.join(encoded)
-            elif operator==';':chunk=';'+ ';'.join(name+('='+item if item else '') for name,item in zip(defined,encoded))
+            elif operator==';':chunk=';'+ ';'.join(name+('='+item if item else '') for (name,_),item in zip(defined,encoded))
             elif operator=='#':chunk='#'+','.join(encoded)
             else:chunk=','.join(encoded)
         size+=len(chunk)
