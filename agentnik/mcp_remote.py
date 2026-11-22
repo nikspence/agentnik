@@ -141,7 +141,7 @@ class RemoteProbe(QObject):
         if len(self.buffer)>response_limit(self.phase):self.stop('MCP response exceeded the output limit.');return
         ctype=str(self.reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
         status=self.reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
-        if self.phase not in ('initialize','initialized','closing','task_cancel','request_cancel') and status==200 and ctype=='text/event-stream':
+        if self.phase not in ('initialized','closing','task_cancel','request_cancel') and status==200 and ctype=='text/event-stream':
             self.consume_progress(final)
             if self.server_ping_error:self.stop(self.server_ping_error)
             elif not final and self.progress_final_seen:self.received()
@@ -195,6 +195,7 @@ class RemoteProbe(QObject):
         except (ValueError,UnicodeError,RecursionError):return
         if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or (self.token and contains_secret(message,self.token)):return
         if 'id' in message and 'method' in message:
+            if self.phase=='initialize' and message.get('method')!='ping':self.server_ping_error='Unexpected MCP server request during initialization.';return
             if self.progress_final_seen:self.server_ping_error='Unexpected MCP server request after the response.';return
             try:self.server_request(message)
             except ValueError:self.server_ping_error='Invalid or unsupported MCP server request.'
@@ -230,7 +231,13 @@ class RemoteProbe(QObject):
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy);tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
         request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
-        if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
+        session=self.session
+        if self.phase=='initialize' and self.reply:
+            raw_session=self.reply.rawHeader('Mcp-Session-Id')
+            try:session=raw_session if isinstance(raw_session,str) else bytes(raw_session).decode('ascii')
+            except UnicodeError:raise ValueError('Invalid MCP session identifier') from None
+            if len(session)>512 or any(ord(ch)<33 or ord(ch)>126 for ch in session):raise ValueError('Invalid MCP session identifier')
+        if session:request.setRawHeader(b'Mcp-Session-Id',session.encode('ascii'))
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
         response={'jsonrpc':'2.0','id':ident}
         if method=='ping':response['result']={}

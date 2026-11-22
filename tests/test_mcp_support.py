@@ -11,6 +11,44 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_remote_initialization_sse_completes_without_stream_closure(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([])
+        for mode in ('result','ping','unsupported'):
+            with self.subTest(mode=mode):
+                release=threading.Event();ping_answered=threading.Event();requests=[];answers=[]
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self,mode=mode,release=release,requests=requests,answers=answers,ping_answered=ping_answered):
+                        body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body.get('method');requests.append(method)
+                        if method is None:
+                            answers.append((body,self.headers.get('Mcp-Session-Id'),self.headers.get('MCP-Protocol-Version')));self.send_response(202);self.end_headers();ping_answered.set();return
+                        if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                        if method=='initialize':
+                            result={'jsonrpc':'2.0','id':body['id'],'result':{'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fixture','version':'1'},'capabilities':{'tools':{}}}}
+                            self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Mcp-Session-Id','session-one');self.end_headers()
+                            if mode!='result':
+                                self.wfile.write(b'data: '+json.dumps({'jsonrpc':'2.0','id':'early','method':'ping' if mode=='ping' else 'sampling/createMessage'}).encode()+b'\n\n');self.wfile.flush()
+                                if mode!='ping' or not ping_answered.wait(3):release.wait(5);return
+                            self.wfile.write(b'data: '+json.dumps(result).encode()+b'\n\n');self.wfile.flush();release.wait(5);return
+                        payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':{'tools':[]}}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                    def do_GET(self):self.send_response(405);self.end_headers()
+                    def do_DELETE(self):self.send_response(204);self.end_headers()
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=2);loop=QEventLoop();out=[]
+                session.discovered.connect(lambda value:(out.append(('discovered',value)),loop.quit()));session.ended.connect(lambda value:(out.append(('ended',value)),loop.quit()));session.start();timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(4000)
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertFalse(release.is_set())
+                    if mode in ('result','ping'):
+                        self.assertEqual(out[0][0],'discovered',out);self.assertEqual(session.session,'session-one');self.assertIn('notifications/initialized',requests)
+                        if mode=='ping':self.assertEqual(answers,[({'jsonrpc':'2.0','id':'early','result':{}},'session-one',PROTOCOL)])
+                    else:self.assertEqual(out[0][0],'ended');self.assertIn('during initialization',out[0][1]['error']);self.assertEqual(requests,['initialize'])
+                finally:release.set();session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_remote_tool_response_completes_before_stream_closes(self):
         import threading
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -446,7 +484,7 @@ for line in sys.stdin:
                             log={'jsonrpc':'2.0','method':'notifications/message','params':{'level':'warning','data':'Search is delayed'}}
                             payload=b'data: '+json.dumps(log).encode()+b'\n\ndata: '+json.dumps(status).encode()+b'\n\ndata: '+json.dumps(progress).encode()+b'\n\ndata: '+json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode()+b'\n\n'
                             try:self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
-                            except (BrokenPipeError,ConnectionResetError):pass
+                            except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError):pass
                             return
                         else:raise AssertionError(method)
                         payload=json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
