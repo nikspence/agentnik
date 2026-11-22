@@ -11,6 +11,33 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_local_stopped_tool_sends_cancellation_notification(self):
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'cancel.py';marker=Path(folder)/'cancelled.json'
+            server.write_text('''import json,sys
+from pathlib import Path
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
+ elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+ elif method=='tools/call':
+  token=req['params']['_meta']['progressToken'];print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':token,'progress':1}}),flush=True);continue
+ elif method=='notifications/cancelled':Path(sys.argv[1]).write_text(json.dumps(req['params']));break
+ else:raise RuntimeError('unexpected '+method)
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server),str(marker)]);loop=QEventLoop();finished=[]
+            session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
+            session.progress.connect(lambda detail:session.close() if detail.startswith('Progress') else None)
+            session.shutdown_finished.connect(lambda value:(finished.append(value),loop.quit()))
+            session.start();QTimer.singleShot(5000,loop.quit);loop.exec()
+            self.assertTrue(finished);self.assertTrue(marker.exists());self.assertEqual(json.loads(marker.read_text())['requestId'],session.next_id)
+
     def test_catalog_notifications_invalidate_only_affected_state(self):
         from types import SimpleNamespace
         from agentnik.mcp_support import invalidate_server_list,MCPListChangedError

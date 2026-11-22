@@ -52,7 +52,7 @@ class LocalSession(QObject):
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False
 
     def start(self):
         if os.name=='nt':
@@ -71,6 +71,7 @@ class LocalSession(QObject):
 
     def send(self, message):
         payload = (json.dumps(message, ensure_ascii=True, allow_nan=False) + '\n').encode('ascii')
+        if 'id' in message:self.request_active=True
         if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')
 
     def read(self):
@@ -114,6 +115,7 @@ class LocalSession(QObject):
                     continue
                 if self.phase=='task_cancel' and type(message['id']) is int and message['id']==self.cancelled_result_id:continue
                 if type(message['id']) is not int or message['id'] != self.next_id: raise ValueError()
+                self.request_active=False
                 if self.phase=='task_cancel':
                     task=message.get('result')
                     self.task_cancelled=isinstance(task,dict) and task.get('taskId')==self.task_id and task.get('status')=='cancelled' and 'error' not in message
@@ -293,6 +295,9 @@ class LocalSession(QObject):
         if self.phase=='task_result' and self.task_id and caps.get('cancel'):
             self.task_cancelled=False;self.cancelled_result_id=self.next_id;self.phase='task_cancel';self.next_id+=1;self.timer.start(3000)
             self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tasks/cancel','params':{'taskId':self.task_id}});return
+        if self.phase=='call' and not self.task_mode and self.request_active and self.process.state()==QProcess.ProcessState.Running:
+            payload=(json.dumps({'jsonrpc':'2.0','method':'notifications/cancelled','params':{'requestId':self.next_id}},ensure_ascii=True)+'\n').encode('ascii')
+            self.request_active=False;self.process.write(payload)
         self._close_now()
 
     def _close_now(self):
