@@ -45,9 +45,11 @@ def parse_authorization_metadata(document,issuer):
     if not isinstance(methods,list) or any(not isinstance(value,str) for value in methods):raise ValueError('Invalid PKCE metadata')
     auth_methods=document.get('token_endpoint_auth_methods_supported')
     if auth_methods is not None and (not isinstance(auth_methods,list) or any(not isinstance(value,str) for value in auth_methods)):raise ValueError('Invalid OAuth client authentication metadata')
+    grants=document.get('grant_types_supported',[])
+    if not isinstance(grants,list) or any(not isinstance(value,str) for value in grants):raise ValueError('Invalid OAuth grant metadata')
     registration=document.get('registration_endpoint')
     if registration is not None:_https_parts(registration,allow_query=True)
-    return {'issuer':issuer,'authorization_endpoint':authorization,'token_endpoint':token,'registration_endpoint':registration,'pkce_s256':'S256' in methods,'public_client_supported':auth_methods is None or 'none' in auth_methods}
+    return {'issuer':issuer,'authorization_endpoint':authorization,'token_endpoint':token,'registration_endpoint':registration,'pkce_s256':'S256' in methods,'public_client_supported':auth_methods is None or 'none' in auth_methods,'refresh_grant_supported':'refresh_token' in grants}
 
 
 class OAuthMetadataDiscovery(QObject):

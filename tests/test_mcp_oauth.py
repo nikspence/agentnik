@@ -9,6 +9,88 @@ class MCPOAuthDiscovery(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         cls.app=QApplication.instance() or QApplication([])
 
+    def test_dynamic_registration_and_authorization_use_same_loopback_redirect(self):
+        import json,threading,time
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from urllib.parse import parse_qs,urlencode,urlsplit
+        from PySide6.QtCore import QEventLoop,QTimer,QUrl
+        from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QSsl
+        from agentnik.mcp_oauth_flow import OAuthAuthorization
+        calls=[];browser=[];callbacks=[];callback_manager=QNetworkAccessManager()
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=self.rfile.read(int(self.headers['Content-Length']));calls.append((self.path,body,self.headers.get('Authorization'),self.headers.get('Cookie')))
+                result={'client_id':'dynamic-client','client_id_expires_at':int(time.time())+3600,'token_endpoint_auth_method':'none','redirect_uris':json.loads(body)['redirect_uris']} if self.path=='/register' else {'access_token':'synthetic-access','refresh_token':'synthetic-refresh','token_type':'Bearer','expires_in':600}
+                payload=json.dumps(result).encode();self.send_response(201 if self.path=='/register' else 200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();base='https://127.0.0.1:'+str(server.server_port)
+        class LoopbackManager:
+            def __init__(self):self.manager=QNetworkAccessManager()
+            def post(self,request,data):
+                assert request.attribute(QNetworkRequest.Attribute.RedirectPolicyAttribute)==QNetworkRequest.RedirectPolicy.ManualRedirectPolicy
+                assert request.sslConfiguration().protocol() in (QSsl.SslProtocol.TlsV1_2,QSsl.SslProtocol.TlsV1_2OrLater,QSsl.SslProtocol.TlsV1_3,QSsl.SslProtocol.TlsV1_3OrLater)
+                replacement=QNetworkRequest(request);url=QUrl(request.url());url.setScheme('http');replacement.setUrl(url);return self.manager.post(replacement,data)
+        def open_url(value):
+            browser.append(value.toString());params=parse_qs(urlsplit(browser[-1]).query)
+            QTimer.singleShot(0,lambda:callbacks.append(callback_manager.get(QNetworkRequest(QUrl(params['redirect_uri'][0]+'?'+urlencode({'code':'code','state':params['state'][0]}))))));return True
+        metadata={'issuer':base+'/issuer','registration_endpoint':base+'/register','authorization_endpoint':base+'/authorize','token_endpoint':base+'/token','pkce_s256':True};manager=LoopbackManager();job=OAuthAuthorization(base+'/mcp',metadata,'',manager=manager,open_url=open_url,timeout_ms=5000);loop=QEventLoop();out=[];job.finished.connect(lambda value:(out.append(value),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);job.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['client_id'],'dynamic-client');self.assertGreater(out[0]['client_id_expires_at'],int(time.time()));self.assertEqual(out[0]['access_token'],'synthetic-access');self.assertEqual([c[0] for c in calls],['/register','/token'])
+            registration=json.loads(calls[0][1]);authorization=parse_qs(urlsplit(browser[0]).query);token=parse_qs(calls[1][1].decode());self.assertEqual(registration['redirect_uris'],authorization['redirect_uri']);self.assertEqual(token['redirect_uri'],authorization['redirect_uri']);self.assertEqual(token['client_id'],['dynamic-client']);self.assertEqual(registration['token_endpoint_auth_method'],'none');self.assertTrue(all(auth is None and cookie is None for _,_,auth,cookie in calls))
+        finally:job.stop();server.shutdown();server.server_close();thread.join(2)
+
+    def test_dynamic_registration_rejects_unsafe_responses_without_opening_browser(self):
+        import json,threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer,QUrl
+        from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
+        from agentnik.mcp_oauth_flow import OAuthAuthorization
+        for mode in ('redirect','secret','redirect-uri','expired','duplicate'):
+            with self.subTest(mode=mode):
+                calls=[];browser=[]
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self,mode=mode,calls=calls):
+                        request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(self.path)
+                        if mode=='redirect':self.send_response(302);self.send_header('Location','https://attacker.invalid/register');self.end_headers();return
+                        result={'client_id':'dynamic-client','token_endpoint_auth_method':'none','redirect_uris':request['redirect_uris']}
+                        if mode=='secret':result['client_secret']='secret'
+                        if mode=='redirect-uri':result['redirect_uris']=['http://127.0.0.1:1/other']
+                        if mode=='expired':result['client_id_expires_at']=1
+                        payload=b'{"client_id":"a","client_id":"b"}' if mode=='duplicate' else json.dumps(result).encode();self.send_response(201);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();base='https://127.0.0.1:'+str(server.server_port)
+                class LoopbackManager:
+                    def __init__(self):self.manager=QNetworkAccessManager()
+                    def post(self,request,data):
+                        replacement=QNetworkRequest(request);url=QUrl(request.url());url.setScheme('http');replacement.setUrl(url);return self.manager.post(replacement,data)
+                metadata={'issuer':base+'/issuer','registration_endpoint':base+'/register','authorization_endpoint':base+'/authorize','token_endpoint':base+'/token','pkce_s256':True};manager=LoopbackManager();job=OAuthAuthorization(base+'/mcp',metadata,'',manager=manager,open_url=lambda value:(browser.append(value),True)[1],timeout_ms=3000);loop=QEventLoop();out=[];job.finished.connect(lambda value:(out.append(value),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(5000);job.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertIn('error',out[0]);self.assertNotIn('secret',str(out));self.assertEqual(calls,['/register']);self.assertFalse(browser);self.assertFalse(job.listener.isListening())
+                finally:job.stop();server.shutdown();server.server_close();thread.join(2)
+
+    def test_cancelling_dynamic_registration_does_not_open_browser_or_retry(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer,QUrl
+        from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
+        from agentnik.mcp_oauth_flow import OAuthAuthorization
+        started=threading.Event();release=threading.Event();calls=[];browser=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers['Content-Length']));calls.append(self.path);started.set();release.wait(4)
+                try:self.send_response(201);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(b'{"client_id":"unused"}')
+                except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError):pass
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();base='https://127.0.0.1:'+str(server.server_port)
+        class LoopbackManager:
+            def __init__(self):self.manager=QNetworkAccessManager()
+            def post(self,request,data):
+                replacement=QNetworkRequest(request);url=QUrl(request.url());url.setScheme('http');replacement.setUrl(url);return self.manager.post(replacement,data)
+        metadata={'issuer':base+'/issuer','registration_endpoint':base+'/register','authorization_endpoint':base+'/authorize','token_endpoint':base+'/token','pkce_s256':True};manager=LoopbackManager();job=OAuthAuthorization(base+'/mcp',metadata,'',manager=manager,open_url=lambda value:(browser.append(value),True)[1]);loop=QEventLoop();out=[];job.finished.connect(lambda value:(out.append(value),loop.quit()));poll=QTimer();poll.timeout.connect(lambda:job.stop() if started.is_set() else None);poll.start(10);timeout=QTimer();timeout.setSingleShot(True);timeout.timeout.connect(loop.quit);timeout.start(5000);job.start()
+        try:
+            loop.exec();poll.stop();timeout.stop();self.assertTrue(out);self.assertIn('cancelled',out[0]['error']);self.assertEqual(calls,['/register']);self.assertFalse(browser);self.assertFalse(job.listener.isListening())
+        finally:release.set();job.stop();server.shutdown();server.server_close();thread.join(2)
+
     def test_settings_oauth_sign_in_saves_keyring_record_and_replaces_old_credential(self):
         import json,tempfile
         from unittest.mock import patch
@@ -35,6 +117,48 @@ class MCPOAuthDiscovery(unittest.TestCase):
                 jobs[-1].finished.emit({'access_token':'access-secret','refresh_token':'refresh-secret','expires_in':600})
                 saved=store.config['mcp_servers'][0];self.assertEqual(saved['auth_type'],'oauth');self.assertNotEqual(saved['credential_id'],'old-id');self.assertNotIn('old-id',credentials)
                 stored=json.loads(credentials[saved['credential_id']]);self.assertEqual(stored['access_token'],'access-secret');self.assertEqual(stored['refresh_token'],'refresh-secret');self.assertEqual(stored['resource_url'],server['url']);self.assertNotIn('access-secret',store.config_path.read_text(encoding='utf-8'));self.assertNotIn('refresh-secret',store.config_path.read_text(encoding='utf-8'));self.assertIn('sign-in saved',dialog.status.text())
+            finally:dialog.close();window.close();self.app.processEvents();store.db.close()
+
+    def test_settings_allow_dynamic_registration_without_client_id(self):
+        import json,tempfile
+        from unittest.mock import patch
+        from PySide6.QtCore import QObject,Signal
+        from PySide6.QtWidgets import QInputDialog
+        from agentnik import core
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        from agentnik.mcp_ui import MCPServers
+        jobs=[];credentials={}
+        class FakeAuthorization(QObject):
+            finished=Signal(object)
+            def __init__(self,url,metadata,client_id,scopes,parent,timeout_ms):super().__init__(parent);self.client_id=client_id;jobs.append(self)
+            def start(self):pass
+            def stop(self):self.finished.emit({'error':'cancelled'})
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch('agentnik.mcp_oauth_flow.OAuthAuthorization',FakeAuthorization),patch.object(QInputDialog,'getText',return_value=('',True)),patch('keyring.set_password',side_effect=lambda service,key,value:credentials.__setitem__(key,value)):
+            store=Store(folder);server={'name':'Remote','transport':'http','url':'https://mcp.example/mcp','credential_id':'','enabled':True};store.config['mcp_servers']=[server];store.flush();window=Window(store);dialog=MCPServers(window)
+            try:
+                dialog.list.setCurrentRow(0);dialog.oauth_config=dict(server);dialog.oauth_metadata={'resource':{'scopes_supported':[]},'authorization_server':{'issuer':'https://auth.example','token_endpoint':'https://auth.example/token','authorization_endpoint':'https://auth.example/authorize','registration_endpoint':'https://auth.example/register','pkce_s256':True}};dialog.oauth_button.setEnabled(True)
+                dialog.sign_in_oauth();self.assertEqual(jobs[-1].client_id,'');jobs[-1].finished.emit({'client_id':'registered-client','client_id_expires_at':2000000000,'access_token':'synthetic-access','refresh_token':None,'expires_in':600})
+                saved=store.config['mcp_servers'][0];stored=json.loads(credentials[saved['credential_id']]);self.assertEqual(saved['auth_type'],'oauth');self.assertEqual(stored['client_id'],'registered-client');self.assertEqual(stored['client_id_expires_at'],2000000000)
+            finally:dialog.close();window.close();self.app.processEvents();store.db.close()
+
+    def test_expired_registered_client_id_is_not_reused_for_new_sign_in(self):
+        import json,tempfile,time
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QInputDialog
+        from agentnik import core
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        from agentnik.mcp_ui import MCPServers
+        from agentnik.mcp_oauth_credentials import make_record
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            store=Store(folder);server={'name':'Remote','transport':'http','url':'https://mcp.example/mcp','credential_id':'oauth-id','auth_type':'oauth','enabled':True};store.config['mcp_servers']=[server];store.flush();window=Window(store);dialog=MCPServers(window)
+            try:
+                dialog.list.setCurrentRow(0);dialog.oauth_config=dict(server);dialog.oauth_metadata={'resource':{'scopes_supported':[]},'authorization_server':{'issuer':'https://auth.example','token_endpoint':'https://auth.example/token','authorization_endpoint':'https://auth.example/authorize','registration_endpoint':'https://auth.example/register','pkce_s256':True}}
+                for expiry,expected in ((int(time.time())-1,''),(int(time.time())+3600,'registered-client')):
+                    record=make_record(server['url'],'https://auth.example','https://auth.example/token','registered-client',{'access_token':'access','refresh_token':'refresh','expires_in':600},client_id_expires_at=expiry)
+                    with patch('keyring.get_password',return_value=json.dumps(record)),patch.object(QInputDialog,'getText',return_value=('',False)) as prompt:
+                        dialog.sign_in_oauth();self.assertEqual(prompt.call_args.args[4],expected)
             finally:dialog.close();window.close();self.app.processEvents();store.db.close()
 
     def test_settings_oauth_save_failure_and_selection_change_keep_previous_credential(self):
@@ -192,6 +316,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
         with self.assertRaises(ValueError):read_record('legacy','https://mcp.example/mcp',backend)
         self.assertEqual(credential_state(record,now=1000),'ready');self.assertEqual(credential_state(record,now=1071),'refresh')
         no_refresh=dict(record,refresh_token=None);self.assertEqual(credential_state(no_refresh,now=1099),'ready');self.assertEqual(credential_state(no_refresh,now=1100),'expired')
+        expired_client=dict(record,client_id_expires_at=1050);self.assertEqual(credential_state(expired_client,now=1071),'ready');self.assertEqual(credential_state(expired_client,now=1100),'expired')
         replacement=make_record(record['resource_url'],record['issuer'],record['token_endpoint'],record['client_id'],{'access_token':'new','refresh_token':None,'expires_in':200},now=1100,previous_refresh=record['refresh_token'])
         self.assertEqual(replacement['refresh_token'],'refresh-secret');self.assertEqual(replacement['expires_at'],1300)
 
@@ -321,6 +446,8 @@ class MCPOAuthDiscovery(unittest.TestCase):
         self.assertFalse(parse_authorization_metadata(dict(meta,code_challenge_methods_supported=[]),issuer)['pkce_s256'])
         self.assertFalse(parse_authorization_metadata(dict(meta,token_endpoint_auth_methods_supported=['client_secret_basic']),issuer)['public_client_supported'])
         self.assertTrue(parse_authorization_metadata(dict(meta,token_endpoint_auth_methods_supported=['none']),issuer)['public_client_supported'])
+        self.assertTrue(parse_authorization_metadata(dict(meta,grant_types_supported=['authorization_code','refresh_token']),issuer)['refresh_grant_supported'])
+        with self.assertRaises(ValueError):parse_authorization_metadata(dict(meta,grant_types_supported='refresh_token'),issuer)
 
     def test_async_metadata_discovery_fallback_and_no_credentials(self):
         import json,threading

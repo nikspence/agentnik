@@ -222,12 +222,15 @@ class MCPServers(QDialog):
         if config.get('auth_type')=='oauth':
             try:
                 from .mcp_oauth_credentials import read_record
-                previous=read_record(config['credential_id'],config['url'])['client_id']
+                import time
+                saved=read_record(config['credential_id'],config['url'])
+                if saved.get('client_id_expires_at') is None or saved['client_id_expires_at']>time.time():previous=saved['client_id']
             except Exception:pass
-        client_id,accepted=QInputDialog.getText(self,self.tr('OAuth sign-in'),self.tr('Enter a pre-registered public client ID for {issuer}. The client must allow a loopback redirect on 127.0.0.1.').format(issuer=server['issuer']),QLineEdit.EchoMode.Normal,previous)
+        prompt=(self.tr('Enter a pre-registered public client ID for {issuer}, or leave it blank to register automatically. The client must allow a loopback redirect on 127.0.0.1.') if server.get('registration_endpoint') else self.tr('Enter a pre-registered public client ID for {issuer}. The client must allow a loopback redirect on 127.0.0.1.')).format(issuer=server['issuer'])
+        client_id,accepted=QInputDialog.getText(self,self.tr('OAuth sign-in'),prompt,QLineEdit.EchoMode.Normal,previous)
         if not accepted:return
         client_id=client_id.strip()
-        if not client_id:self.status.setText(self.tr('An OAuth client ID is required.'));return
+        if not client_id and not server.get('registration_endpoint'):self.status.setText(self.tr('An OAuth client ID is required.'));return
         current=self.store.config.get('mcp_servers',[])
         if self._closed or self.oauth_metadata is not metadata or self.oauth_config!=config or self.list.currentRow()!=index or not 0<=index<len(current) or current[index]!=config or not self.form_matches(config):return
         challenge=self.oauth_challenge if self.oauth_challenge_url==config['url'] else None
@@ -235,7 +238,7 @@ class MCPServers(QDialog):
         from .mcp_oauth_flow import OAuthAuthorization
         job=OAuthAuthorization(config['url'],server,client_id,scopes,self,timeout_ms=max(180000,server_timeout(config)*1000));self.oauth_authorization=job;self.oauth_button.setText(self.tr('Cancel sign-in'));self.oauth_button.setEnabled(True)
         job.finished.connect(lambda result,job=job,config=dict(config),server=dict(server),client_id=client_id:self.oauth_signed_in(job,config,server,client_id,result))
-        self.status.setText(self.tr('Complete sign-in in your browser…'));job.start()
+        self.status.setText(self.tr('Registering the client and opening your browser…') if not client_id else self.tr('Complete sign-in in your browser…'));job.start()
 
     def oauth_signed_in(self,job,config,server,client_id,result):
         if self.oauth_authorization is not job:return
@@ -247,7 +250,7 @@ class MCPServers(QDialog):
         from .mcp_oauth_credentials import make_record,write_record
         new_id=uuid.uuid4().hex;old_id=config.get('credential_id','');new_written=False
         try:
-            record=make_record(config['url'],server['issuer'],server['token_endpoint'],client_id,result)
+            record=make_record(config['url'],server['issuer'],server['token_endpoint'],result.get('client_id',client_id),result,client_id_expires_at=result.get('client_id_expires_at'))
             replacement=dict(config,credential_id=new_id,auth_type='oauth');updated=list(entries);updated[index]=replacement;validate_servers(updated)
             write_record(new_id,record);new_written=True
             if self._closed or self.oauth_config!=config or not self.oauth_metadata or self.oauth_metadata.get('authorization_server')!=server or self.list.currentRow()!=index or self.store.config.get('mcp_servers',[])!=entries or entries[index]!=config or not self.form_matches(config):raise ValueError('MCP server changed during sign-in')

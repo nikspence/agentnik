@@ -3162,8 +3162,12 @@ Choose No to export connection settings without keys.</source>
         <message><source>does not support public clients</source><translation>공개 클라이언트를 지원하지 않음</translation></message>
         <message><source>OAuth sign-in</source><translation>OAuth 로그인</translation></message>
         <message><source>Enter a pre-registered public client ID for {issuer}. The client must allow a loopback redirect on 127.0.0.1.</source><translation>{issuer}에 사전 등록된 공개 클라이언트 ID를 입력하세요. 클라이언트는 127.0.0.1 루프백 리디렉션을 허용해야 합니다.</translation></message>
+        <message><source>Enter a pre-registered public client ID for {issuer}, or leave it blank to register automatically. The client must allow a loopback redirect on 127.0.0.1.</source><translation>{issuer}에 사전 등록된 공개 클라이언트 ID를 입력하거나 자동 등록하려면 비워 두세요. 클라이언트는 127.0.0.1 루프백 리디렉션을 허용해야 합니다.</translation></message>
+        <message><source>OAuth client registration failed or returned invalid metadata.</source><translation>OAuth 클라이언트 등록에 실패했거나 잘못된 메타데이터가 반환되었습니다.</translation></message>
+        <message><source>OAuth client registration response exceeded the size limit.</source><translation>OAuth 클라이언트 등록 응답이 크기 제한을 초과했습니다.</translation></message>
         <message><source>An OAuth client ID is required.</source><translation>OAuth 클라이언트 ID가 필요합니다.</translation></message>
         <message><source>Complete sign-in in your browser…</source><translation>브라우저에서 로그인을 완료하세요…</translation></message>
+        <message><source>Registering the client and opening your browser…</source><translation>클라이언트를 등록하고 브라우저를 여는 중…</translation></message>
         <message><source>Could not save the OAuth credential. Check the server settings and credential store.</source><translation>OAuth 자격 증명을 저장할 수 없습니다. 서버 설정과 자격 증명 저장소를 확인하세요.</translation></message>
         <message><source>OAuth sign-in saved. Test the connection.</source><translation>OAuth 로그인이 저장되었습니다. 연결을 테스트하세요.</translation></message>
         <message><source>OAuth authorization timed out.</source><translation>OAuth 인증 시간이 초과되었습니다.</translation></message>
