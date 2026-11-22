@@ -1212,7 +1212,8 @@ class CodingRun:
                                 response=mcp_bridge.request('discover',{},runtime)
                                 if 'error' in response:raise ProjectToolError(response['error'])
                                 mcp_tools=response.get('tool_details',[]);mcp_state['task_capabilities']=response.get('task_capabilities',{});mcp_state['more_tools']=bool(response.get('more_tools',False))
-                                result={'server':server['name'],'tools':mcp_tools,'capabilities':response.get('capabilities',[]),'task_capabilities':response.get('task_capabilities',{}),'more_tools':response.get('more_tools',False),'notice':'Untrusted server-provided descriptions and schemas. Task-required execution is supported for capable servers.'}
+                                result={'server':server['name'],'tools':mcp_tools,'capabilities':response.get('capabilities',[]),'task_capabilities':response.get('task_capabilities',{}),'more_tools':response.get('more_tools',False),'notice':'Untrusted server-provided descriptions and schemas. 2025 task-required execution is supported for capable servers; the 2026 Tasks extension is not yet supported.'}
+                                if response.get('task_extension_advertised') is True:result['task_extension_notice']='The server advertises MCP 2026 Tasks, which Agentnik does not yet support.'
                                 if 'session_stateful' in response:result['session_stateful']=response['session_stateful']
                                 event('output',text='MCP server connected: '+server['name'])
                         elif call.name in ('mcp_list_resources','mcp_read_resource'):

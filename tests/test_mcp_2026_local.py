@@ -22,6 +22,15 @@ class ModernLocalSession(unittest.TestCase):
             loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(info[0]['protocol'],'2026-07-28');self.assertEqual(out[0]['call_result']['content'][0]['text'],'hello')
         finally:session.close()
 
+    def test_modern_task_extension_advertisement_does_not_enable_execution(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5);loop=QEventLoop();out=[];info=[]
+        def discovered(result):info.append(result);session.call(result['tool_details'][0],{'text':'hello'})
+        session.discovered.connect(discovered);session.called.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(info[0]['task_extension_advertised']);self.assertFalse(info[0]['task_capabilities']['tool_calls']);self.assertEqual(out[0]['call_result']['content'][0]['text'],'hello')
+        finally:session.close()
+
     def test_initialization_envelope_errors_probe_modern_stdio(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         for code in (-32600,-32601,-32602,-32020,-32022):

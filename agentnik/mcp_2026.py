@@ -20,7 +20,8 @@ def parse_discovery(result):
     meta=result.get('_meta');info=meta.get('io.modelcontextprotocol/serverInfo') if isinstance(meta,dict) else None
     valid=(isinstance(info,dict) and isinstance(info.get('name'),str) and bool(info['name']) and len(info['name'])<=256 and isinstance(info.get('version'),str) and len(info['version'])<=256 and all(ch.isprintable() for ch in info['name']+info['version']))
     filters={field:True for capability,field in (('tools','toolsListChanged'),('resources','resourcesListChanged'),('prompts','promptsListChanged')) if isinstance(capabilities.get(capability),dict) and capabilities[capability].get('listChanged') is True}
-    return {'name':info['name'] if valid else 'MCP server','version':(info['version'] or 'unknown') if valid else 'unknown','server_identity_reported':valid,'protocol':PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if isinstance(capabilities.get(name),dict)],'subscription_filters':filters,'task_capabilities':{'tool_calls':False,'list':False,'cancel':False}}
+    extensions=capabilities.get('extensions');task_extension=isinstance(extensions,dict) and isinstance(extensions.get('io.modelcontextprotocol/tasks'),dict)
+    return {'name':info['name'] if valid else 'MCP server','version':(info['version'] or 'unknown') if valid else 'unknown','server_identity_reported':valid,'protocol':PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if isinstance(capabilities.get(name),dict)],'subscription_filters':filters,'task_capabilities':{'tool_calls':False,'list':False,'cancel':False},'task_extension_advertised':task_extension}
 
 
 def header_value(value):
@@ -73,7 +74,7 @@ def prepare_request(message,schema=None,client_capabilities=None):
     meta=dict(meta,**{'io.modelcontextprotocol/protocolVersion':PROTOCOL,'io.modelcontextprotocol/clientInfo':{'name':'Agentnik','version':'0.1'},'io.modelcontextprotocol/clientCapabilities':dict(client_capabilities or {})})
     params=dict(params,_meta=meta);request=dict(message,params=params)
     headers={'MCP-Protocol-Version':PROTOCOL,'Mcp-Method':method}
-    field={'tools/call':'name','prompts/get':'name','resources/read':'uri'}.get(method)
+    field={'tools/call':'name','prompts/get':'name','resources/read':'uri','tasks/get':'taskId','tasks/update':'taskId','tasks/cancel':'taskId'}.get(method)
     if field:
         value=params.get(field)
         if not isinstance(value,str) or not value:raise ValueError('Missing MCP routing name')

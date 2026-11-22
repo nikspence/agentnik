@@ -20,6 +20,7 @@ for line in sys.stdin:
         if metadata.get('io.modelcontextprotocol/protocolVersion')!='2026-07-28':response={'error':{'code':-32602,'message':'missing metadata'}}
         elif method=='server/discover':
             capabilities={'tools':{}}
+            if '--modern-tasks' in sys.argv:capabilities['extensions']={'io.modelcontextprotocol/tasks':{}}
             if '--subscriptions' in sys.argv:capabilities.update(resources={'listChanged':True},prompts={'listChanged':True})
             if '--resource-input' in sys.argv:capabilities['resources']={}
             if '--prompt-input' in sys.argv:capabilities['prompts']={}

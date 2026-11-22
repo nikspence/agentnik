@@ -352,6 +352,8 @@ class MCPServers(QDialog):
         task_caps=result.get('task_capabilities',{})
         if 'tasks' in result.get('capabilities',[]):
             sections.append(self.tr('Server task capabilities (experimental): ')+json.dumps(task_caps,ensure_ascii=True))
+        if result.get('task_extension_advertised') is True:
+            sections.append(self.tr('The server advertises the MCP 2026 Tasks extension. Agentnik cannot execute those tasks yet.'))
         for detail in result.get('tool_details',[]):
             description=detail['description'] or self.tr('(no description)')
             if detail['description_clipped']:description+='\n'+self.tr('[Description truncated or unavailable]')

@@ -137,11 +137,12 @@ class ModernRemoteSession(unittest.TestCase):
                 else:
                     self.assert_request(request)
                     status=200
-                    if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{}}}
+                    if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{},'extensions':{'io.modelcontextprotocol/tasks':{}}}}
                     elif method=='tools/list':result={'tools':[{'name':'echo','inputSchema':{'type':'object','properties':{'region':{'type':'string','x-mcp-header':'Region'}},'required':['region']}}]}
                     elif method=='tools/call':
                         assert self.headers['Mcp-Name']=='echo'
                         assert self.headers['Mcp-Param-Region']=='=?base64?7ZWc6riA?='
+                        assert 'io.modelcontextprotocol/tasks' not in request['params']['_meta']['io.modelcontextprotocol/clientCapabilities'].get('extensions',{})
                         result={'content':[{'type':'text','text':'done'}]}
                     else:raise AssertionError(method)
                     result={'jsonrpc':'2.0','id':request['id'],'result':result}
@@ -157,6 +158,7 @@ class ModernRemoteSession(unittest.TestCase):
         session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
         def discovered(result):
             self.assertEqual(result['protocol'],PROTOCOL)
+            self.assertTrue(result['task_extension_advertised']);self.assertFalse(result['task_capabilities']['tool_calls'])
             session.call(result['tool_details'][0],{'region':'한글'})
         session.discovered.connect(discovered);session.called.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
