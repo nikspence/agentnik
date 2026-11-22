@@ -37,7 +37,7 @@ class TaskInputTests(unittest.TestCase):
         path=Path(__file__).parent/'fixtures'/'mcp_legacy_task_input.py'
         for mode in ('matching','mismatch'):
             with self.subTest(mode=mode):
-                session=LocalSession(sys.executable,['-u',str(path),mode],timeout_seconds=5)
+                session=LocalSession(sys.executable,['-u',str(path),mode],timeout_seconds=5,prefer_modern=False)
                 try:self.run_session(session,mode=='matching')
                 finally:session.close()
 

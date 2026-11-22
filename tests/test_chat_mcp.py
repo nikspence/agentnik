@@ -112,6 +112,7 @@ class ChatMCPIntegration(unittest.TestCase):
             server.write_text('''import json,sys
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
  elif method=='resources/templates/list':result={'resourceTemplates':[{'uriTemplate':'test://item{/id}{?q*}','name':'Item'}]}
@@ -135,6 +136,7 @@ for line in sys.stdin:
             server.write_text('''import json,sys
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'prompts':{}}}
  elif method=='prompts/list':result={'prompts':[{'name':'greet','arguments':[{'name':'name','required':True}]}]}
@@ -182,6 +184,7 @@ for line in sys.stdin:
             server.write_text('''import json,sys
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'resources':{}}}
  elif method=='tools/list':result={'tools':[{'name':'find','inputSchema':{'type':'object'}}]}
@@ -206,6 +209,7 @@ for line in sys.stdin:
             server.write_text('''import json,sys
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
  elif method=='resources/list':result={'resources':[{'uri':'test://report','name':'Report'}]}
@@ -252,6 +256,7 @@ for line in sys.stdin:
             server.write_text('''import json,sys
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'tasks':{'cancel':{},'requests':{'tools':{'call':{}}}}}}
  elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'},'execution':{'taskSupport':'required'}}]}
@@ -369,6 +374,7 @@ for line in sys.stdin:
             server.write_text('''import json,sys
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':sys.argv[1],'version':'1'},'capabilities':{'tools':{}}}
  elif method=='tools/list':result={'tools':[{'name':sys.argv[1],'inputSchema':{'type':'object'}}]}
@@ -604,6 +610,7 @@ for line in sys.stdin:
             server.write_text('''import json,sys,pathlib
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
  elif method=='tools/list':result={'tools':[{'name':'count','description':'Count rows','inputSchema':{'type':'object','properties':{'table':{'type':'string'}},'required':['table']}}]}
@@ -643,6 +650,7 @@ for line in sys.stdin:
             server.write_text('''import json,sys
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
  elif method=='tools/list':result={'tools':[{'name':'query','inputSchema':{'type':'object'}}]}

@@ -395,7 +395,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected '+method)
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server),str(marker)]);loop=QEventLoop();finished=[]
+            session=LocalSession(sys.executable,[str(server),str(marker)],prefer_modern=False);loop=QEventLoop();finished=[]
             session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
             session.progress.connect(lambda detail:session.close() if detail.startswith('Progress') else None)
             session.shutdown_finished.connect(lambda value:(finished.append(value),loop.quit()))
@@ -435,7 +435,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected '+method)
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();out=[];notices=[];old=[]
+            session=LocalSession(sys.executable,[str(server)],prefer_modern=False);loop=QEventLoop();out=[];notices=[];old=[]
             def resources(result):
                 out.append(result)
                 if len(out)==1:session.list_prompts()
@@ -491,7 +491,7 @@ for line in sys.stdin:
             for mode in ('confirmed','race','rejected','timeout','not-advertised','operation-timeout'):
                 with self.subTest(mode=mode):
                     marker.unlink(missing_ok=True);timeout=1 if mode=='operation-timeout' else 5
-                    session=LocalSession(sys.executable,[str(server),mode,str(marker)],timeout_seconds=timeout);loop=QEventLoop();finished=[];ended=[]
+                    session=LocalSession(sys.executable,[str(server),mode,str(marker)],timeout_seconds=timeout,prefer_modern=False);loop=QEventLoop();finished=[];ended=[]
                     session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
                     if mode!='operation-timeout':session.progress.connect(lambda text:QTimer.singleShot(100,session.close) if text.startswith('Task started:') else None)
                     session.ended.connect(ended.append);session.shutdown_finished.connect(lambda value:(finished.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
@@ -668,7 +668,7 @@ for line in sys.stdin:
 ''',encoding='utf-8')
             for mode in ('success','mismatch','timeout','no-capability'):
                 with self.subTest(mode=mode):
-                    session=LocalSession(sys.executable,[str(server),mode],timeout_seconds=1 if mode=='timeout' else 5);loop=QEventLoop();out=[];notices=[]
+                    session=LocalSession(sys.executable,[str(server),mode],timeout_seconds=1 if mode=='timeout' else 5,prefer_modern=False);loop=QEventLoop();out=[];notices=[]
                     def discovered(info):
                         accepted=session.call(info['tool_details'][0],{})
                         if mode=='no-capability':out.append({'accepted':accepted});loop.quit()
@@ -714,6 +714,7 @@ for line in sys.stdin:
             server.write_text('''import json,sys,time
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
  elif method=='tools/list':result={'tools':[{'name':'long_job','inputSchema':{'type':'object'}}]}
@@ -725,7 +726,7 @@ for line in sys.stdin:
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
             config={'mcp_servers':[{'name':'Local','command':sys.executable,'args':[str(server)],'enabled':True}]};bridge=CodingMCPBridge(config['mcp_servers'][0],config);runtime=Runtime();out=[]
-            runtime.mcp_progress=lambda name,detail:out.append(('progress',name,detail))
+            runtime.mcp_progress=lambda name,detail:out.append(('progress',name,detail)) if detail=='Progress 1 / 4: Loading' else None
             def work():
                 info=bridge.request('discover',{},runtime);result=bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime);out.append(('result',result));bridge.close_signal.emit()
             thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1);bridge.close()
@@ -781,7 +782,7 @@ for line in sys.stdin:
         from agentnik.mcp_local import LocalSession
         from agentnik.mcp_support import MAX_OUTPUT
         app=QApplication.instance() or QApplication([])
-        session=LocalSession(sys.executable,[]);session.phase='call';session.next_id=7;results=[];ended=[]
+        session=LocalSession(sys.executable,[],prefer_modern=False);session.phase='call';session.next_id=7;results=[];ended=[]
         session.called.connect(results.append);session.ended.connect(ended.append)
         notification={'jsonrpc':'2.0','method':'notifications/message','params':{'data':'x'*40000}}
         reply={'jsonrpc':'2.0','id':7,'result':{'content':[{'type':'text','text':'y'*40000}]}}
@@ -798,7 +799,7 @@ for line in sys.stdin:
         app=QApplication.instance() or QApplication([])
         for complete in (False,True):
             with self.subTest(complete=complete):
-                session=LocalSession(sys.executable,[]);session.phase='call';ended=[];session.ended.connect(ended.append)
+                session=LocalSession(sys.executable,[],prefer_modern=False);session.phase='call';ended=[];session.ended.connect(ended.append)
                 payload=b'x'*(MAX_TOOL_RESULT_OUTPUT+1)+(b'\n' if complete else b'')
                 with patch.object(session.process,'readAllStandardOutput',return_value=payload):session.read()
                 self.assertTrue(session.closed);self.assertEqual(len(ended),1);self.assertIn('output limit',ended[0]['error']);self.assertTrue(ended[0]['call_uncertain'])
@@ -810,7 +811,7 @@ for line in sys.stdin:
         from agentnik.mcp_remote import RemoteProbe
         from agentnik.mcp_support import MAX_OUTPUT,MAX_TOOL_RESULT_OUTPUT
         app=QApplication.instance() or QApplication([])
-        session=LocalSession(sys.executable,[]);session.phase='call';session.next_id=7;results=[];session.called.connect(results.append)
+        session=LocalSession(sys.executable,[],prefer_modern=False);session.phase='call';session.next_id=7;results=[];session.called.connect(results.append)
         payload=(json.dumps({'jsonrpc':'2.0','id':7,'result':{'content':[{'type':'text','text':'x'*500000}]}})+'\n').encode()
         self.assertGreater(len(payload),MAX_OUTPUT);self.assertLess(len(payload),MAX_TOOL_RESULT_OUTPUT)
         with patch.object(session.process,'readAllStandardOutput',return_value=payload):session.read()
@@ -826,7 +827,7 @@ for line in sys.stdin:
         from agentnik.mcp_local import LocalSession
         from agentnik.mcp_support import MAX_OUTPUT,MAX_DISCOVERY_OUTPUT
         app=QApplication.instance() or QApplication([])
-        session=LocalSession(sys.executable,[]);session.phase='tools';session.next_id=2;session.pages=1;session.info={};results=[];session.discovered.connect(results.append)
+        session=LocalSession(sys.executable,[],prefer_modern=False);session.phase='tools';session.next_id=2;session.pages=1;session.info={};results=[];session.discovered.connect(results.append)
         tools=[{'name':'tool'+str(i),'description':'x'*8000,'inputSchema':{'type':'object'}} for i in range(10)]
         payload=(json.dumps({'jsonrpc':'2.0','id':2,'result':{'tools':tools}})+'\n').encode()
         self.assertGreater(len(payload),MAX_OUTPUT);self.assertLessEqual(len(payload),MAX_DISCOVERY_OUTPUT)
@@ -834,7 +835,7 @@ for line in sys.stdin:
         self.assertEqual(len(results[0]['tools']),10);self.assertFalse(session.closed);session.close()
         for complete in (False,True):
             with self.subTest(complete=complete):
-                session=LocalSession(sys.executable,[]);session.phase='tools';ended=[];session.ended.connect(ended.append)
+                session=LocalSession(sys.executable,[],prefer_modern=False);session.phase='tools';ended=[];session.ended.connect(ended.append)
                 with patch.object(session.process,'readAllStandardOutput',return_value=b'x'*(MAX_DISCOVERY_OUTPUT+1)+(b'\n' if complete else b'')):session.read()
                 self.assertTrue(session.closed);self.assertIn('output limit',ended[0]['error'])
 
@@ -1081,11 +1082,11 @@ for line in sys.stdin:
   result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':os.getcwd(),'version':'1'},'capabilities':{}}
   print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)],working_directory=str(work));loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server)],working_directory=str(work),prefer_modern=False);loop=QEventLoop();out=[]
             session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
             session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertEqual(Path(out[0]['name']).resolve(),work.resolve())
-        with self.assertRaises(ValueError):LocalSession(sys.executable,[],working_directory='relative')
+        with self.assertRaises(ValueError):LocalSession(sys.executable,[],working_directory='relative',prefer_modern=False)
 
     def test_local_and_remote_operation_timers_use_configured_timeout(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -1093,7 +1094,7 @@ for line in sys.stdin:
         from agentnik.mcp_local import LocalSession
         from agentnik.mcp_remote import RemoteProbe,RemoteSession
         app=QApplication.instance() or QApplication([])
-        local=LocalSession(sys.executable,[],timeout_seconds=180);local.phase='ready'
+        local=LocalSession(sys.executable,[],timeout_seconds=180,prefer_modern=False);local.phase='ready'
         tool={'name':'test','schema_status':'available','task_support':'forbidden'};local.details=[tool]
         try:
             with patch.object(local,'list_page'):
@@ -1162,7 +1163,7 @@ for line in sys.stdin:
   result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Parent','version':'1'},'capabilities':{}}
   print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server),str(child),str(marker)]);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server),str(child),str(marker)],prefer_modern=False);loop=QEventLoop();out=[]
             session.discovered.connect(lambda info:(out.append(info),loop.quit()));session.ended.connect(lambda error:(out.append(error),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec()
             self.assertEqual(out[0]['name'],'Parent');session.close()
             wait=QEventLoop();QTimer.singleShot(2000,wait.quit);wait.exec();self.assertFalse(marker.exists(),'Owned descendant continued after session shutdown')
@@ -1178,7 +1179,7 @@ for line in sys.stdin:
             marker=Path(folder)/'received';server=Path(folder)/'server.py'
             server.write_text('import pathlib,sys\nline=sys.stdin.readline()\nif line:pathlib.Path(sys.argv[1]).write_text("received")\n',encoding='utf-8')
             with patch('agentnik.shell.WindowsJob') as job:
-                job.return_value.assign_pid.side_effect=OSError('fixture');session=LocalSession(sys.executable,[str(server),str(marker)]);loop=QEventLoop();out=[]
+                job.return_value.assign_pid.side_effect=OSError('fixture');session=LocalSession(sys.executable,[str(server),str(marker)],prefer_modern=False);loop=QEventLoop();out=[]
                 session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
                 self.assertIn('isolate',out[0]['error']);self.assertFalse(marker.exists());job.return_value.close.assert_called_once()
 
@@ -1213,7 +1214,7 @@ for line in sys.stdin:
  else:result={'content':[{'type':'text','text':os.environ['TARGET_TOKEN']}]}
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)],env_refs={'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'});loop=QEventLoop();results=[]
+            session=LocalSession(sys.executable,[str(server)],env_refs={'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'},prefer_modern=False);loop=QEventLoop();results=[]
             def discovered(info):results.append(info);session.call(info['tool_details'][0],{})
             session.discovered.connect(discovered);session.ended.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertEqual(results[0]['name'],'mapped');self.assertIn('mapped environment value',results[1]['error']);self.assertTrue(results[1]['call_uncertain']);self.assertNotIn('secret-fixture-value',str(results))
@@ -1247,7 +1248,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected')
  send({'jsonrpc':'2.0','id':req['id'],'result':result})
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();results=[]
+            session=LocalSession(sys.executable,[str(server)],prefer_modern=False);loop=QEventLoop();results=[]
             session.discovered.connect(lambda info:(results.append(info),session.call(info['tool_details'][0],{})))
             session.called.connect(lambda result:(results.append(result),loop.quit()));session.ended.connect(lambda result:(results.append(result),loop.quit()))
             session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
@@ -1265,7 +1266,7 @@ sys.stdin.readline()
 for n in range(33):print(json.dumps({'jsonrpc':'2.0','id':n,'method':'ping'}),flush=True)
 sys.stdin.read()
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();results=[]
+            session=LocalSession(sys.executable,[str(server)],prefer_modern=False);loop=QEventLoop();results=[]
             session.ended.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertIn('error',results[0]);self.assertEqual(len(session.server_requests),32)
 
@@ -1312,7 +1313,7 @@ for line in sys.stdin:
   pathlib.Path(sys.argv[1]).write_text('once');print(json.dumps({'jsonrpc':'2.0','id':req['id'],'error':{'code':-32602,'message':'Invalid query parameter','data':'private data'}}),flush=True);continue
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server),str(marker)]);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server),str(marker)],prefer_modern=False);loop=QEventLoop();out=[]
             session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda result:(out.append(result),loop.quit()))
             session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertIn('-32602',out[0]['error']);self.assertIn('Invalid query parameter',out[0]['error']);self.assertNotIn('private data',str(out));self.assertTrue(out[0]['call_uncertain']);self.assertTrue(marker.exists())
@@ -1335,7 +1336,7 @@ for line in sys.stdin:
   pathlib.Path(sys.argv[1]).write_text('once');time.sleep(5);continue
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server),str(marker)],timeout_seconds=1);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server),str(marker)],timeout_seconds=1,prefer_modern=False);loop=QEventLoop();out=[]
             session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda result:(out.append(result),loop.quit()))
             session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertEqual(marker.read_text(),'once');self.assertTrue(out[0]['call_uncertain']);self.assertIn('timed out',out[0]['error'])
@@ -1626,6 +1627,7 @@ for line in sys.stdin:
 pathlib.Path(sys.argv[1]).write_text("started")
 for line in sys.stdin:
  request=json.loads(line); method=request['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':request['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized': continue
  if method=='initialize': result={'protocolVersion':request['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{}}}
  elif method=='tools/list': result={'tools':[{'name':'query','description':'Run a query','inputSchema':{'type':'object'},'annotations':{'readOnlyHint':True}}]}
@@ -1705,7 +1707,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server)],prefer_modern=False);loop=QEventLoop();out=[]
             def received(result):
                 out.append(result)
                 if len(out)==1:
@@ -1781,7 +1783,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server)],prefer_modern=False);loop=QEventLoop();out=[]
             def response(result):
                 out.append(result)
                 if len(out)==1:self.assertTrue(session.list_prompts({'prompt':result['prompts'][0],'arguments':{}}))
@@ -1810,7 +1812,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server),str(marker)]);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server),str(marker)],prefer_modern=False);loop=QEventLoop();out=[]
             def response(result):
                 out.append(result)
                 if len(out)==1:
@@ -1838,7 +1840,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();results=[]
+            session=LocalSession(sys.executable,[str(server)],prefer_modern=False);loop=QEventLoop();results=[]
             def ready(info):
                 self.assertIn('resources',info['capabilities']);self.assertTrue(session.list_resources())
             def resource(result):
@@ -1919,7 +1921,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)],env_refs={'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'});loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server)],env_refs={'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'},prefer_modern=False);loop=QEventLoop();out=[]
             session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.called.connect(lambda result:out.append(result));session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertIn('mapped environment value',out[-1]['error']);self.assertNotIn('secret-fixture-value',str(out));self.assertTrue(out[-1]['call_uncertain'])
 
@@ -1940,7 +1942,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)],env_refs={'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'});loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server)],env_refs={'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'},prefer_modern=False);loop=QEventLoop();out=[]
             def resource(result):
                 out.append(result)
                 if 'resources' in result:session.read_resource('test://doc')
@@ -1975,7 +1977,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server)],prefer_modern=False);loop=QEventLoop();out=[]
             def discovered(info):self.assertTrue(session.call(info['tool_details'][0],{}))
             def called(result):
                 out.append(result);self.assertFalse(session.read_resource('file:///private'));self.assertFalse(session.read_resource('file:///other'));self.assertTrue(session.read_resource('file:///public'))
@@ -2011,7 +2013,7 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server),encoded]);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server),encoded],prefer_modern=False);loop=QEventLoop();out=[]
             def response(result):
                 out.append(result)
                 if len(out)==1:self.assertTrue(session.read_resource('test://chart'))
@@ -2038,7 +2040,7 @@ for line in sys.stdin:
 ''',encoding='utf-8')
             for mode in ('mismatch','binary'):
                 with self.subTest(mode=mode):
-                    session=LocalSession(sys.executable,[str(server),mode]);loop=QEventLoop();out=[]
+                    session=LocalSession(sys.executable,[str(server),mode],prefer_modern=False);loop=QEventLoop();out=[]
                     session.discovered.connect(lambda _:session.list_resources())
                     session.resources.connect(lambda result:session.read_resource(result['resources'][0]['uri']))
                     session.ended.connect(lambda result:(out.append(result),loop.quit()))
@@ -2065,7 +2067,7 @@ for line in sys.stdin:
   pathlib.Path(sys.argv[1]).write_text('called');result={'content':[]}
  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server),str(marker)]);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server),str(marker)],prefer_modern=False);loop=QEventLoop();out=[]
             session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
             session.ended.connect(lambda result:(out.append(result),loop.quit()))
             session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
@@ -2091,7 +2093,7 @@ for line in sys.stdin:
   pathlib.Path(sys.argv[1]).write_text('called');result={'content':[]}
  print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            session=LocalSession(sys.executable,[str(server),str(marker)]);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,[str(server),str(marker)],prefer_modern=False);loop=QEventLoop();out=[]
             session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda result:(out.append(result),loop.quit()))
             session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertIn('definition changed',out[0]['error']);self.assertFalse(out[0]['call_uncertain']);self.assertFalse(marker.exists())
@@ -2263,6 +2265,7 @@ for line in sys.stdin:
             server.write_text('''import json,os,sys
 for line in sys.stdin:
  request=json.loads(line);method=request['method']
+ if method=='server/discover':print(json.dumps({'jsonrpc':'2.0','id':request['id'],'error':{'code':-32601,'message':'unsupported'}}),flush=True);continue
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':request['params']['protocolVersion'],'serverInfo':{'name':'Fake' if os.environ.get('TARGET_TOKEN')=='snapshot-unique-value' else 'Incorrect','version':os.getcwd()},'capabilities':{'tools':{}}}
  elif method=='tools/list':result={'tools':[{'name':'query','inputSchema':{'type':'object'}}]}

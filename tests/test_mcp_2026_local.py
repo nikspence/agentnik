@@ -17,7 +17,7 @@ class ModernLocalSession(unittest.TestCase):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         for mode in ('state','state_loop','state_long','empty_input'):
             with self.subTest(mode=mode):
-                session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=1 if mode=='state_loop' else 6);loop=QEventLoop();out=[];forms=[];started=time.monotonic()
+                session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=1 if mode=='state_loop' else 6,prefer_modern=False);loop=QEventLoop();out=[];forms=[];started=time.monotonic()
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{'text':mode}))
                 session.elicitation_requested.connect(forms.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
                 timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(8000);session.start()
@@ -31,7 +31,7 @@ class ModernLocalSession(unittest.TestCase):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         for kind in ('resource','prompt'):
             with self.subTest(kind=kind):
-                session=LocalSession(sys.executable,['-u',str(server),'--state-only','--'+kind+'-input'],timeout_seconds=5);loop=QEventLoop();out=[];phase=['list']
+                session=LocalSession(sys.executable,['-u',str(server),'--state-only','--'+kind+'-input'],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[];phase=['list']
                 session.discovered.connect(lambda info:session.list_resources() if kind=='resource' else session.list_prompts())
                 def handle(value):
                     if phase[0]=='list':
@@ -46,7 +46,7 @@ class ModernLocalSession(unittest.TestCase):
 
     def test_modern_only_stdio_discovery_and_tool_call(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
-        session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=5);loop=QEventLoop();out=[];info=[]
+        session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[];info=[]
         def discovered(result):info.append(result);session.call(result['tool_details'][0],{'text':'hello'})
         session.discovered.connect(discovered);session.called.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
@@ -55,7 +55,7 @@ class ModernLocalSession(unittest.TestCase):
         finally:session.close()
 
     def test_modern_task_extension_advertisement_does_not_enable_execution(self):
-        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5);loop=QEventLoop();out=[];info=[]
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[];info=[]
         def discovered(result):info.append(result);session.call(result['tool_details'][0],{'text':'hello'})
         session.discovered.connect(discovered);session.called.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
@@ -67,7 +67,7 @@ class ModernLocalSession(unittest.TestCase):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         for text in ('task','task_input'):
             with self.subTest(text=text):
-                session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[];requests=[];progress=[];info=[]
+                session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();out=[];requests=[];progress=[];info=[]
                 def discovered(result):info.append(result);session.call(result['tool_details'][0],{'text':text})
                 def requested(forms):requests.append(forms);session.continue_elicitation({'question':{'action':'accept','content':{'choice':'yes'}}})
                 session.discovered.connect(discovered);session.elicitation_requested.connect(requested);session.progress.connect(progress.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
@@ -80,7 +80,7 @@ class ModernLocalSession(unittest.TestCase):
     def test_modern_task_cancellation_is_requested_without_claiming_completion(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         with tempfile.TemporaryDirectory() as directory:
-            record=Path(directory)/'cancel.json';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks','--cancel-record='+str(record)],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();notices=[];closed=[]
+            record=Path(directory)/'cancel.json';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks','--cancel-record='+str(record)],timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();notices=[];closed=[]
             session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':'task_wait'}))
             def progress(message):
                 notices.append(message)
@@ -95,7 +95,7 @@ class ModernLocalSession(unittest.TestCase):
     def test_modern_task_can_be_cancelled_while_input_is_pending(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         with tempfile.TemporaryDirectory() as directory:
-            record=Path(directory)/'cancel.json';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks','--cancel-record='+str(record)],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();requests=[];closed=[]
+            record=Path(directory)/'cancel.json';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks','--cancel-record='+str(record)],timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();requests=[];closed=[]
             session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':'task_input'}))
             session.elicitation_requested.connect(lambda forms:(requests.append(forms),session.close()))
             session.shutdown_finished.connect(lambda result:(closed.append(result),loop.quit()))
@@ -105,7 +105,7 @@ class ModernLocalSession(unittest.TestCase):
             finally:session.close()
 
     def test_modern_task_failure_reports_uncertain_without_private_data(self):
-        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[]
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();out=[]
         session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':'task_failed'}));session.ended.connect(lambda value:(out.append(value),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
@@ -116,7 +116,7 @@ class ModernLocalSession(unittest.TestCase):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         for text in ('task_leak','task_error_leak'):
             with self.subTest(text=text):
-                session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[]
+                session=LocalSession(sys.executable,['-u',str(server),'--modern-tasks'],timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();out=[]
                 session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':text}));session.ended.connect(lambda value:(out.append(value),loop.quit()))
                 timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                 try:loop.exec();timer.stop();self.assertTrue(out[0]['call_uncertain']);self.assertNotIn('private-task-id',str(out))
@@ -126,7 +126,7 @@ class ModernLocalSession(unittest.TestCase):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         for code in (-32600,-32601,-32602,-32020,-32022):
             with self.subTest(code=code):
-                session=LocalSession(sys.executable,['-u',str(server),'--init-error='+str(code)],timeout_seconds=5);loop=QEventLoop();out=[]
+                session=LocalSession(sys.executable,['-u',str(server),'--init-error='+str(code)],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
                 session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
                 timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                 try:loop.exec();timer.stop();self.assertEqual(out[0]['protocol'],'2026-07-28')
@@ -151,7 +151,7 @@ for line in sys.stdin:
             server=Path(directory)/'legacy.py';server.write_text(script,encoding='utf-8')
             for mode in ('unsupported','malformed'):
                 with self.subTest(mode=mode):
-                    session=LocalSession(sys.executable,['-u',str(server),mode],timeout_seconds=5);loop=QEventLoop();out=[]
+                    session=LocalSession(sys.executable,['-u',str(server),mode],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
                     session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
                     timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                     try:loop.exec();timer.stop();self.assertEqual(out[0]['protocol'],'2025-11-25');self.assertEqual(out[0]['name'],'slow')
@@ -160,7 +160,7 @@ for line in sys.stdin:
     def test_cancellation_notifies_modern_stdio_server(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         with tempfile.TemporaryDirectory() as directory:
-            output=Path(directory)/'cancel.json';session=LocalSession(sys.executable,['-u',str(server),str(output)],timeout_seconds=5);loop=QEventLoop()
+            output=Path(directory)/'cancel.json';session=LocalSession(sys.executable,['-u',str(server),str(output)],timeout_seconds=5,prefer_modern=False);loop=QEventLoop()
             session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':'wait'}))
             session.progress.connect(lambda _: (session.close(),loop.quit()))
             session.ended.connect(lambda _:loop.quit());timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
@@ -170,7 +170,7 @@ for line in sys.stdin:
 
     def test_silent_modern_server_is_probed(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
-        session=LocalSession(sys.executable,['-u',str(server),'--ignore-initialize'],timeout_seconds=5);loop=QEventLoop();out=[]
+        session=LocalSession(sys.executable,['-u',str(server),'--ignore-initialize'],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
@@ -179,7 +179,7 @@ for line in sys.stdin:
 
     def test_delayed_legacy_rejection_uses_existing_modern_probe(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
-        session=LocalSession(sys.executable,['-u',str(server),'--delay-reject'],timeout_seconds=5);loop=QEventLoop();out=[]
+        session=LocalSession(sys.executable,['-u',str(server),'--delay-reject'],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
@@ -200,7 +200,7 @@ for line in sys.stdin:
 '''
         with tempfile.TemporaryDirectory() as directory:
             server=Path(directory)/'legacy.py';server.write_text(script,encoding='utf-8')
-            session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=5);loop=QEventLoop();out=[]
+            session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
             session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
             timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
             try:
@@ -209,7 +209,7 @@ for line in sys.stdin:
 
     def test_subscription_notices_are_multiplexed_with_tool_response(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
-        session=LocalSession(sys.executable,['-u',str(server),'--subscriptions'],timeout_seconds=5);loop=QEventLoop();out=[];events=[]
+        session=LocalSession(sys.executable,['-u',str(server),'--subscriptions'],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[];events=[]
         def discovered(result):
             session.resource_items=[{'uri':'test://old'}];session.prompt_items=[{'name':'old'}]
             session.call(result['tool_details'][0],{'text':'notify'})
@@ -220,13 +220,13 @@ for line in sys.stdin:
         finally:session.close()
 
     def test_invalid_subscription_acknowledgement_invalidates_cached_listings(self):
-        session=LocalSession(sys.executable,[]);session.modern=True;session.subscription_active=True;session.info={'subscription_filters':{'resourcesListChanged':True}};session.resource_items=[{'uri':'test://old'}];session.prompt_items=[{'name':'old'}];events=[];session.progress.connect(events.append)
+        session=LocalSession(sys.executable,[],prefer_modern=False);session.modern=True;session.subscription_active=True;session.info={'subscription_filters':{'resourcesListChanged':True}};session.resource_items=[{'uri':'test://old'}];session.prompt_items=[{'name':'old'}];events=[];session.progress.connect(events.append)
         session.subscription_notification({'method':'notifications/subscriptions/acknowledged','params':{'notifications':{'resourcesListChanged':True},'_meta':{'io.modelcontextprotocol/subscriptionId':42}}})
         self.assertFalse(session.subscription_active);self.assertEqual(session.resource_items,[]);self.assertEqual(session.prompt_items,[]);self.assertTrue(any('invalid' in text for text in events));session.close()
 
     def test_ended_subscription_reopens_with_new_identifier(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
-        session=LocalSession(sys.executable,['-u',str(server),'--subscriptions','--end-first-subscription'],timeout_seconds=5);loop=QEventLoop();events=[]
+        session=LocalSession(sys.executable,['-u',str(server),'--subscriptions','--end-first-subscription'],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();events=[]
         session.progress.connect(events.append);session.ended.connect(lambda _:loop.quit())
         poll=QTimer();poll.timeout.connect(lambda:loop.quit() if session.subscription_id==-2 and session.subscription_ack is not None else None);poll.start(25)
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
@@ -236,7 +236,7 @@ for line in sys.stdin:
 
     def test_input_required_is_reported_without_continuation(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
-        session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=5);loop=QEventLoop();out=[]
+        session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda result:session.call(result['tool_details'][0],{'text':'input'}));session.called.connect(lambda result:(out.append(('called',result)),loop.quit()));session.ended.connect(lambda result:(out.append(('ended',result)),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
@@ -247,7 +247,7 @@ for line in sys.stdin:
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         for kind in ('resource','prompt'):
             with self.subTest(kind=kind):
-                session=LocalSession(sys.executable,['-u',str(server),'--'+kind+'-input'],timeout_seconds=5);loop=QEventLoop();out=[]
+                session=LocalSession(sys.executable,['-u',str(server),'--'+kind+'-input'],timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
                 def discovered(_):session.list_resources() if kind=='resource' else session.list_prompts()
                 def resources(result):session.read_resource(result['resources'][0]['uri'])
                 def prompts(result):session.list_prompts({'prompt':result['prompts'][0],'arguments':{}})
@@ -261,7 +261,7 @@ for line in sys.stdin:
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         for kind in ('resource','prompt'):
             with self.subTest(kind=kind):
-                session=LocalSession(sys.executable,['-u',str(server),'--'+kind+'-input'],timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[];step=[]
+                session=LocalSession(sys.executable,['-u',str(server),'--'+kind+'-input'],timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();out=[];step=[]
                 def discovered(_):session.list_resources() if kind=='resource' else session.list_prompts()
                 def resources(result):
                     if not step:step.append(True);session.read_resource(result['resources'][0]['uri'])

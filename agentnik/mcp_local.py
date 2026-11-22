@@ -26,7 +26,7 @@ class LocalSession(QObject):
     elicitation_requested = Signal(object)
     elicitation_completed = Signal(str)
 
-    def __init__(self, command, args, parent=None, env_refs=None, env_values=None, timeout_seconds=60, working_directory=''):
+    def __init__(self, command, args, parent=None, env_refs=None, env_values=None, timeout_seconds=60, working_directory='',prefer_modern=True):
         super().__init__(parent)
         if not isinstance(working_directory,str) or (working_directory and not os.path.isabs(working_directory)):raise ValueError('The MCP working directory must be absolute on this system.')
         self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds})
@@ -50,8 +50,8 @@ class LocalSession(QObject):
         self.process.readyReadStandardOutput.connect(self.read)
         self.process.readyReadStandardError.connect(lambda: self.process.readAllStandardError())
         self.process.started.connect(self.started)
-        self.process.errorOccurred.connect(lambda _: self.fail('Unable to start or communicate with local MCP server.'))
-        self.process.finished.connect(lambda *_: self.fail('Local MCP server exited.'))
+        self.process.errorOccurred.connect(self.process_error)
+        self.process.finished.connect(self.process_finished)
         self.timer = QTimer(self); self.timer.setSingleShot(True)
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.probe_timer=QTimer(self);self.probe_timer.setSingleShot(True);self.probe_timer.timeout.connect(self.probe_modern)
@@ -60,6 +60,7 @@ class LocalSession(QObject):
         self.modern_task_timer=QTimer(self);self.modern_task_timer.setSingleShot(True);self.modern_task_timer.timeout.connect(self.poll_modern_task);self.modern_task=None;self.modern_cancel_ack=None
         self.state_timer=QTimer(self);self.state_timer.setSingleShot(True);self.state_timer.timeout.connect(lambda:self.continue_elicitation({},state_only=True))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1;self.elicitation_urls={}
+        self.prefer_modern=prefer_modern;self.modern_first_probe=False;self.modern_probe_finished=False;self.modern_probe_timed_out=False
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
         self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False;self.probe_id=None;self.ignored_id=None;self.subscription_id=-1;self.subscription_active=False;self.subscription_ack=None;self.retired_subscriptions=deque(maxlen=32);self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None
 
@@ -76,10 +77,48 @@ class LocalSession(QObject):
         if self.job:
             try:self.job.assign_pid(self.process.processId())
             except OSError:self.fail('Unable to isolate the local MCP process for cleanup.');return
-        self.send(initialize_request(elicitation=self.elicitation_enabled))
-        if not self.closed:self.probe_timer.start(min(1000,max(250,self.timeout_ms//3)))
+        if self.prefer_modern and not self.modern_probe_finished:
+            self.modern=True;self.phase='modern_discovery';self.modern_first_probe=True
+            self.send({'jsonrpc':'2.0','id':self.next_id,'method':'server/discover','params':{}})
+            if not self.closed:self.probe_timer.start(min(3000,max(100,self.timeout_ms//2)))
+        else:
+            self.phase='initialize';request=initialize_request(elicitation=self.elicitation_enabled);request['id']=self.next_id;self.send(request)
+            if not self.closed and not self.modern_probe_finished:self.probe_timer.start(min(1000,max(250,self.timeout_ms//3)))
+
+    def process_error(self,error):
+        if self.phase=='legacy_restart':return
+        if self.modern_first_probe and error==QProcess.ProcessError.Crashed:return
+        self.fail('Unable to start or communicate with local MCP server.')
+
+    def process_finished(self,*_):
+        if self.phase=='legacy_restart':self.restart_legacy();return
+        if self.modern_first_probe:self.fallback_legacy(restart=True);return
+        self.fail('Local MCP server exited.')
+
+    def fallback_legacy(self,restart=False):
+        self.probe_timer.stop();self.modern_first_probe=False;self.modern_probe_finished=True;self.modern=False;self.next_id+=1;self.buffer.clear();self.request_active=False
+        self.progress.emit('MCP 2026 discovery did not complete; restarting the server for legacy initialization.' if restart else 'MCP 2026 discovery was rejected; checking legacy initialization.')
+        if self.closed:return
+        if restart:
+            self.phase='legacy_restart'
+            if self.process.state()!=QProcess.ProcessState.NotRunning:self.process.kill()
+            else:self.restart_legacy()
+        else:
+            self.phase='initialize';request=initialize_request(elicitation=self.elicitation_enabled);request['id']=self.next_id;self.send(request)
+
+    def restart_legacy(self):
+        if self.closed or self.phase!='legacy_restart':return
+        if self.job:
+            self.job.close();self.job=None
+            try:
+                from .shell import WindowsJob
+                self.job=WindowsJob()
+            except OSError:self.fail('Unable to prepare local MCP process cleanup.');return
+        self.phase='initialize';self.process.start()
 
     def probe_modern(self):
+        if self.modern_first_probe:
+            self.modern_probe_timed_out=True;self.fallback_legacy(restart=True);return
         if self.closed or self.phase!='initialize' or self.probe_id is not None:return
         self.probe_id=2
         message,_=prepare_request({'jsonrpc':'2.0','id':self.probe_id,'method':'server/discover','params':{}})
@@ -270,7 +309,12 @@ class LocalSession(QObject):
                 if 'error' in message:
                     error=rpc_error(message)
                     if self.modern_task is not None and self.modern_task.task_id in error:error='MCP task request failed; server error details were omitted.'
-                    if self.phase=='initialize' and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
+                    if self.modern_first_probe and message['error']['code'] not in (-32020,-32021,-32022):self.fallback_legacy();continue
+                    if self.modern_first_probe and message['error']['code'] in (-32020,-32021,-32022):self.fail('MCP 2026 discovery failed with a modern protocol error ('+str(message['error']['code'])+').');return
+                    if self.phase=='initialize' and self.modern_probe_timed_out and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
+                        self.modern_probe_timed_out=False;self.modern=True;self.phase='modern_discovery';self.next_id+=1
+                        self.send({'jsonrpc':'2.0','id':self.next_id,'method':'server/discover','params':{}});continue
+                    if self.phase=='initialize' and not self.modern_probe_finished and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
                         self.probe_timer.stop()
                         if self.probe_id is not None:
                             self.modern=True;self.phase='modern_discovery';self.next_id=self.probe_id;self.probe_id=None;continue
@@ -292,7 +336,7 @@ class LocalSession(QObject):
                 if self.phase == 'initialize':
                     self.probe_timer.stop()
                     if self.probe_id is not None:self.ignored_id=self.probe_id;self.next_id=self.probe_id;self.probe_id=None
-                    self.info = parse_initialize(line, ('2025-11-25','2025-06-18','2025-03-26','2024-11-05'));  self.send({'jsonrpc':'2.0','method':'notifications/initialized'})
+                    self.info = parse_initialize(line, ('2025-11-25','2025-06-18','2025-03-26','2024-11-05'),expected_id=message['id']);  self.send({'jsonrpc':'2.0','method':'notifications/initialized'})
                     if 'tools' not in self.info['capabilities']:
                         self.finish_discovery(False); continue
                     self.list_page(None); continue
@@ -331,6 +375,7 @@ class LocalSession(QObject):
                 if self.modern and self.phase in ('call','resource_read','prompt_get'):self.elicitation_original=None;self.elicitation_pending=None
                 if self.phase=='modern_discovery':
                     self.info=parse_discovery(result)
+                    self.probe_timer.stop();self.modern_first_probe=False;self.modern_probe_finished=True
                     if self.elicitation_enabled and self.info.get('task_extension_advertised'):self.info['task_capabilities']={'tool_calls':True,'list':False,'cancel':True,'modern':True}
                     self.open_subscription()
                     if 'tools' not in self.info['capabilities']:self.finish_discovery(False);continue

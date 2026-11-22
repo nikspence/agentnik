@@ -692,8 +692,8 @@ def run_modern_tasks(session,transport='stdio-modern'):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':'2026-07-28','checks':['task extension discovery','polling','reviewed input','deduplication','final result']}
 
 
-def modern_stdio_server(init_error=-32022,tasks=False):
-    """Wrap a real SDK server and reject legacy initialization only."""
+def modern_stdio_server(init_error=-32022,tasks=False,legacy_only=False):
+    """Wrap a real SDK server and reject one protocol's startup request."""
     import subprocess,threading
     child=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--server-tasks' if tasks else '--server'],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
     def output():
@@ -703,7 +703,10 @@ def modern_stdio_server(init_error=-32022,tasks=False):
     try:
         for line in sys.stdin.buffer:
             message=json.loads(line)
-            if message.get('method')=='initialize':
+            if legacy_only and message.get('method')=='server/discover':
+                reply={'jsonrpc':'2.0','id':message['id'],'error':{'code':-32601,'message':'unknown method'}}
+                sys.stdout.buffer.write((json.dumps(reply)+'\n').encode());sys.stdout.buffer.flush()
+            elif not legacy_only and message.get('method')=='initialize':
                 reply={'jsonrpc':'2.0','id':message['id'],'error':{'code':init_error,'message':'modern protocol required','data':{'supported':['2026-07-28']}}}
                 sys.stdout.buffer.write((json.dumps(reply)+'\n').encode());sys.stdout.buffer.flush()
             else:child.stdin.write(line);child.stdin.flush()
@@ -715,6 +718,7 @@ if __name__=='__main__':
     if sys.argv[1:]==['--server']:make_server().run(transport='stdio')
     elif sys.argv[1:]==['--server-tasks']:make_server(tasks=True).run(transport='stdio')
     elif sys.argv[1:]==['--server-modern']:modern_stdio_server()
+    elif sys.argv[1:]==['--server-legacy']:modern_stdio_server(legacy_only=True)
     elif sys.argv[1:]==['--server-modern-tasks']:modern_stdio_server(tasks=True)
     elif sys.argv[1:]==['--server-modern-rpc-error']:modern_stdio_server(-32020)
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
@@ -742,12 +746,22 @@ if __name__=='__main__':
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
-        print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
+        print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15,prefer_modern=False),'stdio')))
     elif sys.argv[1:]==['--stdio-modern']:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
+    elif sys.argv[1:]==['--stdio-dual-probe']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio-modern')))
+    elif sys.argv[1:]==['--stdio-legacy-probe']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-legacy'],timeout_seconds=15),'stdio')))
     elif sys.argv[1:]==['--stdio-modern-rpc-negotiation']:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
@@ -777,25 +791,25 @@ if __name__=='__main__':
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
-        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
+        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15,prefer_modern=False),'stdio')))
     elif sys.argv[1:]==['--stdio-pattern-elicitation']:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
-        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio',pattern=True)))
+        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15,prefer_modern=False),'stdio',pattern=True)))
     elif sys.argv[1:]==['--stdio-choice-elicitation']:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
-        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio',choices=True)))
+        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15,prefer_modern=False),'stdio',choices=True)))
     elif sys.argv[1:]==['--stdio-url-elicitation']:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
-        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio',url=True)))
+        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15,prefer_modern=False),'stdio',url=True)))
     elif sys.argv[1:]==['--stdio-url-required']:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
-        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio',required=True)))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https-legacy-probe|--https-modern-state|--stdio-modern-state|--https-modern-tasks|--stdio-modern-tasks|--https-modern-rpc-negotiation|--stdio-modern-rpc-negotiation|--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+        print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15,prefer_modern=False),'stdio',required=True)))
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-dual-probe|--stdio-legacy-probe|--https-legacy-probe|--https-modern-state|--stdio-modern-state|--https-modern-tasks|--stdio-modern-tasks|--https-modern-rpc-negotiation|--stdio-modern-rpc-negotiation|--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
