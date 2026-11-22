@@ -137,7 +137,9 @@ class LocalSession(QObject):
                         self.send({'jsonrpc':'2.0','id':self.next_id,'method':'prompts/get','params':{'name':current['name'],'arguments':args}});continue
                     self.phase='ready';self.timer.stop();self.prompts.emit(outcome);continue
                 if self.phase == 'prompt_get':
-                    outcome=parse_prompt_messages(result);self.phase='ready';self.timer.stop();self.prompts.emit(outcome);continue
+                    outcome=parse_prompt_messages(result)
+                    if any(contains_secret(outcome,secret) for secret in self.environment_secrets):self.fail('MCP response contained a mapped environment value and was blocked.');return
+                    self.phase='ready';self.timer.stop();self.prompts.emit(outcome);continue
                 if self.phase == 'template_list':
                     cursor,outcome=self.template_pages.accept(result)
                     if cursor:self.template_list_page(cursor);continue
@@ -147,7 +149,9 @@ class LocalSession(QObject):
                     if cursor:self.resource_list_page(cursor);continue
                     self.resource_items=outcome['resources'];self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
                 if self.phase == 'resource_read':
-                    outcome=parse_resource_contents(result,self.resource_uri);self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
+                    outcome=parse_resource_contents(result,self.resource_uri)
+                    if any(contains_secret(outcome,secret) for secret in self.environment_secrets):self.fail('MCP response contained a mapped environment value and was blocked.');return
+                    self.phase='ready';self.timer.stop();self.resources.emit(outcome);continue
                 if self.phase=='call' and self.task_mode:
                     self.task_id=created_task_id(result);self.phase='task_result';self.next_id+=1
                     self.progress.emit('Task started: '+self.task_id+'; awaiting result.')

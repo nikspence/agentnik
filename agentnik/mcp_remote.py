@@ -223,6 +223,7 @@ class RemoteProbe(QObject):
                         args=self.prompt_invocation['arguments'];self.prompt_invocation=None;self.phase='prompt_get'
                         self.send({'jsonrpc':'2.0','id':0,'method':'prompts/get','params':{'name':current['name'],'arguments':args}});return
                 else:outcome=parse_prompt_messages(outcome)
+                if self.token and contains_secret(outcome,self.token):raise ValueError('Credential reflected in response')
                 self.timer.stop();self.phase='ready';self.prompts.emit(outcome);return
             if self.phase in ('resource_list','resource_read','template_list'):
                 outcome=message.get('result')
@@ -236,6 +237,7 @@ class RemoteProbe(QObject):
                     if cursor:self.resource_list_page(cursor);return
                     self.resource_items=outcome['resources']
                 else:outcome=parse_resource_contents(outcome,self.resource_uri)
+                if self.token and contains_secret(outcome,self.token):raise ValueError('Credential reflected in response')
                 self.timer.stop();self.phase='ready';self.resources.emit(outcome);return
             if self.phase=='call' and self.task_mode:
                 self.task_id=created_task_id(message.get('result'));self.phase='task_result'

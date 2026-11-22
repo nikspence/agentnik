@@ -54,7 +54,7 @@ def parse_resource_text(result,uri):
 
 
 def parse_resource_contents(result,uri):
-    """Accept text and validated image blobs for exactly the requested URI."""
+    """Accept text, UTF-8 text blobs, and images for the requested URI."""
     from .image_generation import image_bytes
     contents=result.get('contents')
     if not isinstance(contents,list) or len(contents)>16:raise ValueError('Invalid MCP resource content')
@@ -64,6 +64,18 @@ def parse_resource_contents(result,uri):
         if 'blob' not in item:
             safe.extend(parse_resource_text({'contents':[item]},uri)['contents']);continue
         blob=item.get('blob');mime=item.get('mimeType')
+        if isinstance(mime,str):
+            media,*parameters=mime.lower().split(';')
+            media=media.strip()
+            text_type=bool(re.fullmatch(r'text/[a-z0-9!#$&^_.+\-]+',media)) or media in ('application/json','application/xml') or bool(re.fullmatch(r'application/[a-z0-9!#$&^_.+\-]+\+(?:json|xml)',media))
+            if text_type:
+                if 'text' in item or not isinstance(blob,str) or len(blob)>42668 or len(mime)>256 or len(parameters)>1 or any(parameter.strip().replace(' ','') not in ('charset=utf-8','charset="utf-8"','charset=us-ascii','charset="us-ascii"') for parameter in parameters):raise ValueError('Unsupported MCP text resource blob')
+                try:
+                    data=base64.b64decode(blob,validate=True)
+                    if len(data)>32000:raise ValueError()
+                    text=data.decode('ascii' if parameters and 'us-ascii' in parameters[0] else 'utf-8')
+                except (ValueError,binascii.Error,UnicodeError):raise ValueError('Invalid MCP text resource blob') from None
+                safe.append({'uri':uri,'mimeType':mime,'text':text});continue
         if 'text' in item or not isinstance(blob,str) or len(blob)>16*1024*1024 or mime not in ('image/png','image/jpeg','image/webp'):raise ValueError('Unsupported MCP resource blob')
         try:data=base64.b64decode(blob,validate=True);actual,_=image_bytes(data)
         except (ValueError,binascii.Error):raise ValueError('Invalid MCP image resource') from None

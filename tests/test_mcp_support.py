@@ -1240,6 +1240,10 @@ for line in sys.stdin:
         result=parse_prompt_messages({'messages':messages})
         self.assertEqual(result['messages'][0]['content']['resource']['text'],'Public guide')
         self.assertEqual(result['user_text'],['Private text','Private guide']);self.assertNotIn('Private',json.dumps(result['messages']))
+        import base64
+        encoded=base64.b64encode('제목'.encode()).decode()
+        result=parse_prompt_messages({'messages':[{'role':'user','content':{'type':'resource','resource':{'uri':'file:///guide','mimeType':'text/plain','blob':encoded}}}]})
+        self.assertEqual(result['messages'][0]['content']['resource']['text'],'제목')
         for content in ({'type':'resource','resource':{'uri':'file:///x','blob':'AAAA'}},
                         {'type':'resource','resource':{'uri':'file:///x','text':'x'*32001}},
                         {'type':'resource','resource':{'uri':'bad\nuri','text':'x'}},
@@ -1322,7 +1326,7 @@ for line in sys.stdin:
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
  elif method=='resources/list':result={'resources':[{'uri':'test://record/2','name':'Second'}]} if req.get('params',{}).get('cursor') else {'resources':[{'uri':'test://record/1','name':'Record','description':'Test','mimeType':'text/plain'}],'nextCursor':'next'}
- elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'text':'Resource text','mimeType':'text/plain'}]}
+ elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'blob':'UmVzb3VyY2UgdGV4dA==','mimeType':'text/plain'}]}
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
@@ -1348,6 +1352,41 @@ for line in sys.stdin:
         self.assertEqual(response_limit('resource_read'),MAX_RESOURCE_RESULT_OUTPUT)
         for invalid in (dict(item,mimeType='image/jpeg'),dict(item,blob='bad base64'),dict(item,uri='test://other'),dict(item,mimeType='application/pdf'),dict(item,text='also text')):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):parse_resource_contents({'contents':[invalid]},'test://chart')
+
+    def test_text_resource_blobs_decode_with_validation(self):
+        import base64
+        from agentnik.mcp_resources import parse_resource_contents
+        def item(mime,data):return {'uri':'test://doc','mimeType':mime,'blob':base64.b64encode(data).decode()}
+        for mime in ('text/csv','application/json','application/problem+json','application/xml','application/example+xml','text/plain; charset="UTF-8"'):
+            with self.subTest(mime=mime):
+                result=parse_resource_contents({'contents':[item(mime,'snow 雪'.encode())]},'test://doc')
+                self.assertEqual(result['contents'][0]['text'],'snow 雪');self.assertNotIn('blob',result['contents'][0])
+        for invalid in (item('text/plain',b'\xff'),item('text/plain',b'x'*32001),item('text/plain; charset=iso-8859-1',b'x'),item('text/plain; charset=us-ascii','雪'.encode()),dict(item('text/plain',b'x'),blob='!!'),dict(item('text/plain',b'x'),text='duplicate')):
+            with self.subTest(invalid=invalid.get('mimeType')),self.assertRaises(ValueError):parse_resource_contents({'contents':[invalid]},'test://doc')
+
+    def test_local_text_blob_cannot_reflect_mapped_credential(self):
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'AGENTNIK_TEST_MCP_TOKEN':'secret-fixture-value'}):
+            server=Path(folder)/'server.py'
+            server.write_text('''import base64,json,os,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'test','version':'1'},'capabilities':{'resources':{}}}
+ elif method=='resources/list':result={'resources':[{'uri':'test://doc','name':'doc'}]}
+ elif method=='resources/read':result={'contents':[{'uri':'test://doc','mimeType':'text/plain','blob':base64.b64encode(os.environ['TARGET_TOKEN'].encode()).decode()}]}
+ else:raise RuntimeError('unexpected')
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server)],env_refs={'TARGET_TOKEN':'AGENTNIK_TEST_MCP_TOKEN'});loop=QEventLoop();out=[]
+            def resource(result):
+                out.append(result)
+                if 'resources' in result:session.read_resource('test://doc')
+            session.discovered.connect(lambda _:session.list_resources());session.resources.connect(resource);session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertIn('mapped environment value',out[-1]['error']);self.assertNotIn('secret-fixture-value',str(out))
 
     def test_tool_resource_links_respect_audience_and_metadata(self):
         from agentnik.mcp_resources import tool_resource_links,merge_resource_links
