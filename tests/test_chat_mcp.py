@@ -46,6 +46,55 @@ class ChatMCPIntegration(unittest.TestCase):
         with self.assertRaises(ResearchError):group.invoke('mcp_resources_read',{'request':json.dumps({'server':'First','uri':'test://doc'})},runtime)
         self.assertEqual(group.controllers[0].bridge.request.call_count,1)
 
+    def test_chat_prompts_are_server_scoped_and_keep_user_only_content_private(self):
+        from agentnik.chat_mcp import MultiChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers});runtime=Runtime();events=[];runtime.notify=lambda *args:events.append(args)
+        prompt={'name':'greet','description':'Greeting','arguments':[{'name':'name','description':'','required':True}]}
+        for controller in group.controllers:
+            controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[]},{'prompts':[prompt]},{'messages':[{'role':'user','content':{'type':'text','text':'Hello world'}},{'role':'assistant','content':{'type':'image','mimeType':'image/png','data':'large-image'}}],'user_text':['Private for user'],'user_nontext':0}]
+        group.invoke('mcp_discover',{'server':'connect'},runtime)
+        request={'request':json.dumps({'server':'Second','name':'greet','arguments':{'name':'world'}})}
+        with self.assertRaises(ResearchError):group.invoke('mcp_prompts_get',request,runtime)
+        group.invoke('mcp_prompts_list',{'server':'Second'},runtime)
+        for bad in ({'server':'First','name':'greet','arguments':{'name':'world'}},{'server':'Second','name':'greet','arguments':{}},{'server':'Second','name':'greet','arguments':{'name':42}}):
+            with self.assertRaises(ResearchError):group.invoke('mcp_prompts_get',{'request':json.dumps(bad)},runtime)
+        result=group.invoke('mcp_prompts_get',request,runtime);encoded=json.dumps(result)
+        self.assertIn('Hello world',encoded);self.assertNotIn('Private for user',encoded);self.assertNotIn('large-image',encoded);self.assertIn('Private for user',str(events));self.assertEqual(group.controllers[0].bridge.request.call_count,1)
+
+    def test_chat_prompt_listing_reconnects_without_reusing_old_listing(self):
+        from agentnik.chat_mcp import ChatMCP,MultiChatMCP
+        from agentnik.tools import ResearchError
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
+        single=ChatMCP(servers[0],{'mcp_servers':servers});multi=MultiChatMCP(servers,{'mcp_servers':servers})
+        self.assertTrue(single.needs_reconnect([('mcp_prompts_list',{'server':'First'})]));self.assertTrue(multi.needs_reconnect([('mcp_prompts_list',{'server':'Second'})]))
+        request={'request':json.dumps({'server':'First','name':'old','arguments':{}})}
+        with self.assertRaises(ResearchError):single.validate_call('mcp_prompts_get',request)
+
+    def test_chat_retrieves_real_local_mcp_server_prompt(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            root=Path(folder);server=root/'server.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'prompts':{}}}
+ elif method=='prompts/list':result={'prompts':[{'name':'greet','arguments':[{'name':'name','required':True}]}]}
+ elif method=='prompts/get':result={'messages':[{'role':'user','content':{'type':'text','text':'Hello '+req['params']['arguments']['name']}},{'role':'user','content':{'type':'text','text':'private-user-text','annotations':{'audience':['user']}}}]}
+ else:raise RuntimeError('unexpected '+method)
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            store=Store(root/'data');store.config['mcp_servers']=[{'name':'Prompts','command':sys.executable,'args':[str(server)],'enabled':True}];store.flush();window=Window(store);window.connections={'test':dict(C)}
+            request=json.dumps({'server':'Prompts','name':'greet','arguments':{'name':'world'}});bodies=[]
+            replies=[Wire(response([function('mcp_discover',{'server':'connect'},'one')]),False),Wire(response([function('mcp_prompts_list',{'server':'Prompts'},'two')]),False),Wire(response([function('mcp_prompts_get',{'request':request},'three')]),False),Wire(response([message('Hello world')]),False)]
+            def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget();tab.mcp_choice.setCurrentIndex(1);tab.composer.setPlainText('Get greeting')
+                with patch.object(core,'open_request',side_effect=send):tab.submit();self.settle(lambda:tab.job is None)
+                self.assertEqual(tab.session['messages'][-1]['text'],'Hello world');self.assertIn('Hello world',bodies[-1]);self.assertNotIn('private-user-text',bodies[-1]);self.assertIn('private-user-text',str(tab.session['messages'][-1]['research']['events']))
+            finally:window.close();self.app.processEvents();store.db.close()
+
     def test_chat_model_reads_mcp_resource_over_existing_loop(self):
         import threading
         from agentnik.chat_mcp import ChatMCP
