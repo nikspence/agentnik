@@ -118,6 +118,7 @@ class RemoteProbe(QObject):
         self.server_stream_timer=QTimer(self);self.server_stream_timer.setSingleShot(True);self.server_stream_timer.timeout.connect(self.resume_server_stream)
         self.subscription_id=None;self.subscription_ack=None
         self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(self.subscription_timed_out)
+        self.modern_task_timer=QTimer(self);self.modern_task_timer.setSingleShot(True);self.modern_task_timer.timeout.connect(self.poll_modern_task);self.modern_task=None;self.modern_cancel_ack=None
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(self.timeout_ms);self.send(initialize_request(elicitation=self.elicitation_enabled))
@@ -133,7 +134,10 @@ class RemoteProbe(QObject):
         if self.phase=='call' and message.get('method')=='tools/call':
             self.log_count=0;self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
         modern_headers={}
-        if self.modern:message,modern_headers=prepare_request(message,self.call_schema if message.get('method')=='tools/call' else None,{'elicitation':{'form':{},'url':{}}} if self.elicitation_enabled else None)
+        if self.modern:
+            capabilities={'elicitation':{'form':{},'url':{}}} if self.elicitation_enabled else {}
+            if message.get('method') in ('tools/call','tasks/get','tasks/update','tasks/cancel') and (self.result or {}).get('task_capabilities',{}).get('modern'):capabilities['extensions']={'io.modelcontextprotocol/tasks':{}}
+            message,modern_headers=prepare_request(message,self.call_schema if message.get('method')=='tools/call' else None,capabilities)
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
         tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
@@ -147,6 +151,12 @@ class RemoteProbe(QObject):
 
     def continue_elicitation(self,responses,retry=False):
         if getattr(self,'closed',False) or self.elicitation_pending is None:return False
+        if self.modern_task is not None and self.phase=='modern_task_input':
+            try:
+                if self.token and contains_secret(responses,self.token):raise ValueError()
+                message=self.modern_task.respond(responses)
+            except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Invalid MCP task input response; the task was not updated.');return False
+            self.elicitation_pending=None;self.phase='modern_task_update';self.timer.start(self.timeout_ms);self.send(message);return self.reply is not None
         if self.elicitation_pending.get('retry_required'):
             try:
                 from .mcp_elicitation import continuation
@@ -169,6 +179,15 @@ class RemoteProbe(QObject):
             except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Unable to send MCP input response.');return False
             return True
         self.send(message);return self.reply is not None
+
+    def schedule_modern_task_poll(self):
+        if getattr(self,'closed',False) or self.modern_task is None:return
+        self.phase='modern_task_wait';delay=self.modern_task.poll_interval_ms
+        if delay<=2147483647:self.modern_task_timer.start(delay)
+
+    def poll_modern_task(self):
+        if getattr(self,'closed',False) or self.phase!='modern_task_wait' or self.modern_task is None:return
+        self.phase='modern_task_poll';self.send(self.modern_task.request('tasks/get'))
     def configure_reply(self):
         if tls.relaxed(): self.reply.sslErrors.connect(lambda _errors,reply=self.reply:reply.ignoreSslErrors())
     def consume(self,final=False):
@@ -503,6 +522,15 @@ class RemoteProbe(QObject):
             self.complete(isinstance(status,int) and 200<=status<300);return
         if self.phase=='request_cancel':
             self.close_session();return
+        if self.phase=='modern_task_cancel':
+            try:
+                if status!=200:raise ValueError()
+                message=response_message(bytes(self.buffer),ctype,self.current_id)
+                if 'error' in message or self.token and contains_secret(message,self.token):raise ValueError()
+                self.modern_task.acknowledge(message.get('result'),method='tasks/cancel')
+            except (ValueError,UnicodeError,TypeError,RecursionError):self.progress.emit('MCP task cancellation was not acknowledged; it may still be running.')
+            else:self.modern_cancel_ack=True;self.progress.emit('MCP task cancellation was requested; completion is not confirmed.')
+            self.close_session();return
         if self.phase=='task_cancel':
             self.task_cancelled=False
             try:
@@ -545,6 +573,7 @@ class RemoteProbe(QObject):
             if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
             if 'error' in message:
                 error=rpc_error(message)
+                if self.modern_task is not None and self.modern_task.task_id in error:error='MCP task request failed; server error details were omitted.'
                 if self.phase=='initialize' and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
                     self.legacy_rejection='JSON-RPC '+str(message['error']['code']);self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
                     self.progress.emit('Legacy MCP initialization was rejected; checking 2026 discovery.')
@@ -559,6 +588,27 @@ class RemoteProbe(QObject):
                     self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);return
                 if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error});return
                 self.stop(error);return
+            result=message.get('result')
+            if self.modern and self.phase=='call' and isinstance(result,dict) and result.get('resultType')=='task':
+                if not (self.result or {}).get('task_capabilities',{}).get('modern'):raise ValueError('Unexpected MCP task')
+                from .mcp_2026_tasks import TaskTracker
+                self.modern_task=TaskTracker(result);self.task_mode=True;self.elicitation_original=None;self.elicitation_pending=None
+                self.schedule_modern_task_poll();self.progress.emit('MCP task started; awaiting result.');return
+            if self.phase=='modern_task_update':
+                self.modern_task.acknowledge(result);self.schedule_modern_task_poll();return
+            if self.phase=='modern_task_poll':
+                outcome=self.modern_task.observe(result)
+                if outcome['action']=='poll':self.schedule_modern_task_poll();return
+                if outcome['action']=='input':
+                    self.phase='modern_task_input';self.elicitation_pending=self.modern_task.pending;self.timer.stop();self.elicitation_requested.emit(outcome['forms']);return
+                if outcome['action']=='failed':
+                    detail=outcome['error']
+                    if self.modern_task.task_id in detail:detail='Server error details were omitted.'
+                    self.stop('MCP task failed: '+detail);return
+                if outcome['action']=='cancelled':self.stop('MCP task was cancelled; inspect server state before retrying.');return
+                result=outcome['result']
+                if contains_secret(result,self.modern_task.task_id):self.stop('MCP task result contained its private task identifier and was blocked.');return
+                self.modern_task=None;self.task_mode=False;self.phase='call';message=dict(message,result=result)
             if self.modern and self.phase in ('call','resource_read','prompt_get') and isinstance(message.get('result'),dict) and message['result'].get('resultType')=='input_required':
                 if not self.elicitation_enabled or self.elicitation_original is None:self.stop(INPUT_REQUIRED_ERROR);return
                 try:
@@ -569,6 +619,7 @@ class RemoteProbe(QObject):
             if self.modern and self.phase in ('call','resource_read','prompt_get'):self.elicitation_original=None;self.elicitation_pending=None
             if self.phase=='modern_discovery':
                 self.result=parse_discovery(message.get('result'))
+                if self.elicitation_enabled and self.result.get('task_extension_advertised'):self.result['task_capabilities']={'tool_calls':True,'list':False,'cancel':True,'modern':True}
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
                 if self.result['subscription_filters']:
                     self.server_stream_enabled=True;self.open_server_stream()
@@ -663,7 +714,7 @@ class RemoteProbe(QObject):
                     self.invocation=None;self.timer.stop();self.phase='ready';self.called.emit({'verified':True});return
                 args=self.invocation['arguments'];payload=json.dumps(args,ensure_ascii=False,allow_nan=False)
                 if not isinstance(args,dict) or len(payload.encode())>16000 or (self.token and self.token in payload):raise ValueError('Invalid MCP tool arguments')
-                self.phase='call';self.task_mode=current.get('task_support')=='required';self.task_id=None
+                self.phase='call';self.task_mode=current.get('task_support')=='required' and not self.modern;self.task_id=None
                 self.call_schema=current.get('schema')
                 params={'name':current['name'],'arguments':args}
                 if self.task_mode:params['task']={}
@@ -679,7 +730,7 @@ class RemoteProbe(QObject):
     def finish_call(self):
         self.close_session()
     def close_session(self):
-        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear()
+        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear();self.modern_task_timer.stop();self.modern_task=None
         self.sse_resuming=False;self.sse_resume_timer.stop()
         self.close_server_stream()
         if not self.session:self.complete(None);return
@@ -695,9 +746,13 @@ class RemoteProbe(QObject):
         result['session_closed']=closed
         if self.task_id:result['task_id']=self.task_id
         if self.task_cancelled is not None:result['task_cancelled']=self.task_cancelled
+        if self.modern_cancel_ack is not None:result['modern_task_cancel_ack']=self.modern_cancel_ack
         self.finished.emit(result)
 
     def cancel_task_or_close(self,request_id=None):
+        self.modern_task_timer.stop()
+        if self.modern and self.modern_task is not None and not self.modern_task.terminal:
+            self.modern_cancel_ack=False;self.phase='modern_task_cancel';self.timer.start(3000);self.send(self.modern_task.request('tasks/cancel'));return
         if self.modern:self.close_session();return
         caps=(self.result or {}).get('task_capabilities',{})
         if self.task_id and self.phase=='task_result' and caps.get('cancel'):
@@ -715,10 +770,10 @@ class RemoteProbe(QObject):
         if reply:
             reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort();reply.deleteLater()
         if self.phase=='closing' and (self.result is not None or self.failure is not None):self.complete(False);return
-        if self.phase=='task_cancel':self.task_cancelled=False;self.close_session();return
+        if self.phase in ('task_cancel','modern_task_cancel'):self.task_cancelled=False;self.close_session();return
         if self.phase=='request_cancel':self.close_session();return
         if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
-        self.failure={'error':message,'call_uncertain':self.phase in ('call','task_result')}
+        self.failure={'error':message,'call_uncertain':self.phase in ('call','task_result') or self.modern_task is not None}
         self.cancel_task_or_close(request_id)
 
 
@@ -830,12 +885,13 @@ class RemoteSession(RemoteProbe):
         self.timer.stop();self.token='';result={'session_closed':closed}
         if self.task_id:result['task_id']=self.task_id
         if self.task_cancelled is not None:result['task_cancelled']=self.task_cancelled
+        if self.modern_cancel_ack is not None:result['modern_task_cancel_ack']=self.modern_cancel_ack
         self.finished.emit(result)
 
     def stop(self,message='MCP connection cancelled.'):
-        if self.phase in ('closing','task_cancel','request_cancel'):
+        if self.phase in ('closing','task_cancel','modern_task_cancel','request_cancel'):
             super().stop(message);return
-        uncertain=self.phase in ('call','task_result')
+        uncertain=self.phase in ('call','task_result') or self.modern_task is not None
         if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
         self.ended.emit({'error':message,'call_uncertain':uncertain})
         self.shutdown()

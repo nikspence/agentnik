@@ -337,7 +337,7 @@ class MCPServers(QDialog):
 
     def start_remote_test(self,item,token):
         from .mcp_remote import RemoteProbe
-        self.discovered_config=dict(item);self.remote=RemoteProbe(item['url'],token,self,timeout_seconds=server_timeout(item));self.remote.finished.connect(self.remote_done);self.status.setText(self.tr('Connecting…'));self.remote.start()
+        self.discovered_config=dict(item);self.remote=RemoteProbe(item['url'],token,self,timeout_seconds=server_timeout(item));self.attach_elicitation(self.remote,item['name']);self.remote.finished.connect(self.remote_done);self.status.setText(self.tr('Connecting…'));self.remote.start()
 
     def remote_done(self,result):
         probe=self.remote;self.remote=None
@@ -353,7 +353,7 @@ class MCPServers(QDialog):
         if 'tasks' in result.get('capabilities',[]):
             sections.append(self.tr('Server task capabilities (experimental): ')+json.dumps(task_caps,ensure_ascii=True))
         if result.get('task_extension_advertised') is True:
-            sections.append(self.tr('The server advertises the MCP 2026 Tasks extension. Local task execution is experimental.') if task_caps.get('modern') else self.tr('The server advertises the MCP 2026 Tasks extension. Agentnik cannot execute those tasks on this connection yet.'))
+            sections.append(self.tr('The server advertises the MCP 2026 Tasks extension. Task execution on this connection is experimental.') if task_caps.get('modern') else self.tr('The server advertises the MCP 2026 Tasks extension. Agentnik cannot execute those tasks on this connection yet.'))
         for detail in result.get('tool_details',[]):
             description=detail['description'] or self.tr('(no description)')
             if detail['description_clipped']:description+='\n'+self.tr('[Description truncated or unavailable]')
@@ -429,9 +429,9 @@ class MCPServers(QDialog):
         if 'error' in result:
             self.call_tool=None
             message=result['error']+(self.tr(' The call may have reached the server; inspect its state before retrying.') if result.get('call_uncertain') else '')+(self.tr(' Session close not confirmed.') if result.get('session_closed') is False else '')
-            if result.get('task_id'):
+            if result.get('task_id') or result.get('modern_task_cancel_ack') is not None:
                 from .mcp_support import task_cleanup_text
-                message+=' '+task_cleanup_text({'server':self.discovered_config['name'],'task_id':result['task_id'],'task_cancelled':result.get('task_cancelled')})
+                message+=' '+task_cleanup_text(dict(result,server=self.discovered_config['name']))
             self.status.setText(message);return
         self.show_call_result(result)
 

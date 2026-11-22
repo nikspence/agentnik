@@ -289,7 +289,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False,test_elicitation=False,test_url=False,test_required=False,test_pattern=False,test_choices=False,test_rpc_rejection=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False,test_elicitation=False,test_url=False,test_required=False,test_pattern=False,test_choices=False,test_rpc_rejection=False,test_modern_tasks=False):
     import datetime
     import ipaddress
     import socket
@@ -341,7 +341,7 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
                         if event_stream==stream_id and message is not None:await send_callback(EventMessage(message,event_id))
                     return stream_id
             event_store=MemoryEventStore()
-        sdk_app=make_server(cancelled if test_cancel else None,resume if resumption_test else None).streamable_http_app(event_store=event_store,retry_interval=100 if resumption_test else None,stateless_http=test_modern)
+        sdk_app=make_server(cancelled if test_cancel else None,resume if resumption_test else None,tasks=test_modern_tasks).streamable_http_app(event_store=event_store,retry_interval=100 if resumption_test else None,stateless_http=test_modern)
         async def monitored_app(scope,receive,send):
             chunks=[]
             if test_modern and scope['type']=='http' and scope['method']=='POST' and scope['path']=='/mcp' and not dict(scope['headers']).get(b'mcp-method'):
@@ -407,7 +407,7 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
             elif test_oauth_ui or test_oauth_dynamic:result=run_oauth_ui(url,oauth_requests,dynamic=test_oauth_dynamic)
             else:
                 session=RemoteSession(url,'',timeout_seconds=15)
-                result=run_modern_elicitation(session,'https-modern' if test_modern else 'https',url=test_url,required=test_required,pattern=test_pattern,choices=test_choices) if test_modern_elicitation or test_elicitation or test_url or test_required or test_pattern or test_choices else run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
+                result=run_modern_tasks(session,'https-modern') if test_modern_tasks else run_modern_elicitation(session,'https-modern' if test_modern else 'https',url=test_url,required=test_required,pattern=test_pattern,choices=test_choices) if test_modern_elicitation or test_elicitation or test_url or test_required or test_pattern or test_choices else run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
@@ -645,7 +645,7 @@ def run_cancel(session,cancelled,observed):
     return {'sdk_version':version('mcp'),'transport':'https','checks':['notification received with matching request ID','synthetic server operation ended','session closed']}
 
 
-def run_modern_tasks(session):
+def run_modern_tasks(session,transport='stdio-modern'):
     from PySide6.QtCore import QEventLoop,QTimer,QCoreApplication
     session.elicitation_enabled=True;loop=QEventLoop();out=[];forms=[];progress=[]
     def discovered(info):
@@ -656,9 +656,12 @@ def run_modern_tasks(session):
         forms.append(requests);session.continue_elicitation({'question':{'action':'accept','content':{'choice':'yes'}}})
     session.discovered.connect(discovered);session.elicitation_requested.connect(requested);session.progress.connect(progress.append)
     session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
-    timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(15000);session.start();loop.exec();timer.stop();session.close();QCoreApplication.processEvents()
+    timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(15000);session.start();loop.exec();timer.stop()
+    if transport.startswith('stdio'):session.close()
+    else:session.shutdown();session.manager.clearConnectionCache()
+    QCoreApplication.processEvents()
     if len(forms)!=1 or not out or out[0].get('call_result',{}).get('content',[{}])[0].get('text')!='SDK task complete' or 'sdk-private-task-id' in str(out)+str(progress):raise RuntimeError('SDK task test failed: '+str(out))
-    return {'sdk_version':version('mcp'),'transport':'stdio-modern','protocol':'2026-07-28','checks':['task extension discovery','polling','reviewed input','deduplication','final result']}
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':'2026-07-28','checks':['task extension discovery','polling','reviewed input','deduplication','final result']}
 
 
 def modern_stdio_server(init_error=-32022,tasks=False):
@@ -693,6 +696,7 @@ if __name__=='__main__':
     elif sys.argv[1:]==['--https-url-elicitation']:print(json.dumps(run_https(test_url=True)))
     elif sys.argv[1:]==['--https-url-required']:print(json.dumps(run_https(test_required=True)))
     elif sys.argv[1:]==['--https-modern']:print(json.dumps(run_https(test_modern=True)))
+    elif sys.argv[1:]==['--https-modern-tasks']:print(json.dumps(run_https(test_modern=True,test_modern_tasks=True)))
     elif sys.argv[1:]==['--https-modern-rpc-negotiation']:print(json.dumps(run_https(test_modern=True,test_rpc_rejection=True)))
     elif sys.argv[1:]==['--https-modern-notifications']:print(json.dumps(run_https(test_modern=True,test_modern_notifications=True)))
     elif sys.argv[1:]==['--https-modern-elicitation']:print(json.dumps(run_https(test_modern=True,test_modern_elicitation=True)))
@@ -759,4 +763,4 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio',required=True)))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern-tasks|--https-modern-rpc-negotiation|--stdio-modern-rpc-negotiation|--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https-modern-tasks|--stdio-modern-tasks|--https-modern-rpc-negotiation|--stdio-modern-rpc-negotiation|--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

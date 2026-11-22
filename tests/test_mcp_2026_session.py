@@ -13,6 +13,35 @@ class ModernRemoteSession(unittest.TestCase):
     @classmethod
     def setUpClass(cls):cls.app=QApplication.instance() or QApplication([])
 
+    def test_modern_task_cancellation_is_acknowledged_without_claiming_completion(self):
+        for acknowledge in (True,False):
+            with self.subTest(acknowledge=acknowledge):
+                calls=[];private_id='private-task-id'
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method'];calls.append((method,dict(self.headers)))
+                        if method=='initialize':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                        if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{},'extensions':{'io.modelcontextprotocol/tasks':{}}}}
+                        elif method=='tools/list':result={'tools':[{'name':'example','inputSchema':{'type':'object'}}]}
+                        elif method=='tools/call':result={'resultType':'task','taskId':private_id,'status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttlMs':None,'pollIntervalMs':1000}
+                        elif method=='tasks/cancel':result={'resultType':'complete'} if acknowledge else {'resultType':'invalid'}
+                        else:raise AssertionError(method)
+                        payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5);session.elicitation_enabled=True;loop=QEventLoop();out=[];progress=[]
+                session.discovered.connect(lambda result:session.call(result['tool_details'][0],{}))
+                def on_progress(message):
+                    progress.append(message)
+                    if message=='MCP task started; awaiting result.':session.shutdown()
+                session.progress.connect(on_progress);session.finished.connect(lambda value:(out.append(value),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['modern_task_cancel_ack'],acknowledge)
+                    self.assertNotIn(private_id,str(out)+str(progress));self.assertEqual([m for m,_ in calls].count('tools/call'),1)
+                    cancel=next(headers for method,headers in calls if method=='tasks/cancel');self.assertEqual(cancel['Mcp-Name'],private_id);self.assertEqual(cancel['Authorization'],'Bearer fixture-token')
+                finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_unstructured_initialization_rejection_probes_modern_without_replaying(self):
         for status in (400,404,405):
             with self.subTest(status=status):
