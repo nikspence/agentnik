@@ -12,6 +12,38 @@ class ModernLocalSession(unittest.TestCase):
     @classmethod
     def setUpClass(cls):cls.app=QApplication.instance() or QApplication([])
 
+    def test_state_only_continuation_is_paced_and_bounded(self):
+        import time
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        for mode in ('state','state_loop','state_long'):
+            with self.subTest(mode=mode):
+                session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=1 if mode=='state_loop' else 6);loop=QEventLoop();out=[];forms=[];started=time.monotonic()
+                session.discovered.connect(lambda info:session.call(info['tool_details'][0],{'text':mode}))
+                session.elicitation_requested.connect(forms.append);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(8000);session.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertFalse(forms);self.assertNotIn('opaque-private-state',str(out))
+                    if mode=='state_loop':self.assertIn('timed out',out[0]['error']);self.assertTrue(out[0]['call_uncertain'])
+                    else:self.assertEqual(out[0]['call_result']['content'][0]['text'],'continued');self.assertGreaterEqual(time.monotonic()-started,2.5 if mode=='state_long' else .2)
+                finally:session.close()
+
+    def test_state_only_continuation_for_resources_and_prompts(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        for kind in ('resource','prompt'):
+            with self.subTest(kind=kind):
+                session=LocalSession(sys.executable,['-u',str(server),'--state-only','--'+kind+'-input'],timeout_seconds=5);loop=QEventLoop();out=[];phase=['list']
+                session.discovered.connect(lambda info:session.list_resources() if kind=='resource' else session.list_prompts())
+                def handle(value):
+                    if phase[0]=='list':
+                        phase[0]='read'
+                        if kind=='resource':session.read_resource(value['resources'][0]['uri'])
+                        else:session.list_prompts({'prompt':value['prompts'][0],'arguments':{}})
+                    else:out.append(value);loop.quit()
+                (session.resources if kind=='resource' else session.prompts).connect(handle);session.ended.connect(lambda value:(out.append(value),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:loop.exec();timer.stop();self.assertTrue(out);self.assertIn('continued',str(out));self.assertNotIn('opaque-private-state',str(out))
+                finally:session.close()
+
     def test_modern_only_stdio_discovery_and_tool_call(self):
         server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         session=LocalSession(sys.executable,['-u',str(server)],timeout_seconds=5);loop=QEventLoop();out=[];info=[]

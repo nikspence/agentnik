@@ -58,6 +58,7 @@ class LocalSession(QObject):
         self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(lambda:self.stop_subscription('MCP change notification subscription was not acknowledged; list resources and prompts again.'))
         self.subscription_retry=QTimer(self);self.subscription_retry.setSingleShot(True);self.subscription_retry.timeout.connect(self.retry_subscription)
         self.modern_task_timer=QTimer(self);self.modern_task_timer.setSingleShot(True);self.modern_task_timer.timeout.connect(self.poll_modern_task);self.modern_task=None;self.modern_cancel_ack=None
+        self.state_timer=QTimer(self);self.state_timer.setSingleShot(True);self.state_timer.timeout.connect(lambda:self.continue_elicitation({},state_only=True))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1;self.elicitation_urls={}
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
         self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False;self.probe_id=None;self.ignored_id=None;self.subscription_id=-1;self.subscription_active=False;self.subscription_ack=None;self.retired_subscriptions=deque(maxlen=32);self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None
@@ -94,7 +95,7 @@ class LocalSession(QObject):
         if 'id' in message:self.request_active=True
         if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')
 
-    def continue_elicitation(self,responses,retry=False):
+    def continue_elicitation(self,responses,retry=False,state_only=False):
         if self.closed or self.elicitation_pending is None:return False
         if self.modern_task is not None and self.phase=='modern_task_input':
             try:
@@ -118,7 +119,8 @@ class LocalSession(QObject):
             message=continuation(original,self.elicitation_pending,responses)
             if any(contains_secret(responses,secret) for secret in self.environment_secrets):raise ValueError()
         except (ValueError,TypeError,UnicodeError,RecursionError):self.fail('Invalid MCP input response; the request was not continued.');return False
-        related=self.elicitation_pending.get('related_task');self.elicitation_pending=None;self.timer.start(self.timeout_ms)
+        related=self.elicitation_pending.get('related_task');self.elicitation_pending=None
+        if not state_only:self.timer.start(self.timeout_ms)
         if legacy_id is not None:
             result=dict(responses['request'])
             if related:result['_meta']=related
@@ -317,11 +319,14 @@ class LocalSession(QObject):
                     if contains_secret(result,self.modern_task.task_id):self.fail('MCP task result contained its private task identifier and was blocked.');return
                     self.modern_task=None;self.task_mode=False;self.phase='call'
                 if self.modern and self.phase in ('call','resource_read','prompt_get') and result.get('resultType')=='input_required':
-                    if not self.elicitation_enabled or self.elicitation_original is None:self.fail(INPUT_REQUIRED_ERROR);return
+                    if self.elicitation_original is None:self.fail(INPUT_REQUIRED_ERROR);return
                     try:
                         from .mcp_elicitation import parse_input_required
                         self.elicitation_pending=parse_input_required(result)
                     except (ValueError,TypeError,UnicodeError,RecursionError):self.fail(INPUT_REQUIRED_ERROR);return
+                    if not self.elicitation_pending['forms']:
+                        self.state_timer.start(250);continue
+                    if not self.elicitation_enabled:self.fail(INPUT_REQUIRED_ERROR);return
                     self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);continue
                 if self.modern and self.phase in ('call','resource_read','prompt_get'):self.elicitation_original=None;self.elicitation_pending=None
                 if self.phase=='modern_discovery':
@@ -524,7 +529,7 @@ class LocalSession(QObject):
         self.closed = True
         from shiboken6 import isValid
         self.environment_secrets=[]
-        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear();self.modern_task=None
+        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear();self.modern_task=None;self.state_timer.stop()
         if isValid(self.timer):self.timer.stop()
         if isValid(self.probe_timer):self.probe_timer.stop()
         if isValid(self.subscription_timer):self.subscription_timer.stop()

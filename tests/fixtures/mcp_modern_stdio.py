@@ -3,7 +3,7 @@ import json
 import sys
 import time
 
-pending=None;subscription_count=0;modern_task_kind=None;modern_task_polls=0;modern_task_updates=0
+pending=None;subscription_count=0;modern_task_kind=None;modern_task_polls=0;modern_task_updates=0;state_rounds=0
 for line in sys.stdin:
     message=json.loads(line);method=message.get('method');ident=message.get('id')
     if method=='notifications/cancelled' and pending is not None:
@@ -28,6 +28,12 @@ for line in sys.stdin:
         elif method=='resources/list':response={'result':{'resources':[{'uri':'test://resource','name':'Resource'}]}}
         elif method=='prompts/list':response={'result':{'prompts':[{'name':'prompt','arguments':[]}]}}
         elif method in ('resources/read','prompts/get'):
+            if '--state-only' in sys.argv:
+                if 'inputResponses' in message['params']:
+                    assert message['params']['requestState']=='opaque-private-state' and message['params']['inputResponses']=={}
+                    response={'result':{'contents':[{'uri':'test://resource','text':'continued'}]} if method=='resources/read' else {'messages':[{'role':'user','content':{'type':'text','text':'continued'}}]}}
+                else:response={'result':{'resultType':'input_required','requestState':'opaque-private-state'}}
+                print(json.dumps(dict(response,jsonrpc='2.0',id=ident)),flush=True);continue
             if 'inputResponses' in message['params']:
                 assert message['params']['requestState']=='private-state'
                 assert message['params']['inputResponses']['question']=={'action':'accept','content':{'choice':'yes'}}
@@ -40,6 +46,13 @@ for line in sys.stdin:
             continue
         elif method=='tools/list':response={'result':{'tools':[{'name':'echo','inputSchema':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}]}}
         elif method=='tools/call':
+            if message['params']['arguments']['text'] in ('state','state_loop','state_long'):
+                state=message['params'].get('requestState')
+                if state is not None:assert state=='opaque-private-state' and message['params']['inputResponses']=={}
+                state_rounds+=1
+                finished=state is not None and (message['params']['arguments']['text']=='state' or message['params']['arguments']['text']=='state_long' and state_rounds>11)
+                response={'result':{'content':[{'type':'text','text':'continued'}]}} if finished else {'result':{'resultType':'input_required','requestState':'opaque-private-state'}}
+                print(json.dumps(dict(response,jsonrpc='2.0',id=ident)),flush=True);continue
             if message['params']['arguments']['text'] in ('task','task_input','task_wait','task_failed','task_leak','task_error_leak'):
                 assert metadata['io.modelcontextprotocol/clientCapabilities']['extensions']['io.modelcontextprotocol/tasks']=={}
                 modern_task_kind=message['params']['arguments']['text'];modern_task_polls=0;modern_task_updates=0

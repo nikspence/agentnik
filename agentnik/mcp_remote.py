@@ -119,6 +119,7 @@ class RemoteProbe(QObject):
         self.subscription_id=None;self.subscription_ack=None
         self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(self.subscription_timed_out)
         self.modern_task_timer=QTimer(self);self.modern_task_timer.setSingleShot(True);self.modern_task_timer.timeout.connect(self.poll_modern_task);self.modern_task=None;self.modern_cancel_ack=None
+        self.state_timer=QTimer(self);self.state_timer.setSingleShot(True);self.state_timer.timeout.connect(lambda:self.continue_elicitation({},state_only=True))
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(self.timeout_ms);self.send(initialize_request(elicitation=self.elicitation_enabled))
@@ -149,7 +150,7 @@ class RemoteProbe(QObject):
             if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         self.buffer=bytearray();self.reply=self.manager.post(request,json.dumps(message).encode());self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
 
-    def continue_elicitation(self,responses,retry=False):
+    def continue_elicitation(self,responses,retry=False,state_only=False):
         if getattr(self,'closed',False) or self.elicitation_pending is None:return False
         if self.modern_task is not None and self.phase=='modern_task_input':
             try:
@@ -172,7 +173,8 @@ class RemoteProbe(QObject):
             message=continuation(self.elicitation_original if legacy is None else {'params':{}},self.elicitation_pending,responses)
             if self.token and contains_secret(responses,self.token):raise ValueError()
         except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Invalid MCP input response; the request was not continued.');return False
-        related=self.elicitation_pending.get('related_task');self.elicitation_pending=None;self.timer.start(self.timeout_ms)
+        related=self.elicitation_pending.get('related_task');self.elicitation_pending=None
+        if not state_only:self.timer.start(self.timeout_ms)
         if legacy is not None:
             ident,standalone=legacy;key=(type(ident).__name__,ident)
             result=dict(responses['request'])
@@ -614,11 +616,14 @@ class RemoteProbe(QObject):
                 if contains_secret(result,self.modern_task.task_id):self.stop('MCP task result contained its private task identifier and was blocked.');return
                 self.modern_task=None;self.task_mode=False;self.phase='call';message=dict(message,result=result)
             if self.modern and self.phase in ('call','resource_read','prompt_get') and isinstance(message.get('result'),dict) and message['result'].get('resultType')=='input_required':
-                if not self.elicitation_enabled or self.elicitation_original is None:self.stop(INPUT_REQUIRED_ERROR);return
+                if self.elicitation_original is None:self.stop(INPUT_REQUIRED_ERROR);return
                 try:
                     from .mcp_elicitation import parse_input_required
                     self.elicitation_pending=parse_input_required(message['result'])
                 except (ValueError,TypeError,UnicodeError,RecursionError):self.stop(INPUT_REQUIRED_ERROR);return
+                if not self.elicitation_pending['forms']:
+                    self.state_timer.start(250);return
+                if not self.elicitation_enabled:self.stop(INPUT_REQUIRED_ERROR);return
                 self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);return
             if self.modern and self.phase in ('call','resource_read','prompt_get'):self.elicitation_original=None;self.elicitation_pending=None
             if self.phase=='modern_discovery':
@@ -734,7 +739,7 @@ class RemoteProbe(QObject):
     def finish_call(self):
         self.close_session()
     def close_session(self):
-        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear();self.modern_task_timer.stop();self.modern_task=None
+        self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear();self.modern_task_timer.stop();self.state_timer.stop();self.modern_task=None
         self.sse_resuming=False;self.sse_resume_timer.stop()
         self.close_server_stream()
         if not self.session:self.complete(None);return
