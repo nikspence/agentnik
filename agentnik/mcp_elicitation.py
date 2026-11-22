@@ -1,10 +1,17 @@
-"""Validate and present MCP form elicitation requests."""
+"""Validate and present MCP elicitation requests."""
 import json
 import html
 import math
-from PySide6.QtCore import Qt
+import unicodedata
+from urllib.parse import urlsplit
+from PySide6.QtCore import Qt,QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QApplication,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QPlainTextEdit,QDialogButtonBox,QTabWidget,QWidget,QScrollArea,QLineEdit,QComboBox,QCheckBox)
 from .mcp_schema import validate_tool_arguments,MCPArgumentValidationError
+
+
+def open_elicitation_url(url):
+    return QDesktopServices.openUrl(QUrl(url))
 
 
 def validate_answer(schema,value):
@@ -22,7 +29,7 @@ def validate_answer(schema,value):
 
 
 def parse_input_required(result):
-    """Extract supported, non-sensitive form requests and opaque continuation state."""
+    """Extract supported elicitation requests and opaque continuation state."""
     if not isinstance(result,dict) or result.get('resultType')!='input_required':raise ValueError('Invalid MCP input request')
     try:
         if len(json.dumps(result,ensure_ascii=False,allow_nan=False).encode('utf-8'))>65536:raise ValueError('MCP input request is too large')
@@ -33,12 +40,25 @@ def parse_input_required(result):
     for key,request in requests.items():
         if not isinstance(key,str) or not key or len(key)>256 or not isinstance(request,dict) or request.get('method')!='elicitation/create':raise ValueError('Unsupported MCP input request')
         params=request.get('params')
-        if not isinstance(params,dict) or params.get('mode','form')!='form':raise ValueError('Unsupported MCP input request')
-        message=params.get('message');schema=params.get('requestedSchema')
-        if not isinstance(message,str) or not message or len(message)>8000 or not isinstance(schema,dict):raise ValueError('Invalid MCP input request')
+        if not isinstance(params,dict) or params.get('mode','form') not in ('form','url'):raise ValueError('Unsupported MCP input request')
+        message=params.get('message');mode=params.get('mode','form')
+        if not isinstance(message,str) or not message or len(message)>8000:raise ValueError('Invalid MCP input request')
+        if mode=='url':
+            url=params.get('url')
+            if not isinstance(url,str) or not url or len(url)>8192 or '\\' in url or any(ch.isspace() or unicodedata.category(ch).startswith('C') for ch in url):raise ValueError('Invalid MCP input URL')
+            try:
+                parts=urlsplit(url);host=parts.hostname;port=parts.port
+                if parts.scheme.lower()!='https' or not host or parts.username is not None or parts.password is not None or any(ch in host for ch in '%<>"\''):raise ValueError()
+                ascii_host=host.encode('idna').decode('ascii')
+                parsed_url=QUrl(url)
+                if len(ascii_host)>253 or not parsed_url.isValid() or parsed_url.host().lower()!=ascii_host.lower():raise ValueError()
+            except (ValueError,UnicodeError):raise ValueError('Invalid MCP input URL') from None
+            forms.append({'id':key,'message':message,'mode':'url','url':url,'host':host,'ascii_host':ascii_host,'port':port});continue
+        schema=params.get('requestedSchema')
+        if not isinstance(schema,dict):raise ValueError('Invalid MCP input request')
         try:validate_tool_arguments(schema,{})
         except MCPArgumentValidationError:pass
-        forms.append({'id':key,'message':message,'schema':schema})
+        forms.append({'id':key,'message':message,'mode':'form','schema':schema})
     return {'forms':forms,'request_state':state}
 
 
@@ -51,8 +71,11 @@ def continuation(original,pending,responses):
         response=responses[form['id']]
         if not isinstance(response,dict) or response.get('action') not in ('accept','decline','cancel'):raise ValueError('Invalid MCP input response')
         if response['action']=='accept':
-            if set(response)!={'action','content'}:raise ValueError('Invalid MCP input response')
-            validate_answer(form['schema'],response['content'])
+            if form.get('mode','form')=='url':
+                if set(response)!={'action'}:raise ValueError('Invalid MCP input response')
+            else:
+                if set(response)!={'action','content'}:raise ValueError('Invalid MCP input response')
+                validate_answer(form['schema'],response['content'])
         elif set(response)!={'action'}:raise ValueError('Invalid MCP input response')
     params=dict(original['params']);params.pop('inputResponses',None);params.pop('requestState',None);params['inputResponses']=responses
     if pending['request_state'] is not None:params['requestState']=pending['request_state']
@@ -64,7 +87,7 @@ class ElicitationDialog(QDialog):
     def __init__(self,server,forms,parent=None):
         super().__init__(parent);self.forms=forms;self.position=0;self.responses={};self.setWindowTitle(self.tr('MCP input request'))
         layout=QVBoxLayout(self)
-        intro=QLabel(self.tr('The MCP server {server} requests information for the current operation. Your answer will be sent to that server and may be returned to the model in its result. Form input is for non-sensitive information; do not enter passwords or secrets.').format(server=server));intro.setWordWrap(True);intro.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(intro)
+        self.server=server;self.intro=QLabel();self.intro.setWordWrap(True);self.intro.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.intro)
         self.counter=QLabel();layout.addWidget(self.counter)
         self.message=QLabel();self.message.setWordWrap(True);self.message.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.message)
         self.tabs=QTabWidget();layout.addWidget(self.tabs,1);self.fields={};self.extra={};self.switching=False
@@ -75,6 +98,10 @@ class ElicitationDialog(QDialog):
         answer_label=QLabel(self.tr('Your answer as a JSON object'));raw_layout.addWidget(answer_label)
         self.answer=QPlainTextEdit();self.answer.setObjectName('mcpElicitationAnswer');answer_label.setBuddy(self.answer);raw_layout.addWidget(self.answer);self.tabs.addTab(raw,self.tr('JSON'))
         self.tabs.currentChanged.connect(self.switch_view)
+        self.url_box=QWidget();url_layout=QVBoxLayout(self.url_box);url_layout.setContentsMargins(0,0,0,0)
+        self.url_host=QLabel();self.url_host.setWordWrap(True);self.url_host.setTextFormat(Qt.TextFormat.PlainText);url_layout.addWidget(self.url_host)
+        url_label=QLabel(self.tr('Full URL'));url_layout.addWidget(url_label)
+        self.url_text=QPlainTextEdit();self.url_text.setObjectName('mcpElicitationUrl');self.url_text.setReadOnly(True);url_label.setBuddy(self.url_text);url_layout.addWidget(self.url_text);layout.addWidget(self.url_box,1)
         self.error=QLabel();self.error.setWordWrap(True);self.error.setTextFormat(Qt.TextFormat.PlainText);layout.addWidget(self.error)
         buttons=QDialogButtonBox();self.accept_button=buttons.addButton(self.tr('Send answer'),QDialogButtonBox.ButtonRole.AcceptRole);self.decline_button=buttons.addButton(self.tr('Decline'),QDialogButtonBox.ButtonRole.DestructiveRole);self.cancel_button=buttons.addButton(QDialogButtonBox.StandardButton.Cancel);layout.addWidget(buttons)
         self.accept_button.clicked.connect(self.submit);self.decline_button.clicked.connect(self.decline);self.cancel_button.clicked.connect(self.reject);self.show_form()
@@ -82,14 +109,26 @@ class ElicitationDialog(QDialog):
         self.resize(min(680,round(area.width()*.9)) if area else 680,min(600,round(area.height()*.9)) if area else 600)
 
     def show_form(self):
-        form=self.forms[self.position];self.message.setText(form['message']);self.schema.setPlainText(json.dumps(form['schema'],indent=2,ensure_ascii=False))
+        form=self.forms[self.position];self.message.setText(form['message']);is_url=form.get('mode','form')=='url'
+        if is_url:
+            self.intro.setText(self.tr('The MCP server {server} requests an external browser interaction. Review the full URL before opening it. Opening the URL signals consent, not completion.').format(server=self.server))
+            host=form['host'];ascii_host=form['ascii_host'];domain=host if host==ascii_host else host+' ('+ascii_host+')'
+            if host!=ascii_host or any(label.startswith('xn--') for label in ascii_host.lower().split('.')):domain+=' '+self.tr('(internationalized domain)')
+            if form['port'] is not None:domain+=':'+str(form['port'])
+            self.url_host.setText(self.tr('Destination host: {host}').format(host=domain));self.url_text.setPlainText(form['url'])
+        else:
+            self.intro.setText(self.tr('The MCP server {server} requests information for the current operation. Your answer will be sent to that server and may be returned to the model in its result. Form input is for non-sensitive information; do not enter passwords or secrets.').format(server=self.server))
+            self.schema.setPlainText(json.dumps(form['schema'],indent=2,ensure_ascii=False))
+        self.tabs.setVisible(not is_url);self.url_box.setVisible(is_url)
         multiple=len(self.forms)>1;last=self.position==len(self.forms)-1
         self.counter.setVisible(multiple)
         if multiple:self.counter.setText(self.tr('Request {current} of {total}').format(current=self.position+1,total=len(self.forms)))
-        self.accept_button.setText(self.tr('Send answers') if multiple and last else self.tr('Next') if multiple else self.tr('Send answer'))
+        self.accept_button.setText(self.tr('Open in browser') if is_url else self.tr('Send answers') if multiple and last else self.tr('Next') if multiple else self.tr('Send answer'))
         self.decline_button.setText(self.tr('Decline and send') if multiple and last else self.tr('Decline and next') if multiple else self.tr('Decline'))
-        properties=form['schema'].get('properties',{});defaults={key:value['default'] for key,value in properties.items() if isinstance(value,dict) and 'default' in value}
-        self.answer.setPlainText(json.dumps(defaults,indent=2,ensure_ascii=False));self.error.clear();self.build_form(form['schema'],defaults)
+        self.error.clear()
+        if not is_url:
+            properties=form['schema'].get('properties',{});defaults={key:value['default'] for key,value in properties.items() if isinstance(value,dict) and 'default' in value}
+            self.answer.setPlainText(json.dumps(defaults,indent=2,ensure_ascii=False));self.build_form(form['schema'],defaults)
 
     def build_form(self,schema,values):
         while self.form_layout.rowCount():self.form_layout.removeRow(0)
@@ -176,6 +215,15 @@ class ElicitationDialog(QDialog):
 
     def submit(self):
         form=self.forms[self.position]
+        if form.get('mode','form')=='url':
+            try:opened=open_elicitation_url(form['url'])
+            except Exception:opened=False
+            if not opened:
+                self.error.setText(self.tr('Could not open the browser. The request was not continued.'));return
+            self.responses[form['id']]={'action':'accept'};self.position+=1
+            if self.position==len(self.forms):self.accept()
+            else:self.show_form()
+            return
         try:
             if self.tabs.currentIndex()==0:value=self.form_values()
             else:

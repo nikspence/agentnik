@@ -2,6 +2,7 @@ import unittest
 import sys
 import threading
 import tempfile
+from unittest.mock import patch
 from pathlib import Path
 from PySide6.QtCore import QEventLoop,QTimer,QObject,Signal
 from PySide6.QtWidgets import QApplication
@@ -12,9 +13,41 @@ def request():
     return {'resultType':'input_required','requestState':'opaque-state','inputRequests':{'item':{'method':'elicitation/create','params':{'mode':'form','message':'Choose a format','requestedSchema':{'type':'object','properties':{'format':{'type':'string','enum':['csv','json'],'enumNames':['CSV','JSON'],'default':'csv'}},'required':['format']}}}}}
 
 
+def url_request(url='https://example.test/path?state=synthetic#fragment'):
+    return {'resultType':'input_required','requestState':'opaque-state','inputRequests':{'item':{'method':'elicitation/create','params':{'mode':'url','message':'Authenticate','url':url}}}}
+
+
 class ElicitationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):cls.app=QApplication.instance() or QApplication([])
+
+    def test_url_requires_explicit_consent_and_continues_without_content(self):
+        pending=parse_input_required(url_request());original={'id':1,'method':'tools/call','params':{'name':'work','arguments':{}}}
+        with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True) as open_url:
+            dialog=ElicitationDialog('Example',pending['forms']);self.assertEqual(dialog.url_text.toPlainText(),url_request()['inputRequests']['item']['params']['url']);open_url.assert_not_called()
+            dialog.submit();open_url.assert_called_once_with(dialog.url_text.toPlainText())
+        result=continuation(original,pending,dialog.responses)
+        self.assertEqual(result['params']['inputResponses'],{'item':{'action':'accept'}});self.assertEqual(result['params']['requestState'],'opaque-state')
+        with self.assertRaises(ValueError):continuation(original,pending,{'item':{'action':'accept','content':{}}})
+
+    def test_url_decline_cancel_and_browser_failure_never_continue(self):
+        pending=parse_input_required(url_request())
+        with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=False) as open_url:
+            dialog=ElicitationDialog('Example',pending['forms']);dialog.decline();self.assertEqual(dialog.responses,{'item':{'action':'decline'}});open_url.assert_not_called()
+            dialog=ElicitationDialog('Example',pending['forms']);dialog.reject();open_url.assert_not_called()
+            dialog=ElicitationDialog('Example',pending['forms']);dialog.submit();self.assertEqual(dialog.responses,{});self.assertTrue(dialog.error.text())
+
+    def test_url_rejects_unsafe_destinations_and_displays_internationalized_host(self):
+        for url in ('http://example.test/','file:///secret','https://user@example.test/','https://example.test:bad/','https://example.test\\@evil.test/','https://example.test/\nfoo','https://example%2ftest/'):
+            with self.subTest(url=url),self.assertRaises(ValueError):parse_input_required(url_request(url))
+        dialog=ElicitationDialog('Example',parse_input_required(url_request('https://täst.example/'))['forms'])
+        self.assertIn('xn--',dialog.url_host.text());self.assertIn('internationalized',dialog.url_host.text())
+
+    def test_mixed_url_and_form_requests_keep_responses(self):
+        data=url_request();data['inputRequests']['second']=request()['inputRequests']['item']
+        with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True):
+            dialog=ElicitationDialog('Example',parse_input_required(data)['forms']);dialog.submit();dialog.submit()
+        self.assertEqual(dialog.responses,{'item':{'action':'accept'},'second':{'action':'accept','content':{'format':'csv'}}})
 
     def test_parse_and_review_valid_answer(self):
         parsed=parse_input_required(request());self.assertEqual(parsed['request_state'],'opaque-state')
@@ -99,6 +132,22 @@ class ElicitationTests(unittest.TestCase):
             if not thread.is_alive():loop.quit()
         poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
         self.assertFalse(thread.is_alive());self.assertEqual(presented,['private-server-text']);self.assertEqual(out[1]['call_result']['content'][0]['text'],'continued');self.assertNotIn('private-state',str(out))
+
+    def test_bridge_url_continues_after_browser_consent(self):
+        from agentnik.mcp_code import CodingMCPBridge
+        from agentnik.tools import Runtime,Limits
+        server_path=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';server={'name':'Example','command':sys.executable,'args':['-u',str(server_path)],'enabled':True}
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
+        def worker():
+            info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{'text':'url'}},runtime));bridge.close_signal.emit()
+        with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True) as open_url:
+            thread=threading.Thread(target=worker);thread.start();loop=QEventLoop();poll=QTimer()
+            def tick():
+                dialog=bridge.elicitation_dialog
+                if dialog and not presented:presented.append(True);open_url.assert_not_called();dialog.submit()
+                if not thread.is_alive():loop.quit()
+            poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+            self.assertFalse(thread.is_alive());open_url.assert_called_once();self.assertEqual(out[0]['call_result']['content'][0]['text'],'url continued');self.assertNotIn('example.test',str(out));self.assertNotIn('private-state',str(out))
 
     def test_dialog_cancellation_stops_call_without_continuing(self):
         from agentnik.mcp_code import CodingMCPBridge

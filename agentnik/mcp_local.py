@@ -84,7 +84,7 @@ class LocalSession(QObject):
 
     def send(self, message):
         if self.modern and message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
-        if self.modern and 'id' in message and 'method' in message:message,_=prepare_request(message,client_capabilities={'elicitation':{'form':{}}} if self.elicitation_enabled else None)
+        if self.modern and 'id' in message and 'method' in message:message,_=prepare_request(message,client_capabilities={'elicitation':{'form':{},'url':{}}} if self.elicitation_enabled else None)
         payload = (json.dumps(message, ensure_ascii=True, allow_nan=False) + '\n').encode('ascii')
         if 'id' in message:self.request_active=True
         if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')

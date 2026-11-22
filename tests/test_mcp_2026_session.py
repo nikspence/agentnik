@@ -202,7 +202,7 @@ class ModernRemoteSession(unittest.TestCase):
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
             loop.exec();timer.stop();self.assertEqual(out[0]['call_result']['content'][0]['text'],'continued')
-            requests=[item for item in calls if item['method']=='tools/call'];self.assertEqual(len(requests),2);self.assertNotEqual(requests[0]['id'],requests[1]['id']);self.assertEqual(requests[1]['params']['requestState'],'opaque-state');self.assertEqual(requests[1]['params']['inputResponses']['question']['content'],{'choice':'yes'});self.assertEqual(requests[0]['params']['_meta']['io.modelcontextprotocol/clientCapabilities'],{'elicitation':{'form':{}}})
+            requests=[item for item in calls if item['method']=='tools/call'];self.assertEqual(len(requests),2);self.assertNotEqual(requests[0]['id'],requests[1]['id']);self.assertEqual(requests[1]['params']['requestState'],'opaque-state');self.assertEqual(requests[1]['params']['inputResponses']['question']['content'],{'choice':'yes'});self.assertEqual(requests[0]['params']['_meta']['io.modelcontextprotocol/clientCapabilities'],{'elicitation':{'form':{},'url':{}}})
         finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
     def test_subscription_requires_acknowledgement_and_matching_request_id(self):

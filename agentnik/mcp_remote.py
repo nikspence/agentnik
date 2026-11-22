@@ -132,7 +132,7 @@ class RemoteProbe(QObject):
         if self.phase=='call' and message.get('method')=='tools/call':
             self.log_count=0;self.progress_token=uuid.uuid4().hex;message=dict(message);message['params']=dict(message['params'],_meta={'progressToken':self.progress_token})
         modern_headers={}
-        if self.modern:message,modern_headers=prepare_request(message,self.call_schema if message.get('method')=='tools/call' else None,{'elicitation':{'form':{}}} if self.elicitation_enabled else None)
+        if self.modern:message,modern_headers=prepare_request(message,self.call_schema if message.get('method')=='tools/call' else None,{'elicitation':{'form':{},'url':{}}} if self.elicitation_enabled else None)
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
         tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')

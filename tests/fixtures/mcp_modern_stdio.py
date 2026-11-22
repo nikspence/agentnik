@@ -37,6 +37,13 @@ for line in sys.stdin:
             continue
         elif method=='tools/list':response={'result':{'tools':[{'name':'echo','inputSchema':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}]}}
         elif method=='tools/call':
+            if message['params']['arguments']['text']=='url':
+                if 'inputResponses' in message['params']:
+                    assert message['params']['requestState']=='private-state'
+                    assert message['params']['inputResponses']['question']=={'action':'accept'}
+                    response={'result':{'content':[{'type':'text','text':'url continued'}]}}
+                else:response={'result':{'resultType':'input_required','inputRequests':{'question':{'method':'elicitation/create','params':{'mode':'url','message':'Open browser','url':'https://example.test/private'}}},'requestState':'private-state'}}
+                print(json.dumps(dict(response,jsonrpc='2.0',id=ident)),flush=True);continue
             if message['params']['arguments']['text']=='input':
                 if 'inputResponses' in message['params']:
                     assert message['params']['requestState']=='private-state'
