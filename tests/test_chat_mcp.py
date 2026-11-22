@@ -31,6 +31,43 @@ class ChatMCPIntegration(unittest.TestCase):
         while not predicate() and time.monotonic()<end:self.app.processEvents();time.sleep(.005)
         self.assertTrue(predicate());self.app.processEvents()
 
+    def test_cancelled_chat_records_confirmed_task_cleanup_in_original_run(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            root=Path(folder);server=root/'server.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'tasks':{'cancel':{},'requests':{'tools':{'call':{}}}}}}
+ elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'},'execution':{'taskSupport':'required'}}]}
+ elif method=='tools/call':result={'task':{'taskId':'task-123','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttl':60000}}
+ elif method=='tasks/result':continue
+ elif method=='tasks/cancel':result={'taskId':'task-123','status':'cancelled'}
+ else:raise RuntimeError('unexpected '+method)
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            store=Store(root/'data');store.config['mcp_servers']=[{'name':'Local','command':sys.executable,'args':[str(server)],'enabled':True}];store.flush();window=Window(store);window.connections={'test':dict(C)}
+            request=json.dumps({'tool':'work','arguments':{}});replies=[Wire(response([function('mcp_discover',{'server':'connect'},'first')]),False),Wire(response([function('mcp_call',{'request':request},'second')]),False)]
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget();tab.mcp_choice.setCurrentIndex(1);tab.composer.setPlainText('Run task')
+                with patch.object(core,'open_request',side_effect=replies):
+                    tab.submit();self.settle(lambda:tab.partial and 'Task started: task-123' in str(tab.partial.get('research',{}).get('events',[])));tab.cancel()
+                    self.settle(lambda:bool(tab.session['messages']) and 'cancellation confirmed' in str(tab.session['messages'][-1].get('research',{}).get('events',[])))
+                events=tab.session['messages'][-1]['research']['events'];self.assertEqual(sum('cancellation confirmed' in event.get('detail','') for event in events),1)
+                saved=next(item for item in store.list_sessions() if item['id']==tab.session['id']);self.assertIn('task-123',str(saved['messages'][-1]['research']['events']))
+            finally:window.close();self.app.processEvents();store.db.close()
+
+    def test_task_cleanup_updates_matching_chat_run_and_redacts_secrets(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            store=Store(folder);window=Window(store);window.connections={'test':dict(C)}
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget()
+                tab.session['messages']=[{'role':'assistant','text':'First','research':{'run_id':'first','events':[]}},{'role':'assistant','text':'Second','research':{'run_id':'second','events':[]}}]
+                tab.record_mcp_task_cleanup({'server':'Local','task_id':'task-secret-value','task_cancelled':False},'first',('secret-value',))
+                first,second=tab.session['messages'];self.assertIn('not confirmed',first['research']['events'][0]['detail']);self.assertIn('[redacted]',first['research']['events'][0]['detail']);self.assertEqual(second['research']['events'],[])
+                saved=next(item for item in store.list_sessions() if item['id']==tab.session['id']);self.assertNotIn('secret-value',str(saved))
+            finally:window.close();self.app.processEvents();store.db.close()
+
     def test_chat_task_required_tool_requires_capable_local_server(self):
         from agentnik.chat_mcp import ChatMCP
         from agentnik.tools import Runtime,ResearchError

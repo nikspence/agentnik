@@ -137,6 +137,14 @@ def validate_task_result(result,ident):
     if not isinstance(related,dict) or related.get('taskId')!=ident:raise ValueError('MCP task result identity mismatch')
 
 
+def task_cleanup_text(result):
+    """Describe a task's asynchronous cleanup without claiming uncertain success."""
+    if not isinstance(result,dict) or not isinstance(result.get('server'),str) or not isinstance(result.get('task_id'),str) or (result.get('task_cancelled') is not None and type(result['task_cancelled']) is not bool):raise ValueError('Invalid MCP task cleanup result')
+    server=''.join(ch if ch.isprintable() else ' ' for ch in result['server'])[:80];ident=''.join(ch if ch.isprintable() else ' ' for ch in result['task_id'])[:256];status=result.get('task_cancelled')
+    detail='cancellation confirmed' if status is True else 'cancellation was not confirmed; the task may still be running' if status is False else 'cancellation was not requested; the task may still be running'
+    return 'MCP task '+ident+' on '+server+': '+detail+'.'
+
+
 def parse_initialize(line, supported_protocols=(PROTOCOL,)):
     try:message=json.loads(line)
     except (ValueError,UnicodeError,RecursionError):raise ValueError('Invalid MCP initialization response') from None

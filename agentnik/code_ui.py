@@ -1238,6 +1238,8 @@ class CodeTab(QWidget):
             secrets=self.draft_secrets()+[heavy.get('api_key','')]+[item.get('key','') for item in backends]
             for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
             secrets=list(dict.fromkeys(secret for secret in secrets if isinstance(secret,str) and secret))
+            for bridge in mcp_bridges:
+                bridge.cleanup_finished.connect(lambda result,run_id=run.run_id,known=tuple(secrets):self.record_mcp_task_cleanup(result,run_id,known))
             if self.goal_enabled.isChecked():
                 if len(scrub((resume or {}).get('task',prompt),secrets))>16000:raise ValueError(self.tr('Goal objectives must be at most 16,000 characters so they can be saved and resumed.'))
         except (OSError,ValueError) as exc:QMessageBox.warning(self,self.tr('Coding settings'),str(exc));return
@@ -1456,6 +1458,13 @@ class CodeTab(QWidget):
 
     def record(self,kind,text):
         self.record_entries([(kind,text)])
+
+    def record_mcp_task_cleanup(self,result,run_id,secrets):
+        if self._closed:return
+        from .mcp_support import task_cleanup_text
+        try:text=task_cleanup_text(result)
+        except ValueError:return
+        self.record('output',scrub(text,secrets)+' (run '+run_id[:8]+')')
 
     def record_entries(self,entries):
         self._activity_revision+=1;revision=self._activity_revision

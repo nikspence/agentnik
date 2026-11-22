@@ -134,7 +134,7 @@ class MCPServers(QDialog):
         try:self.process=LocalSession(item['command'],item['args'],self,env_refs=item.get('env',{}),timeout_seconds=server_timeout(item),working_directory=item.get('working_directory',''))
         except ValueError:self.status.setText(self.tr('The MCP environment or working directory is invalid on this system.'));return
         self.discovered_config=dict(item)
-        self.process.discovered.connect(self.local_discovered);self.process.called.connect(self.local_called);self.process.ended.connect(self.local_ended);self.process.shutdown_finished.connect(lambda _result,session=self.process:session.deleteLater())
+        self.process.discovered.connect(self.local_discovered);self.process.called.connect(self.local_called);self.process.ended.connect(self.local_ended);self.process.shutdown_finished.connect(lambda result,config=dict(item):self.local_task_cleanup(result,config));self.process.shutdown_finished.connect(lambda _result,session=self.process:session.deleteLater())
         self.status.setText(self.tr('Connecting…'));self.process.start()
 
     def local_discovered(self,result):
@@ -144,6 +144,11 @@ class MCPServers(QDialog):
     def local_called(self,result):
         if 'error' in result:self.status.setText(result['error']);return
         self.show_call_result(result)
+
+    def local_task_cleanup(self,result,config):
+        if self._closed or self.discovered_config!=config or self.process is not None or not result.get('task_id'):return
+        from .mcp_support import task_cleanup_text
+        self.status.setText(task_cleanup_text({'server':config['name'],'task_id':result['task_id'],'task_cancelled':result.get('task_cancelled')}))
 
     def local_ended(self,result):
         session=self.process;self.process=None;self.call_tool=None
@@ -249,7 +254,11 @@ class MCPServers(QDialog):
         if probe:probe.deleteLater()
         if 'error' in result:
             self.call_tool=None
-            self.status.setText(result['error']+(self.tr(' The call may have reached the server; inspect its state before retrying.') if result.get('call_uncertain') else '')+(self.tr(' Session close not confirmed.') if result.get('session_closed') is False else ''));return
+            message=result['error']+(self.tr(' The call may have reached the server; inspect its state before retrying.') if result.get('call_uncertain') else '')+(self.tr(' Session close not confirmed.') if result.get('session_closed') is False else '')
+            if result.get('task_id'):
+                from .mcp_support import task_cleanup_text
+                message+=' '+task_cleanup_text({'server':self.discovered_config['name'],'task_id':result['task_id'],'task_cancelled':result.get('task_cancelled')})
+            self.status.setText(message);return
         self.show_call_result(result)
 
     def show_call_result(self,result):

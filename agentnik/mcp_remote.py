@@ -293,6 +293,7 @@ class RemoteProbe(QObject):
         self.timer.stop();self.token=''
         result=self.failure if self.failure is not None else self.result
         result['session_closed']=closed
+        if self.task_id:result['task_id']=self.task_id
         if self.task_cancelled is not None:result['task_cancelled']=self.task_cancelled
         self.finished.emit(result)
 
@@ -405,6 +406,7 @@ class RemoteSession(RemoteProbe):
 
     def complete(self,closed):
         self.timer.stop();self.token='';result={'session_closed':closed}
+        if self.task_id:result['task_id']=self.task_id
         if self.task_cancelled is not None:result['task_cancelled']=self.task_cancelled
         self.finished.emit(result)
 

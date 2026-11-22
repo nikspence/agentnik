@@ -46,6 +46,7 @@ for line in sys.stdin:
                     if mode!='operation-timeout':session.progress.connect(lambda text:QTimer.singleShot(100,session.close) if text.startswith('Task started:') else None)
                     session.ended.connect(ended.append);session.shutdown_finished.connect(lambda value:(finished.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
                     loop.exec();self.assertTrue(finished,mode);self.assertTrue(session.closed)
+                    self.assertEqual(finished[0]['task_id'],'task-123')
                     if mode=='not-advertised':self.assertFalse(marker.exists());self.assertNotIn('task_cancelled',finished[0])
                     else:
                         self.assertEqual(marker.read_text(),'task-123');self.assertEqual(finished[0].get('task_cancelled'),mode in ('confirmed','race','operation-timeout'))
@@ -87,7 +88,7 @@ for line in sys.stdin:
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.finished.connect(lambda value:(finished.append(value),loop.quit()))
                 timer=QTimer();timer.timeout.connect(lambda:session.shutdown() if result_started.is_set() else None);timer.start(10);session.start();QTimer.singleShot(7000,loop.quit)
                 try:
-                    loop.exec();timer.stop();self.assertTrue(finished,mode)
+                    loop.exec();timer.stop();self.assertTrue(finished,mode);self.assertEqual(finished[0]['task_id'],'task-123')
                     if mode=='not-advertised':self.assertNotIn('task_cancelled',finished[0]);self.assertNotIn('tasks/cancel',[item[0] for item in calls])
                     else:self.assertEqual(finished[0].get('task_cancelled'),mode=='confirmed');self.assertEqual([item[0] for item in calls].count('tasks/cancel'),1)
                     self.assertEqual([item[0] for item in calls].count('tools/call'),1);self.assertIn(('DELETE','session-one'),calls)

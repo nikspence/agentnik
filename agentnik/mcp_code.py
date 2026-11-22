@@ -10,6 +10,7 @@ from .mcp_support import resolve_environment_references,server_timeout
 class CodingMCPBridge(QObject):
     request_signal = Signal(object)
     close_signal = Signal()
+    cleanup_finished = Signal(object)
 
     def __init__(self, server, config, parent=None):
         super().__init__(parent)
@@ -58,7 +59,7 @@ class CodingMCPBridge(QObject):
             if self.environment_error:self._reply(request, {'error':self.environment_error});return
             try:self.session = LocalSession(self.server['command'], self.server['args'], self,env_values=self.environment_values,timeout_seconds=server_timeout(self.server),working_directory=self.server.get('working_directory',''))
             except ValueError:self._reply(request, {'error':'MCP working directory or timeout is invalid on this system.'});return
-            self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called);self.session.progress.connect(self._progress);self.session.shutdown_finished.connect(lambda _result,session=self.session:session.deleteLater())
+            self.session.discovered.connect(self._discovered); self.session.called.connect(self._called); self.session.ended.connect(self._ended);self.session.resources.connect(self._called);self.session.prompts.connect(self._called);self.session.progress.connect(self._progress);self.session.shutdown_finished.connect(self._cleanup);self.session.shutdown_finished.connect(lambda _result,session=self.session:session.deleteLater())
             self.session.start()
         elif request['action'] in ('prompts_list','prompts_get') and self.session:
             if not self.session.list_prompts(request['payload'] if request['action']=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})
@@ -93,7 +94,7 @@ class CodingMCPBridge(QObject):
             from .mcp_remote import RemoteSession
             session=RemoteSession(self.server['url'],token,self,timeout_seconds=server_timeout(self.server));self.session=session
             session.discovered.connect(self._discovered);session.called.connect(self._called);session.ended.connect(self._ended);session.resources.connect(self._called);session.prompts.connect(self._called);session.progress.connect(self._progress)
-            session.finished.connect(lambda _result:session.deleteLater());session.start();return
+            session.finished.connect(self._cleanup);session.finished.connect(lambda _result:session.deleteLater());session.start();return
         if action in ('prompts_list','prompts_get') and self.session:
             if not self.session.list_prompts(request['payload'] if action=='prompts_get' else None):self._reply(request, {'error':'MCP prompts unavailable or invalid.'})
             return
@@ -140,6 +141,10 @@ class CodingMCPBridge(QObject):
         self.session=None
         if result.get('call_uncertain'):self.uncertain=True
         if self.pending:self._reply(self.pending, result)
+
+    def _cleanup(self,result):
+        if isinstance(result,dict) and isinstance(result.get('task_id'),str):
+            self.cleanup_finished.emit({'server':self.server['name'],'task_id':result['task_id'],'task_cancelled':result.get('task_cancelled')})
 
     @Slot()
     def close(self):

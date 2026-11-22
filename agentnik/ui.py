@@ -515,7 +515,7 @@ class SessionTab(QWidget):
             value['research'].setdefault('events',[]).append({'kind':'interrupted','detail':'Application closed during research; restart explicitly.'})
             session['messages'].extend([dict(interrupted['user'],status='failed'),dict(role='assistant',**value)])
             self.store.save(session)
-        self.research_running = False;self.chat_mcp=None
+        self.research_running = False;self.chat_mcp=None;self._mcp_cleanup_pending={}
 
         layout = QVBoxLayout(self); layout.setContentsMargins(18,12,18,12)
         top = QHBoxLayout(); layout.addLayout(top)
@@ -745,6 +745,8 @@ class SessionTab(QWidget):
         self.session.pop('research_pending',None)
         ok = result.get('status')=='ok'
         user = dict(self.pending,status='ok' if ok else 'failed')
+        run_id=result.get('research',{}).get('run_id')
+        if run_id in self._mcp_cleanup_pending:result['research'].setdefault('events',[]).extend(self._mcp_cleanup_pending.pop(run_id))
         self.session['messages'].extend([user,dict(role='assistant',**result)])
         if self.session['title']=='New chat': self.session['title']=(self.pending['text'] or 'Web research')[:60]
         capability_state = result['research'].get('capability_state')
@@ -768,6 +770,18 @@ class SessionTab(QWidget):
         if result['research'].get('retention',{}).get('truncated'):
             self.info.setText(self.info.text()+self.tr(' · Saved research detail limited; start a new chat to continue research.'))
         self.save_draft(); self.render(); self.updated.emit()
+
+    def record_mcp_task_cleanup(self,result,run_id,secrets):
+        if self._closed:return
+        from .mcp_support import task_cleanup_text
+        try:detail=research.scrub(task_cleanup_text(result),secrets)
+        except ValueError:return
+        event={'kind':'mcp','detail':detail}
+        target=next((item for item in reversed(self.session['messages']) if item.get('role')=='assistant' and item.get('research',{}).get('run_id')==run_id),None)
+        if target:
+            target['research'].setdefault('events',[]).append(event);self.store.save(self.session);self.render();self.updated.emit()
+        elif self.research_running:
+            self._mcp_cleanup_pending.setdefault(run_id,[]).append(event)
 
     def continue_chat(self):
         if self.job or not self.session['messages']:return
@@ -934,6 +948,11 @@ class SessionTab(QWidget):
             self.partial = {'text':'','thinking':''}
             self.busy(True); self.info.setText(self.tr('Running…')); self.render()
             token = uuid.uuid4().hex; self.request_token = token
+            if self.chat_mcp:
+                controllers=getattr(self.chat_mcp,'controllers',None) or [self.chat_mcp]
+                cleanup_secrets=tuple([c.get('api_key',''),key,*getattr(self.chat_mcp,'secret_values',[])])
+                for controller in controllers:
+                    controller.bridge.cleanup_finished.connect(lambda result,run_id=token,known=cleanup_secrets:self.record_mcp_task_cleanup(result,run_id,known))
             if self.research_running:
                 self.partial['research'] = {'version':1,'run_id':token,'status':'running','sources':[],'events':[],'exchanges':[]}
                 self.session['research_pending'] = {'user':self.pending,'result':dict(self.partial,metrics={})}

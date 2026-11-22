@@ -293,5 +293,6 @@ class LocalSession(QObject):
         if isValid(self.process) and self.process.state()!=QProcess.ProcessState.NotRunning:
             self.process.kill();self.process.waitForFinished(250)
         result={}
+        if self.task_id:result['task_id']=self.task_id
         if self.task_cancelled is not None:result['task_cancelled']=self.task_cancelled
         self.shutdown_finished.emit(result)

@@ -14,6 +14,22 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_mcp_task_cleanup_activity_is_persisted_and_redacted(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident);store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                for status in (True,False,None):tab.record_mcp_task_cleanup({'server':'Local','task_id':'task-secret-value','task_cancelled':status},'run-123456789',('secret-value',))
+                saved=next(row for row in store.list_sessions() if row['id']==session['id']);text=str(saved['code_activity'])
+                self.assertIn('cancellation confirmed',text);self.assertIn('cancellation was not confirmed',text);self.assertIn('cancellation was not requested',text);self.assertIn('[redacted]',text);self.assertNotIn('secret-value',text);self.assertIn('run run-1234',text)
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_model_picker_filters_large_list_and_accepts_manual_alias(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication,QDialog
