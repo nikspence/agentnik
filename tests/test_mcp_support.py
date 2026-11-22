@@ -1156,6 +1156,10 @@ for line in sys.stdin:
         self.assertEqual(expand_template('test://x{#x}{.x}{;x}',{}),'test://x')
         self.assertEqual(expand_template('test://x/{name:3}{?name:2}',{'name':'雪山/p'}),'test://x/%E9%9B%AA%E5%B1%B1%2F?name=%E9%9B%AA%E5%B1%B1')
         self.assertEqual(expand_template('test://x/{+path:4}',{'path':'abc/def'}),'test://x/abc/')
+        self.assertEqual(expand_template('test://x/{+path:2}',{'path':'a%2Fb'}),'test://x/a%2F')
+        self.assertEqual(expand_template('test://x/{+path:1}',{'path':'%E9%9B%AAx'}),'test://x/%E9%9B%AA')
+        self.assertEqual(expand_template('test://x/{path:1}',{'path':'%E9%9B%AAx'}),'test://x/%25E9%259B%25AA')
+        self.assertEqual(expand_template('test://x/{+path:1}',{'path':'%E9%FFabc'}),'test://x/%E9')
         for template,values in [('{id}',{}),('test://x/{id}',{'id':[1]}),('test://x/{id',{'id':'a'}),('test://x/{x:2*}',{'x':'a'}),('test://x/{x:0}',{'x':'a'}),('test://x/{x:10000}',{'x':'a'}),('test://x/{?x}',{'x':'a','extra':'b'}),('test://x/{/x}',{'x':'a'*2040}),('test://x/{x:2}',{'x':['a']}),('test://x/{x}',{'x':['a']*65})]:
             with self.subTest(template=template),self.assertRaises(ValueError):expand_template(template,values)
         pages=TemplatePages();cursor,result=pages.accept({'resourceTemplates':[{'uriTemplate':'test://x/{id}','name':'One'},{'uriTemplate':'test://x/{+id}','name':'Complex'}],'nextCursor':'next'})
@@ -1188,7 +1192,7 @@ for line in sys.stdin:
  req=json.loads(line);method=req['method']
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
- elif method=='resources/templates/list':result={'resourceTemplates':[{'uriTemplate':'test://item/{+id}{?q*}','name':'Item'}]}
+ elif method=='resources/templates/list':result={'resourceTemplates':[{'uriTemplate':'test://item/{+id:2}{?q*}','name':'Item'}]}
  elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'text':'content'}]}
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
@@ -1197,10 +1201,10 @@ for line in sys.stdin:
             def received(result):
                 out.append(result)
                 if len(out)==1:
-                    template=result['templates'][0];values={'id':'a/b','q':['x&y','z']};self.assertFalse(session.read_resource_template(template,values,'test://item/a/b?q=x&y'));self.assertTrue(session.read_resource_template(template,values,'test://item/a/b?q=x%26y&q=z'))
+                    template=result['templates'][0];values={'id':'a%2Fb','q':['x&y','z']};self.assertFalse(session.read_resource_template(template,values,'test://item/a%2?q=x%26y&q=z'));self.assertTrue(session.read_resource_template(template,values,'test://item/a%2F?q=x%26y&q=z'))
                 else:loop.quit()
             session.discovered.connect(lambda _:session.list_resource_templates());session.resources.connect(received);session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
-            self.assertEqual(out[1]['contents'][0]['uri'],'test://item/a/b?q=x%26y&q=z');self.assertEqual(out[1]['contents'][0]['text'],'content')
+            self.assertEqual(out[1]['contents'][0]['uri'],'test://item/a%2F?q=x%26y&q=z');self.assertEqual(out[1]['contents'][0]['text'],'content')
 
     def test_resource_pagination_limits_and_invalid_cursors(self):
         from agentnik.mcp_resources import ResourcePages

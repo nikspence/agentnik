@@ -129,6 +129,25 @@ def _reserved_quote(value):
     return ''.join(part if re.fullmatch(r'%[0-9A-Fa-f]{2}',part) else quote(part,safe=":/?#[]@!$&'()*+,;=") for part in re.split(r'(%[0-9A-Fa-f]{2})',value))
 
 
+def _template_prefix(value,limit):
+    """Count encoded UTF-8 characters without cutting percent triplets."""
+    if limit is None:return value
+    pos=0;count=0
+    while pos<len(value) and count<limit:
+        if re.match(r'%[0-9A-Fa-f]{2}',value[pos:pos+3]):
+            first=int(value[pos+1:pos+3],16)
+            width=1 if first<128 else 2 if 0xC2<=first<=0xDF else 3 if 0xE0<=first<=0xEF else 4 if 0xF0<=first<=0xF4 else 1
+            candidate=value[pos:pos+3*width]
+            if width>1 and re.fullmatch(r'(?:%[0-9A-Fa-f]{2})+',candidate) and len(candidate)==3*width:
+                try:bytes.fromhex(candidate.replace('%','')).decode('utf-8')
+                except UnicodeDecodeError:width=1
+            else:width=1
+            pos+=3*width
+        else:pos+=1
+        count+=1
+    return value[:pos]
+
+
 def expand_template(template,arguments):
     parts,names=template_parts(template)
     if not isinstance(arguments,dict) or not set(arguments).issubset(names):raise ValueError('Invalid resource template variables')
@@ -151,7 +170,7 @@ def expand_template(template,arguments):
                 item=arguments.get(name)
                 if item is None or item==[] or item=={}:continue
                 if isinstance(item,str):
-                    encoded=encode(item[:prefix]);expanded.append(named(name,encoded) if operator in (';','?','&') else encoded)
+                    encoded=encode(_template_prefix(item,prefix));expanded.append(named(name,encoded) if operator in (';','?','&') else encoded)
                 elif prefix is not None:raise ValueError('Invalid resource template variables')
                 elif isinstance(item,list):
                     values=[encode(entry) for entry in item]
