@@ -1215,7 +1215,9 @@ class ModelCoding(unittest.TestCase):
         prompt={'name':'review','description':'Review code','arguments':[{'name':'code','description':'source','required':True}]}
         with tempfile.TemporaryDirectory() as directory:
             bridge=Mock();bridge.server={'name':'Remote','transport':'http','url':'https://example.com/mcp','credential_id':'opaque','enabled':True}
-            bridge.request.side_effect=[{'tool_details':[],'capabilities':['prompts']},{'prompts':[prompt]},{'messages':[{'role':'user','content':{'type':'text','text':'Review this'}}]}]
+            from agentnik.mcp_prompts import parse_prompt_messages
+            prompt_result=parse_prompt_messages({'messages':[{'role':'user','content':{'type':'text','text':'Review this'}},{'role':'user','content':{'type':'resource','resource':{'uri':'file:///guide','text':'Useful guide'}}},{'role':'user','content':{'type':'text','text':'Private note','annotations':{'audience':['user']}}}]})
+            bridge.request.side_effect=[{'tool_details':[],'capabilities':['prompts']},{'prompts':[prompt]},prompt_result]
             replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_prompts',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_get_prompt',{'name':'review','arguments':'{}'}),call('mcp_get_prompt',{'name':'review','arguments':'{"code":"abc"}'},'ok')],finish='tool_calls'),False),Wire(chat('Done'),False)]
             run=CodingRun(dict(C,stream=False),directory,'Review',mcp_bridge=bridge);events=[];bodies=[]
             def emit(event):
@@ -1226,6 +1228,7 @@ class ModelCoding(unittest.TestCase):
             proposals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual(proposals,[]);self.assertEqual(bridge.request.call_args.args[1]['arguments'],{'code':'abc'})
             self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','prompts_list','prompts_get']);self.assertEqual(events[-1]['status'],'completed')
             self.assertTrue(any(message.get('role')=='tool' and 'untrusted' in message.get('content','').lower() and 'Review this' in message.get('content','') for message in bodies[-1]['messages']))
+            self.assertIn('Useful guide',json.dumps(bodies[-1]));self.assertNotIn('Private note',json.dumps(bodies));self.assertTrue(any('Private note' in e.get('text','') for e in events))
 
     def test_mcp_resource_template_approved_with_expanded_uri(self):
         from unittest.mock import Mock

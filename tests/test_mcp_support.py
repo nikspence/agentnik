@@ -906,6 +906,20 @@ for line in sys.stdin:
         with self.assertRaises(ValueError):parse_prompt_messages({'messages':[{'role':'system','content':{'type':'text','text':'bad'}}]})
         with self.assertRaises(ValueError):parse_prompt_messages({'messages':[{'role':'user','content':{'type':'image','data':'a'}}]})
 
+    def test_prompt_embedded_resources_and_audience(self):
+        from agentnik.mcp_prompts import parse_prompt_messages
+        messages=[{'role':'user','content':{'type':'resource','resource':{'uri':'file:///guide.md','mimeType':'text/markdown','text':'Public guide'}}},
+                  {'role':'assistant','content':{'type':'text','text':'Private text','annotations':{'audience':['user']}}},
+                  {'role':'user','content':{'type':'resource','resource':{'uri':'file:///private','text':'Private guide'},'annotations':{'audience':['user']}}}]
+        result=parse_prompt_messages({'messages':messages})
+        self.assertEqual(result['messages'][0]['content']['resource']['text'],'Public guide')
+        self.assertEqual(result['user_text'],['Private text','Private guide']);self.assertNotIn('Private',json.dumps(result['messages']))
+        for content in ({'type':'resource','resource':{'uri':'file:///x','blob':'AAAA'}},
+                        {'type':'resource','resource':{'uri':'file:///x','text':'x'*32001}},
+                        {'type':'resource','resource':{'uri':'bad\nuri','text':'x'}},
+                        {'type':'text','text':'secret','annotations':{'audience':'user'}}):
+            with self.subTest(content=content),self.assertRaises(ValueError):parse_prompt_messages({'messages':[{'role':'user','content':content}]})
+
     def test_local_prompt_listing_get_and_definition_recheck(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer

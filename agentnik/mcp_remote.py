@@ -100,6 +100,7 @@ class RemoteProbe(QObject):
         if 'id' in message:
             self.next_id+=1;self.current_id=self.next_id;message=dict(message,id=self.current_id)
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
+        tls.configure_qt_request(request)
         request.setRawHeader(b'Content-Type',b'application/json');request.setRawHeader(b'Accept',b'application/json, text/event-stream')
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
         if self.phase!='initialize':
@@ -211,6 +212,7 @@ class RemoteProbe(QObject):
         if not self.session:self.complete(None);return
         self.phase='closing';self.timer.start(3000)
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy)
+        tls.configure_qt_request(request)
         request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode());request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
         self.buffer=bytearray();self.reply=self.manager.deleteResource(request);self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)

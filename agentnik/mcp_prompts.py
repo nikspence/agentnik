@@ -39,10 +39,29 @@ def validate_prompt_arguments(prompt,arguments):
 def parse_prompt_messages(result):
     description=result.get('description','');messages=result.get('messages')
     if not isinstance(description,str) or len(description)>4000 or not isinstance(messages,list) or len(messages)>16:raise ValueError('Invalid MCP prompt result')
-    safe=[]
+    from .mcp_content import model_tool_result
+    from .mcp_resources import parse_resource_text
+    safe=[];user_text=[]
     for message in messages:
         if not isinstance(message,dict) or message.get('role') not in ('user','assistant'):raise ValueError('Invalid MCP prompt message')
         content=message.get('content')
-        if not isinstance(content,dict) or content.get('type')!='text' or not isinstance(content.get('text'),str) or len(content['text'].encode('utf-8'))>32000:raise ValueError('Unsupported MCP prompt content')
-        safe.append({'role':message['role'],'content':{'type':'text','text':content['text']}})
-    return {'description':description,'messages':safe}
+        if not isinstance(content,dict):raise ValueError('Unsupported MCP prompt content')
+        if content.get('type')=='text':
+            text=content.get('text')
+            if not isinstance(text,str) or len(text.encode('utf-8'))>32000:raise ValueError('Unsupported MCP prompt content')
+            sanitized={'type':'text','text':text}
+        elif content.get('type')=='resource':
+            resource=content.get('resource')
+            if not isinstance(resource,dict):raise ValueError('Invalid embedded MCP resource')
+            uri=resource.get('uri')
+            if not isinstance(uri,str) or not uri or len(uri)>2048 or any(ord(c)<32 or ord(c)==127 for c in uri):raise ValueError('Invalid embedded MCP resource URI')
+            checked=parse_resource_text({'contents':[resource]},uri)['contents'][0]
+            sanitized={'type':'resource','resource':checked}
+        else:raise ValueError('Unsupported MCP prompt content')
+        if 'annotations' in content:sanitized['annotations']=content['annotations']
+        visible,_,_=model_tool_result({'content':[sanitized]})
+        if visible['content']:
+            safe.append({'role':message['role'],'content':visible['content'][0]})
+        elif content.get('annotations',{}).get('audience') and 'user' in content['annotations']['audience']:
+            user_text.append(text if content['type']=='text' else checked['text'])
+    return {'description':description,'messages':safe,'user_text':user_text}
