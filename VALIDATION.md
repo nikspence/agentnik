@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It v
 
 ## Scoped live observations
 
+On 2026-11-21, a live Code run using OpenRouter Responses and `openai/gpt-6.2-sol` called `view_image` on a generated image and correctly described a red triangle on a white background. This is one model and image, not general verification of visual accuracy or other providers.
+
 These observations apply only to the tested configurations and do not guarantee other models, accounts or versions:
 
 - On 2026-11-21, OpenRouter's Image API and the configured G-Chat/LiteLLM image passthrough each generated and edited images with `black-forest-labs/flux.2-klein-4b`; the returned images were visually checked. The actual Code image tool also generated an image with `openai/gpt-image-2` on each route. A Chat image-tool edit using `openai/gpt-image-2` through G-Chat produced the requested blue circle. Those tool-loop checks used simulated text-model replies and real image requests. A separate live Chat run through OpenRouter used `openai/gpt-6.2-sol` to call the image tool and `openai/gpt-image-2` to create a red triangle; the result was visually checked. These observations do not qualify the full GUI workflow, cancellation, or every provider/model combination.

@@ -51,6 +51,14 @@
     <context>
         <name>CodeTab</name>
         <message>
+            <source>Image inspection</source>
+            <translation>图像检查</translation>
+        </message>
+        <message>
+            <source>Enable for a vision-capable Code model. Project images requested by the model are sent to the selected connection.</source>
+            <translation>为支持视觉的 Code 模型启用。模型请求的项目图像将发送到所选连接。</translation>
+        </message>
+        <message>
             <location filename="../code_ui.py" line="404" />
             <source>Retained steering for future continuations (review the evidence above too):</source>
             <translation>为未来的延续保留指导（也请查看上面的证据）：</translation>

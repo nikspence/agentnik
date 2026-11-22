@@ -282,6 +282,7 @@ class CodeTab(QWidget):
         preferences=QHBoxLayout();layout.addLayout(preferences);preferences.addWidget(self.use_context)
         self.goal_enabled=QCheckBox(self.tr('Pursue as goal'));self.goal_enabled.setToolTip(self.tr('Keep taking the next step until the objective is complete, blocked, stopped, or a run limit is reached.'));self.goal_enabled.setChecked(session.get('coding_last_run_goal',True) and session.get('coding_goal',{}).get('status') in ('active','limited','paused','blocked','interrupted','failed'));preferences.addWidget(self.goal_enabled)
         self.shell_auto=QCheckBox(self.tr('Run shell commands without approval'));self.shell_auto.setToolTip(self.tr('Shell and test commands run with your account permissions, including network access and files outside the project. This setting can be changed during a run.'));preferences.addWidget(self.shell_auto);self.shell_auto.toggled.connect(self.change_shell_approval)
+        self.vision_enabled=QCheckBox(self.tr('Image inspection'));self.vision_enabled.setToolTip(self.tr('Enable for a vision-capable Code model. Project images requested by the model are sent to the selected connection.'));self.vision_enabled.setChecked(session.get('coding_vision_enabled',False));self.vision_enabled.toggled.connect(self.save_vision_enabled);preferences.addWidget(self.vision_enabled)
         self.web_enabled=window.web_search;preferences.addStretch()
         self.mcp_button=QPushButton(self.tr('MCP servers…'));self.mcp_button.setObjectName('codingMcpServers');self.mcp_button.setToolTip(self.tr('Choose and order MCP servers for this Code pane.'));self.mcp_button.clicked.connect(self.choose_mcp_servers);more_options.insertWidget(0,self.mcp_button)
         self.mcp_choice=QComboBox();self.mcp_choice.setToolTip(self.tr('Optional MCP server for this run. MCP operations run without approval and may write data or perform other actions; tool results go to the selected model.'));self.mcp_choice.hide()
@@ -484,6 +485,9 @@ class CodeTab(QWidget):
         bindings=dict(self.session.get('coding_models',{}))
         widgets=self.roles['heavy'];bindings['model']={'connection':widgets[0].currentData(),'model':widgets[1].text().strip()};self.session['coding_models']=bindings
         self.store.save(self.session)
+
+    def save_vision_enabled(self,enabled):
+        self.session['coding_vision_enabled']=bool(enabled);self.store.save(self.session)
 
     def change_shell_approval(self,enabled):
         if isinstance(self.job,CodingRun):
@@ -1193,7 +1197,7 @@ class CodeTab(QWidget):
             project=self.window.repositories.get(self.session['project_id'])
             git_author=self.window.repositories.git_author(project['id']) if project and os.path.normcase(project['path'])==os.path.normcase(self.session['path_snapshot']) else None
             image_config=self.window.image_tool_config()
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.store.config['settings'].get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.store.config['settings'].get('coding_goal_limits'),hosted_search=hosted_enabled,mcp_priority=self.store.config['settings'].get('mcp_priority','first'),git_author=git_author,image_config=image_config)
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.store.config['settings'].get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.store.config['settings'].get('coding_goal_limits'),hosted_search=hosted_enabled,mcp_priority=self.store.config['settings'].get('mcp_priority','first'),git_author=git_author,image_config=image_config,vision_enabled=self.vision_enabled.isChecked())
             secrets=self.draft_secrets()+[heavy.get('api_key','')]+[item.get('key','') for item in backends]
             for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
             secrets=list(dict.fromkeys(secret for secret in secrets if isinstance(secret,str) and secret))

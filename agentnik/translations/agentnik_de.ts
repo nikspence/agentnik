@@ -51,6 +51,14 @@
     <context>
         <name>CodeTab</name>
         <message>
+            <source>Image inspection</source>
+            <translation>Bildprüfung</translation>
+        </message>
+        <message>
+            <source>Enable for a vision-capable Code model. Project images requested by the model are sent to the selected connection.</source>
+            <translation>Für ein sehfähiges Code-Modell aktivieren. Vom Modell angeforderte Projektbilder werden an die ausgewählte Verbindung gesendet.</translation>
+        </message>
+        <message>
             <location filename="../code_ui.py" line="404" />
             <source>Retained steering for future continuations (review the evidence above too):</source>
             <translation>Behaltene Steuerung für zukünftige Fortsetzungen (sehen Sie sich auch die oben genannten Beweise an):</translation>
