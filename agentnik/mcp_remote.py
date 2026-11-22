@@ -10,7 +10,7 @@ from .mcp_support import response_limit,PROTOCOL,initialize_request,parse_initia
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from . import tls
-from .mcp_2026 import PROTOCOL as MODERN_PROTOCOL,prepare_request,header_fields
+from .mcp_2026 import PROTOCOL as MODERN_PROTOCOL,prepare_request,header_fields,parse_discovery
 
 HTTP_PROTOCOLS=(PROTOCOL,'2025-06-18','2025-03-26')
 MAX_PAGES=5
@@ -460,9 +460,7 @@ class RemoteProbe(QObject):
                 if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error});return
                 self.stop(error);return
             if self.phase=='modern_discovery':
-                result=message.get('result');versions=result.get('supportedVersions') if isinstance(result,dict) else None;caps=result.get('capabilities') if isinstance(result,dict) else None
-                if not isinstance(versions,list) or MODERN_PROTOCOL not in versions or any(not isinstance(version,str) for version in versions) or not isinstance(caps,dict) or result.get('resultType','complete')!='complete':raise ValueError('Invalid MCP discovery response')
-                self.result={'name':'MCP server','version':'unknown','protocol':MODERN_PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if isinstance(caps.get(name),dict)],'task_capabilities':{'tool_calls':False,'list':False,'cancel':False}}
+                self.result=parse_discovery(message.get('result'))
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
                 if 'tools' not in self.result['capabilities']:
                     if self.invocation:raise ValueError('MCP tools unavailable')

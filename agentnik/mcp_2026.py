@@ -9,6 +9,13 @@ _SUFFIX='?='
 _SAFE_INTEGER=2**53-1
 
 
+def parse_discovery(result):
+    versions=result.get('supportedVersions') if isinstance(result,dict) else None
+    capabilities=result.get('capabilities') if isinstance(result,dict) else None
+    if not isinstance(versions,list) or PROTOCOL not in versions or any(not isinstance(version,str) for version in versions) or not isinstance(capabilities,dict) or result.get('resultType','complete')!='complete':raise ValueError('Invalid MCP discovery response')
+    return {'name':'MCP server','version':'unknown','protocol':PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if isinstance(capabilities.get(name),dict)],'task_capabilities':{'tool_calls':False,'list':False,'cancel':False}}
+
+
 def header_value(value):
     """Encode a routing value without allowing HTTP header injection."""
     if type(value) is bool:value='true' if value else 'false'

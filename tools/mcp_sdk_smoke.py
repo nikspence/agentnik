@@ -137,7 +137,7 @@ def run(session,transport):
             if result['step']=='call':
                 validate_tool_result(result['tool'],output)
                 if output.get('structuredContent',{}).get('sum')!=5:raise RuntimeError('Unexpected synthetic tool result: '+json.dumps(output))
-                if transport=='https-modern':
+                if transport in ('https-modern','stdio-modern'):
                     result['step']='resources'
                     if not session.list_resources():raise RuntimeError('Resource listing was rejected')
                     return
@@ -188,7 +188,7 @@ def run(session,transport):
     session.discovered.connect(discovered);session.called.connect(called);session.resources.connect(resources);session.prompts.connect(prompts)
     session.ended.connect(lambda message:fail(message.get('error','Server exited')) if result['step']!='complete' else None)
     timer.timeout.connect(lambda:fail('Smoke test timed out'));timer.start(30000);session.start();loop.exec();timer.stop()
-    if transport=='stdio':session.close()
+    if transport in ('stdio','stdio-modern'):session.close()
     elif transport=='https-modern':session.shutdown();session.manager.clearConnectionCache();app.processEvents()
     else:
         if not session.closed:
@@ -197,7 +197,7 @@ def run(session,transport):
         session.manager.clearConnectionCache();app.processEvents()
     if result.get('error'):raise RuntimeError(result['step']+': '+result['error'])
     checks=['discovery','tool call and output schema','resource list/read','template list/read/completion','prompt list/get/completion']
-    if transport!='https-modern':checks[2:2]=['server ping','request-scoped server ping']
+    if transport not in ('https-modern','stdio-modern'):checks[2:2]=['server ping','request-scoped server ping']
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
@@ -480,8 +480,28 @@ def run_cancel(session,cancelled,observed):
     return {'sdk_version':version('mcp'),'transport':'https','checks':['notification received with matching request ID','synthetic server operation ended','session closed']}
 
 
+def modern_stdio_server():
+    """Wrap a real SDK server and reject legacy initialization only."""
+    import subprocess,threading
+    child=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--server'],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+    def output():
+        for line in child.stdout:
+            sys.stdout.buffer.write(line);sys.stdout.buffer.flush()
+    reader=threading.Thread(target=output,daemon=True);reader.start()
+    try:
+        for line in sys.stdin.buffer:
+            message=json.loads(line)
+            if message.get('method')=='initialize':
+                reply={'jsonrpc':'2.0','id':message['id'],'error':{'code':-32022,'message':'modern protocol required','data':{'supported':['2026-07-28']}}}
+                sys.stdout.buffer.write((json.dumps(reply)+'\n').encode());sys.stdout.buffer.flush()
+            else:child.stdin.write(line);child.stdin.flush()
+    finally:
+        child.stdin.close();child.wait(timeout=5);reader.join(timeout=1)
+
+
 if __name__=='__main__':
     if sys.argv[1:]==['--server']:make_server().run(transport='stdio')
+    elif sys.argv[1:]==['--server-modern']:modern_stdio_server()
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
     elif sys.argv[1:]==['--https-modern']:print(json.dumps(run_https(test_modern=True)))
     elif sys.argv[1:]==['--https-cancel']:print(json.dumps(run_https(test_cancel=True)))
@@ -497,4 +517,9 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-modern|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    elif sys.argv[1:]==['--stdio-modern']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern|--https|--https-modern|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

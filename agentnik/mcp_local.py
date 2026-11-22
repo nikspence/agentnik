@@ -11,6 +11,7 @@ from .mcp_support import response_limit, initialize_request, parse_initialize, r
 from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
+from .mcp_2026 import prepare_request,parse_discovery
 
 
 class LocalSession(QObject):
@@ -52,7 +53,7 @@ class LocalSession(QObject):
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False
 
     def start(self):
         if os.name=='nt':
@@ -70,6 +71,7 @@ class LocalSession(QObject):
         self.send(initialize_request())
 
     def send(self, message):
+        if self.modern and 'id' in message and 'method' in message:message,_=prepare_request(message)
         payload = (json.dumps(message, ensure_ascii=True, allow_nan=False) + '\n').encode('ascii')
         if 'id' in message:self.request_active=True
         if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')
@@ -86,6 +88,7 @@ class LocalSession(QObject):
                 if any(contains_secret(message,secret) for secret in self.environment_secrets):
                     self.fail('MCP response contained a mapped environment value and was blocked.');return
                 if 'method' in message and 'id' in message:
+                    if self.modern:raise ValueError('Unexpected server request in MCP 2026')
                     ident=message['id'];method=message['method'];params=message.get('params')
                     if (type(ident) is not int and (not isinstance(ident,str) or len(ident)>128)) or not isinstance(method,str) or not method or len(method)>256 or (params is not None and not isinstance(params,dict)) or 'result' in message or 'error' in message:raise ValueError()
                     now=time.monotonic()
@@ -121,6 +124,9 @@ class LocalSession(QObject):
                     self.task_cancelled=isinstance(task,dict) and task.get('taskId')==self.task_id and task.get('status')=='cancelled' and 'error' not in message
                     self._close_now();return
                 if 'error' in message:
+                    if self.phase=='initialize' and isinstance(message['error'],dict) and message['error'].get('code') in (-32601,-32022):
+                        self.modern=True;self.phase='modern_discovery';self.next_id+=1
+                        self.send({'jsonrpc':'2.0','id':self.next_id,'method':'server/discover','params':{}});continue
                     error=rpc_error(message)
                     if self.phase=='completion':
                         self.phase='ready';self.timer.stop();self.called.emit({'error':error});continue
@@ -136,6 +142,10 @@ class LocalSession(QObject):
                     self.list_page(None); continue
                 result = message.get('result')
                 if not isinstance(result, dict): raise ValueError()
+                if self.phase=='modern_discovery':
+                    self.info=parse_discovery(result)
+                    if 'tools' not in self.info['capabilities']:self.finish_discovery(False);continue
+                    self.list_page(None);continue
                 if self.phase=='completion':
                     from .mcp_completion import parse_completion
                     outcome=parse_completion(result)
@@ -172,6 +182,7 @@ class LocalSession(QObject):
                     self.progress.emit('Task started: '+self.task_id+'; awaiting result.')
                     self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tasks/result','params':{'taskId':self.task_id}});continue
                 if self.phase in ('call','task_result'):
+                    if self.modern and result.get('resultType','complete')!='complete':raise ValueError('MCP multi-round-trip input is not supported')
                     if self.phase=='task_result':validate_task_result(result,self.task_id)
                     from .mcp_content import decode_tool_text_resources,normalize_tool_result
                     result=normalize_tool_result(result)
