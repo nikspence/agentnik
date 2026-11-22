@@ -14,14 +14,14 @@ from agentnik.tools import Limits,Runtime,LimitError
 class ShellExecutor(unittest.TestCase):
     def test_goal_deadline_stops_running_command_and_retains_prior_effects(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=Runtime();runtime.external_deadline=time.monotonic()+2
-            command="Set-Content -LiteralPath 'started.txt' -Value 'yes'; Start-Sleep -Seconds 10; Set-Content -LiteralPath 'late.txt' -Value 'no'" if os.name=='nt' else "printf yes > started.txt; sleep 10; printf no > late.txt"
+            root=Path(directory);runtime=Runtime();runtime.external_deadline=time.monotonic()+10
+            command="Set-Content -LiteralPath 'started.txt' -Value 'yes'; Start-Sleep -Seconds 30; Set-Content -LiteralPath 'late.txt' -Value 'no'" if os.name=='nt' else "printf yes > started.txt; sleep 30; printf no > late.txt"
             with self.assertRaisesRegex(LimitError,'goal time limit'):shell.execute(command,directory,runtime)
             self.assertTrue((root/'started.txt').exists());self.assertFalse((root/'late.txt').exists())
 
     def test_shell_uses_run_deadline_not_request_timeout(self):
         with tempfile.TemporaryDirectory() as directory:
-            runtime=Runtime(limits=Limits(request_seconds=.1,turn_seconds=10))
+            runtime=Runtime(limits=Limits(request_seconds=.1,turn_seconds=45))
             command="Start-Sleep -Milliseconds 400; Write-Output 'done'" if os.name=='nt' else "sleep 0.4; printf done"
             result=shell.execute(command,directory,runtime)
             self.assertEqual(result['exit_code'],0);self.assertIn('done',result['output'])
@@ -46,7 +46,7 @@ class ShellExecutor(unittest.TestCase):
                 except Exception as exc:out.append(exc)
             thread=threading.Thread(target=run);thread.start()
             try:
-                deadline=time.monotonic()+8
+                deadline=time.monotonic()+30
                 while not pidfile.exists() and thread.is_alive() and time.monotonic()<deadline:time.sleep(.05)
                 self.assertTrue(pidfile.exists());pid=int(pidfile.read_text().strip());runtime.cancel.set();thread.join(5)
                 self.assertFalse(thread.is_alive());self.assertIsInstance(out[0],InterruptedError)

@@ -222,7 +222,11 @@ class LoopContracts(unittest.TestCase):
             self.assertEqual(result['status'],'failed'); self.assertFalse(backend.searches)
 
     def test_failed_tool_records_partial_attempt_and_latency(self):
-        backend=Backend(); backend.search=MagicMock(side_effect=ValueError('Web service HTTP 401'))
+        backend=Backend()
+        def failed_search(*args,**kwargs):
+            time.sleep(.05)
+            raise ValueError('Web service HTTP 401')
+        backend.search=MagicMock(side_effect=failed_search)
         result,_,bodies,_=self.run_loop([Response([answer('',[call()])])],backend)
         self.assertEqual(len(bodies),1); self.assertEqual(result['research']['tool_records'][0]['status'],'failed')
         self.assertIn('401',result['research']['tool_records'][0]['error'])

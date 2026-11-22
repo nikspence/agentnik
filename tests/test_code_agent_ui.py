@@ -359,7 +359,7 @@ class CodingWorkspace(unittest.TestCase):
                 tab.roles['heavy'][0].setCurrentIndex(tab.roles['heavy'][0].findData('Main'));tab.composer.setPlainText('The original goal');tab.goal_enabled.setChecked(True)
                 def delayed(connection,url,body,timeout):started.set();release.wait(5);return Wire(chat('Late'),False)
                 with patch.object(core,'open_request',side_effect=delayed):
-                    tab.send.click();settle(started.is_set);self.assertEqual(tab.composer.toPlainText(),'');self.assertEqual(tab.send.text(),'Steer');self.assertTrue(tab.send.isEnabled());self.assertTrue(tab.goal_checkpoint_timer.isActive());tab.checkpoint_goal_progress()
+                    tab.send.click();settle(started.is_set);self.assertEqual(tab.composer.toPlainText(),'');self.assertEqual(tab.send.text(),'Steer');self.assertTrue(tab.send.isEnabled());self.assertTrue(tab.goal_checkpoint_timer.isActive());settle(lambda:tab.job.goal_progress_snapshot()['seconds']>0);tab.checkpoint_goal_progress()
                     saved=next(row for row in store.list_sessions() if row['id']==session['id']);self.assertGreater(saved['coding_goal_progress']['seconds'],0)
                     tab.composer.setPlainText('Queued correction');tab.send_steering()
                     tab.composer.setPlainText('Unsent steering');tab.pause_goal();self.assertIsNone(tab.job);self.assertEqual(tab.send.text(),'Run');self.assertFalse(tab.goal_checkpoint_timer.isActive());release.set();tab.worker.join(5);app.processEvents()
