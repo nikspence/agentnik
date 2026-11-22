@@ -332,7 +332,7 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
     return result
 
 
-def run_modern_notifications(session):
+def run_modern_notifications(session,transport='https-modern'):
     from PySide6.QtCore import QEventLoop,QTimer
     loop=QEventLoop();result={'events':[],'called':False};timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit)
     def maybe_finish():
@@ -357,8 +357,10 @@ def run_modern_notifications(session):
         if result.get('error') or not result['called'] or len(result['events'])!=2 or session.resource_items:raise RuntimeError('Modern subscription failed: '+str(result))
     finally:
         from PySide6.QtCore import QCoreApplication
-        session.shutdown();session.manager.clearConnectionCache();QCoreApplication.processEvents()
-    return {'sdk_version':version('mcp'),'transport':'https-modern','protocol':'2026-07-28','checks':['subscription acknowledgement','resource and prompt change notifications','resource cache invalidation']}
+        if transport=='stdio-modern':session.close()
+        else:session.shutdown();session.manager.clearConnectionCache()
+        QCoreApplication.processEvents()
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':'2026-07-28','checks':['subscription acknowledgement','resource and prompt change notifications','resource cache invalidation']}
 
 
 def run_oauth_ui(url,requests,dynamic=False):
@@ -560,4 +562,9 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern|--https|--https-modern|--https-modern-notifications|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    elif sys.argv[1:]==['--stdio-modern-notifications']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run_modern_notifications(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern|--stdio-modern-notifications|--https|--https-modern|--https-modern-notifications|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

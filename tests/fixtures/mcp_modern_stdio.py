@@ -3,7 +3,7 @@ import json
 import sys
 import time
 
-pending=None
+pending=None;subscription_count=0
 for line in sys.stdin:
     message=json.loads(line);method=message.get('method');ident=message.get('id')
     if method=='notifications/cancelled' and pending is not None:
@@ -16,9 +16,20 @@ for line in sys.stdin:
     else:
         metadata=message.get('params',{}).get('_meta',{})
         if metadata.get('io.modelcontextprotocol/protocolVersion')!='2026-07-28':response={'error':{'code':-32602,'message':'missing metadata'}}
-        elif method=='server/discover':response={'result':{'supportedVersions':['2026-07-28'],'capabilities':{'tools':{}}}}
+        elif method=='server/discover':
+            capabilities={'tools':{}}
+            if '--subscriptions' in sys.argv:capabilities.update(resources={'listChanged':True},prompts={'listChanged':True})
+            response={'result':{'supportedVersions':['2026-07-28'],'capabilities':capabilities}}
+        elif method=='subscriptions/listen':
+            subscription=ident;subscription_count+=1
+            print(json.dumps({'jsonrpc':'2.0','method':'notifications/subscriptions/acknowledged','params':{'notifications':message['params']['notifications'],'_meta':{'io.modelcontextprotocol/subscriptionId':ident}}}),flush=True)
+            if '--end-first-subscription' in sys.argv and subscription_count==1:print(json.dumps({'jsonrpc':'2.0','id':ident,'result':{}}),flush=True)
+            continue
         elif method=='tools/list':response={'result':{'tools':[{'name':'echo','inputSchema':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}]}}
         elif method=='tools/call':
+            if message['params']['arguments']['text']=='notify':
+                for kind in ('resources','prompts'):
+                    print(json.dumps({'jsonrpc':'2.0','method':'notifications/'+kind+'/list_changed','params':{'_meta':{'io.modelcontextprotocol/subscriptionId':subscription}}}),flush=True)
             if message['params']['arguments']['text']=='wait':
                 pending=ident;print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'progressToken':message['params']['_meta']['progressToken'],'progress':1,'total':2}}),flush=True);continue
             response={'result':{'content':[{'type':'text','text':message['params']['arguments']['text']}]}}

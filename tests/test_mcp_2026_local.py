@@ -71,3 +71,30 @@ for line in sys.stdin:
             try:
                 loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['protocol'],'2025-11-25');self.assertEqual(out[0]['name'],'slow')
             finally:session.close()
+
+    def test_subscription_notices_are_multiplexed_with_tool_response(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        session=LocalSession(sys.executable,['-u',str(server),'--subscriptions'],timeout_seconds=5);loop=QEventLoop();out=[];events=[]
+        def discovered(result):
+            session.resource_items=[{'uri':'test://old'}];session.prompt_items=[{'name':'old'}]
+            session.call(result['tool_details'][0],{'text':'notify'})
+        session.discovered.connect(discovered);session.progress.connect(events.append);session.called.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda result:(out.append(result),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertEqual(out[0]['call_result']['content'][0]['text'],'notify');self.assertEqual(session.resource_items,[]);self.assertEqual(session.prompt_items,[]);self.assertEqual(len([text for text in events if 'changed' in text]),2)
+        finally:session.close()
+
+    def test_invalid_subscription_acknowledgement_invalidates_cached_listings(self):
+        session=LocalSession(sys.executable,[]);session.modern=True;session.subscription_active=True;session.info={'subscription_filters':{'resourcesListChanged':True}};session.resource_items=[{'uri':'test://old'}];session.prompt_items=[{'name':'old'}];events=[];session.progress.connect(events.append)
+        session.subscription_notification({'method':'notifications/subscriptions/acknowledged','params':{'notifications':{'resourcesListChanged':True},'_meta':{'io.modelcontextprotocol/subscriptionId':42}}})
+        self.assertFalse(session.subscription_active);self.assertEqual(session.resource_items,[]);self.assertEqual(session.prompt_items,[]);self.assertTrue(any('invalid' in text for text in events));session.close()
+
+    def test_ended_subscription_reopens_with_new_identifier(self):
+        server=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
+        session=LocalSession(sys.executable,['-u',str(server),'--subscriptions','--end-first-subscription'],timeout_seconds=5);loop=QEventLoop();events=[]
+        session.progress.connect(events.append);session.ended.connect(lambda _:loop.quit())
+        poll=QTimer();poll.timeout.connect(lambda:loop.quit() if session.subscription_id==-2 and session.subscription_ack is not None else None);poll.start(25)
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();poll.stop();self.assertEqual(session.subscription_id,-2);self.assertTrue(session.subscription_active);self.assertIsNotNone(session.subscription_ack);self.assertTrue(any('subscription ended' in text for text in events))
+        finally:session.close()

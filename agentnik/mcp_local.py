@@ -52,9 +52,11 @@ class LocalSession(QObject):
         self.timer = QTimer(self); self.timer.setSingleShot(True)
         self.timer.timeout.connect(lambda: self.fail('Local MCP request timed out.'))
         self.probe_timer=QTimer(self);self.probe_timer.setSingleShot(True);self.probe_timer.timeout.connect(self.probe_modern)
+        self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(lambda:self.stop_subscription('MCP change notification subscription was not acknowledged; list resources and prompts again.'))
+        self.subscription_retry=QTimer(self);self.subscription_retry.setSingleShot(True);self.subscription_retry.timeout.connect(self.retry_subscription)
         self.buffer = bytearray(); self.phase = 'initialize'; self.next_id = 1
         self.pages = 0; self.names = []; self.details = []; self.detail_bytes = 0; self.cursors = set()
-        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False;self.probe_id=None;self.ignored_id=None
+        self.info = None; self.closed = False; self.invocation = None; self.server_requests=deque();self.resource_links=[];self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.cancelled_result_id=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0;self.request_active=False;self.modern=False;self.probe_id=None;self.ignored_id=None;self.subscription_id=-1;self.subscription_active=False;self.subscription_ack=None;self.retired_subscriptions=deque(maxlen=32)
 
     def start(self):
         if os.name=='nt':
@@ -84,6 +86,52 @@ class LocalSession(QObject):
         if 'id' in message:self.request_active=True
         if self.process.write(payload) != len(payload): self.fail('Unable to send MCP request.')
 
+    def open_subscription(self):
+        filters=self.info.get('subscription_filters',{})
+        if not filters:return
+        self.subscription_active=True;self.subscription_ack=None
+        self.send({'jsonrpc':'2.0','id':self.subscription_id,'method':'subscriptions/listen','params':{'notifications':filters}})
+        if not self.closed:self.subscription_timer.start(self.timeout_ms)
+
+    def stop_subscription(self,message,cancel=True):
+        if not self.subscription_active:return
+        self.subscription_active=False;self.subscription_ack=None;self.subscription_timer.stop();self.retired_subscriptions.append(self.subscription_id)
+        if cancel and self.process.state()==QProcess.ProcessState.Running:
+            payload=(json.dumps({'jsonrpc':'2.0','method':'notifications/cancelled','params':{'requestId':self.subscription_id}})+'\n').encode('ascii');self.process.write(payload)
+        self.resource_items=[];self.template_items=[];self.prompt_items=[];self.progress.emit(message)
+
+    def retry_subscription(self):
+        if self.closed or self.subscription_active or not self.modern:return
+        self.subscription_id-=1;self.open_subscription()
+
+    def subscription_notification(self,message):
+        method=message.get('method');params=message.get('params')
+        if method=='notifications/cancelled' and isinstance(params,dict) and params.get('requestId') in self.retired_subscriptions:return
+        if method=='notifications/cancelled' and isinstance(params,dict) and params.get('requestId')==self.subscription_id:
+            self.stop_subscription('MCP change notification subscription ended; list resources and prompts again.',cancel=False)
+            if not self.closed:self.subscription_retry.start(1000)
+            return
+        if not self.subscription_active:return
+        meta=params.get('_meta') if isinstance(params,dict) else None
+        if isinstance(meta,dict) and meta.get('io.modelcontextprotocol/subscriptionId') in self.retired_subscriptions:return
+        if not isinstance(meta,dict) or type(meta.get('io.modelcontextprotocol/subscriptionId')) is not int or meta['io.modelcontextprotocol/subscriptionId']!=self.subscription_id:
+            self.stop_subscription('MCP change notification subscription returned an invalid message; list resources and prompts again.');return
+        if self.subscription_ack is None:
+            selected=params.get('notifications');requested=self.info['subscription_filters']
+            if method!='notifications/subscriptions/acknowledged' or not isinstance(selected,dict) or any(key not in requested or type(value) is not bool or value and not requested[key] for key,value in selected.items()):
+                self.stop_subscription('MCP change notification subscription returned an invalid message; list resources and prompts again.');return
+            self.subscription_ack={key for key,value in selected.items() if value};self.subscription_timer.stop();missing=set(requested)-self.subscription_ack
+            if missing:
+                if 'resourcesListChanged' in missing:self.resource_items=[];self.template_items=[]
+                if 'promptsListChanged' in missing:self.prompt_items=[]
+                self.progress.emit('MCP server declined some change notifications; relist resources and prompts before using them.')
+            return
+        mapping={'notifications/tools/list_changed':'toolsListChanged','notifications/resources/list_changed':'resourcesListChanged','notifications/prompts/list_changed':'promptsListChanged'}
+        if method not in mapping or mapping[method] not in self.subscription_ack:
+            self.stop_subscription('MCP change notification subscription returned an invalid message; list resources and prompts again.');return
+        notice=invalidate_server_list(self,method)
+        if notice:self.progress.emit(notice)
+
     def read(self):
         self.buffer.extend(bytes(self.process.readAllStandardOutput()))
         while b'\n' in self.buffer and not self.closed:
@@ -108,6 +156,8 @@ class LocalSession(QObject):
                     else:response['error']={'code':-32601,'message':'Method not supported'}
                     self.send(response);continue
                 if 'id' not in message:
+                    if self.modern and message.get('method') in ('notifications/subscriptions/acknowledged','notifications/cancelled','notifications/tools/list_changed','notifications/resources/list_changed','notifications/prompts/list_changed'):
+                        self.subscription_notification(message);continue
                     if self.phase in ('call','task_result') and self.log_count<20:
                         detail=server_log_notice(message)
                         if detail:self.log_count+=1;self.progress.emit(detail)
@@ -125,6 +175,12 @@ class LocalSession(QObject):
                         if notice:self.progress.emit(notice)
                     continue
                 if self.phase=='task_cancel' and type(message['id']) is int and message['id']==self.cancelled_result_id:continue
+                if self.modern and type(message['id']) is int and message['id']==self.subscription_id:
+                    if self.subscription_active:
+                        self.stop_subscription('MCP change notification subscription ended; list resources and prompts again.',cancel=False)
+                        if not self.closed:self.subscription_retry.start(1000)
+                    continue
+                if self.modern and type(message['id']) is int and message['id'] in self.retired_subscriptions:continue
                 if type(message['id']) is int and message['id']==self.ignored_id:
                     self.ignored_id=None;continue
                 if self.phase=='initialize' and type(message['id']) is int and message['id']==self.probe_id:
@@ -167,6 +223,7 @@ class LocalSession(QObject):
                 if not isinstance(result, dict): raise ValueError()
                 if self.phase=='modern_discovery':
                     self.info=parse_discovery(result)
+                    self.open_subscription()
                     if 'tools' not in self.info['capabilities']:self.finish_discovery(False);continue
                     self.list_page(None);continue
                 if self.phase=='completion':
@@ -350,6 +407,8 @@ class LocalSession(QObject):
         if self.phase=='call' and not self.task_mode and self.request_active and self.process.state()==QProcess.ProcessState.Running:
             payload=(json.dumps({'jsonrpc':'2.0','method':'notifications/cancelled','params':{'requestId':self.next_id}},ensure_ascii=True)+'\n').encode('ascii')
             self.request_active=False;self.process.write(payload)
+        if self.subscription_active and self.process.state()==QProcess.ProcessState.Running:
+            payload=(json.dumps({'jsonrpc':'2.0','method':'notifications/cancelled','params':{'requestId':self.subscription_id}})+'\n').encode('ascii');self.process.write(payload);self.subscription_active=False
         self._close_now()
 
     def _close_now(self):
@@ -359,6 +418,8 @@ class LocalSession(QObject):
         self.environment_secrets=[]
         if isValid(self.timer):self.timer.stop()
         if isValid(self.probe_timer):self.probe_timer.stop()
+        if isValid(self.subscription_timer):self.subscription_timer.stop()
+        if isValid(self.subscription_retry):self.subscription_retry.stop()
         if isValid(self.process):
             self.process.errorOccurred.disconnect(); self.process.finished.disconnect()
             self.process.closeWriteChannel()
