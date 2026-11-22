@@ -3152,6 +3152,26 @@ Choose No to export connection settings without keys.</source>
     <context>
         <name>MCPServers</name>
         <message><source>Discover sign-in</source><translation>로그인 정보 찾기</translation></message>
+        <message><source>Sign in…</source><translation>로그인…</translation></message>
+        <message><source>Cancel sign-in</source><translation>로그인 취소</translation></message>
+        <message><source>OAuth sign-in cancelled.</source><translation>OAuth 로그인이 취소되었습니다.</translation></message>
+        <message><source>Authorization server: {issuer} · {state}.</source><translation>인증 서버: {issuer} · {state}.</translation></message>
+        <message><source>Save the server and discover sign-in again.</source><translation>서버를 저장한 후 로그인 정보를 다시 찾으세요.</translation></message>
+        <message><source>The authorization server does not support PKCE S256.</source><translation>인증 서버가 PKCE S256을 지원하지 않습니다.</translation></message>
+        <message><source>The authorization server does not support public clients.</source><translation>인증 서버가 공개 클라이언트를 지원하지 않습니다.</translation></message>
+        <message><source>does not support public clients</source><translation>공개 클라이언트를 지원하지 않음</translation></message>
+        <message><source>OAuth sign-in</source><translation>OAuth 로그인</translation></message>
+        <message><source>Enter a pre-registered public client ID for {issuer}. The client must allow a loopback redirect on 127.0.0.1.</source><translation>{issuer}에 사전 등록된 공개 클라이언트 ID를 입력하세요. 클라이언트는 127.0.0.1 루프백 리디렉션을 허용해야 합니다.</translation></message>
+        <message><source>An OAuth client ID is required.</source><translation>OAuth 클라이언트 ID가 필요합니다.</translation></message>
+        <message><source>Complete sign-in in your browser…</source><translation>브라우저에서 로그인을 완료하세요…</translation></message>
+        <message><source>Could not save the OAuth credential. Check the server settings and credential store.</source><translation>OAuth 자격 증명을 저장할 수 없습니다. 서버 설정과 자격 증명 저장소를 확인하세요.</translation></message>
+        <message><source>OAuth sign-in saved. Test the connection.</source><translation>OAuth 로그인이 저장되었습니다. 연결을 테스트하세요.</translation></message>
+        <message><source>OAuth authorization timed out.</source><translation>OAuth 인증 시간이 초과되었습니다.</translation></message>
+        <message><source>Could not open the browser for OAuth authorization.</source><translation>OAuth 인증을 위해 브라우저를 열 수 없습니다.</translation></message>
+        <message><source>OAuth authorization settings are invalid or PKCE is unavailable.</source><translation>OAuth 인증 설정이 올바르지 않거나 PKCE를 사용할 수 없습니다.</translation></message>
+        <message><source>OAuth authorization was declined or failed.</source><translation>OAuth 인증이 거부되었거나 실패했습니다.</translation></message>
+        <message><source>OAuth token response exceeded the size limit.</source><translation>OAuth 토큰 응답이 크기 제한을 초과했습니다.</translation></message>
+        <message><source>OAuth token exchange failed or returned an invalid token.</source><translation>OAuth 토큰 교환에 실패했거나 잘못된 토큰이 반환되었습니다.</translation></message>
         <message><source>Checking OAuth credential…</source><translation>OAuth 자격 증명을 확인하는 중…</translation></message>
         <message><source>Selected MCP server changed or is unavailable.</source><translation>선택한 MCP 서버가 변경되었거나 사용할 수 없습니다.</translation></message>
         <message><source>OAuth credential is unavailable or invalid.</source><translation>OAuth 자격 증명을 사용할 수 없거나 올바르지 않습니다.</translation></message>

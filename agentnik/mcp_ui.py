@@ -2,14 +2,14 @@
 import json
 import uuid
 from PySide6.QtCore import QProcess, QTimer, Qt
-from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QPlainTextEdit,QCheckBox,QPushButton,QListWidget,QMessageBox,QComboBox,QDialogButtonBox,QSpinBox,QScrollArea,QWidget,QFileDialog)
+from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QPlainTextEdit,QCheckBox,QPushButton,QListWidget,QMessageBox,QComboBox,QDialogButtonBox,QSpinBox,QScrollArea,QWidget,QFileDialog,QInputDialog)
 from .mcp_support import MAX_OUTPUT,validate_servers,initialize_request,parse_initialize,server_timeout,DEFAULT_TIMEOUT_SECONDS,MAX_TIMEOUT_SECONDS
 
 
 class MCPServers(QDialog):
     def __init__(self,window):
         super().__init__(window);self.store=window.store;self.setWindowTitle(self.tr('MCP servers'));self.resize(680,520)
-        self.process=None;self.remote=None;self.oauth_pending=None;self.oauth_discovery=None;self.oauth_challenge=None;self.oauth_challenge_url=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test(self.tr('Connection test timed out.')))
+        self.process=None;self.remote=None;self.oauth_pending=None;self.oauth_discovery=None;self.oauth_authorization=None;self.oauth_metadata=None;self.oauth_config=None;self.oauth_challenge=None;self.oauth_challenge_url=None;self.validation_job=None;self.call_tool=None;self._closed=False;self.discovered=None;self.discovered_config=None;self.buffer=bytearray();self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.finish_test(self.tr('Connection test timed out.')))
         outer=QVBoxLayout(self);scroll=QScrollArea();scroll.setObjectName('mcpSettingsScroll');scroll.setWidgetResizable(True);outer.addWidget(scroll)
         content=QWidget();scroll.setWidget(content);layout=QVBoxLayout(content)
         notice=QLabel(self.tr('Servers can access your data. Local commands and arguments are stored in plaintext; do not put secrets in them.'));notice.setWordWrap(True);layout.addWidget(notice)
@@ -27,6 +27,7 @@ class MCPServers(QDialog):
         row.addStretch();connection_row=QHBoxLayout();layout.addLayout(connection_row)
         for label,handler in ((self.tr('Test connection'),self.test),(self.tr('Discover sign-in'),self.discover_oauth)):
             button=QPushButton(label);button.clicked.connect(handler);connection_row.addWidget(button)
+        self.oauth_button=QPushButton(self.tr('Sign in…'));self.oauth_button.setEnabled(False);self.oauth_button.clicked.connect(self.sign_in_oauth);connection_row.addWidget(self.oauth_button)
         connection_row.addStretch()
         self.status=QLabel(self.tr('No server has been tested.'));self.status.setTextFormat(Qt.TextFormat.PlainText);self.status.setWordWrap(True);layout.addWidget(self.status)
         layout.addWidget(QLabel(self.tr('Discovered tools (server-provided, untrusted):')))
@@ -50,6 +51,9 @@ class MCPServers(QDialog):
 
     def load_row(self,index):
         self.oauth_pending=None
+        if self.oauth_authorization:
+            authorization=self.oauth_authorization;self.oauth_authorization=None;authorization.stop()
+        self.oauth_metadata=None;self.oauth_config=None;self.oauth_button.setText(self.tr('Sign in…'));self.oauth_button.setEnabled(False)
         if self.oauth_discovery:
             discovery=self.oauth_discovery;self.oauth_discovery=None;discovery.stop()
         self.oauth_challenge=None;self.oauth_challenge_url=None
@@ -130,7 +134,7 @@ class MCPServers(QDialog):
 
     def test(self):
         entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
-        if self.process or self.remote or self.oauth_discovery or self.oauth_pending:
+        if self.process or self.remote or self.oauth_discovery or self.oauth_authorization or self.oauth_pending:
             self.status.setText(self.tr('An MCP connection is already active. Close it or select another server before testing.'));return
         if not 0<=index<len(entries):
             self.status.setText(self.tr('Save and select a server before testing the connection.'));return
@@ -171,6 +175,8 @@ class MCPServers(QDialog):
 
     def done(self,result):
         self._closed=True;self.oauth_pending=None
+        if self.oauth_authorization:
+            authorization=self.oauth_authorization;self.oauth_authorization=None;authorization.stop()
         if self.oauth_discovery:
             discovery=self.oauth_discovery;self.oauth_discovery=None;discovery.stop()
         if self.validation_job:self.validation_job.cancel.set()
@@ -180,10 +186,11 @@ class MCPServers(QDialog):
 
     def discover_oauth(self):
         entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
-        if self.oauth_discovery or self.oauth_pending or self.remote or self.process:self.status.setText(self.tr('An MCP connection is already active.'));return
+        if self.oauth_discovery or self.oauth_authorization or self.oauth_pending or self.remote or self.process:self.status.setText(self.tr('An MCP connection is already active.'));return
         if not 0<=index<len(entries) or entries[index].get('transport')!='http':self.status.setText(self.tr('Save and select a remote server before discovering sign-in.'));return
         item=entries[index]
         if not self.form_matches(item):self.status.setText(self.tr('Save your changes before testing this server.'));return
+        self.oauth_metadata=None;self.oauth_config=None;self.oauth_button.setEnabled(False)
         from .mcp_oauth_discovery import OAuthMetadataDiscovery
         challenge=self.oauth_challenge if self.oauth_challenge_url==item['url'] else None
         job=OAuthMetadataDiscovery(item['url'],challenge,self,timeout_ms=min(server_timeout(item)*1000,60000));self.oauth_discovery=job
@@ -197,7 +204,73 @@ class MCPServers(QDialog):
         if self._closed or not 0<=index<len(entries) or entries[index]!=config or not self.form_matches(config):return
         if 'error' in result:self.status.setText(self.tr(result['error']));return
         server=result['authorization_server'];state=self.tr('supports PKCE') if server['pkce_s256'] else self.tr('does not advertise PKCE')
-        self.status.setText(self.tr('Authorization server: {issuer} · {state}. OAuth sign-in is not yet available.').format(issuer=server['issuer'],state=state))
+        if not server.get('public_client_supported',True):state=self.tr('does not support public clients')
+        self.oauth_metadata=result;self.oauth_config=config;self.oauth_button.setEnabled(server['pkce_s256'] and server.get('public_client_supported',True))
+        self.status.setText(self.tr('Authorization server: {issuer} · {state}.').format(issuer=server['issuer'],state=state))
+
+    def sign_in_oauth(self):
+        if self.oauth_authorization:
+            job=self.oauth_authorization;self.oauth_authorization=None;job.stop();job.deleteLater();self.oauth_button.setText(self.tr('Sign in…'));self.oauth_button.setEnabled(True);self.status.setText(self.tr('OAuth sign-in cancelled.'));return
+        if self.oauth_discovery or self.oauth_pending or self.remote or self.process:return
+        config=self.oauth_config;metadata=self.oauth_metadata;entries=self.store.config.get('mcp_servers',[]);index=self.list.currentRow()
+        if not config or not metadata or not 0<=index<len(entries) or entries[index]!=config or not self.form_matches(config):
+            self.status.setText(self.tr('Save the server and discover sign-in again.'));return
+        server=metadata['authorization_server']
+        if not server.get('pkce_s256'):self.status.setText(self.tr('The authorization server does not support PKCE S256.'));return
+        if not server.get('public_client_supported',True):self.status.setText(self.tr('The authorization server does not support public clients.'));return
+        previous=''
+        if config.get('auth_type')=='oauth':
+            try:
+                from .mcp_oauth_credentials import read_record
+                previous=read_record(config['credential_id'],config['url'])['client_id']
+            except Exception:pass
+        client_id,accepted=QInputDialog.getText(self,self.tr('OAuth sign-in'),self.tr('Enter a pre-registered public client ID for {issuer}. The client must allow a loopback redirect on 127.0.0.1.').format(issuer=server['issuer']),QLineEdit.EchoMode.Normal,previous)
+        if not accepted:return
+        client_id=client_id.strip()
+        if not client_id:self.status.setText(self.tr('An OAuth client ID is required.'));return
+        current=self.store.config.get('mcp_servers',[])
+        if self._closed or self.oauth_metadata is not metadata or self.oauth_config!=config or self.list.currentRow()!=index or not 0<=index<len(current) or current[index]!=config or not self.form_matches(config):return
+        challenge=self.oauth_challenge if self.oauth_challenge_url==config['url'] else None
+        scopes=challenge['scope'] if challenge is not None and 'scope' in challenge else ' '.join(metadata['resource']['scopes_supported'])
+        from .mcp_oauth_flow import OAuthAuthorization
+        job=OAuthAuthorization(config['url'],server,client_id,scopes,self,timeout_ms=max(180000,server_timeout(config)*1000));self.oauth_authorization=job;self.oauth_button.setText(self.tr('Cancel sign-in'));self.oauth_button.setEnabled(True)
+        job.finished.connect(lambda result,job=job,config=dict(config),server=dict(server),client_id=client_id:self.oauth_signed_in(job,config,server,client_id,result))
+        self.status.setText(self.tr('Complete sign-in in your browser…'));job.start()
+
+    def oauth_signed_in(self,job,config,server,client_id,result):
+        if self.oauth_authorization is not job:return
+        self.oauth_authorization=None;job.deleteLater();entries=list(self.store.config.get('mcp_servers',[]));index=self.list.currentRow()
+        if self._closed:return
+        self.oauth_button.setText(self.tr('Sign in…'))
+        if not 0<=index<len(entries) or entries[index]!=config or not self.form_matches(config):self.oauth_button.setEnabled(False);return
+        if 'error' in result:self.oauth_button.setEnabled(True);self.status.setText(self.tr(result['error']));return
+        from .mcp_oauth_credentials import make_record,write_record
+        new_id=uuid.uuid4().hex;old_id=config.get('credential_id','');new_written=False
+        try:
+            record=make_record(config['url'],server['issuer'],server['token_endpoint'],client_id,result)
+            replacement=dict(config,credential_id=new_id,auth_type='oauth');updated=list(entries);updated[index]=replacement;validate_servers(updated)
+            write_record(new_id,record);new_written=True
+            if self._closed or self.oauth_config!=config or not self.oauth_metadata or self.oauth_metadata.get('authorization_server')!=server or self.list.currentRow()!=index or self.store.config.get('mcp_servers',[])!=entries or entries[index]!=config or not self.form_matches(config):raise ValueError('MCP server changed during sign-in')
+            self.store.config['mcp_servers']=updated
+            try:self.store.flush()
+            except Exception:
+                if self.store.config.get('mcp_servers') is updated:self.store.config['mcp_servers']=entries
+                raise
+        except Exception:
+            if new_written:
+                try:
+                    import keyring
+                    keyring.delete_password('Agentnik',new_id)
+                except Exception:pass
+            if not self._closed and self.oauth_config==config:
+                self.oauth_button.setEnabled(True);self.status.setText(self.tr('Could not save the OAuth credential. Check the server settings and credential store.'))
+            return
+        if old_id and old_id!=new_id:
+            try:
+                import keyring
+                keyring.delete_password('Agentnik',old_id)
+            except Exception:pass
+        self.populate();self.list.setCurrentRow(index);self.status.setText(self.tr('OAuth sign-in saved. Test the connection.'))
 
     def test_remote(self,item):
         self.oauth_challenge=None;self.oauth_challenge_url=None

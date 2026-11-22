@@ -33,7 +33,7 @@ def bearer_challenge(header):
 
 
 def _https_parts(url,allow_query=False):
-    if not isinstance(url,str) or not url or len(url)>2048 or '\\' in url or any(ord(c)<33 or ord(c)>126 for c in url):raise ValueError('Invalid OAuth URL')
+    if not isinstance(url,str) or not url or len(url)>2048 or any(c in '\\<>"`{}|^' or ord(c)<33 or ord(c)>126 for c in url):raise ValueError('Invalid OAuth URL')
     try:parts=urlsplit(url);port=parts.port
     except ValueError:raise ValueError('Invalid OAuth URL') from None
     if parts.scheme.lower()!='https' or not parts.hostname or parts.username is not None or parts.password is not None or parts.fragment or (parts.query and not allow_query):raise ValueError('OAuth URL must use HTTPS and omit credentials and fragments')

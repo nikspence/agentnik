@@ -53,7 +53,7 @@ class OAuthAuthorization(QObject):
     def start(self):
         try:
             resource=_https_parts(self.resource_url,allow_query=True);_endpoint(self.metadata['authorization_endpoint']);_endpoint(self.metadata['token_endpoint']);_https_parts(self.metadata['issuer'])
-            if self.metadata.get('pkce_s256') is not True:raise ValueError('PKCE is unavailable')
+            if self.metadata.get('pkce_s256') is not True or self.metadata.get('public_client_supported',True) is not True:raise ValueError('PKCE or public client authentication is unavailable')
             if not isinstance(self.client_id,str) or not self.client_id or len(self.client_id)>1024 or any(ord(ch)<33 or ord(ch)>126 for ch in self.client_id):raise ValueError('Invalid client ID')
             scope=_scope(self.scopes)
             self.resource=urlunsplit((resource.scheme,resource.netloc,resource.path,resource.query,''))

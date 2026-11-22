@@ -9,6 +9,64 @@ class MCPOAuthDiscovery(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         cls.app=QApplication.instance() or QApplication([])
 
+    def test_settings_oauth_sign_in_saves_keyring_record_and_replaces_old_credential(self):
+        import json,tempfile
+        from unittest.mock import patch
+        from PySide6.QtCore import QObject,Signal
+        from PySide6.QtWidgets import QInputDialog
+        from agentnik import core
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        from agentnik.mcp_ui import MCPServers
+        jobs=[];credentials={'old-id':'old-bearer'}
+        class FakeAuthorization(QObject):
+            finished=Signal(object)
+            def __init__(self,url,metadata,client_id,scopes,parent,timeout_ms):super().__init__(parent);self.url=url;self.metadata=metadata;self.client_id=client_id;self.scopes=scopes;self.stopped=False;jobs.append(self)
+            def start(self):pass
+            def stop(self):self.stopped=True;self.finished.emit({'error':'cancelled'})
+        def get_password(service,key):return credentials.get(key)
+        def set_password(service,key,value):credentials[key]=value
+        def delete_password(service,key):credentials.pop(key,None)
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch('agentnik.mcp_oauth_flow.OAuthAuthorization',FakeAuthorization),patch.object(QInputDialog,'getText',return_value=('public-client',True)),patch('keyring.get_password',side_effect=get_password),patch('keyring.set_password',side_effect=set_password),patch('keyring.delete_password',side_effect=delete_password):
+            store=Store(folder);server={'name':'Remote','transport':'http','url':'https://mcp.example/mcp','credential_id':'old-id','enabled':True};store.config['mcp_servers']=[server];store.flush();window=Window(store);dialog=MCPServers(window)
+            try:
+                dialog.list.setCurrentRow(0);dialog.oauth_config=dict(server);dialog.oauth_metadata={'resource':{'scopes_supported':['default']},'authorization_server':{'issuer':'https://auth.example','token_endpoint':'https://auth.example/token','authorization_endpoint':'https://auth.example/authorize','pkce_s256':True}};dialog.oauth_challenge={'scope':'requested:read'};dialog.oauth_challenge_url=server['url'];dialog.oauth_button.setEnabled(True)
+                dialog.sign_in_oauth();self.assertEqual(jobs[-1].scopes,'requested:read');self.assertEqual(jobs[-1].client_id,'public-client');self.assertTrue(dialog.oauth_button.isEnabled());self.assertEqual(dialog.oauth_button.text(),'Cancel sign-in')
+                jobs[-1].finished.emit({'access_token':'access-secret','refresh_token':'refresh-secret','expires_in':600})
+                saved=store.config['mcp_servers'][0];self.assertEqual(saved['auth_type'],'oauth');self.assertNotEqual(saved['credential_id'],'old-id');self.assertNotIn('old-id',credentials)
+                stored=json.loads(credentials[saved['credential_id']]);self.assertEqual(stored['access_token'],'access-secret');self.assertEqual(stored['refresh_token'],'refresh-secret');self.assertEqual(stored['resource_url'],server['url']);self.assertNotIn('access-secret',store.config_path.read_text(encoding='utf-8'));self.assertNotIn('refresh-secret',store.config_path.read_text(encoding='utf-8'));self.assertIn('sign-in saved',dialog.status.text())
+            finally:dialog.close();window.close();self.app.processEvents();store.db.close()
+
+    def test_settings_oauth_save_failure_and_selection_change_keep_previous_credential(self):
+        import tempfile
+        from unittest.mock import patch
+        from PySide6.QtCore import QObject,Signal
+        from PySide6.QtWidgets import QInputDialog
+        from agentnik import core
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        from agentnik.mcp_ui import MCPServers
+        jobs=[];credentials={'old-id':'old-bearer'}
+        class FakeAuthorization(QObject):
+            finished=Signal(object)
+            def __init__(self,url,metadata,client_id,scopes,parent,timeout_ms):super().__init__(parent);self.stopped=False;jobs.append(self)
+            def start(self):pass
+            def stop(self):self.stopped=True;self.finished.emit({'error':'cancelled'})
+        def metadata():return {'resource':{'scopes_supported':[]},'authorization_server':{'issuer':'https://auth.example','token_endpoint':'https://auth.example/token','authorization_endpoint':'https://auth.example/authorize','pkce_s256':True}}
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch('agentnik.mcp_oauth_flow.OAuthAuthorization',FakeAuthorization),patch.object(QInputDialog,'getText',return_value=('public-client',True)),patch('keyring.set_password',side_effect=lambda service,key,value:credentials.__setitem__(key,value)),patch('keyring.delete_password',side_effect=lambda service,key:credentials.pop(key,None)):
+            store=Store(folder);server={'name':'Remote','transport':'http','url':'https://mcp.example/mcp','credential_id':'old-id','enabled':True};store.config['mcp_servers']=[server];store.flush();window=Window(store);dialog=MCPServers(window)
+            try:
+                dialog.list.setCurrentRow(0);dialog.oauth_config=dict(server);dialog.oauth_metadata=metadata();dialog.oauth_button.setEnabled(True);dialog.sign_in_oauth()
+                with patch.object(store,'flush',side_effect=OSError('synthetic failure')):jobs[-1].finished.emit({'access_token':'new-secret','refresh_token':'refresh','expires_in':600})
+                self.assertEqual(store.config['mcp_servers'][0],server);self.assertEqual(credentials,{'old-id':'old-bearer'});self.assertIn('Could not save',dialog.status.text())
+                dialog.oauth_config=dict(server);dialog.oauth_metadata=metadata();dialog.sign_in_oauth()
+                def change_config(service,key,value):credentials[key]=value;store.config['mcp_servers']=[dict(server,name='Changed elsewhere')]
+                with patch('keyring.set_password',side_effect=change_config):jobs[-1].finished.emit({'access_token':'new-secret','refresh_token':'refresh','expires_in':600})
+                self.assertEqual(store.config['mcp_servers'][0]['name'],'Changed elsewhere');self.assertEqual(credentials,{'old-id':'old-bearer'});store.config['mcp_servers']=[server]
+                dialog.oauth_config=dict(server);dialog.oauth_metadata=metadata();dialog.sign_in_oauth();dialog.sign_in_oauth();self.assertTrue(jobs[-1].stopped);self.assertIn('cancelled',dialog.status.text());self.assertEqual(credentials,{'old-id':'old-bearer'})
+                dialog.oauth_config=dict(server);dialog.oauth_metadata=metadata();dialog.sign_in_oauth();dialog.list.setCurrentRow(-1);self.assertTrue(jobs[-1].stopped);self.assertEqual(credentials,{'old-id':'old-bearer'})
+            finally:dialog.close();window.close();self.app.processEvents();store.db.close()
+
     def test_concurrent_oauth_refresh_is_shared_and_persisted_once(self):
         from unittest.mock import patch
         from PySide6.QtCore import QObject,Signal
@@ -261,6 +319,8 @@ class MCPOAuthDiscovery(unittest.TestCase):
         with self.assertRaises(ValueError):parse_authorization_metadata(dict(meta,issuer='https://attacker.example'),issuer)
         with self.assertRaises(ValueError):parse_authorization_metadata(dict(meta,token_endpoint='http://insecure.example'),issuer)
         self.assertFalse(parse_authorization_metadata(dict(meta,code_challenge_methods_supported=[]),issuer)['pkce_s256'])
+        self.assertFalse(parse_authorization_metadata(dict(meta,token_endpoint_auth_methods_supported=['client_secret_basic']),issuer)['public_client_supported'])
+        self.assertTrue(parse_authorization_metadata(dict(meta,token_endpoint_auth_methods_supported=['none']),issuer)['public_client_supported'])
 
     def test_async_metadata_discovery_fallback_and_no_credentials(self):
         import json,threading
@@ -353,7 +413,9 @@ class MCPOAuthDiscovery(unittest.TestCase):
                 dialog.list.setCurrentRow(0);probe=Mock();probe.oauth_challenge={'resource_metadata':'https://example.com/hint'};dialog.remote=probe;dialog.discovered_config=dict(store.config['mcp_servers'][0]);dialog.remote_done({'error':'Authentication required'})
                 self.assertEqual(dialog.oauth_challenge_url,'https://example.com/mcp');dialog.discover_oauth();self.assertEqual(created[-1].challenge,dialog.oauth_challenge)
                 created[-1].finished.emit({'authorization_server':{'issuer':'https://auth.example/tenant','pkce_s256':True}})
-                self.assertIn('https://auth.example/tenant',dialog.status.text());self.assertIn('OAuth sign-in is not yet available',dialog.status.text())
+                self.assertIn('https://auth.example/tenant',dialog.status.text());self.assertTrue(dialog.oauth_button.isEnabled())
+                dialog.discover_oauth();created[-1].finished.emit({'authorization_server':{'issuer':'https://auth.example/tenant','pkce_s256':True,'public_client_supported':False}})
+                self.assertFalse(dialog.oauth_button.isEnabled());self.assertIn('does not support public clients',dialog.status.text())
             finally:dialog.close();window.close();app.processEvents();store.db.close()
 
     def test_remote_authentication_failures_are_actionable_and_do_not_echo_server_text(self):
@@ -382,7 +444,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
                 session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=3);loop=QEventLoop();out=[]
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda error:(out.append(error),loop.quit()));session.start();timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(5000)
                 try:
-                    loop.exec();timer.stop();self.assertTrue(out);self.assertIn('OAuth sign-in is not yet supported',out[0]['error']);self.assertNotIn('private:scope',out[0]['error'])
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertIn('sign in',out[0]['error'].lower());self.assertNotIn('private:scope',out[0]['error'])
                     self.assertEqual(out[0]['call_uncertain'],mode=='insufficient')
                     self.assertEqual(session.oauth_challenge,{'scope':'private:scope'})
                     if mode=='insufficient':self.assertEqual(calls.count('tools/call'),1);self.assertIn('insufficient scope',out[0]['error'])
@@ -403,7 +465,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
         self.assertEqual(protected_resource_metadata_urls('https://mcp.example/'),['https://mcp.example/.well-known/oauth-protected-resource'])
         self.assertEqual(protected_resource_metadata_urls('https://mcp.example/mcp/'),['https://mcp.example/.well-known/oauth-protected-resource/mcp/','https://mcp.example/.well-known/oauth-protected-resource'])
         self.assertEqual(protected_resource_metadata_urls('https://mcp.example/mcp',{'resource_metadata':'https://auth.example/metadata?version=1'}),['https://auth.example/metadata?version=1'])
-        for invalid in ('http://example/mcp','https://user:password@example/mcp','https://example/mcp#fragment','https://example:bad/mcp','https://example.com\\attacker/mcp'):
+        for invalid in ('http://example/mcp','https://user:password@example/mcp','https://example/mcp#fragment','https://example:bad/mcp','https://example.com\\attacker/mcp','https://example.com/<img>/mcp'):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):protected_resource_metadata_urls(invalid)
         with self.assertRaises(ValueError):protected_resource_metadata_urls('https://mcp.example/mcp',{'resource_metadata':'http://insecure.example/metadata'})
 

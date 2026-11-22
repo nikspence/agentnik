@@ -177,7 +177,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':['discovery','tool call and output schema','server ping','request-scoped server ping','resource list/read','template list/read','prompt list/get']}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False):
     import datetime
     import ipaddress
     import socket
@@ -195,7 +195,10 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
     from agentnik.mcp_remote import RemoteSession
     from agentnik import tls
 
-    app=QCoreApplication.instance() or QCoreApplication([])
+    if test_oauth_ui:
+        from PySide6.QtWidgets import QApplication
+        app=QApplication.instance() or QApplication([])
+    else:app=QCoreApplication.instance() or QCoreApplication([])
     key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
     name=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'Agentnik local smoke')])
     now=datetime.datetime.now(datetime.timezone.utc)
@@ -229,19 +232,22 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
         sdk_app=make_server(cancelled if test_cancel else None,resume if resumption_test else None).streamable_http_app(event_store=event_store,retry_interval=100 if resumption_test else None)
         async def monitored_app(scope,receive,send):
             chunks=[]
-            if (test_oauth_flow or test_oauth_refresh) and scope['type']=='http' and scope['method']=='POST' and scope['path']=='/token':
+            if (test_oauth_flow or test_oauth_refresh or test_oauth_ui) and scope['type']=='http' and scope['method']=='POST' and scope['path']=='/token':
                 from starlette.responses import JSONResponse
                 body=await receive();oauth_requests.append(body.get('body',b''))
                 response={'access_token':'synthetic-access','token_type':'Bearer','expires_in':600}
                 if test_oauth_refresh:response['refresh_token']='synthetic-rotated'
                 await JSONResponse(response)(scope,receive,send);return
-            if test_oauth and scope['type']=='http' and scope['method']=='GET':
+            if (test_oauth or test_oauth_ui) and scope['type']=='http' and scope['method']=='GET':
                 from starlette.responses import JSONResponse
                 base='https://127.0.0.1:'+str(port)
                 if scope['path']=='/.well-known/oauth-protected-resource/mcp':
                     await JSONResponse({'resource':base+'/mcp','authorization_servers':[base+'/tenant']})(scope,receive,send);return
                 if scope['path']=='/.well-known/oauth-authorization-server/tenant':
                     await JSONResponse({'issuer':base+'/tenant','authorization_endpoint':base+'/authorize','token_endpoint':base+'/token','code_challenge_methods_supported':['S256']})(scope,receive,send);return
+            if test_oauth_ui and scope['type']=='http' and scope['path']=='/mcp' and dict(scope['headers']).get(b'authorization')!=b'Bearer synthetic-access':
+                from starlette.responses import Response
+                await Response(status_code=401,headers={'WWW-Authenticate':'Bearer'})(scope,receive,send);return
             if resumption_test and scope['type']=='http' and scope['method']=='GET':
                 resume['gets'].append(dict(scope['headers']).get(b'last-event-id'))
             async def monitored_send(item):
@@ -274,6 +280,7 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
             if test_oauth:result=run_oauth_discovery(url)
             elif test_oauth_flow:result=run_oauth_flow(url,oauth_requests)
             elif test_oauth_refresh:result=run_oauth_refresh(url,oauth_requests)
+            elif test_oauth_ui:result=run_oauth_ui(url,oauth_requests)
             else:
                 session=RemoteSession(url,'',timeout_seconds=15)
                 result=run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
@@ -281,6 +288,41 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
             if thread.is_alive():raise RuntimeError('Local HTTPS server did not stop')
+    return result
+
+
+def run_oauth_ui(url,requests):
+    import tempfile
+    from unittest.mock import patch
+    from urllib.parse import parse_qs,urlencode,urlsplit
+    from PySide6.QtCore import QEventLoop,QTimer,QUrl
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
+    from PySide6.QtWidgets import QApplication,QInputDialog
+    from agentnik import core
+    from agentnik.storage import Store
+    from agentnik.ui import Window
+    from agentnik.mcp_ui import MCPServers
+    app=QApplication.instance();callback_manager=QNetworkAccessManager();callbacks=[];browser=[];credentials={}
+    def open_url(value):
+        browser.append(value.toString());params=parse_qs(urlsplit(browser[-1]).query)
+        QTimer.singleShot(0,lambda:callbacks.append(callback_manager.get(QNetworkRequest(QUrl(params['redirect_uri'][0]+'?'+urlencode({'code':'synthetic-code','state':params['state'][0]}))))))
+        return True
+    def wait_until(predicate):
+        loop=QEventLoop();poll=QTimer();poll.timeout.connect(lambda:loop.quit() if predicate() else None);poll.start(10);deadline=QTimer();deadline.setSingleShot(True);deadline.timeout.connect(loop.quit);deadline.start(10000);loop.exec();poll.stop();deadline.stop()
+        if not predicate():raise RuntimeError('OAuth UI smoke test timed out')
+    with tempfile.TemporaryDirectory(prefix='agentnik-oauth-ui-') as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(QDesktopServices,'openUrl',side_effect=open_url),patch.object(QInputDialog,'getText',return_value=('synthetic-client',True)),patch('keyring.get_password',side_effect=lambda service,key:credentials.get(key)),patch('keyring.set_password',side_effect=lambda service,key,value:credentials.__setitem__(key,value)),patch('keyring.delete_password',side_effect=lambda service,key:credentials.pop(key,None)):
+        store=Store(folder);store.config['mcp_servers']=[{'name':'Synthetic','transport':'http','url':url,'credential_id':'','enabled':True}];store.flush();window=Window(store);dialog=MCPServers(window)
+        try:
+            dialog.list.setCurrentRow(0);dialog.discover_oauth();wait_until(lambda:dialog.oauth_discovery is None)
+            if not dialog.oauth_metadata or not dialog.oauth_button.isEnabled():raise RuntimeError('OAuth metadata discovery did not enable sign-in')
+            dialog.sign_in_oauth();wait_until(lambda:dialog.oauth_authorization is None)
+            saved=store.config['mcp_servers'][0]
+            if saved.get('auth_type')!='oauth' or saved.get('credential_id') not in credentials or 'synthetic-access' in json.dumps(store.config):raise RuntimeError('OAuth credential was not stored securely')
+            dialog.test();wait_until(lambda:dialog.remote is None)
+            if not dialog.discovered or not browser or len(requests)!=1:raise RuntimeError('OAuth-backed MCP connection failed')
+            result={'sdk_version':version('mcp'),'transport':'https','checks':['settings discovery','browser callback','keyring credential','OAuth-backed MCP discovery']}
+        finally:dialog.close();window.close();app.processEvents();store.db.close();callback_manager.clearConnectionCache()
     return result
 
 
@@ -410,9 +452,10 @@ if __name__=='__main__':
     elif sys.argv[1:]==['--https-oauth-discovery']:print(json.dumps(run_https(test_oauth=True)))
     elif sys.argv[1:]==['--https-oauth-flow']:print(json.dumps(run_https(test_oauth_flow=True)))
     elif sys.argv[1:]==['--https-oauth-refresh']:print(json.dumps(run_https(test_oauth_refresh=True)))
+    elif sys.argv[1:]==['--https-oauth-ui']:print(json.dumps(run_https(test_oauth_ui=True)))
     elif not sys.argv[1:]:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui]')
