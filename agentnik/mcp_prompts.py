@@ -41,7 +41,7 @@ def parse_prompt_messages(result):
     if not isinstance(description,str) or len(description)>4000 or not isinstance(messages,list) or len(messages)>16:raise ValueError('Invalid MCP prompt result')
     from .mcp_content import model_tool_result
     from .mcp_resources import parse_resource_text
-    safe=[];user_text=[]
+    safe=[];user_text=[];user_nontext=0
     for message in messages:
         if not isinstance(message,dict) or message.get('role') not in ('user','assistant'):raise ValueError('Invalid MCP prompt message')
         content=message.get('content')
@@ -50,6 +50,10 @@ def parse_prompt_messages(result):
             text=content.get('text')
             if not isinstance(text,str) or len(text.encode('utf-8'))>32000:raise ValueError('Unsupported MCP prompt content')
             sanitized={'type':'text','text':text}
+        elif content.get('type')=='image':
+            data=content.get('data');mime=content.get('mimeType')
+            if not isinstance(data,str) or not data or len(data)>1_000_000 or mime not in ('image/png','image/jpeg','image/webp'):raise ValueError('Invalid MCP prompt image')
+            sanitized={'type':'image','data':data,'mimeType':mime}
         elif content.get('type')=='resource':
             resource=content.get('resource')
             if not isinstance(resource,dict):raise ValueError('Invalid embedded MCP resource')
@@ -63,5 +67,6 @@ def parse_prompt_messages(result):
         if visible['content']:
             safe.append({'role':message['role'],'content':visible['content'][0]})
         elif content.get('annotations',{}).get('audience') and 'user' in content['annotations']['audience']:
-            user_text.append(text if content['type']=='text' else checked['text'])
-    return {'description':description,'messages':safe,'user_text':user_text}
+            if content['type']=='image':user_nontext+=1
+            else:user_text.append(text if content['type']=='text' else checked['text'])
+    return {'description':description,'messages':safe,'user_text':user_text,'user_nontext':user_nontext}

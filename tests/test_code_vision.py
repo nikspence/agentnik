@@ -14,6 +14,27 @@ from test_routing import Wire
 from test_image_generation import png
 
 class CodeVisionTests(unittest.TestCase):
+    def test_mcp_prompt_image_is_visual_only_when_enabled(self):
+        from unittest.mock import Mock
+        from agentnik.mcp_prompts import parse_prompt_messages
+        encoded=base64.b64encode(png()).decode()
+        prompt={'name':'review','description':'Review image','arguments':[]}
+        content={'type':'image','data':encoded,'mimeType':'image/png'}
+        prompt_result=parse_prompt_messages({'messages':[{'role':'user','content':content},{'role':'assistant','content':dict(content,annotations={'audience':['user']})}]})
+        for enabled in (True,False):
+            with self.subTest(enabled=enabled),tempfile.TemporaryDirectory() as root:
+                bridge=Mock();bridge.server={'name':'Charts','command':'server','args':[],'enabled':True}
+                bridge.request.side_effect=[{'tool_details':[]},{'prompts':[prompt]},prompt_result]
+                replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_prompts',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_get_prompt',{'name':'review','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+                bodies=[];events=[]
+                def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',mcp_bridge=bridge,vision_enabled=enabled).run(events.append)
+                self.assertEqual(events[-1]['status'],'completed',events);messages=bodies[-1]['messages']
+                tool=next(m for m in reversed(messages) if m['role']=='tool');self.assertNotIn(encoded,tool['content']);self.assertNotIn(encoded,json.dumps(events))
+                self.assertTrue(any('user-directed prompt content: 1 non-text' in e.get('text','') for e in events))
+                if enabled:self.assertEqual(messages[-1]['content'][1]['image_url']['url'],'data:image/png;base64,'+encoded)
+                else:self.assertIn('inspection is disabled',tool['content']);self.assertNotIn(encoded,json.dumps(messages))
+
     def test_mcp_image_result_is_visual_only_when_enabled(self):
         from unittest.mock import Mock
         encoded=base64.b64encode(png()).decode()

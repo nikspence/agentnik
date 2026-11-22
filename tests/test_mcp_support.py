@@ -920,6 +920,37 @@ for line in sys.stdin:
                         {'type':'text','text':'secret','annotations':{'audience':'user'}}):
             with self.subTest(content=content),self.assertRaises(ValueError):parse_prompt_messages({'messages':[{'role':'user','content':content}]})
 
+    def test_mcp_prompt_image_response_limit(self):
+        from agentnik.mcp_support import response_limit,MAX_TOOL_RESULT_OUTPUT,MAX_OUTPUT
+        self.assertEqual(response_limit('prompt_get'),MAX_TOOL_RESULT_OUTPUT)
+        self.assertEqual(response_limit('prompt_list'),MAX_OUTPUT)
+
+    def test_local_prompt_with_large_image_content(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'image_prompt.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'prompts':{}}}
+ elif method=='prompts/list':result={'prompts':[{'name':'image'}]}
+ elif method=='prompts/get':result={'messages':[{'role':'user','content':{'type':'image','mimeType':'image/png','data':'A'*70000}}]}
+ else:raise RuntimeError('unexpected')
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server)]);loop=QEventLoop();out=[]
+            def response(result):
+                out.append(result)
+                if len(out)==1:self.assertTrue(session.list_prompts({'prompt':result['prompts'][0],'arguments':{}}))
+                else:loop.quit()
+            session.discovered.connect(lambda _:session.list_prompts());session.prompts.connect(response);session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertEqual(len(out[1]['messages'][0]['content']['data']),70000)
+
     def test_local_prompt_listing_get_and_definition_recheck(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
