@@ -96,7 +96,7 @@ class ResourcePages:
 
 
 def template_parts(template):
-    """Parse bounded scalar RFC 6570 expressions, including prefix modifiers."""
+    """Parse bounded URI template expressions and their variable names."""
     if not isinstance(template,str) or not template or len(template)>2048 or any(ord(ch)<33 or ord(ch)==127 for ch in template):raise ValueError('Invalid resource template')
     parts=[];variables=[];pos=0;literal=0
     while pos<len(template):
@@ -107,10 +107,11 @@ def template_parts(template):
         if end<0:raise ValueError('Unsupported resource template')
         expression=template[pos+1:end];operator=expression[:1] if expression[:1] in ('+','#','.','/',';','?','&') else ''
         specs=expression[1:].split(',') if operator else expression.split(',')
-        matches=[re.fullmatch(r'([A-Za-z_][A-Za-z0-9_]{0,127})(?::([1-9][0-9]{0,3}))?',spec) for spec in specs]
+        matches=[re.fullmatch(r'((?:[A-Za-z0-9_]|%[0-9A-Fa-f]{2})(?:\.?(?:[A-Za-z0-9_]|%[0-9A-Fa-f]{2}))*)(?::([1-9][0-9]{0,3})|(\*))?',spec) for spec in specs]
         if any(match is None for match in matches):raise ValueError('Unsupported resource template')
-        names=[(match.group(1),int(match.group(2)) if match.group(2) else None) for match in matches]
-        for name,_ in names:
+        names=[(match.group(1),int(match.group(2)) if match.group(2) else None,bool(match.group(3))) for match in matches]
+        if any(len(name)>128 for name,_,_ in names):raise ValueError('Resource template too complex')
+        for name,_,_ in names:
             if name not in variables:variables.append(name)
         if len(variables)>32 or len(names)>32:raise ValueError('Resource template too complex')
         parts.append((operator,names));pos=end+1;literal=pos
@@ -130,20 +131,39 @@ def _reserved_quote(value):
 
 def expand_template(template,arguments):
     parts,names=template_parts(template)
-    if not isinstance(arguments,dict) or not set(arguments).issubset(names) or any(value is not None and (not isinstance(value,str) or len(value.encode('utf-8'))>1024) for value in arguments.values()):raise ValueError('Invalid resource template variables')
+    if not isinstance(arguments,dict) or not set(arguments).issubset(names):raise ValueError('Invalid resource template variables')
+    def valid_string(value):return isinstance(value,str) and len(value.encode('utf-8'))<=1024
+    for value in arguments.values():
+        if value is None or valid_string(value):continue
+        if isinstance(value,list) and len(value)<=64 and all(valid_string(item) for item in value):continue
+        if isinstance(value,dict) and len(value)<=64 and all(valid_string(key) and valid_string(item) for key,item in value.items()):continue
+        raise ValueError('Invalid resource template variables')
+    if len(json.dumps(arguments,ensure_ascii=True).encode('ascii'))>16000:raise ValueError('Invalid resource template variables')
     chunks=[];size=0
     for operator,value in parts:
         if operator is None:chunk=value
         else:
-            defined=[(name,prefix) for name,prefix in value if arguments.get(name) is not None]
-            encoded=[_reserved_quote(arguments[name][:prefix]) if operator in ('+','#') else quote(arguments[name][:prefix],safe='') for name,prefix in defined]
-            if not defined:chunk=''
-            elif operator in ('?','&'):chunk=operator+'&'.join(name+'='+item for (name,_),item in zip(defined,encoded))
-            elif operator=='/':chunk='/'+'/'.join(encoded)
-            elif operator=='.':chunk='.'+'.'.join(encoded)
-            elif operator==';':chunk=';'+ ';'.join(name+('='+item if item else '') for (name,_),item in zip(defined,encoded))
-            elif operator=='#':chunk='#'+','.join(encoded)
-            else:chunk=','.join(encoded)
+            separator={'/':'/','.':'.',';':';','?':'&','&':'&'}.get(operator,',')
+            encode=_reserved_quote if operator in ('+','#') else lambda item:quote(item,safe='')
+            def named(name,item):return name+('='+item if item or operator!=';' else '')
+            expanded=[]
+            for name,prefix,explode in value:
+                item=arguments.get(name)
+                if item is None or item==[] or item=={}:continue
+                if isinstance(item,str):
+                    encoded=encode(item[:prefix]);expanded.append(named(name,encoded) if operator in (';','?','&') else encoded)
+                elif prefix is not None:raise ValueError('Invalid resource template variables')
+                elif isinstance(item,list):
+                    values=[encode(entry) for entry in item]
+                    if explode:expanded.extend(named(name,entry) if operator in (';','?','&') else entry for entry in values)
+                    else:
+                        encoded=','.join(values);expanded.append(named(name,encoded) if operator in (';','?','&') else encoded)
+                else:
+                    values=[(encode(key),encode(entry)) for key,entry in item.items()]
+                    if explode:expanded.extend(named(key,entry) if operator==';' else key+'='+entry for key,entry in values)
+                    else:
+                        encoded=','.join(part for pair in values for part in pair);expanded.append(named(name,encoded) if operator in (';','?','&') else encoded)
+            chunk=(operator if operator in ('#','.','/',';','?','&') else '')+separator.join(expanded) if expanded else ''
         size+=len(chunk)
         if size>2048:raise ValueError('Expanded resource URI is invalid')
         chunks.append(chunk)
