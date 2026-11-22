@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It v
 
 ## Scoped live observations
 
+On 2026-11-21, a simulated parent delegated two file-producing tasks to live `openai/gpt-6.2-sol` subagents through OpenRouter Responses. A later attempt created and verified both requested slide JSON files in separate output folders. An earlier attempt ended with both subagents failed; its detailed cause was not retained. A local fixture containing two staged slide folders also passed the installed `codex-ppt` merge script. This is not an end-to-end editable PowerPoint qualification.
+
 On 2026-11-21, a live Code run using OpenRouter Responses and `openai/gpt-6.2-sol` called `view_image` on a generated image and correctly described a red triangle on a white background. A separate run with simulated parent orchestration sent an approved image to a live GPT-6.2-Sol subagent; it also correctly described the triangle. These are single model and image checks, not general verification of visual accuracy or other providers.
 
 These observations apply only to the tested configurations and do not guarantee other models, accounts or versions:
