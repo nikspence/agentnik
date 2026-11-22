@@ -14,6 +14,36 @@ class Response(io.BytesIO):
         super().__init__(data); self.headers={'Content-Type':ctype}
 
 class Contracts(unittest.TestCase):
+    def test_service_tier_is_explicit_and_survives_connection_and_session_storage(self):
+        messages=[{'role':'user','text':'Hello'}]
+        for protocol in core.PROTOCOLS:
+            with self.subTest(protocol=protocol):
+                connection={'url':'https://openrouter.ai/api/v1','model':'example','protocol':protocol}
+                self.assertNotIn('service_tier',core.chat_body(connection,messages))
+                for tier in ('auto','default','flex','priority','fast','ultrafast','scale'):
+                    connection['service_tier']=tier
+                    self.assertEqual(core.chat_body(connection,messages)['service_tier'],tier)
+                    self.assertEqual(core.validate_connections({'connections':{'router':connection}})['router']['service_tier'],tier)
+        for suffix in ('nitro','floor'):
+            alias='qwen/qwen3.8-flash:'+suffix
+            connection={'url':'https://openrouter.ai/api/v1','model':alias,'protocol':'responses'}
+            self.assertEqual(core.chat_body(connection,messages)['model'],alias)
+            self.assertNotIn('service_tier',core.chat_body(connection,messages))
+        native={'url':'http://localhost:11434','model':'gemma','protocol':'chat','service_tier':'flex'}
+        self.assertNotIn('service_tier',core.chat_body(native,messages))
+        with self.assertRaises(ValueError):core.validate_connections({'connections':{'router':{'url':'https://example.test','service_tier':'bad'}}})
+        with tempfile.TemporaryDirectory() as folder:
+            store=Store(folder)
+            try:
+                connection={'url':'https://openrouter.ai/api/v1','model':'example','protocol':'responses','service_tier':'priority'}
+                store.save_connection('router',connection);session=store.new_session('chat','router',store.connections()['router']);store.save(session)
+                self.assertEqual(store.list_sessions()[0]['connection']['service_tier'],'priority')
+                self.assertEqual(store.connections()['router']['service_tier'],'priority')
+            finally:store.db.close()
+            reopened=Store(folder)
+            try:self.assertEqual(reopened.connections()['router']['service_tier'],'priority')
+            finally:reopened.db.close()
+
     def test_mantle_catalog_is_separate_from_inference_and_uses_bearer(self):
         origin='https://bedrock-mantle.us-east-1.api.aws'
         for path,protocol,suffix in [('/v1','responses','/responses'),('/openai/v1','chat','/chat/completions'),('/anthropic/v1','messages','/messages'),('/anthropic/v1/messages','messages',''),('/messages/v1','messages','/messages')]:

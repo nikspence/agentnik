@@ -2882,6 +2882,18 @@ Mantle catalog entries do not establish the model’s inference route. Copy the 
 Inférence : {inference}
 Les entrées du catalogue Mantle n’établissent pas la route d’inférence du modèle. Copiez l'URL de base et sélectionnez le protocole affiché sur sa carte de modèle AWS ; les itinéraires peuvent utiliser /v1, /openai/v1 ou /anthropic/v1. Enregistrez des connexions distinctes pour différents itinéraires.</translation>
         </message>
+        <message>
+            <source>Not specified</source>
+            <translation>Non précisé</translation>
+        </message>
+        <message>
+            <source>Service tier (optional)</source>
+            <translation>Niveau de service (facultatif)</translation>
+        </message>
+        <message>
+            <source>Optional OpenRouter-compatible request setting. Availability and pricing depend on the model and provider; gateways may not forward it.</source>
+            <translation>Paramètre facultatif compatible avec OpenRouter. La disponibilité et le prix dépendent du modèle et du fournisseur; les passerelles pourraient ne pas le transmettre.</translation>
+        </message>
     </context>
     <context>
         <name>Connections</name>

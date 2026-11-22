@@ -2882,6 +2882,18 @@ Mantle catalog entries do not establish the model’s inference route. Copy the 
 Schlussfolgerung: {inference}
 Mantle-Katalogeinträge legen nicht die Inferenzroute des Modells fest. Kopieren Sie die Basis-URL und wählen Sie das auf der AWS-Modellkarte angezeigte Protokoll aus. Routen können /v1, /openai/v1 oder /anthropic/v1 verwenden. Speichern Sie separate Verbindungen für verschiedene Routen.</translation>
         </message>
+        <message>
+            <source>Not specified</source>
+            <translation>Nicht angegeben</translation>
+        </message>
+        <message>
+            <source>Service tier (optional)</source>
+            <translation>Servicestufe (optional)</translation>
+        </message>
+        <message>
+            <source>Optional OpenRouter-compatible request setting. Availability and pricing depend on the model and provider; gateways may not forward it.</source>
+            <translation>Optionale OpenRouter-kompatible Anfrageeinstellung. Verfügbarkeit und Preise hängen von Modell und Anbieter ab; Gateways leiten sie möglicherweise nicht weiter.</translation>
+        </message>
     </context>
     <context>
         <name>Connections</name>

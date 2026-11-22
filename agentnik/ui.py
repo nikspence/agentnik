@@ -349,6 +349,11 @@ class ConnectionDialog(QDialog):
         self.protocol = QComboBox(); self.protocol.addItems(core.PROTOCOLS); self.protocol.setCurrentText(c.get('protocol','responses')); layout.addRow(self.tr('Chat protocol'),self.protocol)
         self.route_hint=QLabel();self.route_hint.setWordWrap(True);self.route_hint.setTextFormat(Qt.TextFormat.PlainText);layout.addRow(self.route_hint)
         self.fields['url'].textChanged.connect(self.update_route_hint);self.protocol.currentTextChanged.connect(self.update_route_hint);self.update_route_hint()
+        self.service_tier=QComboBox();self.service_tier.setObjectName('connectionServiceTier');self.service_tier.addItem(self.tr('Not specified'),'')
+        for tier in ('auto','default','flex','priority','fast','ultrafast','scale'):self.service_tier.addItem(tier,tier)
+        self.service_tier.setCurrentIndex(max(0,self.service_tier.findData(c.get('service_tier',''))))
+        self.service_tier.setToolTip(self.tr('Optional OpenRouter-compatible request setting. Availability and pricing depend on the model and provider; gateways may not forward it.'))
+        layout.addRow(self.tr('Service tier (optional)'),self.service_tier)
         self.context = QSpinBox(); self.context.setRange(0,100000000); self.context.setSpecialValueText(self.tr('Unknown')); self.context.setValue(c.get('context_limit',0)); layout.addRow(self.tr('Context limit (tokens)'),self.context)
         self.stream = QCheckBox(self.tr('Stream chat responses')); self.stream.setChecked(c.get('stream',True)); layout.addRow(self.stream)
         self.plain = QCheckBox(self.tr('Store API key in plaintext instead of OS credential store')); layout.addRow(self.plain)
@@ -365,6 +370,7 @@ class ConnectionDialog(QDialog):
         c = {k:e.text().strip() for k,e in self.fields.items()}; name = c.pop('name')
         if not name: raise ValueError('Enter a connection name.')
         c.update(protocol=self.protocol.currentText(), context_limit=self.context.value(), stream=self.stream.isChecked())
+        if self.service_tier.currentData():c['service_tier']=self.service_tier.currentData()
         core.validate_connections({'connections':{name:c}})
         return name,c
 
@@ -659,7 +665,7 @@ class SessionTab(QWidget):
         if updates is None and capability_state in ('verified','unsupported'):
             updates=[{'field':'managed_tools','state':capability_state,'evidence':'Structured managed request observed '+capability_state}]
         current=self.active_connection()
-        same_context=all(current.get(k)==self.research_connection.get(k) for k in ('url','protocol','model','api_key','reasoning','stream','context_limit','_capability_scope'))
+        same_context=all(current.get(k)==self.research_connection.get(k) for k in ('url','protocol','model','api_key','reasoning','stream','context_limit','service_tier','_capability_scope'))
         if updates and same_context and self.research_connection.get('_capability_scope'):
             saved=self.store.config.get('connections',{}).get(self.session['connection_name'])
             if saved is not None:saved.setdefault('_capability_scope',self.research_connection['_capability_scope'])
@@ -716,6 +722,9 @@ class SessionTab(QWidget):
         try: same = core.base_url(saved.get('url','')) == core.base_url(c['url'])
         except ValueError: same = False
         c['api_key'] = self.credentials.get('api_key', saved.get('api_key','') if same else '')
+        if same:
+            if saved.get('service_tier'):c['service_tier']=saved['service_tier']
+            else:c.pop('service_tier',None)
         if 'api_key' in self.credentials:
             c['_capability_scope']=self.credentials.setdefault('_capability_scope',uuid.uuid4().hex)
         elif same and saved.get('_capability_scope'):
@@ -1204,11 +1213,11 @@ class Window(QMainWindow):
                 settings=self.store.config['settings'];salt=settings.get('research_scope_salt')
                 if not salt:
                     salt=uuid.uuid4().hex;settings['research_scope_salt']=salt;self.store.flush()
-                fields=('url','protocol','model','api_key','reasoning','stream','context_limit')
+                fields=('url','protocol','model','api_key','reasoning','stream','context_limit','service_tier')
                 identity=json.dumps([salt,name,*[c.get(k,'') for k in fields]],ensure_ascii=True,separators=(',',':'))
                 c['_capability_scope']=hashlib.sha256(identity.encode()).hexdigest()
             old=(previous or {}).get(name)
-            if old is not None and any(old.get(k)!=c.get(k) for k in ('url','protocol','model','api_key','reasoning','stream','context_limit')): changed.extend([old,c])
+            if old is not None and any(old.get(k)!=c.get(k) for k in ('url','protocol','model','api_key','reasoning','stream','context_limit','service_tier')): changed.extend([old,c])
         if changed:
             invalidate_capabilities(self.store.config,changed)
             self.store.flush()

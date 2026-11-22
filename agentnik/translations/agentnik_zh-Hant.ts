@@ -2882,6 +2882,18 @@ Mantle catalog entries do not establish the model’s inference route. Copy the 
 推論：{inference}
 Mantle 目錄條目不建立模型的推理路線。複製基本 URL 並選擇其 AWS 型號卡上顯示的協定；路由可以使用 /v1、/openai/v1 或 /anthropic/v1。為不同的路線儲存單獨的連接。</translation>
         </message>
+        <message>
+            <source>Not specified</source>
+            <translation>未指定</translation>
+        </message>
+        <message>
+            <source>Service tier (optional)</source>
+            <translation>服務等級（選填）</translation>
+        </message>
+        <message>
+            <source>Optional OpenRouter-compatible request setting. Availability and pricing depend on the model and provider; gateways may not forward it.</source>
+            <translation>選用的 OpenRouter 相容請求設定。可用性和價格取決於模型與供應商；閘道可能不會轉送此設定。</translation>
+        </message>
     </context>
     <context>
         <name>Connections</name>

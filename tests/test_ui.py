@@ -12,6 +12,33 @@ HAS_QT = importlib.util.find_spec('PySide6') is not None
 
 @unittest.skipUnless(HAS_QT,'PySide6 is not installed')
 class Desktop(unittest.TestCase):
+    def test_connection_service_tier_selection(self):
+        from agentnik.ui import ConnectionDialog
+        dialog=ConnectionDialog(None,'Router',{'url':'https://openrouter.ai/api/v1','protocol':'responses','service_tier':'priority'})
+        try:
+            self.assertEqual(dialog.service_tier.currentData(),'priority')
+            self.assertEqual(dialog.value()[1]['service_tier'],'priority')
+            dialog.service_tier.setCurrentIndex(dialog.service_tier.findData(''))
+            self.assertNotIn('service_tier',dialog.value()[1])
+        finally:dialog.close()
+
+    def test_existing_chat_uses_current_tier_from_matching_connection(self):
+        from agentnik.storage import Store
+        from agentnik.ui import Window
+        with tempfile.TemporaryDirectory() as root,patch('agentnik.core.discover',return_value={}),patch('agentnik.core.environment_connections',return_value={}),patch('agentnik.core.models',return_value=[]):
+            store=Store(root);connection={'url':'https://openrouter.ai/api/v1','model':'example','protocol':'responses','service_tier':'flex'}
+            store.config['connections']={'Router':connection};window=Window(store)
+            try:
+                window.new_session('chat','Router');tab=window.tabs.currentWidget()
+                self.assertEqual(tab.active_connection()['service_tier'],'flex')
+                window.connections['Router']['service_tier']='priority'
+                self.assertEqual(tab.active_connection()['service_tier'],'priority')
+                window.connections['Router'].pop('service_tier')
+                self.assertNotIn('service_tier',tab.active_connection())
+                window.connections['Router']['url']='https://different.example/v1'
+                self.assertEqual(tab.active_connection()['service_tier'],'flex')
+            finally:window.close();self.app.processEvents();store.db.close()
+
     def test_direct_mantle_connection_displays_catalog_and_inference_routes(self):
         from agentnik.ui import ConnectionDialog
         dialog=ConnectionDialog(None,'Mantle',{'url':'https://bedrock-mantle.us-east-1.api.aws/openai/v1','protocol':'responses'})

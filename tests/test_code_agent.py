@@ -88,6 +88,15 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_service_tier_is_retained_on_tool_continuation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory)/'sample.txt').write_text('example',encoding='utf-8');events=[];bodies=[]
+            replies=[Wire(chat(calls=[call('read_file',{'path':'sample.txt'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False,service_tier='flex'),directory,'Read sample').run(events.append)
+            self.assertEqual(events[-1]['status'],'completed');self.assertEqual(len(bodies),2)
+            self.assertTrue(all(body['service_tier']=='flex' for body in bodies))
+
     def test_hosted_search_falls_back_only_on_explicit_rejection(self):
         with tempfile.TemporaryDirectory() as directory:
             connection={'url':'https://api.openai.com/v1','protocol':'responses','model':'fixture','stream':False}

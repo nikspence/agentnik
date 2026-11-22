@@ -39,6 +39,7 @@ def validate_session(value, ident=None):
     require(isinstance(data.get('connection'),dict))
     for key in ('url','model','protocol','reasoning','api_key','credential_id'):
         if key in data['connection']: require(isinstance(data['connection'][key],str))
+    if 'service_tier' in data['connection']:require(data['connection']['service_tier'] in ('','auto','default','flex','priority','fast','ultrafast','scale'))
     if 'stream' in data['connection']: require(type(data['connection']['stream']) is bool)
     if 'context_limit' in data['connection']:
         limit=data['connection']['context_limit']; require(type(limit) is int and limit>=0)

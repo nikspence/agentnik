@@ -2882,6 +2882,18 @@ Mantle catalog entries do not establish the model’s inference route. Copy the 
 추론: {inference}
 Mantle 모델 목록만으로는 모델의 추론 경로를 알 수 없습니다. AWS 모델 카드에 표시된 기본 URL을 복사하고 프로토콜을 선택하세요. 경로는 /v1, /openai/v1 또는 /anthropic/v1일 수 있습니다. 경로가 다르면 연결을 별도로 저장하세요.</translation>
         </message>
+        <message>
+            <source>Not specified</source>
+            <translation>미지정</translation>
+        </message>
+        <message>
+            <source>Service tier (optional)</source>
+            <translation>서비스 등급(선택 사항)</translation>
+        </message>
+        <message>
+            <source>Optional OpenRouter-compatible request setting. Availability and pricing depend on the model and provider; gateways may not forward it.</source>
+            <translation>선택적 OpenRouter 호환 요청 설정입니다. 모델과 제공업체에 따라 사용 가능 여부와 가격이 다르며, 게이트웨이가 전달하지 않을 수 있습니다.</translation>
+        </message>
     </context>
     <context>
         <name>Connections</name>

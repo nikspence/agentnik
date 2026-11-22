@@ -226,6 +226,10 @@ def chat_body(c, messages):
         if reasoning: body['think'] = False if reasoning.lower() == 'off' else reasoning
         if c.get('context_limit'): body['options'] = {'num_ctx':c['context_limit']}
         return body
+    tier=c.get('service_tier','')
+    if tier:
+        if tier not in ('auto','default','flex','priority','fast','ultrafast','scale'):raise ValueError('Invalid service tier')
+        body['service_tier']=tier
     if protocol == 'messages':
         body['max_tokens'] = 8192
         if reasoning: body.update(thinking={'type':'adaptive'}, output_config={'effort':reasoning})
@@ -404,12 +408,13 @@ def validate_connections(data):
     result = {}
     for name, c in data['connections'].items():
         if not isinstance(name, str) or not name.strip() or not isinstance(c, dict): raise ValueError('Invalid connection name or value.')
-        clean = {k:v for k,v in c.items() if k in ('url','protocol','model','reasoning','api_key','context_limit','stream')}
+        clean = {k:v for k,v in c.items() if k in ('url','protocol','model','reasoning','api_key','context_limit','stream','service_tier')}
         if not isinstance(clean.get('url'), str): raise ValueError(f'{name}: URL required')
         base_url(clean['url'])
         if clean.get('protocol', 'chat') not in PROTOCOLS: raise ValueError(f'{name}: invalid protocol')
         for field in ('api_key','model','reasoning'):
             if field in clean and not isinstance(clean[field], str): raise ValueError(f'{name}: {field} must be text')
+        if 'service_tier' in clean and clean['service_tier'] not in ('','auto','default','flex','priority','fast','ultrafast','scale'):raise ValueError(f'{name}: invalid service tier')
         if 'stream' in clean and not isinstance(clean['stream'], bool): raise ValueError('stream must be true or false')
         if 'context_limit' in clean and (type(clean['context_limit']) is not int or clean['context_limit'] < 0): raise ValueError('Context limit must be a nonnegative integer')
         result[name] = clean
