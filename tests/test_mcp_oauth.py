@@ -4,6 +4,87 @@ from agentnik.mcp_oauth import bearer_challenge,protected_resource_metadata_urls
 
 
 class MCPOAuthDiscovery(unittest.TestCase):
+    def test_authorization_pkce_state_and_token_exchange(self):
+        import base64,hashlib,json,threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from urllib.parse import parse_qs,urlencode,urlsplit
+        from PySide6.QtCore import QEventLoop,QTimer,QUrl
+        from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QSsl
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_oauth_flow import OAuthAuthorization
+        app=QApplication.instance() or QApplication([]);received=[];browsed=[];replies=[];callback_manager=QNetworkAccessManager()
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=self.rfile.read(int(self.headers['Content-Length']));received.append((self.path,parse_qs(body.decode()),self.headers.get('Cookie'),self.headers.get('Authorization')))
+                payload=json.dumps({'access_token':'synthetic-access','refresh_token':'synthetic-refresh','token_type':'Bearer','expires_in':600}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();base='https://127.0.0.1:'+str(server.server_port)
+        class LoopbackManager:
+            def __init__(self):self.manager=QNetworkAccessManager()
+            def post(self,request,data):
+                assert request.attribute(QNetworkRequest.Attribute.RedirectPolicyAttribute)==QNetworkRequest.RedirectPolicy.ManualRedirectPolicy
+                assert request.sslConfiguration().protocol() in (QSsl.SslProtocol.TlsV1_2,QSsl.SslProtocol.TlsV1_2OrLater,QSsl.SslProtocol.TlsV1_3,QSsl.SslProtocol.TlsV1_3OrLater)
+                replacement=QNetworkRequest(request);url=QUrl(request.url());url.setScheme('http');replacement.setUrl(url);return self.manager.post(replacement,data)
+        def open_url(url):
+            browsed.append(url.toString());params=parse_qs(urlsplit(browsed[0]).query);redirect=params['redirect_uri'][0];state=params['state'][0]
+            def send(values):
+                reply=callback_manager.get(QNetworkRequest(QUrl(redirect+'?'+urlencode(values))));replies.append(reply)
+            QTimer.singleShot(0,lambda:send({'code':'synthetic-code','state':'wrong'}))
+            QTimer.singleShot(50,lambda:send({'code':'synthetic-code','state':'한글'}))
+            QTimer.singleShot(100,lambda:send({'code':'synthetic-code','state':state,'iss':base+'/issuer'}))
+            return True
+        metadata={'issuer':base+'/issuer','authorization_endpoint':base+'/authorize?existing=value','token_endpoint':base+'/token','pkce_s256':True}
+        manager=LoopbackManager();job=OAuthAuthorization(base+'/mcp?tools=selected',metadata,'public-client','read write',manager=manager,open_url=open_url,timeout_ms=5000);loop=QEventLoop();out=[];job.finished.connect(lambda value:(out.append(value),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);job.start()
+        try:
+            loop.exec();timer.stop();self.assertEqual(out,[{'access_token':'synthetic-access','refresh_token':'synthetic-refresh','expires_in':600}]);self.assertEqual(len(received),1)
+            sent=received[0][1];auth=parse_qs(urlsplit(browsed[0]).query)
+            self.assertEqual(sent['code'],['synthetic-code']);self.assertEqual(sent['client_id'],['public-client']);self.assertEqual(sent['resource'],[base+'/mcp?tools=selected']);self.assertEqual(auth['resource'],sent['resource']);self.assertEqual(auth['scope'],['read write']);self.assertEqual(auth['code_challenge_method'],['S256'])
+            expected=base64.urlsafe_b64encode(hashlib.sha256(sent['code_verifier'][0].encode()).digest()).rstrip(b'=').decode();self.assertEqual(auth['code_challenge'],[expected]);self.assertIsNone(received[0][2]);self.assertIsNone(received[0][3]);self.assertEqual(len(replies),3)
+        finally:job.stop();server.shutdown();server.server_close();thread.join(2)
+
+    def test_authorization_refuses_unsafe_settings_and_clears_secrets_on_cancel(self):
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_oauth_flow import OAuthAuthorization
+        app=QApplication.instance() or QApplication([]);base={'issuer':'https://auth.example','authorization_endpoint':'https://auth.example/authorize','token_endpoint':'https://auth.example/token','pkce_s256':True}
+        for metadata in (dict(base,pkce_s256=False),dict(base,token_endpoint='http://bad.example/token'),dict(base,authorization_endpoint='https://auth.example/authorize?state=forged')):
+            out=[];job=OAuthAuthorization('https://mcp.example/mcp',metadata,'client',open_url=lambda _:True);job.finished.connect(out.append);job.start();self.assertIn('error',out[0]);self.assertEqual(job.verifier,'');self.assertFalse(job.listener.isListening())
+        job=OAuthAuthorization('https://mcp.example/mcp',base,'client',open_url=lambda _:True);out=[];job.finished.connect(out.append);job.start();self.assertTrue(job.listener.isListening());self.assertTrue(job.verifier);job.stop();self.assertEqual(job.verifier,'');self.assertEqual(job.state,'');self.assertFalse(job.listener.isListening());self.assertIn('error',out[0])
+        out=[];job=OAuthAuthorization('https://mcp.example/mcp',base,'client','read\r\nwrite',open_url=lambda _:True);job.finished.connect(out.append);job.start();self.assertIn('error',out[0])
+
+    def test_token_exchange_rejects_redirects_and_invalid_responses(self):
+        import json,threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from urllib.parse import parse_qs,urlencode,urlsplit
+        from PySide6.QtCore import QEventLoop,QTimer,QUrl
+        from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_oauth_flow import OAuthAuthorization
+        app=QApplication.instance() or QApplication([])
+        for mode in ('redirect','wrong-type','duplicate','oversize'):
+            with self.subTest(mode=mode):
+                calls=[];callbacks=[];callback_manager=QNetworkAccessManager()
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self,mode=mode,calls=calls):
+                        self.rfile.read(int(self.headers['Content-Length']));calls.append(self.path)
+                        if mode=='redirect':self.send_response(302);self.send_header('Location','https://attacker.invalid/token');self.end_headers();return
+                        payload=(b' '*65537 if mode=='oversize' else b'{"token_type":"Bearer","access_token":"x","access_token":"y"}' if mode=='duplicate' else json.dumps({'token_type':'Basic','access_token':'private-value'}).encode())
+                        try:self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                        except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError):pass
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();base='https://127.0.0.1:'+str(server.server_port)
+                class LoopbackManager:
+                    def __init__(self):self.manager=QNetworkAccessManager()
+                    def post(self,request,data):
+                        replacement=QNetworkRequest(request);url=QUrl(request.url());url.setScheme('http');replacement.setUrl(url);return self.manager.post(replacement,data)
+                def open_url(value):
+                    params=parse_qs(urlsplit(value.toString()).query)
+                    QTimer.singleShot(0,lambda:callbacks.append(callback_manager.get(QNetworkRequest(QUrl(params['redirect_uri'][0]+'?'+urlencode({'code':'code','state':params['state'][0]}))))))
+                    return True
+                metadata={'issuer':base+'/issuer','authorization_endpoint':base+'/authorize','token_endpoint':base+'/token','pkce_s256':True};manager=LoopbackManager();job=OAuthAuthorization(base+'/mcp',metadata,'client',manager=manager,open_url=open_url,timeout_ms=3000);loop=QEventLoop();out=[];job.finished.connect(lambda value:(out.append(value),loop.quit()));timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(5000);job.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertIn('error',out[0]);self.assertNotIn('private-value',str(out));self.assertEqual(calls,['/token']);self.assertEqual(job.verifier,'');self.assertEqual(job.state,'')
+                finally:job.stop();server.shutdown();server.server_close();thread.join(2)
+
     def test_metadata_validation_checks_resource_issuer_and_pkce(self):
         from agentnik.mcp_oauth_discovery import parse_resource_metadata,parse_authorization_metadata
         resource='https://mcp.example/team/mcp';issuer='https://auth.example/tenant'
@@ -157,7 +238,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
         self.assertEqual(protected_resource_metadata_urls('https://mcp.example/'),['https://mcp.example/.well-known/oauth-protected-resource'])
         self.assertEqual(protected_resource_metadata_urls('https://mcp.example/mcp/'),['https://mcp.example/.well-known/oauth-protected-resource/mcp/','https://mcp.example/.well-known/oauth-protected-resource'])
         self.assertEqual(protected_resource_metadata_urls('https://mcp.example/mcp',{'resource_metadata':'https://auth.example/metadata?version=1'}),['https://auth.example/metadata?version=1'])
-        for invalid in ('http://example/mcp','https://user:password@example/mcp','https://example/mcp#fragment','https://example:bad/mcp'):
+        for invalid in ('http://example/mcp','https://user:password@example/mcp','https://example/mcp#fragment','https://example:bad/mcp','https://example.com\\attacker/mcp'):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):protected_resource_metadata_urls(invalid)
         with self.assertRaises(ValueError):protected_resource_metadata_urls('https://mcp.example/mcp',{'resource_metadata':'http://insecure.example/metadata'})
 
