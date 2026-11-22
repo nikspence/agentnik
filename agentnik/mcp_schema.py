@@ -22,21 +22,34 @@ def validate_tool_arguments(schema,arguments):
     if any(not isinstance(items,dict) for items in definitions.values()) or sum(map(len,definitions.values()))>128:raise ValueError('Invalid tool schema definitions.')
 
     def resolve(reference):
-        # Restrict pointers to a single root definition, with canonical JSON Pointer escapes.
-        if not isinstance(reference,str):raise ValueError('The tool schema uses unsupported references.')
-        prefix=next((value for value in ('#/$defs/','#/definitions/') if reference.startswith(value)),None)
-        if prefix is None:raise ValueError('The tool schema uses unsupported references.')
-        namespace='$defs' if prefix=='#/$defs/' else 'definitions';pointer=reference[len(prefix):]
-        if not pointer or '/' in pointer or '%' in pointer:raise ValueError('The tool schema uses unsupported references.')
-        name='';index=0
-        while index<len(pointer):
-            ch=pointer[index]
-            if ch=='~':
-                if index+1>=len(pointer) or pointer[index+1] not in '01':raise ValueError('The tool schema uses unsupported references.')
-                name+='~' if pointer[index+1]=='0' else '/';index+=2
-            else:name+=ch;index+=1
-        if name not in definitions[namespace]:raise ValueError('The tool schema has an unresolved reference.')
-        return definitions[namespace][name]
+        # Only traverse schema-bearing keywords, never annotations or remote URIs.
+        if not isinstance(reference,str) or not reference.startswith('#/') or '%' in reference:raise ValueError('The tool schema uses unsupported references.')
+        parts=reference[2:].split('/')
+        if len(parts)>MAX_DEPTH*2:raise ValueError('The tool schema uses unsupported references.')
+        decoded=[]
+        for part in parts:
+            name='';index=0
+            while index<len(part):
+                if part[index]=='~':
+                    if index+1>=len(part) or part[index+1] not in '01':raise ValueError('The tool schema uses unsupported references.')
+                    name+='~' if part[index+1]=='0' else '/';index+=2
+                else:name+=part[index];index+=1
+            decoded.append(name)
+        node=schema;pos=0
+        while pos<len(decoded):
+            if not isinstance(node,dict):raise ValueError('The tool schema has an unresolved reference.')
+            key=decoded[pos];pos+=1
+            if key in ('properties','$defs','definitions'):
+                if pos>=len(decoded) or not isinstance(node.get(key),dict) or decoded[pos] not in node[key]:raise ValueError('The tool schema has an unresolved reference.')
+                node=node[key][decoded[pos]];pos+=1
+            elif key in ('anyOf','oneOf','allOf','prefixItems') or (key=='items' and isinstance(node.get(key),list)):
+                entries=node.get(key);index=decoded[pos] if pos<len(decoded) else ''
+                if not isinstance(entries,list) or len(index)>3 or not index.isascii() or not index.isdigit() or (len(index)>1 and index[0]=='0') or int(index)>=len(entries):raise ValueError('The tool schema has an unresolved reference.')
+                node=entries[int(index)];pos+=1
+            elif key in ('items','additionalItems','additionalProperties') and key in node:node=node[key]
+            else:raise ValueError('The tool schema uses unsupported references.')
+        if type(node) is not bool and not isinstance(node,dict):raise ValueError('The tool schema has an unresolved reference.')
+        return node
 
     # Traversing each reference in context catches cycles and bounds repeated work.
     # Combination width is multiplied along each path to cap nested alternatives.

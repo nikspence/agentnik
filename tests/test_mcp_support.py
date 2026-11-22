@@ -523,6 +523,19 @@ for line in sys.stdin:
         for invalid in ({'type':'object','definitions':{'bad':{'pattern':'(a+)+$'}}}, {'type':'object','properties':{'x':{'definitions':{'y':{'type':'string'}}}}}, {'type':'object','definitions':{str(i):{} for i in range(129)}}, {'type':'object','definitions':{'a':{}},'properties':{'x':{'$ref':'#/definitions/a/extra'}}}):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):validate_tool_arguments(invalid,{})
 
+    def test_schema_references_to_nested_subschemas(self):
+        from agentnik.mcp_schema import validate_tool_arguments,validate_tool_result
+        schema={'type':'object','$defs':{'record':{'type':'object','properties':{'a/b':{'type':'integer','minimum':2},'pair':{'type':'array','prefixItems':[{'type':'string'},{'type':'integer'}]}}}},'properties':{'value':{'$ref':'#/$defs/record/properties/a~1b'},'word':{'$ref':'#/$defs/record/properties/pair/prefixItems/0'},'duplicate':{'$ref':'#/properties/value'}},'required':['value','word','duplicate']}
+        valid={'value':2,'word':'ok','duplicate':3}
+        self.assertTrue(validate_tool_arguments(schema,valid))
+        with self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,dict(valid,duplicate=1))
+        self.assertTrue(validate_tool_result({'output_schema_status':'available','output_schema':schema},{'structuredContent':valid}))
+        cycle={'type':'object','properties':{'a':{'$ref':'#/properties/b'},'b':{'$ref':'#/properties/a'}}}
+        with self.assertRaisesRegex(ValueError,'recursive'):validate_tool_arguments(cycle,{})
+        for ref in ('#/properties/value/description','#/$defs/record/properties/pair/prefixItems/00','#/$defs/record/properties/pair/prefixItems/2','#/properties/value/$ref'):
+            bad=dict(schema,properties={'bad':{'$ref':ref},**schema['properties']})
+            with self.subTest(ref=ref),self.assertRaises(ValueError):validate_tool_arguments(bad,valid)
+
     def test_draft7_tool_schema_uses_declared_dialect_and_bounded_references(self):
         from agentnik.mcp_schema import validate_tool_arguments
         for uri in ('http://json-schema.org/draft-07/schema#','https://json-schema.org/draft-07/schema'):
