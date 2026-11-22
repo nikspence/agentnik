@@ -475,7 +475,7 @@ class ModelCoding(unittest.TestCase):
             def send(connection,url,body,timeout):
                 self.assertTrue(run.steer('Correction'));return Wire(chat('a'*2500),False)
             with patch.object(core,'open_request',side_effect=send) as transport:run.run(events.append)
-            self.assertEqual(transport.call_count,1);self.assertTrue(events[-1]['limited']);self.assertIn('context bytes limit',events[-1]['text'])
+            self.assertEqual(transport.call_count,1);self.assertTrue(events[-1]['limited']);self.assertIn('Code retained context bytes limit',events[-1]['text']);self.assertIn('Code and goal limits',events[-1]['text'])
             self.assertEqual([e['text'] for e in events if e['kind']=='steering_undelivered'],['Correction']);self.assertFalse(any(e['kind']=='steering_delivered' for e in events))
 
     def test_goal_small_context_limit_does_not_charge_fixed_tool_definitions_on_reset(self):

@@ -1152,7 +1152,7 @@ class CodingWorkspace(unittest.TestCase):
                 self.assertEqual(store.config['settings']['coding_limits'],values);self.assertEqual(store.config['settings']['coding_goal_limits'],{'steps':4,'seconds':120})
                 dialog=CodingLimitsDialog(tab,values,{'steps':4,'seconds':120});self.assertEqual(dialog.fields['model_seconds'].value(),480);self.assertEqual(dialog.goal_fields['steps'].value(),4);dialog.reset();self.assertEqual(dialog.values(),coding_limits());self.assertEqual(dialog.goal_values(),{'steps':0,'seconds':0});dialog.close()
                 dialog=CodingLimitsDialog(tab,values,{'steps':4,'seconds':120})
-                for key,maximum in {'rounds':128,'requests':256,'calls':256,'turn_seconds':7200,'model_seconds':7200,'context_bytes':16000000}.items():
+                for key,maximum in {'rounds':128,'requests':256,'calls':256,'turn_seconds':7200,'model_seconds':7200,'context_bytes':64000000}.items():
                     self.assertEqual(dialog.fields[key].maximum(),maximum);dialog.fields[key].setValue(maximum)
                 for key,maximum in {'steps':2000000,'seconds':63072000}.items():self.assertEqual(dialog.goal_fields[key].maximum(),maximum);dialog.goal_fields[key].setValue(maximum)
                 self.assertEqual(dialog.values()['calls'],256);self.assertEqual(dialog.goal_values()['steps'],2000000);dialog.close()

@@ -7,7 +7,7 @@ FIELDS = {
     'calls': (96, 1, 256),
     'turn_seconds': (3600, 10, 7200),
     'model_seconds': (300, 10, 7200),
-    'context_bytes': (2000000, 4096, 16000000),
+    'context_bytes': (16000000, 4096, 64000000),
 }
 
 FULL_TEXT_BYTES=128_000

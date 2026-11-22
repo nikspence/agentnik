@@ -1962,7 +1962,9 @@ class CodingRun:
                 if isinstance(exc,ResearchError) and not isinstance(exc,LimitError) and not research_action and not known_model_error:
                     location=protocol_error_location(exc)
                     if location and not isinstance(exc,responses_tools.ResponseIdentityError):status+=' at '+location
-                reason=('Web research' if research_action else 'Coding')+' stopped ('+(str(exc) if isinstance(exc,(LimitError,SkillChangedError,MovePartialError,DirectoryMoveError)) or known_google_error or known_model_error else status.strip())+'). Project changes already applied are retained.'
+                detail=str(exc) if isinstance(exc,(LimitError,SkillChangedError,MovePartialError,DirectoryMoveError)) or known_google_error or known_model_error else status.strip()
+                if isinstance(exc,LimitError) and detail=='Research context bytes limit reached':detail='Code retained context bytes limit reached; increase it in Settings → Code and goal limits'
+                reason=('Web research' if research_action else 'Coding')+' stopped ('+detail+'). Project changes already applied are retained.'
                 event('finished',status='failed',limited=isinstance(exc,LimitError),text=reason,usage=usage_text())
         finally:
             for bridge in self.mcp_bridges:bridge.close_signal.emit()
