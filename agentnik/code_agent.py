@@ -1543,7 +1543,7 @@ class CodingRun:
                                 labeled=[]
                                 for source in sources[:runtime.limits.results]:
                                     source=replace(source,id=f'S{next_source}');next_source+=1;labeled.append(source)
-                                    status=' [link, not fetched]' if source.backend=='public-link' else ' [search result, not fetched]' if call.name=='web_search' else ''
+                                    status=' [link, not fetched]' if source.backend=='public-link' else ' [search result, not fetched]' if call.name=='web_search' else ' [partial page]' if source.truncated else ''
                                     display_title=source.title[:160]+status
                                     event('output',text='Source '+source.id+': '+display_title+' '+source.url[:500])
                                     event('source',source={'id':source.id,'title':display_title[:200],'url':source.url})

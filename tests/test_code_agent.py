@@ -88,6 +88,19 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_large_public_page_does_not_stop_coding_run(self):
+        from agentnik.web import PagePayload
+        with tempfile.TemporaryDirectory() as directory:
+            events=[];bodies=[]
+            replies=[Wire(chat(calls=[call('web_fetch',{'url':'https://example.com/docs'})],finish='tool_calls'),False),Wire(chat('Used partial evidence'),False)]
+            def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            page=PagePayload(b'<title>Docs</title><p>Partial evidence</p>',True)
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.web.PublicTransport.request',return_value=('https://example.com/docs','text/html',page)):
+                CodingRun(dict(C,stream=False),directory,'Inspect the documentation',web_enabled=True,search_provider='none').run(events.append)
+            self.assertEqual(events[-1]['status'],'completed');self.assertIn('Partial evidence',json.dumps(bodies[-1]))
+            self.assertIn('"truncated": true',json.dumps(bodies[-1]).replace('\\"','"'))
+            self.assertTrue(any('[partial page]' in event.get('text','') for event in events))
+
     def test_service_tier_is_retained_on_tool_continuation(self):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory)/'sample.txt').write_text('example',encoding='utf-8');events=[];bodies=[]

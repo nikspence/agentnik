@@ -282,6 +282,38 @@ class TransportContracts(unittest.TestCase):
             web.PublicTransport().request('https://example.com/',Runtime(limits=Limits(redirects=2)))
         self.assertEqual(connection.request.call_count,3)
 
+    def test_large_public_pages_return_bounded_marked_partial_content(self):
+        connection=MagicMock();connection.sock=None
+        for headers in ({'Content-Length':'100'},{}):
+            response=io.BytesIO(b'abcdefghijklmnop');response.getheader=lambda name,default=None:headers.get(name,default)
+            runtime=Runtime(limits=Limits(response_bytes=10,retrieved_bytes=100))
+            with self.subTest(headers=headers):
+                result=web.read_bounded(response,connection,runtime,allow_partial=True)
+                self.assertEqual(result,b'abcdefghij');self.assertTrue(result.truncated);self.assertEqual(runtime.retrieved_bytes,11)
+        response=io.BytesIO(b'abc');response.getheader=lambda name,default=None:{'Content-Length':'10'}.get(name,default)
+        self.assertTrue(web.read_bounded(response,connection,Runtime(limits=Limits(response_bytes=20)),allow_partial=True).truncated)
+        transport=MagicMock();transport.request.return_value=('https://example.com','text/html',web.PagePayload(b'<title>Docs</title><p>Evidence</p>',True))
+        source=web.PublicWeb(transport).fetch('https://example.com',Runtime())[0]
+        self.assertIn('Evidence',source.excerpt);self.assertTrue(source.truncated)
+
+    def test_transport_only_truncates_public_pages_not_search_api_responses(self):
+        def response():
+            result=io.BytesIO(b'0123456789abcdef');result.status=200
+            result.getheader=lambda name,default=None: {'Content-Length':'16','Content-Type':'text/plain'}.get(name,default)
+            return result
+        connection=MagicMock();connection.sock=None;connection.getresponse.side_effect=response
+        limits=Limits(response_bytes=10,retrieved_bytes=100)
+        with patch.object(web,'resolve_public',side_effect=lambda url,runtime:(url,PUBLIC)),patch.object(web,'PinnedConnection',return_value=connection):
+            _,_,payload=web.PublicTransport().request('https://example.com',Runtime(limits=limits))
+            self.assertEqual(payload,b'0123456789');self.assertTrue(payload.truncated)
+            with self.assertRaises(LimitError):web.PublicTransport().request('https://example.com',Runtime(limits=limits),redirects=False)
+
+    def test_partial_page_support_does_not_relax_api_or_total_limits(self):
+        connection=MagicMock();connection.sock=None;response=io.BytesIO(b'0123456789');response.getheader=lambda name,default=None:default
+        with self.assertRaises(LimitError):web.read_bounded(response,connection,Runtime(limits=Limits(response_bytes=5)))
+        response=io.BytesIO(b'0123456789');response.getheader=lambda name,default=None:default
+        with self.assertRaises(LimitError):web.read_bounded(response,connection,Runtime(limits=Limits(response_bytes=10,retrieved_bytes=5)),allow_partial=True)
+
     def test_response_and_total_byte_limits_and_compression(self):
         connection=MagicMock()
         for headers,data,limits in [({'Content-Encoding':'gzip'},b'',Limits()),({'Content-Length':'100'},b'',Limits(response_bytes=10)),({},b'big payload',Limits(response_bytes=5)),({},b'big payload',Limits(retrieved_bytes=5))]:

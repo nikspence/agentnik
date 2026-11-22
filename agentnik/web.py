@@ -105,14 +105,21 @@ class PinnedConnection(http.client.HTTPConnection):
 
 
 
-def read_bounded(response,connection,runtime):
+class PagePayload(bytes):
+    """Bounded public-page bytes, with explicit transport truncation metadata."""
+    def __new__(cls, data, truncated=False):
+        value=super().__new__(cls,data);value.truncated=truncated;return value
+
+
+def read_bounded(response,connection,runtime,allow_partial=False):
     encoding=response.getheader('Content-Encoding','identity').lower()
     if encoding not in ('','identity'): raise AccessError('Compressed page responses are not accepted')
-    length=response.getheader('Content-Length')
+    length=response.getheader('Content-Length');size=None
     if length:
         try: size=int(length)
         except ValueError: raise ResearchError('Invalid response length') from None
-        if size<0 or size>runtime.limits.response_bytes: raise LimitError('Page response byte limit reached')
+        if size<0:raise ResearchError('Invalid response length')
+        if size>runtime.limits.response_bytes and not allow_partial:raise LimitError('Page response byte limit reached')
     data=bytearray(); deadline=time.monotonic()+runtime.timeout()
     while True:
         runtime.check()
@@ -124,8 +131,10 @@ def read_bounded(response,connection,runtime):
         if not chunk: break
         runtime.charge('retrieved_bytes',len(chunk),runtime.limits.retrieved_bytes)
         data.extend(chunk)
-        if len(data)>runtime.limits.response_bytes: raise LimitError('Page response byte limit reached')
-    return bytes(data)
+        if len(data)>runtime.limits.response_bytes:
+            if allow_partial:return PagePayload(data[:runtime.limits.response_bytes],True)
+            raise LimitError('Page response byte limit reached')
+    return PagePayload(data,size is not None and size>len(data)) if allow_partial else bytes(data)
 
 
 class PublicTransport:
@@ -165,7 +174,7 @@ class PublicTransport:
                 mislabeled_search = (body is not None and url=='https://ollama.com/api/web_search'
                                      and not redirects and ctype=='text/html')
                 if ctype not in allowed and not mislabeled_search: raise AccessError('Unsupported web content type')
-                payload=read_bounded(r,c,runtime)
+                payload=read_bounded(r,c,runtime,allow_partial=body is None and redirects)
                 return url,ctype,payload
             finally: c.close()
         raise LimitError('Page redirect limit reached')
@@ -246,7 +255,8 @@ class PublicWeb:
             text=''.join(parser.parts);title=''.join(parser.title).strip() or final
         text=re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]','',text)
         text=re.sub(r'[ \t]+',' ',text);text=re.sub(r'\n\s*\n','\n\n',text).strip()
-        text,truncated=excerpt(text,8000)
+        text,truncated=excerpt(text,32000)
+        truncated=truncated or getattr(payload,'truncated',False)
         result=[Source('',title[:300],final,text,utc_now(),ctype,truncated,'public-fetch')]
         for link_title,link in links[:max(0,runtime.limits.results-1)]:
             result.append(Source('',link_title,link,'Link found on the fetched page; not yet fetched.',utc_now(),backend='public-link'))
