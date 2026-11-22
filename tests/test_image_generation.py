@@ -55,6 +55,12 @@ class ImageAPI(unittest.TestCase):
         for secret in ('fixture-key','private-prompt','data:image','SECRET'):
             self.assertNotIn(secret,message)
 
+    def test_provider_message_does_not_misidentify_supported_fields(self):
+        payload={'error':{'message':'No provider for model supports the requested parameter(s): background. Supported: input_references and n'}}
+        detail=images.provider_error_details(payload)
+        self.assertEqual(detail,'No available provider supports the requested parameter combination')
+        self.assertNotIn('input_references',detail);self.assertNotIn('background',detail)
+
     def test_unknown_provider_data_is_never_copied_and_uncertainty_is_preserved(self):
         payload={'error':{'code':'fixture-key','param':'private-prompt','message':'private-prompt fixture-key data:image/png;base64,SECRET'}}
         with patch.object(core,'open_request',side_effect=core.EndpointError(400,json.dumps(payload))):

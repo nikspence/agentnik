@@ -68,8 +68,9 @@ def provider_error_details(payload):
         # OpenRouter reports this route-selection error with model and provider data;
         # retain only the fixed reason and recognized parameter names.
         if re.search(r'no provider for .{1,300} supports the requested parameter',message,re.I):
-            fields=[field for field in sorted(allowed) if re.search(r'(?<![A-Za-z0-9_])'+re.escape(field)+r'(?![A-Za-z0-9_])',message,re.I)]
-            parts.append('No available provider supports the requested parameter(s)'+(': '+', '.join(fields) if fields else ''))
+            # The message may also mention supported parameters or echo request data.
+            # Do not infer which individual fields failed from incidental mentions.
+            parts.append('No available provider supports the requested parameter combination')
         elif re.search(r'(?:background.{0,80}transparent|transparent.{0,80}background).{0,80}(?:not supported|unsupported)',message,re.I):
             parts.append('Provider reports transparent background is unsupported')
     return '; '.join(parts)
