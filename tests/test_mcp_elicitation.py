@@ -4,7 +4,7 @@ import threading
 import tempfile
 from unittest.mock import patch
 from pathlib import Path
-from PySide6.QtCore import QEventLoop,QTimer,QObject,Signal
+from PySide6.QtCore import QEventLoop,QTimer,QObject,Signal,QCoreApplication,QEvent
 from PySide6.QtWidgets import QApplication
 from agentnik.mcp_elicitation import ElicitationDialog,parse_input_required,parse_legacy_request,parse_url_required,continuation,track_opened,track_completion
 
@@ -15,6 +15,21 @@ def request():
 
 def url_request(url='https://example.test/path?state=synthetic#fragment'):
     return {'resultType':'input_required','requestState':'opaque-state','inputRequests':{'item':{'method':'elicitation/create','params':{'mode':'url','message':'Authenticate','url':url}}}}
+
+
+def run_worker_loop(app,loop,poll,thread):
+    """Release timers and deferred Qt objects on the GUI thread between tests."""
+    deadline=QTimer(loop);deadline.setSingleShot(True);deadline.timeout.connect(loop.quit);deadline.start(7000)
+    try:loop.exec()
+    finally:
+        deadline.stop();poll.stop();poll.timeout.disconnect();thread.join(1)
+        app.processEvents();QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete);app.processEvents()
+
+
+def retire_bridge(bridge):
+    from shiboken6 import isValid
+    if isValid(bridge):bridge.close();bridge.deleteLater()
+    QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
 
 
 class ElicitationTests(unittest.TestCase):
@@ -76,7 +91,7 @@ class ElicitationTests(unittest.TestCase):
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits
         path=Path(__file__).parent/'fixtures'/'mcp_legacy_elicitation_stdio.py';server={'name':'Legacy','command':sys.executable,'args':['-u',str(path),'2025-11-25','required'],'enabled':True}
-        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];steps=[]
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]},self.app);self.addCleanup(retire_bridge,bridge);runtime=Runtime(threading.Event(),Limits());out=[];steps=[]
         def worker():
             info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime));bridge.close_signal.emit()
         with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True) as open_url:
@@ -89,7 +104,7 @@ class ElicitationTests(unittest.TestCase):
                         self.assertEqual(out,[]);steps.append('confirmed');dialog.submit()
                     QTimer.singleShot(100,confirm)
                 if not thread.is_alive():loop.quit()
-            poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+            poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
             self.assertFalse(thread.is_alive());self.assertEqual(steps,['opened','confirmed']);open_url.assert_called_once();self.assertEqual(out[0]['call_result']['content'][0]['text'],'retried')
 
     def test_required_url_remote_never_retries_without_confirmation(self):
@@ -126,7 +141,7 @@ class ElicitationTests(unittest.TestCase):
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits
         path=Path(__file__).parent/'fixtures'/'mcp_legacy_elicitation_stdio.py';server={'name':'Legacy','command':sys.executable,'args':['-u',str(path),'2025-11-25','required-notification'],'enabled':True}
-        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];steps=[]
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]},self.app);self.addCleanup(retire_bridge,bridge);runtime=Runtime(threading.Event(),Limits());out=[];steps=[]
         def worker():
             info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime));bridge.close_signal.emit()
         with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True):
@@ -138,7 +153,7 @@ class ElicitationTests(unittest.TestCase):
                     self.assertEqual(out,[]);self.assertIn('1 of 1',dialog.completion_status.text());self.assertIn('untrusted',dialog.completion_status.text());self.assertFalse(dialog.retry_confirmed)
                     steps.append('reported');dialog.submit()
                 if not thread.is_alive():loop.quit()
-            poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+            poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
         self.assertFalse(thread.is_alive());self.assertEqual(steps,['opened','reported']);self.assertEqual(out[0]['call_result']['content'][0]['text'],'retried')
 
     def test_legacy_remote_url_only_opens_after_consent(self):
@@ -235,7 +250,7 @@ class ElicitationTests(unittest.TestCase):
         from agentnik.tools import Runtime,Limits
         server_path=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py'
         server={'name':'Example','command':sys.executable,'args':['-u',str(server_path)],'enabled':True}
-        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]},self.app);self.addCleanup(retire_bridge,bridge);runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
         def worker():
             info=bridge.request('discover',{},runtime);out.append(info)
             out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{'text':'input'}},runtime))
@@ -247,14 +262,14 @@ class ElicitationTests(unittest.TestCase):
                 presented.append(dialog.message.text());self.assertEqual(len(out),1)
                 dialog.tabs.setCurrentIndex(1);dialog.answer.setPlainText('{"choice":"yes"}');dialog.submit()
             if not thread.is_alive():loop.quit()
-        poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+        poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
         self.assertFalse(thread.is_alive());self.assertEqual(presented,['private-server-text']);self.assertEqual(out[1]['call_result']['content'][0]['text'],'continued');self.assertNotIn('private-state',str(out))
 
     def test_bridge_url_continues_after_browser_consent(self):
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits
         server_path=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';server={'name':'Example','command':sys.executable,'args':['-u',str(server_path)],'enabled':True}
-        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]},self.app);self.addCleanup(retire_bridge,bridge);runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
         def worker():
             info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{'text':'url'}},runtime));bridge.close_signal.emit()
         with patch('agentnik.mcp_elicitation.open_elicitation_url',return_value=True) as open_url:
@@ -263,7 +278,7 @@ class ElicitationTests(unittest.TestCase):
                 dialog=bridge.elicitation_dialog
                 if dialog and not presented:presented.append(True);open_url.assert_not_called();dialog.submit()
                 if not thread.is_alive():loop.quit()
-            poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+            poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
             self.assertFalse(thread.is_alive());open_url.assert_called_once();self.assertEqual(out[0]['call_result']['content'][0]['text'],'url continued');self.assertNotIn('example.test',str(out));self.assertNotIn('private-state',str(out))
 
     def test_2025_local_server_receives_answer_to_original_request(self):
@@ -275,7 +290,7 @@ class ElicitationTests(unittest.TestCase):
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits
         server_path=Path(__file__).parent/'fixtures'/'mcp_legacy_elicitation_stdio.py';server={'name':'Legacy','command':sys.executable,'args':['-u',str(server_path),protocol]+(['url'] if url else []),'enabled':True}
-        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]},self.app);self.addCleanup(retire_bridge,bridge);runtime=Runtime(threading.Event(),Limits());out=[];presented=[]
         def worker():
             info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{}},runtime));bridge.close_signal.emit()
         thread=threading.Thread(target=worker);thread.start();loop=QEventLoop();poll=QTimer()
@@ -287,7 +302,7 @@ class ElicitationTests(unittest.TestCase):
                 elif url:dialog.submit()
                 else:dialog.fields['choice'][1].setText('yes');dialog.submit()
             if not thread.is_alive():loop.quit()
-        poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+        poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
         self.assertFalse(thread.is_alive());self.assertEqual(presented,[True]);self.assertEqual(out[0]['call_result']['content'][0]['text'],'decline' if decline else 'accept')
 
     def test_2025_local_url_uses_review_dialog(self):
@@ -299,7 +314,7 @@ class ElicitationTests(unittest.TestCase):
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits
         server_path=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';server={'name':'Example','command':sys.executable,'args':['-u',str(server_path)],'enabled':True}
-        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];cancelled=[]
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]},self.app);self.addCleanup(retire_bridge,bridge);runtime=Runtime(threading.Event(),Limits());out=[];cancelled=[]
         def worker():
             info=bridge.request('discover',{},runtime)
             out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{'text':'input'}},runtime));bridge.close_signal.emit()
@@ -308,14 +323,14 @@ class ElicitationTests(unittest.TestCase):
             dialog=bridge.elicitation_dialog
             if dialog and not cancelled:cancelled.append(True);dialog.reject()
             if not thread.is_alive():loop.quit()
-        poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+        poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
         self.assertFalse(thread.is_alive());self.assertTrue(cancelled);self.assertTrue(out[0]['call_uncertain']);self.assertIn('cancelled',out[0]['error']);self.assertNotIn('private-state',str(out))
 
     def test_decline_is_sent_to_server_as_explicit_response(self):
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits
         server_path=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';server={'name':'Example','command':sys.executable,'args':['-u',str(server_path)],'enabled':True}
-        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];declined=[]
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]},self.app);self.addCleanup(retire_bridge,bridge);runtime=Runtime(threading.Event(),Limits());out=[];declined=[]
         def worker():
             info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{'text':'input'}},runtime));bridge.close_signal.emit()
         thread=threading.Thread(target=worker);thread.start();loop=QEventLoop();poll=QTimer()
@@ -323,21 +338,21 @@ class ElicitationTests(unittest.TestCase):
             dialog=bridge.elicitation_dialog
             if dialog and not declined:declined.append(True);dialog.decline()
             if not thread.is_alive():loop.quit()
-        poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+        poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
         self.assertFalse(thread.is_alive());self.assertTrue(declined);self.assertEqual(out[0]['call_result']['content'][0]['text'],'declined')
 
     def test_stopping_run_closes_dialog_without_continuation(self):
         from agentnik.mcp_code import CodingMCPBridge
         from agentnik.tools import Runtime,Limits
         server_path=Path(__file__).parent/'fixtures'/'mcp_modern_stdio.py';server={'name':'Example','command':sys.executable,'args':['-u',str(server_path)],'enabled':True}
-        bridge=CodingMCPBridge(server,{'mcp_servers':[server]});runtime=Runtime(threading.Event(),Limits());out=[];stopped=[]
+        bridge=CodingMCPBridge(server,{'mcp_servers':[server]},self.app);self.addCleanup(retire_bridge,bridge);runtime=Runtime(threading.Event(),Limits());out=[];stopped=[]
         def worker():
             info=bridge.request('discover',{},runtime);out.append(bridge.request('call',{'tool':info['tool_details'][0],'arguments':{'text':'input'}},runtime))
         thread=threading.Thread(target=worker);thread.start();loop=QEventLoop();poll=QTimer()
         def tick():
             if bridge.elicitation_dialog and not stopped:stopped.append(True);bridge.close_signal.emit()
             if not thread.is_alive():loop.quit()
-        poll.timeout.connect(tick);poll.start(10);QTimer.singleShot(7000,loop.quit);loop.exec();poll.stop();thread.join(1);self.app.processEvents()
+        poll.timeout.connect(tick);poll.start(10);run_worker_loop(self.app,loop,poll,thread)
         self.assertFalse(thread.is_alive());self.assertTrue(stopped);self.assertTrue(out[0]['call_uncertain']);self.assertIsNone(bridge.elicitation_dialog)
 
     def test_server_manager_can_answer_manual_tool_request(self):
