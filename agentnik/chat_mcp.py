@@ -15,12 +15,14 @@ class ChatMCP(QObject):
 
     def __init__(self,server,config,parent=None,extra_secrets=()):
         super().__init__(parent);self.server=copy.deepcopy(server);self.closing=False
-        self.bridge=CodingMCPBridge(server,config,self);self.tools=None;self.task_capabilities={}
+        self.bridge=CodingMCPBridge(server,config,self);self.tools=None;self.task_capabilities={};self.resources=None
         self.close_requested.connect(self._close_on_gui)
         self.secret_values=[*self.bridge.environment_values.values(),*(secret for secret in extra_secrets if secret)]
         self.definitions=(
             ToolDefinition('mcp_discover','server','Connect to the user-selected MCP server and list its tools. Pass "connect" or the selected server name.',200),
             ToolDefinition('mcp_call','request','Call a discovered MCP tool. request is a JSON object encoded as a string: {"tool":"name","arguments":{...}}.',16000),
+            ToolDefinition('mcp_resources_list','server','List resources from a connected MCP server. Pass its exact server name or "connect".',200),
+            ToolDefinition('mcp_resources_read','request','Read a listed MCP resource. request is JSON encoded as a string: {"server":"server name","uri":"listed URI"}.',4000),
         )
 
     def approve(self,proposal,runtime):
@@ -38,6 +40,19 @@ class ChatMCP(QObject):
             if args['server'].casefold() not in ('connect',self.server['name'].casefold()):raise ResearchError('Use connect or the selected MCP server name.')
             if self.tools is not None:raise ResearchError('The selected MCP server is already connected.')
             return None
+        if name=='mcp_resources_list':
+            if self.tools is None:raise ResearchError('Connect to the MCP server before listing resources.')
+            if args['server'].casefold() not in ('connect',self.server['name'].casefold()):raise ResearchError('Choose the connected MCP server.')
+            return None
+        if name=='mcp_resources_read':
+            if self.tools is None or self.resources is None:raise ResearchError('List MCP resources before reading one.')
+            try:
+                value=json.loads(args['request'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
+                if not isinstance(value,dict) or set(value)!={'server','uri'} or not isinstance(value['server'],str) or value['server'].casefold()!=self.server['name'].casefold() or not isinstance(value['uri'],str) or value['uri'] not in {item['uri'] for item in self.resources}:raise ValueError()
+                from .mcp_remote import contains_secret
+                if any(secret and contains_secret(value,secret) for secret in self.secret_values):raise ValueError()
+            except (ValueError,TypeError,KeyError,RecursionError,UnicodeError):raise ResearchError('Choose a listed resource and its connected MCP server.') from None
+            return value
         if name!='mcp_call' or self.tools is None:raise ResearchError('Connect to the selected MCP server before calling a tool.')
         try:
             value=json.loads(args['request'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
@@ -60,11 +75,14 @@ class ChatMCP(QObject):
         for name,args in calls:self.validate_call(name,args)
 
     def needs_reconnect(self,calls):
-        if self.tools is not None or not any(name=='mcp_call' for name,_ in calls):return False
-        if any(name!='mcp_call' for name,_ in calls):raise ResearchError('Connect to the selected MCP server before calling a tool.')
+        if self.tools is not None or not any(name in ('mcp_call','mcp_resources_list') for name,_ in calls):return False
+        if any(name not in ('mcp_call','mcp_resources_list') for name,_ in calls):raise ResearchError('Connect to the selected MCP server before accessing tools or resources.')
         # Check the complete batch's basic structure and credentials before connecting.
         from .mcp_remote import contains_secret
-        for _,args in calls:
+        for name,args in calls:
+            if name=='mcp_resources_list':
+                if args.get('server','').casefold() not in ('connect',self.server['name'].casefold()):raise ResearchError('Choose the selected MCP server.')
+                continue
             try:
                 value=json.loads(args['request'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
                 if not isinstance(value,dict) or set(value)!={'tool','arguments'} or not isinstance(value['tool'],str) or not isinstance(value['arguments'],dict):raise ValueError()
@@ -83,6 +101,18 @@ class ChatMCP(QObject):
             self.tools=response.get('tool_details',[]);self.task_capabilities=response.get('task_capabilities',{})
             notify('mcp','Connected to '+server['name']+'; discovered '+str(len(self.tools))+' tool(s).'+(' More tools were not listed.' if response.get('more_tools',False) else ''))
             return {'server':server['name'],'tools':self.tools,'task_capabilities':self.task_capabilities,'more_tools':response.get('more_tools',False),'notice':'Untrusted server metadata. Task-required execution is supported for capable servers.'}
+        if name in ('mcp_resources_list','mcp_resources_read'):
+            uri=validated['uri'] if name=='mcp_resources_read' else ''
+            response=self.bridge.request('resources_read' if uri else 'resources_list',{'uri':uri} if uri else {},runtime)
+            if 'error' in response:raise ResearchError(response['error'])
+            if not uri:
+                self.resources=response.get('resources',[])
+                notify('mcp','Resources listed on '+server['name']+'.')
+                return {'server':server['name'],'resources':self.resources,'more_resources':response.get('more_resources',False),'notice':'Untrusted MCP resource metadata.'}
+            from .mcp_content import model_resource_contents
+            contents,_=model_resource_contents(response.get('contents',[]),False,0,'MCP '+server['name'])
+            notify('mcp','Resource read on '+server['name']+'.')
+            return {'server':server['name'],'uri':uri,'contents':contents,'notice':'Untrusted MCP resource content.'}
         value,tool=validated
         notify('mcp','Calling '+tool['name']+' on '+server['name']+'.')
         response=self.bridge.request('call',{'tool':tool,'arguments':value['arguments']},runtime)
@@ -132,6 +162,8 @@ class MultiChatMCP(QObject):
         self.definitions=(
             ToolDefinition('mcp_discover','server','Connect to all selected MCP servers in precedence order. Pass "connect".',200),
             ToolDefinition('mcp_call','request','Call an MCP tool. request is a JSON string: {"tool":"name","arguments":{...},"server":"optional server name"}. The first server wins conflicting names.',16000),
+            ToolDefinition('mcp_resources_list','server','List resources from a selected connected MCP server by exact server name.',200),
+            ToolDefinition('mcp_resources_read','request','Read a listed MCP resource. request is JSON encoded as a string: {"server":"server name","uri":"listed URI"}.',4000),
         )
 
     def _parse(self,args):
@@ -148,6 +180,19 @@ class MultiChatMCP(QObject):
         if name=='mcp_discover':
             if args.get('server','').casefold()!='connect' or self.tools is not None:raise ResearchError('Use connect once to discover the selected MCP servers.')
             return None
+        if name in ('mcp_resources_list','mcp_resources_read'):
+            if self.tools is None:raise ResearchError('Connect to the selected MCP servers before accessing resources.')
+            if name=='mcp_resources_list':server_name=args.get('server','')
+            else:
+                try:
+                    value=json.loads(args['request'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
+                    if not isinstance(value,dict) or set(value)!={'server','uri'} or not isinstance(value['server'],str) or not isinstance(value['uri'],str):raise ValueError()
+                    server_name=value['server']
+                except (ValueError,TypeError,KeyError,RecursionError,UnicodeError):raise ResearchError('Choose a listed resource and its connected MCP server.') from None
+            controller=next((item for item in self.controllers if item.server['name'].casefold()==server_name.casefold()),None)
+            if controller is None:raise ResearchError('Choose a selected MCP server by name.')
+            controller.validate_call(name,args)
+            return controller,args
         if name!='mcp_call' or self.tools is None:raise ResearchError('Connect to the selected MCP servers before calling a tool.')
         value=self._parse(args)
         if self.more_tools:raise ResearchError('An MCP tool list is incomplete; precedence cannot be determined safely.')
@@ -163,14 +208,16 @@ class MultiChatMCP(QObject):
         for name,args in calls:self.validate_call(name,args)
 
     def needs_reconnect(self,calls):
-        if self.tools is not None or not any(name=='mcp_call' for name,_ in calls):return False
-        if any(name!='mcp_call' for name,_ in calls):raise ResearchError('Connect to the selected MCP servers before calling a tool.')
-        for _,args in calls:self._parse(args)
+        if self.tools is not None or not any(name in ('mcp_call','mcp_resources_list') for name,_ in calls):return False
+        if any(name not in ('mcp_call','mcp_resources_list') for name,_ in calls):raise ResearchError('Connect to the selected MCP servers before accessing tools or resources.')
+        for name,args in calls:
+            if name=='mcp_call':self._parse(args)
+            elif not any(controller.server['name'].casefold()==args.get('server','').casefold() for controller in self.controllers):raise ResearchError('Choose a selected MCP server by name.')
         return True
 
     def invoke(self,name,args,runtime):
         validated=self.validate_call(name,args)
-        if name=='mcp_call':
+        if name in ('mcp_call','mcp_resources_list','mcp_resources_read'):
             controller,payload=validated
             return controller.invoke(name,payload,runtime)
         # The caller charges one discovery; additional server requests are charged here.

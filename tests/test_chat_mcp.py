@@ -31,6 +31,68 @@ class ChatMCPIntegration(unittest.TestCase):
         while not predicate() and time.monotonic()<end:self.app.processEvents();time.sleep(.005)
         self.assertTrue(predicate());self.app.processEvents()
 
+    def test_chat_resources_require_listing_and_correct_server(self):
+        from agentnik.chat_mcp import MultiChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers});runtime=Runtime()
+        for controller in group.controllers:
+            controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[]},{'resources':[{'uri':'test://doc','name':controller.server['name']}],'more_resources':False},{'contents':[{'uri':'test://doc','text':'Evidence from '+controller.server['name']}]}]
+        group.invoke('mcp_discover',{'server':'connect'},runtime)
+        request={'request':json.dumps({'server':'Second','uri':'test://doc'})}
+        with self.assertRaises(ResearchError):group.invoke('mcp_resources_read',request,runtime)
+        listed=group.invoke('mcp_resources_list',{'server':'Second'},runtime);self.assertEqual(listed['resources'][0]['name'],'Second')
+        result=group.invoke('mcp_resources_read',request,runtime);self.assertEqual(result['contents'][0]['text'],'Evidence from Second')
+        with self.assertRaises(ResearchError):group.invoke('mcp_resources_read',{'request':json.dumps({'server':'First','uri':'test://doc'})},runtime)
+        self.assertEqual(group.controllers[0].bridge.request.call_count,1)
+
+    def test_chat_model_reads_mcp_resource_over_existing_loop(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Documents','command':sys.executable,'args':[],'enabled':True}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock()
+        controller.bridge.request.side_effect=[{'tool_details':[]},{'resources':[{'uri':'test://report','name':'report'}],'more_resources':False},{'contents':[{'uri':'test://report','text':'Revenue was 42.'}]}]
+        request=json.dumps({'server':'Documents','uri':'test://report'})
+        replies=[Wire(response([function('mcp_discover',{'server':'connect'},'one')]),False),Wire(response([function('mcp_resources_list',{'server':'Documents'},'two')]),False),Wire(response([function('mcp_resources_read',{'request':request},'three')]),False),Wire(response([message('Revenue was 42.')]),False)]
+        bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Read report'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');self.assertIn('Revenue was 42.',json.dumps(bodies[-1]));self.assertEqual([item.args[0] for item in controller.bridge.request.call_args_list],['discover','resources_list','resources_read'])
+
+    def test_chat_resource_list_reconnects_and_read_requires_fresh_listing(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Documents','command':sys.executable,'args':[],'enabled':True}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[]},{'resources':[{'uri':'test://report','name':'Report'}]}]
+        request=json.dumps({'server':'Documents','uri':'test://report'});bodies=[]
+        replies=[Wire(response([function('mcp_resources_read',{'request':request},'one')]),False),Wire(response([function('mcp_resources_list',{'server':'Documents'},'two')]),False),Wire(response([message('Listed')]),False)]
+        def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'List report'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');self.assertIn('List MCP resources before reading one',bodies[1]);self.assertEqual([item.args[0] for item in controller.bridge.request.call_args_list],['discover','resources_list'])
+
+    def test_chat_reads_real_local_mcp_server_resource(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            root=Path(folder);server=root/'server.py'
+            server.write_text('''import json,sys
+for line in sys.stdin:
+ req=json.loads(line);method=req['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
+ elif method=='resources/list':result={'resources':[{'uri':'test://report','name':'Report'}]}
+ elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'text':'Synthetic evidence 42'}]}
+ else:raise RuntimeError('unexpected '+method)
+ print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
+''',encoding='utf-8')
+            store=Store(root/'data');store.config['mcp_servers']=[{'name':'Documents','command':sys.executable,'args':[str(server)],'enabled':True}];store.flush();window=Window(store);window.connections={'test':dict(C)}
+            request=json.dumps({'server':'Documents','uri':'test://report'});bodies=[]
+            replies=[Wire(response([function('mcp_discover',{'server':'connect'},'one')]),False),Wire(response([function('mcp_resources_list',{'server':'Documents'},'two')]),False),Wire(response([function('mcp_resources_read',{'request':request},'three')]),False),Wire(response([message('Evidence 42')]),False)]
+            def send(c,url,body,timeout):bodies.append(json.dumps(body));return replies.pop(0)
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget();tab.mcp_choice.setCurrentIndex(1);tab.composer.setPlainText('Read report')
+                with patch.object(core,'open_request',side_effect=send):tab.submit();self.settle(lambda:tab.job is None)
+                self.assertEqual(tab.session['messages'][-1]['text'],'Evidence 42');self.assertIn('Synthetic evidence 42',bodies[-1]);self.assertEqual(tab.session['messages'][-1]['research']['status'],'completed')
+            finally:window.close();self.app.processEvents();store.db.close()
+
     def test_chat_replaces_mcp_binary_media_with_notices(self):
         from agentnik.chat_mcp import ChatMCP
         from agentnik.tools import Runtime
