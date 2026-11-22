@@ -40,7 +40,7 @@ def parse_prompt_messages(result):
     description=result.get('description','');messages=result.get('messages')
     if not isinstance(description,str) or len(description)>4000 or not isinstance(messages,list) or len(messages)>16:raise ValueError('Invalid MCP prompt result')
     from .mcp_content import model_tool_result
-    from .mcp_resources import parse_resource_text
+    from .mcp_resources import parse_resource_contents
     safe=[];user_text=[];user_nontext=0
     for message in messages:
         if not isinstance(message,dict) or message.get('role') not in ('user','assistant'):raise ValueError('Invalid MCP prompt message')
@@ -59,7 +59,7 @@ def parse_prompt_messages(result):
             if not isinstance(resource,dict):raise ValueError('Invalid embedded MCP resource')
             uri=resource.get('uri')
             if not isinstance(uri,str) or not uri or len(uri)>2048 or any(ord(c)<32 or ord(c)==127 for c in uri):raise ValueError('Invalid embedded MCP resource URI')
-            checked=parse_resource_text({'contents':[resource]},uri)['contents'][0]
+            checked=parse_resource_contents({'contents':[resource]},uri)['contents'][0]
             sanitized={'type':'resource','resource':checked}
         else:raise ValueError('Unsupported MCP prompt content')
         if 'annotations' in content:sanitized['annotations']=content['annotations']
@@ -67,6 +67,6 @@ def parse_prompt_messages(result):
         if visible['content']:
             safe.append({'role':message['role'],'content':visible['content'][0]})
         elif content.get('annotations',{}).get('audience') and 'user' in content['annotations']['audience']:
-            if content['type']=='image':user_nontext+=1
+            if content['type']=='image' or (content['type']=='resource' and 'blob' in checked):user_nontext+=1
             else:user_text.append(text if content['type']=='text' else checked['text'])
     return {'description':description,'messages':safe,'user_text':user_text,'user_nontext':user_nontext}

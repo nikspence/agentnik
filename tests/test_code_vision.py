@@ -14,6 +14,43 @@ from test_routing import Wire
 from test_image_generation import png
 
 class CodeVisionTests(unittest.TestCase):
+    def test_embedded_mcp_resource_images_follow_vision_setting(self):
+        from agentnik.mcp_content import model_images,model_tool_result
+        from agentnik.mcp_prompts import parse_prompt_messages
+        encoded=base64.b64encode(png()).decode()
+        resource={'uri':'file:///chart.png','mimeType':'image/png','blob':encoded}
+        private={'type':'resource','resource':resource,'annotations':{'audience':['user']}}
+        public={'type':'resource','resource':resource}
+        filtered,_,user_nontext=model_tool_result({'content':[public,private]})
+        self.assertEqual(user_nontext,1)
+        for enabled in (False,True):
+            with self.subTest(enabled=enabled):
+                result,images=model_images(filtered,enabled,4,'server')
+                self.assertNotIn(encoded,json.dumps(result));self.assertEqual(len(images),int(enabled))
+                self.assertIn('follows' if enabled else 'disabled',result['content'][0]['resource']['notice'])
+        prompt=parse_prompt_messages({'messages':[{'role':'user','content':public},{'role':'assistant','content':private}]})
+        self.assertEqual(prompt['user_nontext'],1);self.assertEqual(len(prompt['messages']),1)
+        result,images=model_images({'content':[prompt['messages'][0]['content']]},True,4,'prompt')
+        self.assertEqual(images[0][1],png());self.assertNotIn(encoded,json.dumps(result))
+        invalid={'type':'resource','resource':dict(resource,text='conflict')}
+        result,images=model_images({'content':[invalid]},True,4,'server')
+        self.assertEqual(images,[]);self.assertNotIn(encoded,json.dumps(result));self.assertIn('invalid',result['content'][0]['text'])
+
+    def test_mcp_tool_embedded_image_reaches_model_as_visual(self):
+        from unittest.mock import Mock
+        encoded=base64.b64encode(png()).decode()
+        detail={'name':'chart','description':'Chart','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as root:
+            bridge=Mock();bridge.server={'name':'Charts','command':'server','args':[],'enabled':True}
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'resource','resource':{'uri':'file:///chart','mimeType':'image/png','blob':encoded}}]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'chart','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Inspect chart',mcp_bridge=bridge,vision_enabled=True).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);messages=bodies[-1]['messages']
+            tool=next(m for m in reversed(messages) if m['role']=='tool');self.assertNotIn(encoded,tool['content']);self.assertNotIn(encoded,json.dumps(events))
+            self.assertEqual(messages[-1]['content'][1]['image_url']['url'],'data:image/png;base64,'+encoded)
+
     def test_mcp_image_resource_reaches_vision_model(self):
         from unittest.mock import Mock
         encoded=base64.b64encode(png()).decode()

@@ -34,6 +34,18 @@ def model_images(result,enabled,slots,label):
     from .image_generation import MAX_IMAGE_BYTES,image_bytes
     output=copy.deepcopy(result);images=[];content=[]
     for block in output['content']:
+        if block.get('type')=='resource':
+            resource=block.get('resource')
+            if not isinstance(resource,dict):
+                content.append({'type':'text','text':'The embedded MCP resource was invalid.'});continue
+            if 'blob' in resource:
+                uri=resource.get('uri');mime=resource.get('mimeType')
+                if not isinstance(uri,str) or not uri or len(uri)>2048 or any(ord(ch)<32 or ord(ch)==127 for ch in uri) or 'text' in resource:
+                    content.append({'type':'text','text':'The embedded MCP resource was invalid.'});continue
+                transformed,visual=model_images({'content':[{'type':'image','data':resource['blob'],'mimeType':mime}]},enabled,max(0,slots-len(images)),label)
+                images.extend(visual)
+                content.append({'type':'resource','resource':{'uri':uri,'mimeType':mime if isinstance(mime,str) and len(mime)<=256 else '', 'notice':transformed['content'][0]['text']}})
+                continue
         if block.get('type')!='image':content.append(block);continue
         reason='Image inspection is disabled for this Code run.'
         if enabled and len(images)<slots:
