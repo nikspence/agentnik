@@ -45,7 +45,7 @@ class ImageAPI(unittest.TestCase):
         with patch.object(images,'MAX_RESPONSE_BYTES',10),patch.object(core,'open_request',return_value=io.BytesIO(b'x'*11)),self.assertRaises(images.ImageRequestError):images.generate(C,'model','prompt')
 
     def test_failure_does_not_retry_or_expose_server_or_key(self):
-        for exc,kind in ((core.EndpointError(403,'fixture-key private detail'),images.ImageRequestError),(TimeoutError('fixture-key'),images.ImageRequestUncertain)):
+        for exc,kind in ((core.EndpointError(403,'fixture-key private detail'),images.ImageRequestError),(core.EndpointError(500,'fixture-key private detail'),images.ImageRequestUncertain),(TimeoutError('fixture-key'),images.ImageRequestUncertain)):
             with self.subTest(kind=kind),patch.object(core,'open_request',side_effect=exc) as request:
                 with self.assertRaises(kind) as result:images.generate(C,'model','prompt')
                 self.assertNotIn('fixture-key',str(result.exception));request.assert_called_once()

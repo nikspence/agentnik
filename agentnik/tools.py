@@ -188,9 +188,14 @@ class Runtime:
         if self.external_deadline is not None:remaining=min(remaining,self.external_deadline-time.monotonic())
         return max(0,remaining)
 
-    def wait(self, fn):
+    def wait(self, fn, request_seconds=None):
         """Bound caller latency; late daemon-worker results are discarded, not replayed."""
-        self.check(); deadline=time.monotonic()+self.timeout()
+        self.check()
+        if request_seconds is None:timeout=self.timeout()
+        else:
+            timeout=min(request_seconds,self.limits.turn_seconds-(time.monotonic()-self.started))
+            if self.external_deadline is not None:timeout=min(timeout,self.external_deadline-time.monotonic())
+        deadline=time.monotonic()+max(0,timeout)
         if not _WORKER_SLOTS.acquire(blocking=False):
             raise LimitError('Research worker capacity reached; outstanding operations must finish before starting more work.')
         slots=_WORKER_SLOTS

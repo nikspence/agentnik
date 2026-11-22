@@ -88,6 +88,46 @@ class ProjectBoundaries(unittest.TestCase):
             with self.assertRaises(ValueError):files.read('binary')
 
 class ModelCoding(unittest.TestCase):
+    def test_image_tool_generates_project_asset_and_returns_no_binary_to_model(self):
+        from test_image_generation import png
+        image=png();events=[];bodies=[]
+        with tempfile.TemporaryDirectory() as directory:
+            config={'connection':dict(C,api_key='image-secret'),'model':'vendor/image','endpoint':''}
+            args={'prompt':'A blue circle','path':'image.png','reference_paths':'[]','aspect_ratio':'1:1','background':'auto'}
+            replies=[Wire(chat(calls=[call('image_gen',args)],finish='tool_calls'),False),Wire(chat('Created'),False)]
+            def send(connection,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            generated={'data':image,'mime':'image/png','suffix':'.png','cost':.01}
+            with patch.object(core,'open_request',side_effect=send),patch('agentnik.image_generation.generate',return_value=generated) as generate:
+                CodingRun(dict(C,stream=False),directory,'Make an image',image_config=config).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed');self.assertTrue((Path(directory)/'image.png').is_file())
+            generate.assert_called_once();self.assertEqual(generate.call_args.args[2],'A blue circle')
+            self.assertIn('image_gen',json.dumps(bodies[0]['tools']));self.assertNotIn('image-secret',json.dumps(bodies));self.assertNotIn('image-secret',json.dumps(events))
+            self.assertTrue(any(e.get('kind')=='image_generated' and e['path']=='image.png' for e in events))
+            self.assertNotIn('iVBOR',json.dumps(bodies[-1]))
+
+    def test_image_tool_will_not_overwrite_unreferenced_or_changed_file(self):
+        from test_image_generation import png
+        from agentnik import code_image
+        image=png()
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);target=root/'existing.png';target.write_bytes(image);files=ProjectFiles(directory)
+            with self.assertRaisesRegex(ValueError,'reference_paths'):code_image.prepare(files,'existing.png',[])
+            refs,paths=code_image.references(files,[],'["existing.png"]');base=code_image.prepare(files,'existing.png',paths)
+            target.write_bytes(image+b'user change')
+            with self.assertRaisesRegex(ValueError,'changed'):code_image.publish(files,'existing.png',base,image,lambda:None)
+            self.assertTrue(target.read_bytes().endswith(b'user change'))
+            with self.assertRaises(ValueError):code_image.references(files,[],'["../outside.png"]')
+
+    def test_uncertain_image_submission_stops_without_retry(self):
+        from agentnik.image_generation import ImageRequestUncertain
+        with tempfile.TemporaryDirectory() as directory:
+            config={'connection':dict(C),'model':'vendor/image','endpoint':''};events=[]
+            args={'prompt':'A circle','path':'image.png','reference_paths':'[]','aspect_ratio':'auto','background':'auto'}
+            with patch.object(core,'open_request',return_value=Wire(chat(calls=[call('image_gen',args)],finish='tool_calls'),False)) as request,patch('agentnik.image_generation.generate',side_effect=ImageRequestUncertain('uncertain')) as generate:
+                CodingRun(dict(C,stream=False),directory,'Make an image',image_config=config).run(events.append)
+            self.assertEqual(events[-1]['status'],'failed');self.assertIn('uncertain',events[-1]['text'].lower())
+            self.assertFalse((Path(directory)/'image.png').exists());request.assert_called_once();generate.assert_called_once()
+
     def test_large_public_page_does_not_stop_coding_run(self):
         from agentnik.web import PagePayload
         with tempfile.TemporaryDirectory() as directory:

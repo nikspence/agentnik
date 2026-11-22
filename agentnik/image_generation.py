@@ -58,14 +58,19 @@ def _read_json(connection,url,body=None,timeout=180,cancel=None,maximum=MAX_RESP
         with core.open_request(request_connection,url,body,timeout=timeout) as response:
             data=response.read(maximum+1)
     except core.EndpointError as exc:
+        if body is not None and (exc.status==408 or exc.status>=500):raise ImageRequestUncertain('Image request failed after submission; check the provider before retrying.') from None
         raise ImageRequestError('Image endpoint rejected the request (HTTP '+str(exc.status)+')') from None
     except (OSError,TimeoutError,ValueError) as exc:
         if body is not None:raise ImageRequestUncertain('Image request did not complete; it may have been submitted. Check the provider before retrying.') from None
         raise ImageRequestError('Image model listing failed') from None
     if cancel and cancel.is_set():raise InterruptedError('Image request cancelled; the provider may have completed it')
-    if len(data)>maximum:raise ImageRequestError('Image response exceeds the response size limit')
+    if len(data)>maximum:
+        if body is not None:raise ImageRequestUncertain('Image response exceeded the size limit after submission; check the provider before retrying.')
+        raise ImageRequestError('Image response exceeds the response size limit')
     try:return json.loads(data)
-    except (ValueError,UnicodeError,RecursionError):raise ImageRequestError('Image endpoint returned invalid JSON') from None
+    except (ValueError,UnicodeError,RecursionError):
+        if body is not None:raise ImageRequestUncertain('Image endpoint returned invalid JSON after submission; check the provider before retrying.') from None
+        raise ImageRequestError('Image endpoint returned invalid JSON') from None
 
 
 def list_models(connection,endpoint='',cancel=None):
@@ -93,14 +98,15 @@ def generate(connection,model,prompt,references=(),endpoint='',cancel=None,aspec
         body['background']=background
     result=_read_json(connection,image_endpoint(connection,endpoint),body,cancel=cancel)
     data=result.get('data') if isinstance(result,dict) else None
-    if not isinstance(data,list) or len(data)!=1 or not isinstance(data[0],dict):raise ImageRequestError('Image endpoint returned an invalid image result')
+    if not isinstance(data,list) or len(data)!=1 or not isinstance(data[0],dict):raise ImageRequestUncertain('Image endpoint returned an invalid image result after submission; check the provider before retrying')
     encoded=data[0].get('b64_json')
-    if not isinstance(encoded,str) or len(encoded)>4*((MAX_IMAGE_BYTES+2)//3):raise ImageRequestError('Image endpoint returned invalid image data')
+    if not isinstance(encoded,str) or len(encoded)>4*((MAX_IMAGE_BYTES+2)//3):raise ImageRequestUncertain('Image endpoint returned invalid image data after submission; check the provider before retrying')
     try:image=base64.b64decode(encoded,validate=True)
-    except (ValueError,binascii.Error):raise ImageRequestError('Image endpoint returned invalid image data') from None
-    mime,suffix=image_bytes(image)
+    except (ValueError,binascii.Error):raise ImageRequestUncertain('Image endpoint returned invalid image data after submission; check the provider before retrying') from None
+    try:mime,suffix=image_bytes(image)
+    except ImageRequestError:raise ImageRequestUncertain('Image endpoint returned an unreadable image after submission; check the provider before retrying') from None
     reported=data[0].get('media_type')
-    if reported is not None and reported!=mime:raise ImageRequestError('Image content does not match the reported format')
+    if reported is not None and reported!=mime:raise ImageRequestUncertain('Image content does not match the reported format; check the provider before retrying')
     usage=result.get('usage',{});cost=usage.get('cost') if isinstance(usage,dict) else None
     if type(cost) not in (int,float) or not math.isfinite(cost) or cost<0:cost=None
     return {'data':image,'mime':mime,'suffix':suffix,'cost':cost}

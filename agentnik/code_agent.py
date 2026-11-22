@@ -624,13 +624,14 @@ def mcp_fetch_fallback_url(result,args,completed_mcp_result=None):
     return urls[0] if urls and len(urls)==1 else None
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None,hosted_search=False,mcp_priority='first',git_author=None):
+    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None,hosted_search=False,mcp_priority='first',git_author=None,image_config=None):
         from .code_artifacts import validate_notes, Artifacts
         self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.test_report_may_be_stale=False;self.project_memory=project_memory
         from .track_execution import validate_runtime_track,initial_progress
         self.selected_track=validate_runtime_track(selected_track) if selected_track else None;self.track_progress=initial_progress(self.selected_track) if self.selected_track else None
         from .repositories import validate_git_author
         self.git_author=validate_git_author(git_author)
+        self.image_config=dict(image_config) if image_config else None
         self.connection=dict(connection);self.root=root;self.prompt=prompt;self.run_id=uuid.uuid4().hex
         from .document_reader import validate_documents
         import copy
@@ -805,6 +806,7 @@ class CodingRun:
             if self.goal_budget['seconds']:runtime.external_deadline=self.goal_started+max(0,self.goal_budget['seconds']-self.goal_elapsed)
         next_source=1;hosted_urls=set();research_action=None;google_unavailable=False;search_access_blocked=False
         secrets=[self.connection.get('api_key','')]+[item.get('key','') for item in self.web_backends]
+        if self.image_config:secrets.append(self.image_config['connection'].get('api_key',''))
         for bridge in self.mcp_bridges:
             values=getattr(bridge,'environment_values',{})
             if isinstance(values,dict):secrets.extend(value for value in values.values() if isinstance(value,str) and value)
@@ -853,6 +855,8 @@ class CodingRun:
         try:
             files=ProjectFiles(self.root);project=ProjectTools(files);c=self.connection;native=core.native_ollama(c);protocol=c.get('protocol','chat')
             available_tools=list(TOOLS)
+            if self.image_config:
+                available_tools.append(CodeTool('image_gen','Generate or edit a raster project asset using the configured image model. Use when the user requests an image; do not claim to have inspected the generated image. path must be a project-relative PNG, JPEG, or WebP file in an existing folder. reference_paths is a JSON array encoded as a string containing up to four project image paths or attachment:N identifiers; use [] for a new image. To replace an existing image include its path in reference_paths. aspect_ratio is auto, 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, or 2:3. background is auto, transparent, or opaque. Transparent images require PNG or WebP.',('prompt','path','reference_paths','aspect_ratio','background')))
             if self.goal:available_tools.append(CodeTool('set_goal_status','Report goal progress. status is active, completed, or blocked; detail explains progress, evidence and remaining work. Use completed only when the entire user objective is achieved and supported by observed evidence; use blocked only when further work requires user input or an external change.',('status','detail')))
             available_tools=[tool for tool in available_tools if (tool.name!='update_plan' if self.selected_track else tool.name!='report_track_progress')]
             if self.mcp_bridge:
@@ -1172,7 +1176,7 @@ class CodingRun:
                             if matches:raise ProjectToolError('MCP tool takes priority. Use mcp_call for '+call.name+' on '+matches[0]+' with the discovered schema.')
                         if self.goal and self.goal_status in ('completed','blocked') and call.name!='set_goal_status':raise ProjectToolError('The goal has a terminal status. Set it active before taking further steps.')
                         if batch_invalid:raise ProjectToolError(validation_error or 'This call was not executed because another call in the batch had invalid arguments. Correct the batch before retrying.')
-                        if self.selected_track and call.name in ('write_file','apply_patch','delete_file','create_directory','rename_file','move_file','rename_directory','move_directory'):
+                        if self.selected_track and call.name in ('write_file','apply_patch','delete_file','create_directory','rename_file','move_file','rename_directory','move_directory','image_gen'):
                             protected=files.root/'agentnik-plans'
                             for key in ('path','destination'):
                                 if key in args:
@@ -1696,6 +1700,28 @@ class CodingRun:
                         elif call.name=='document_outline':
                             from .document_outline import document_outline
                             result=document_outline(files,args['path'],runtime.check)
+                        elif call.name=='image_gen':
+                            from . import code_image,image_generation
+                            if not self.image_config:raise ProjectToolError('Image generation is not configured')
+                            generated=None
+                            try:
+                                check_project_mutation()
+                                refs,project_refs=code_image.references(files,self.images,args['reference_paths'])
+                                base=code_image.prepare(files,args['path'],project_refs)
+                                aspect='' if args['aspect_ratio']=='auto' else args['aspect_ratio']
+                                background='' if args['background']=='auto' else args['background']
+                                if background=='transparent' and Path(args['path']).suffix.lower() in ('.jpg','.jpeg'):raise ValueError('Use PNG or WebP for a transparent image')
+                                event('output',text='Generating image with the configured image model.')
+                                generated=runtime.wait(lambda:image_generation.generate(self.image_config['connection'],self.image_config['model'],args['prompt'],refs,endpoint=self.image_config['endpoint'],cancel=self.cancel,aspect_ratio=aspect,background=background),request_seconds=300)
+                                data=code_image.convert(generated['data'],Path(args['path']).suffix)
+                                check_project_mutation();code_image.publish(files,args['path'],base,data,check_project_mutation)
+                                event('image_generated',path=args['path']);event('output',text='Generated image: '+args['path'])
+                                result={'path':args['path'],'created':base is None,'bytes':len(data),'cost':generated['cost'],'notice':'Image generated; visual content has not been inspected.'}
+                            except image_generation.ImageRequestUncertain:
+                                raise LimitError('Image generation outcome is uncertain. Check the provider before retrying.') from None
+                            except (image_generation.ImageRequestError,ValueError,OSError) as exc:
+                                if generated is not None:raise LimitError('Image generation completed, but the image could not be safely saved. Inspect the project and provider before retrying.') from None
+                                raise ProjectToolError(str(exc)) from None
                         elif call.name=='script_outline':
                             from .script_symbols import script_outline
                             result=script_outline(files,args['path'],runtime.check)
