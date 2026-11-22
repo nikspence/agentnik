@@ -11,8 +11,8 @@ import time
 from datetime import datetime
 from urllib.parse import urlsplit
 from PySide6.QtCore import Qt,Signal,QObject,QUrl,QPoint,QTimer
-from PySide6.QtGui import QDesktopServices,QTextCursor
-from PySide6.QtWidgets import QScrollArea,QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QComboBox,QCheckBox,QSpinBox,QTabWidget
+from PySide6.QtGui import QDesktopServices,QTextCursor,QTextDocument,QTextDocumentFragment,QTextCharFormat
+from PySide6.QtWidgets import QScrollArea,QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QTextBrowser,QComboBox,QCheckBox,QSpinBox,QTabWidget
 from .repositories import RepositoryRegistry
 from .coding import plain
 from .code_agent import CodingRun
@@ -28,6 +28,43 @@ from .web import public_url
 from . import core,routing
 from .research_ui import SearchBackends
 from .search_providers import SEARCH_KINDS,SEARCH_PROVIDERS
+
+
+class CodeActivity(QTextBrowser):
+    """Selectable activity with Markdown only for model-authored responses."""
+    def __init__(self):
+        super().__init__()
+        self.setReadOnly(True);self.setOpenLinks(False);self.setOpenExternalLinks(False)
+        self.anchorClicked.connect(lambda url:QDesktopServices.openUrl(url) if url.scheme() in ('http','https') else None)
+        self.document().setDefaultStyleSheet('pre { white-space: pre-wrap; }')
+
+    def loadResource(self, resource_type, url):
+        # Model content cannot fetch remote images or read local files while rendering.
+        if resource_type==QTextDocument.ResourceType.ImageResource:return None
+        return super().loadResource(resource_type,url)
+
+    def append_entry(self,text,markdown=False):
+        cursor=QTextCursor(self.document());cursor.movePosition(QTextCursor.MoveOperation.End)
+        if not self.document().isEmpty():cursor.insertBlock()
+        cursor.setCharFormat(QTextCharFormat());first_block=cursor.block()
+        if markdown:
+            flags=QTextDocument.MarkdownFeature.MarkdownDialectGitHub | QTextDocument.MarkdownFeature.MarkdownNoHTML
+            cursor.insertFragment(QTextDocumentFragment.fromMarkdown(text,flags))
+            block=first_block
+            while block.isValid():
+                fmt=block.blockFormat()
+                if fmt.nonBreakableLines():fmt.setNonBreakableLines(False);QTextCursor(block).setBlockFormat(fmt)
+                block=block.next()
+        else:cursor.insertText(text)
+
+    def load_events(self,events,formatter):
+        self.clear();pending=[]
+        def flush():
+            if pending:self.append_entry(''.join(pending),True);pending.clear()
+        for entry in events:
+            if entry.get('kind')=='model_markdown':pending.append(entry.get('text',''))
+            else:flush();self.append_entry(formatter(entry))
+        flush()
 
 
 class CodingComposer(QPlainTextEdit):
@@ -234,7 +271,7 @@ class CodeTab(QWidget):
         self.subagents_toggle.toggled.connect(self.subagents_view.setVisible);self.subagents_toggle.toggled.connect(self.subagents_controls.setVisible);self.subagents_view.hide();self.subagents_controls.hide();self.refresh_subagents()
         activity_options=QHBoxLayout();layout.addLayout(activity_options)
         self.show_thinking=QCheckBox(self.tr('Show model thinking'));self.show_thinking.setToolTip(self.tr('Show and save thinking returned by the model in coding activity. Applies to the next run; not all providers expose thinking.'));self.show_thinking.setChecked(session.get('coding_show_thinking',False));self.show_thinking.toggled.connect(self.save_show_thinking);activity_options.addWidget(self.show_thinking);activity_options.addStretch()
-        self.activity=QPlainTextEdit('\n'.join(self.activity_text(e) for e in session.get('code_activity',[])));self.activity.setPlaceholderText(self.tr('No commands have been run.'));self.activity.setReadOnly(True);layout.addWidget(self.activity,1);self._activity_selection_scroll=SelectionScroll(self.activity)
+        self.activity=CodeActivity();self.activity.load_events(session.get('code_activity',[]),self.activity_text);self.activity.setPlaceholderText(self.tr('No commands have been run.'));layout.addWidget(self.activity,1);self._activity_selection_scroll=SelectionScroll(self.activity)
         self.activity.moveCursor(QTextCursor.MoveOperation.End)
         self._activity_revision=0;self._activity_initial_follow=True;self.activity.verticalScrollBar().actionTriggered.connect(self.activity_scrolled)
         QTimer.singleShot(0,self.finish_activity_open)
@@ -540,7 +577,7 @@ class CodeTab(QWidget):
     def continuation_activity(self):
         activity=self.session.get('code_activity',[]);start=next((i for i in range(len(activity)-1,-1,-1) if activity[i].get('kind')=='started'),0)
         prefixes=('Steering delivered: ',self.tr('Steering delivered: '))
-        return '\n'.join(item.get('text','') for item in activity[start:] if item.get('kind') in ('output','approval','decision','finished','steering_delivered') or (item.get('kind')=='steering' and item.get('text','').startswith(prefixes)))
+        return '\n'.join(item.get('text','') for item in activity[start:] if item.get('kind') in ('output','model_markdown','approval','decision','finished','steering_delivered') or (item.get('kind')=='steering' and item.get('text','').startswith(prefixes)))
 
     def continuation_steering(self,secrets):
         saved=self.session.get('coding_continuation_steering')
@@ -1418,15 +1455,21 @@ class CodeTab(QWidget):
         self._activity_initial_follow=False
 
     def record(self,kind,text):
+        self.record_entries([(kind,text)])
+
+    def record_entries(self,entries):
         self._activity_revision+=1;revision=self._activity_revision
         scroll=self.activity.verticalScrollBar();position=scroll.value();following=self._activity_initial_follow or position==scroll.maximum()
         anchor=self.activity.cursorForPosition(QPoint(2,2));anchor_block=anchor.blockNumber();anchor_offset=anchor.positionInBlock();anchor_y=self.activity.cursorRect(anchor).top()
-        cleaned=plain(text);removed=append_code_activity(self.session,kind,cleaned)
+        cleaned=[(kind,plain(text)) for kind,text in entries];removed=[]
+        for kind,text in cleaned:removed.extend(append_code_activity(self.session,kind,text))
         if removed:
             removed_blocks=sum(self.activity_text(e).count('\n')+1 for e in removed)
-            self.activity.setPlainText('\n'.join(self.activity_text(e) for e in self.session['code_activity']))
+            self.activity.load_events(self.session['code_activity'],self.activity_text)
             position=max(0,position-removed_blocks)
-        else:self.activity.appendPlainText(self.activity_text({'kind':kind,'text':cleaned}))
+        elif cleaned and all(kind=='model_markdown' for kind,_ in cleaned):self.activity.append_entry(''.join(text for _,text in cleaned),True)
+        else:
+            for kind,text in cleaned:self.activity.append_entry(self.activity_text({'kind':kind,'text':text}))
         scroll.setValue(scroll.maximum() if following else position)
         if removed and not following and anchor_block>=removed_blocks:
             def restore_anchor():
@@ -1437,8 +1480,7 @@ class CodeTab(QWidget):
                 for _ in range(5):
                     delta=self.activity.cursorRect(cursor).top()-anchor_y
                     if abs(delta)<2:break
-                    step=round(delta/max(1,self.activity.fontMetrics().lineSpacing())) or (1 if delta>0 else -1)
-                    previous=scroll.value();scroll.setValue(previous+step)
+                    previous=scroll.value();scroll.setValue(previous+delta)
                     if scroll.value()==previous:break
             QTimer.singleShot(0,restore_anchor)
         self.store.save(self.session);self.updated.emit()
@@ -1610,7 +1652,7 @@ class CodeTab(QWidget):
                 value=event.get(field,'')
                 if not isinstance(value,str) or not value:continue
                 self.record('output',self.tr('{role} model {model} — {label}:').format(role=role,model=model,label=label))
-                for start in range(0,len(value),1800):self.record('output',value[start:start+1800])
+                self.record_entries([('model_markdown',value[start:start+1800]) for start in range(0,len(value),1800)])
         elif kind=='finished':
             if isinstance(self.job,CodingRun) and self.job.goal and self.session.get('coding_goal'):
                 if 'goal_progress' in event:self.session['coding_goal_progress']=event['goal_progress']

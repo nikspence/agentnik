@@ -4,6 +4,8 @@ Agentnik's Code pane uses your configured model connections to inspect and chang
 
 Each Code run uses one selected Model. Its subagents use the same connection and model. Earlier model bindings remain stored but do not control a run.
 
+Code activity renders Markdown in new model responses, including headings, lists, links and code blocks. Tool calls, command output and other activity remain literal text. Markdown is retained in session history; only HTTP(S) links open when clicked, and embedded images are not loaded automatically.
+
 ## Start a task
 
 1. Configure a connection in **Connections**. Choose an endpoint and model that support tool calling; an alias appearing in a model list does not establish compatibility.
