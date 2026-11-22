@@ -113,6 +113,8 @@ class RemoteProbe(QObject):
         self.server_stream=None;self.server_stream_buffer=bytearray();self.server_stream_parts=[];self.server_stream_bytes=0;self.server_stream_first=True;self.server_stream_requests=deque();self.server_stream_pending=set()
         self.server_stream_enabled=False;self.server_stream_last_id=b'';self.server_stream_event_id=None;self.server_stream_seen=deque(maxlen=128);self.server_stream_retry_ms=1000;self.server_stream_retry_deadline=0;self.server_stream_notified=False
         self.server_stream_timer=QTimer(self);self.server_stream_timer.setSingleShot(True);self.server_stream_timer.timeout.connect(self.resume_server_stream)
+        self.subscription_id=None;self.subscription_ack=None
+        self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(self.subscription_timed_out)
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(self.timeout_ms);self.send(initialize_request())
@@ -176,13 +178,13 @@ class RemoteProbe(QObject):
             if field==b'data':
                 if separator and value.startswith(b' '):value=value[1:]
                 self.sse_parts.append(value)
-            elif field==b'id':
+            elif field==b'id' and not self.modern:
                 if separator and value.startswith(b' '):value=value[1:]
                 try:
                     value.decode('utf-8')
                     if len(value)<=1024 and not any(ch<32 or ch==127 for ch in value) and not (self.token and self.token.encode('ascii') in value):self.sse_event_id=value
                 except UnicodeError:pass
-            elif field==b'retry':
+            elif field==b'retry' and not self.modern:
                 if separator and value.startswith(b' '):value=value[1:]
                 if value.isdigit():self.sse_retry_ms=max(1000,int(value)) if len(value)<=9 else None
 
@@ -270,31 +272,47 @@ class RemoteProbe(QObject):
         """Open the optional, independent server-to-client event stream."""
         if self.server_stream is not None:return
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy);tls.configure_qt_request(request)
-        request.setRawHeader(b'Accept',b'text/event-stream');request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
-        if self.server_stream_last_id:request.setRawHeader(b'Last-Event-ID',self.server_stream_last_id)
-        if self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
+        request.setRawHeader(b'Accept',b'application/json, text/event-stream' if self.modern else b'text/event-stream');request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
+        if not self.modern and self.server_stream_last_id:request.setRawHeader(b'Last-Event-ID',self.server_stream_last_id)
+        if not self.modern and self.session:request.setRawHeader(b'Mcp-Session-Id',self.session.encode('ascii'))
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
-        reply=self.manager.get(request);self.server_stream=reply;self.server_stream_buffer=bytearray();self.server_stream_parts=[];self.server_stream_bytes=0;self.server_stream_first=True;self.server_stream_event_id=None
+        if self.modern:
+            self.next_id+=1;self.subscription_id=self.next_id;self.subscription_ack=None
+            message,headers=prepare_request({'jsonrpc':'2.0','id':self.subscription_id,'method':'subscriptions/listen','params':{'notifications':self.result['subscription_filters']}})
+            for name,value in headers.items():request.setRawHeader(name.encode('ascii'),value.encode('ascii'))
+            request.setRawHeader(b'Content-Type',b'application/json');reply=self.manager.post(request,json.dumps(message).encode());self.subscription_timer.start(self.timeout_ms)
+        else:reply=self.manager.get(request)
+        self.server_stream=reply;self.server_stream_buffer=bytearray();self.server_stream_parts=[];self.server_stream_bytes=0;self.server_stream_first=True;self.server_stream_event_id=None
         reply.setReadBufferSize(65536)
         if tls.relaxed():reply.sslErrors.connect(lambda _errors,reply=reply:reply.ignoreSslErrors())
         reply.readyRead.connect(lambda:self.read_server_stream(reply));reply.finished.connect(lambda:self.finish_server_stream(reply))
 
     def close_server_stream(self):
-        self.server_stream_enabled=False;self.server_stream_timer.stop()
+        self.server_stream_enabled=False;self.server_stream_timer.stop();self.subscription_timer.stop()
         reply=self.server_stream;self.server_stream=None
         if reply:
             reply.abort();reply.deleteLater()
         self.server_stream_buffer.clear();self.server_stream_parts=[];self.server_stream_bytes=0
+
+    def subscription_timed_out(self):
+        if self.modern and self.server_stream and self.subscription_ack is None:
+            self.subscription_failed('MCP change notification subscription was not acknowledged; list resources and prompts again.')
+
+    def subscription_failed(self,message):
+        self.close_server_stream();self.resource_items=[];self.template_items=[];self.prompt_items=[];self.subscription_ack=None
+        self.progress.emit(message)
 
     def finish_server_stream(self,reply):
         if self.server_stream is not reply:return
         self.read_server_stream(reply,final=True)
         if self.server_stream is not reply:return
         status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
-        error=reply.error();self.server_stream=None;reply.deleteLater()
+        error=reply.error();self.server_stream=None;reply.deleteLater();self.subscription_timer.stop()
         if not self.server_stream_enabled:return
         if status in (204,400,401,403,404,405,410,501) or error==QNetworkReply.NetworkError.SslHandshakeFailedError:
-            self.server_stream_enabled=False;return
+            if self.modern:self.subscription_failed('MCP change notification subscription ended; list resources and prompts again.')
+            else:self.server_stream_enabled=False
+            return
         self.server_stream_buffer.clear();self.server_stream_parts=[];self.server_stream_bytes=0;self.server_stream_event_id=None
         self.resource_items=[];self.template_items=[];self.prompt_items=[]
         if not self.server_stream_notified:
@@ -315,7 +333,9 @@ class RemoteProbe(QObject):
         status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
         content_type=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
         if status!=200 or content_type!='text/event-stream':
-            if status==200 or status in (204,400,401,403,404,405,410,501):self.close_server_stream()
+            if status==200 or status in (204,400,401,403,404,405,410,501):
+                if self.modern:self.subscription_failed('MCP change notification subscription was unavailable; list resources and prompts again.')
+                else:self.close_server_stream()
             return
         self.server_stream_buffer.extend(bytes(reply.readAll()))
         if len(self.server_stream_buffer)+self.server_stream_bytes>65536:self.close_server_stream();return
@@ -344,13 +364,13 @@ class RemoteProbe(QObject):
                 if separator and value.startswith(b' '):value=value[1:]
                 self.server_stream_parts.append(value);self.server_stream_bytes+=len(value)+1
                 if self.server_stream_bytes>65536:self.close_server_stream();return
-            elif field==b'id':
+            elif field==b'id' and not self.modern:
                 if separator and value.startswith(b' '):value=value[1:]
                 try:
                     value.decode('utf-8')
                     if len(value)<=1024 and not any(ch<32 or ch==127 for ch in value) and not (self.token and self.token.encode('ascii') in value):self.server_stream_event_id=value
                 except UnicodeError:pass
-            elif field==b'retry':
+            elif field==b'retry' and not self.modern:
                 if separator and value.startswith(b' '):value=value[1:]
                 if value.isdigit():self.server_stream_retry_ms=max(1000,int(value)) if len(value)<=128 else None
 
@@ -358,6 +378,26 @@ class RemoteProbe(QObject):
         try:
             message=json.loads(data)
             if not isinstance(message,dict) or message.get('jsonrpc')!='2.0' or (self.token and contains_secret(message,self.token)):raise ValueError()
+            if self.modern:
+                if 'id' in message:
+                    if message.get('id')!=self.subscription_id or 'method' in message:raise ValueError()
+                    return
+                params=message.get('params');meta=params.get('_meta') if isinstance(params,dict) else None
+                if not isinstance(meta,dict) or type(meta.get('io.modelcontextprotocol/subscriptionId')) is not int or meta['io.modelcontextprotocol/subscriptionId']!=self.subscription_id:raise ValueError()
+                method=message.get('method')
+                if self.subscription_ack is None:
+                    selected=params.get('notifications');requested=self.result['subscription_filters']
+                    if method!='notifications/subscriptions/acknowledged' or not isinstance(selected,dict) or any(key not in requested or type(value) is not bool or value and not requested[key] for key,value in selected.items()):raise ValueError()
+                    self.subscription_ack={key for key,value in selected.items() if value};self.subscription_timer.stop()
+                    missing=set(requested)-self.subscription_ack
+                    if missing:
+                        if 'resourcesListChanged' in missing:self.resource_items=[];self.template_items=[]
+                        if 'promptsListChanged' in missing:self.prompt_items=[]
+                        self.progress.emit('MCP server declined some change notifications; relist resources and prompts before using them.')
+                    return
+                mapping={'notifications/tools/list_changed':'toolsListChanged','notifications/resources/list_changed':'resourcesListChanged','notifications/prompts/list_changed':'promptsListChanged'}
+                if method not in mapping or mapping[method] not in self.subscription_ack:raise ValueError()
+                self.list_changed(method);return
             if 'id' in message:
                 if 'method' not in message:raise ValueError()
                 ident=message['id'];key=(type(ident).__name__,ident) if type(ident) is int or isinstance(ident,str) else None
@@ -377,7 +417,9 @@ class RemoteProbe(QObject):
                     self.progress_last,detail=notice;now=time.monotonic()
                     if self.progress_count<40 and now-self.progress_emitted_at>=.25:self.progress_count+=1;self.progress_emitted_at=now;self.progress.emit(detail)
         except MCPListChangedError as exc:self.stop(str(exc))
-        except (ValueError,UnicodeError,TypeError,RecursionError):self.close_server_stream()
+        except (ValueError,UnicodeError,TypeError,RecursionError):
+            if self.modern:self.subscription_failed('MCP change notification subscription returned an invalid message; list resources and prompts again.')
+            else:self.close_server_stream()
 
     def list_changed(self,method):
         notice=invalidate_server_list(self,method)
@@ -462,6 +504,8 @@ class RemoteProbe(QObject):
             if self.phase=='modern_discovery':
                 self.result=parse_discovery(message.get('result'))
                 if self.expected_identity and any(self.result.get(key)!=value for key,value in self.expected_identity.items()):raise ValueError('MCP server identity changed')
+                if self.result['subscription_filters']:
+                    self.server_stream_enabled=True;self.open_server_stream()
                 if 'tools' not in self.result['capabilities']:
                     if self.invocation:raise ValueError('MCP tools unavailable')
                     self.result.update(tools=[],tool_details=[],more_tools=False);self.finish_discovery();return

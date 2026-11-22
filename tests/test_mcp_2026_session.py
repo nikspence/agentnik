@@ -74,3 +74,66 @@ class ModernRemoteSession(unittest.TestCase):
         try:
             loop.exec();timer.stop();self.assertTrue(out[0]['call_uncertain']);self.assertEqual(calls.count('tools/call'),1);self.assertNotIn('GET',calls);self.assertNotIn('notifications/cancelled',calls)
         finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_subscription_requires_acknowledgement_and_matching_request_id(self):
+        session=RemoteSession('https://example.com/mcp','');session.modern=True;session.subscription_id=9
+        session.result={'subscription_filters':{'resourcesListChanged':True,'promptsListChanged':True}}
+        session.resource_items=[{'uri':'test://old'}];session.template_items=[{'uriTemplate':'test://{item}'}];session.prompt_items=[{'name':'old'}]
+        events=[];session.progress.connect(events.append)
+        def message(method,subscription_id,**extra):
+            return json.dumps({'jsonrpc':'2.0','method':method,'params':dict(extra,_meta={'io.modelcontextprotocol/subscriptionId':subscription_id})}).encode()
+        session.server_stream_event(message('notifications/subscriptions/acknowledged',9,notifications={'resourcesListChanged':True,'promptsListChanged':True}))
+        self.assertEqual(session.subscription_ack,{'resourcesListChanged','promptsListChanged'})
+        session.server_stream_event(message('notifications/resources/list_changed',9))
+        self.assertEqual(session.resource_items,[]);self.assertEqual(session.template_items,[]);self.assertEqual(session.prompt_items,[{'name':'old'}])
+        session.server_stream_event(message('notifications/prompts/list_changed',10))
+        self.assertEqual(session.prompt_items,[]);self.assertIsNone(session.subscription_ack);self.assertTrue(any('invalid message' in item for item in events))
+        session.closed=True
+
+    def test_subscription_does_not_accept_unacknowledged_notification(self):
+        session=RemoteSession('https://example.com/mcp','');session.modern=True;session.subscription_id=9;session.result={'subscription_filters':{'resourcesListChanged':True}}
+        session.resource_items=[{'uri':'test://old'}];session.prompt_items=[{'name':'old'}];events=[];session.progress.connect(events.append)
+        session.server_stream_event(json.dumps({'jsonrpc':'2.0','method':'notifications/resources/list_changed','params':{'_meta':{'io.modelcontextprotocol/subscriptionId':9}}}).encode())
+        self.assertEqual(session.resource_items,[]);self.assertEqual(session.prompt_items,[]);self.assertTrue(events);session.closed=True
+
+    def test_subscription_acknowledgement_of_subset_clears_uncovered_listings(self):
+        session=RemoteSession('https://example.com/mcp','');session.modern=True;session.subscription_id=9
+        session.result={'subscription_filters':{'resourcesListChanged':True,'promptsListChanged':True}}
+        session.resource_items=[{'uri':'test://old'}];session.prompt_items=[{'name':'old'}];events=[];session.progress.connect(events.append)
+        session.server_stream_event(json.dumps({'jsonrpc':'2.0','method':'notifications/subscriptions/acknowledged','params':{'notifications':{'resourcesListChanged':True},'_meta':{'io.modelcontextprotocol/subscriptionId':9}}}).encode())
+        self.assertEqual(session.resource_items,[{'uri':'test://old'}]);self.assertEqual(session.prompt_items,[]);self.assertTrue(any('declined' in text for text in events));session.closed=True
+
+    def test_tool_change_requires_fresh_discovery(self):
+        from unittest.mock import Mock
+        session=RemoteSession('https://example.com/mcp','');session.modern=True;session.subscription_id=9;session.subscription_ack={'toolsListChanged'};session.stop=Mock()
+        session.server_stream_event(json.dumps({'jsonrpc':'2.0','method':'notifications/tools/list_changed','params':{'_meta':{'io.modelcontextprotocol/subscriptionId':9}}}).encode())
+        session.stop.assert_called_once();self.assertIn('reconnect',session.stop.call_args.args[0]);session.closed=True
+
+    def test_subscription_disconnect_restarts_without_replay_and_invalidates_lists(self):
+        release=threading.Event();finish=threading.Event();listens=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method']
+                if method=='subscriptions/listen':
+                    listens.append((request['id'],self.headers.get('Last-Event-ID')))
+                    acknowledgement={'jsonrpc':'2.0','method':'notifications/subscriptions/acknowledged','params':{'_meta':{'io.modelcontextprotocol/subscriptionId':request['id']},'notifications':{'resourcesListChanged':True}}}
+                    self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'data: '+json.dumps(acknowledgement).encode()+b'\n\n');self.wfile.flush()
+                    (release if len(listens)==1 else finish).wait(7);return
+                if method=='initialize':status=400;body={'jsonrpc':'2.0','id':request['id'],'error':{'code':-32020,'message':'headers required'}}
+                else:
+                    status=200
+                    if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'resources':{'listChanged':True}}}
+                    elif method=='resources/list':result={'resources':[{'uri':'test://old','name':'Old'}]}
+                    else:raise AssertionError(method)
+                    body={'jsonrpc':'2.0','id':request['id'],'result':result}
+                payload=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();events=[]
+        session.discovered.connect(lambda _:session.list_resources());session.resources.connect(lambda _:release.set())
+        session.progress.connect(lambda text:events.append(text));session.ended.connect(lambda _:loop.quit())
+        poll=QTimer();poll.timeout.connect(lambda:loop.quit() if len(listens)>=2 and session.subscription_ack is not None else None);poll.start(25)
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();poll.stop();self.assertEqual(len(listens),2);self.assertNotEqual(listens[0][0],listens[1][0]);self.assertEqual([item[1] for item in listens],[None,None]);self.assertEqual(session.resource_items,[]);self.assertTrue(any('disconnected' in item for item in events))
+        finally:release.set();finish.set();session.shutdown();server.shutdown();server.server_close();thread.join(2)

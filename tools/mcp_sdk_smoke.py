@@ -38,6 +38,13 @@ def make_server(cancelled=None,resumption=None):
         await ctx.session.send_request(PingRequest(),EmptyResult,metadata=ServerMessageMetadata(related_request_id=ctx.request_id))
         return 'Ping acknowledged'
 
+    @server.tool()
+    async def trigger_changes(ctx:Context)->str:
+        """Emit synthetic resource and prompt change notifications."""
+        import asyncio
+        await ctx.notify_resources_changed();await ctx.notify_prompts_changed();await asyncio.sleep(.1)
+        return 'Changes sent'
+
     @server.resource('smoke://fixture')
     def fixture()->str:
         return 'Synthetic resource'
@@ -202,7 +209,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False):
     import datetime
     import ipaddress
     import socket
@@ -317,12 +324,41 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
             elif test_oauth_ui or test_oauth_dynamic:result=run_oauth_ui(url,oauth_requests,dynamic=test_oauth_dynamic)
             else:
                 session=RemoteSession(url,'',timeout_seconds=15)
-                result=run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
+                result=run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
             if thread.is_alive():raise RuntimeError('Local HTTPS server did not stop')
     return result
+
+
+def run_modern_notifications(session):
+    from PySide6.QtCore import QEventLoop,QTimer
+    loop=QEventLoop();result={'events':[],'called':False};timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit)
+    def maybe_finish():
+        if result['called'] and len(result['events'])>=2:loop.quit()
+    def start_call():
+        if session.subscription_ack is None:QTimer.singleShot(25,start_call);return
+        if not session.call(result['tool'],{}):result['error']='Call rejected';loop.quit()
+    def discovered(info):
+        result['tool']=next(tool for tool in info['tool_details'] if tool['name']=='trigger_changes')
+        if not session.list_resources():result['error']='Resource listing rejected';loop.quit()
+    def resources(info):
+        if not info.get('resources'):result['error']='Resource listing empty';loop.quit();return
+        start_call()
+    def progress(text):
+        if 'MCP resources changed' in text or 'MCP prompts changed' in text:result['events'].append(text);maybe_finish()
+    def called(info):
+        if 'error' in info:result['error']=info['error'];loop.quit();return
+        result['called']=True;maybe_finish()
+    session.discovered.connect(discovered);session.resources.connect(resources);session.progress.connect(progress);session.called.connect(called);session.ended.connect(lambda info:(result.update(error=info.get('error')),loop.quit()))
+    session.start();timer.start(15000);loop.exec();timer.stop()
+    try:
+        if result.get('error') or not result['called'] or len(result['events'])!=2 or session.resource_items:raise RuntimeError('Modern subscription failed: '+str(result))
+    finally:
+        from PySide6.QtCore import QCoreApplication
+        session.shutdown();session.manager.clearConnectionCache();QCoreApplication.processEvents()
+    return {'sdk_version':version('mcp'),'transport':'https-modern','protocol':'2026-07-28','checks':['subscription acknowledgement','resource and prompt change notifications','resource cache invalidation']}
 
 
 def run_oauth_ui(url,requests,dynamic=False):
@@ -505,6 +541,7 @@ if __name__=='__main__':
     elif sys.argv[1:]==['--server-modern']:modern_stdio_server()
     elif sys.argv[1:]==['--https']:print(json.dumps(run_https()))
     elif sys.argv[1:]==['--https-modern']:print(json.dumps(run_https(test_modern=True)))
+    elif sys.argv[1:]==['--https-modern-notifications']:print(json.dumps(run_https(test_modern=True,test_modern_notifications=True)))
     elif sys.argv[1:]==['--https-cancel']:print(json.dumps(run_https(test_cancel=True)))
     elif sys.argv[1:]==['--https-resume']:print(json.dumps(run_https(test_resume=True)))
     elif sys.argv[1:]==['--https-standalone-resume']:print(json.dumps(run_https(test_standalone_resume=True)))
@@ -523,4 +560,4 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server-modern'],timeout_seconds=15),'stdio-modern')))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern|--https|--https-modern|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-modern|--https|--https-modern|--https-modern-notifications|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
