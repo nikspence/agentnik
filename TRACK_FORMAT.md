@@ -1,6 +1,6 @@
 # Agentnik project track format, version 1
 
-Agentnik can inspect existing tracks and create new tracks from user-authored or explicitly applied Heavy-model draft proposals. Existing v1 tracks can be edited through per-file review; track execution and reconciliation are not implemented. Files stay in the project and remain authoritative; opening them does not call a model or execute project code. The existing session checklist remains independent and is never changed by the viewer.
+Agentnik can create and inspect tracks from user-authored or model-assisted drafts. Existing tracks can be edited with per-file review, selected for Code runs, and reconciled with model-reported progress through a reviewed metadata change. Track files stay in the project and remain authoritative; opening a track does not call a model or execute project code.
 
 ## Layout
 
@@ -17,7 +17,7 @@ agentnik-plans/
 Track IDs and task IDs are stable lowercase identifiers matching `[a-z][a-z0-9_-]{0,63}`. The directory and `track.json` ID must match. Use project-relative paths; the existing project protections reject traversal, protected paths, links, and hard-linked files. Each file is UTF-8, at most 128,000 bytes. Listing examines up to 200 directory entries and returns at most 100 track directories. Limit hits are reported. A project with no track directory is an ordinary empty project; old sessions require no migration.
 
 
-`context.md` is an optional project context document. It can describe goals, conventions and validation expectations and should link to the existing README and applicable `AGENTS.md` files rather than override them. It is read-only, untrusted, subject to the same 128,000-byte and path limits, and is not automatically loaded into model requests.
+`context.md` is an optional project context document. It can describe goals, conventions and validation expectations and should link to the existing README and applicable `AGENTS.md` files rather than override them. It is untrusted and subject to the same 128,000-byte and path limits. When a track is selected for a run, Agentnik includes the context in the reviewed track data sent to the model.
 
 ## Metadata contract
 

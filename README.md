@@ -7,7 +7,7 @@
 
 ## What you can do
 
-- **Code with your model:** work in local repositories or folders using Agentnik's own coding loop. Choose a model, delegate bounded analysis to subagents using that model, inspect and edit files, run shell commands and tests with a configurable approval switch, and use structured Git tools. [Coding features](CODE_FEATURES.md) · [Coding guide](CODING_GUIDE.md)
+- **Code with your model:** work in local repositories or folders using Agentnik's own coding loop. Choose a model, delegate bounded analysis and artifact creation to subagents using that model, inspect and edit files, run shell commands and tests with a configurable approval switch, and use structured Git tools. [Coding features](CODE_FEATURES.md) · [Coding guide](CODING_GUIDE.md)
 - **Plan with specifications and tracks:** the built-in **Spec & Plan** workflow follows a Conductor-style approach: draft requirements, a specification and a task plan, review project changes, then start a selected track. Persistent project context, editable drafts, task IDs and progress reconciliation keep larger changes organized. [Spec & Plan guide](CODING_GUIDE.md#spec--plan-track-preview) · [Track format](TRACK_FORMAT.md)
 - **Extend workflows with Skills and MCP:** select repository or user Skills and connect local or remote MCP servers. Code can use supported tools, text resources, templates and prompts; Chat offers an opt-in MCP tool preview. MCP tools can write or perform external actions without approval. [Skills and MCP](CODE_FEATURES.md) · [Chat tools](CHAT_GUIDE.md)
 - **Chat with images and documents:** keep conversations in independent tabs with Markdown, streaming, visible thinking, saved prompts, history and token statistics. Attach images and supported documents in Chat or Code, optionally generate or edit images using an image provider, and use local calculator and data-analysis tools. [Chat and history](CHAT_GUIDE.md) · [Coding guide](CODING_GUIDE.md)
@@ -23,7 +23,7 @@ Research and coding workflows include preview features. Model listings do not es
 
 ## What Agentnik is not
 
-Agentnik is not a remotely controlled or unattended automated agent. You start and direct work in the desktop application; Code can continue through steps of a goal while the application is running. Agentnik does not connect to messaging services and is not intended for multi-agent orchestration. Code subagents are limited to bounded analysis within a user-started run.
+Agentnik is not a remotely controlled or unattended automated agent. You start and direct work in the desktop application; Code can continue through steps of a goal while the application is running. Agentnik does not connect to messaging services and is not intended for multi-agent orchestration. Code subagents perform bounded work within a user-started run.
 
 ## Get started
 
@@ -54,8 +54,8 @@ These welcome screens were rendered offline with temporary data. Research screen
 
 Ordinary tests use temporary storage and do not issue live inference. Build and validate on each target OS. Pillow is needed to rebuild branding assets, not to run Agentnik. See [DISCLAIMER.md](DISCLAIMER.md) for responsibility and use information.
 
+The toolbar **Web** and **MCP** switches apply to new Chat and Code runs. **Settings** controls which tool wins a name conflict. Use **Settings** for shared search priority and providers, research and coding limits, optional Decision-model shell advice, and TLS verification. Select the Code model at the top of each Code pane. Settings changed during a run apply to the next run. Web defaults off.
+
 ## License
 
 Apache-2.0. Copyright 2026 Nikolaus Spence. Sole author: Nikolaus Spence.
-
-The toolbar **Web** and **MCP** switches apply to new Chat and Code runs. **Settings** controls which tool wins a name conflict. Use **Settings** for shared search priority and providers, research and coding limits, optional Decision-model shell advice, and TLS verification. Select the Code model at the top of each Code pane. Settings changed during a run apply to the next run. Previously saved per-tab web, limit, and Decision settings remain in history but are no longer used; Web defaults off.

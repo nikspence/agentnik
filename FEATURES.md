@@ -5,7 +5,7 @@ Agentnik is an interactive desktop client for chat, coding and research using co
 ## Chat and history
 
 - Independent conversations support streamed Markdown, optional thinking, editing and resending prompts, saved prompts and reported usage.
-- Attach images and supported documents, including PDF and Office files, for local preview and explicit submission. Local calculator and data-analysis tools are optional.
+- Attach images and supported documents, including PDF and Office files, for local preview and explicit submission. Local calculator and data-analysis tools are always available in Chat.
 - Sessions and attachments persist locally. Earlier Decision sessions and saved prompts remain read-only; new System One query testing belongs in Promptnik. Code can optionally use a System One model for shell-command advice.
 - Themes, font size and localization previews for Korean, Spanish, French, Simplified and Traditional Chinese, and German are available. See the [chat guide](CHAT_GUIDE.md) for controls, formats and limits.
 
