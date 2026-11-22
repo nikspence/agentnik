@@ -105,7 +105,7 @@ class ChatMCP(QObject):
         self.closing=True;self.bridge.close()
         # Remote shutdown has its own three-second deadline; keep its owner alive
         # until that cleanup can finish, then release the per-turn controller.
-        QTimer.singleShot(3500,self.deleteLater)
+        QTimer.singleShot(6500,self.deleteLater)
 
     def close(self):self.close_requested.emit()
 
@@ -191,6 +191,6 @@ class MultiChatMCP(QObject):
         if self.closing:return
         self.closing=True
         for controller in self.controllers:controller.close()
-        QTimer.singleShot(3500,self.deleteLater)
+        QTimer.singleShot(6500,self.deleteLater)
 
     def close(self):self.close_requested.emit()

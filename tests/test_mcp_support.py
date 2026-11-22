@@ -11,6 +11,48 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_remote_shutdown_cancels_active_task_when_advertised(self):
+        import threading,time
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([])
+        for mode in ('confirmed','rejected','timeout','not-advertised'):
+            with self.subTest(mode=mode):
+                calls=[];release=threading.Event();result_started=threading.Event()
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        req=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=req['method'];calls.append((method,self.headers.get('Mcp-Session-Id')))
+                        if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                        if method=='initialize':
+                            tasks={'requests':{'tools':{'call':{}}}}
+                            if mode!='not-advertised':tasks['cancel']={}
+                            result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'tasks':tasks}}
+                        elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'},'execution':{'taskSupport':'required'}}]}
+                        elif method=='tools/call':result={'task':{'taskId':'task-123','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttl':60000}}
+                        elif method=='tasks/result':result_started.set();release.wait(4);return
+                        elif method=='tasks/cancel':
+                            assert req['params']['taskId']=='task-123'
+                            if mode=='timeout':time.sleep(4)
+                            result={'taskId':'task-123','status':'cancelled' if mode=='confirmed' else 'working'};release.set()
+                        else:raise AssertionError(method)
+                        payload=json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode()
+                        try:self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
+                        except OSError:pass
+                    def do_DELETE(self):calls.append(('DELETE',self.headers.get('Mcp-Session-Id')));release.set();self.send_response(204);self.end_headers()
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','');loop=QEventLoop();finished=[]
+                session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.finished.connect(lambda value:(finished.append(value),loop.quit()))
+                timer=QTimer();timer.timeout.connect(lambda:session.shutdown() if result_started.is_set() else None);timer.start(10);session.start();QTimer.singleShot(7000,loop.quit)
+                try:
+                    loop.exec();timer.stop();self.assertTrue(finished,mode)
+                    if mode=='not-advertised':self.assertNotIn('task_cancelled',finished[0]);self.assertNotIn('tasks/cancel',[item[0] for item in calls])
+                    else:self.assertEqual(finished[0].get('task_cancelled'),mode=='confirmed');self.assertEqual([item[0] for item in calls].count('tasks/cancel'),1)
+                    self.assertEqual([item[0] for item in calls].count('tools/call'),1);self.assertIn(('DELETE','session-one'),calls)
+                finally:release.set();session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_remote_task_required_tool_lifecycle_and_uncertain_failures(self):
         import threading,time
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
