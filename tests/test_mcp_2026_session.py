@@ -36,6 +36,29 @@ class ModernRemoteSession(unittest.TestCase):
             invoked=[call for call in calls if call[0]=='tools/call'];self.assertEqual(len(invoked),2);self.assertEqual(invoked[1][1]['inputResponses'],{});self.assertGreaterEqual(invoked[1][2]-invoked[0][2],.2)
         finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
+    def test_stopping_during_state_wait_does_not_continue(self):
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method'];calls.append(method)
+                if method=='initialize':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{}}}
+                elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+                elif method=='tools/call':result={'resultType':'input_required','requestState':'opaque-private-state'}
+                else:raise AssertionError(method)
+                payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5);loop=QEventLoop();out=[]
+        session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(out.append)
+        def check():
+            if session.state_timer.isActive():session.stop();QTimer.singleShot(400,loop.quit)
+            else:QTimer.singleShot(10,check)
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start();QTimer.singleShot(10,check)
+        try:
+            loop.exec();timer.stop();self.assertTrue(out[0]['call_uncertain']);self.assertEqual(calls.count('tools/call'),1);self.assertFalse(session.state_timer.isActive());self.assertNotIn('opaque-private-state',str(out))
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_modern_task_cancellation_is_acknowledged_without_claiming_completion(self):
         for acknowledge in (True,False):
             with self.subTest(acknowledge=acknowledge):
