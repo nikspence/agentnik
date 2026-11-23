@@ -186,6 +186,22 @@ class Desktop(unittest.TestCase):
             self.app.processEvents(); time.sleep(.01)
         self.assertEqual(result[0][0],42); self.assertEqual(result[0][1],self.app.thread())
 
+    def test_cancelled_job_keeps_signals_alive_until_worker_finishes(self):
+        import gc,threading,weakref
+        from agentnik.ui import Job
+        started=threading.Event();release=threading.Event();delivered=[]
+        def work(_progress,cancel):
+            started.set();release.wait(3);return cancel.is_set()
+        job=Job(work,delivered.append,lambda error:self.fail(error));reference=weakref.ref(job)
+        try:
+            self.assertTrue(started.wait(3));job.cancel.set();del job;gc.collect()
+            self.assertIsNotNone(reference())
+            release.set();deadline=time.monotonic()+3
+            while not delivered and time.monotonic()<deadline:
+                self.app.processEvents();time.sleep(.01)
+            self.assertEqual(delivered,[True])
+        finally:release.set()
+
     def test_chat_sizes_font_settings_and_inline_thinking(self):
         from agentnik.storage import Store
         from agentnik.ui import Window, MessageBubble, MessageText, metrics_text
