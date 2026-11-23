@@ -41,6 +41,13 @@ def retain_result(artifacts,content):
     return {key:stored[key] for key in ('id','kind','characters')}
 
 
+def recoverable_server_error(response,notify):
+    if response.get('server_error') is True and response.get('call_uncertain') is not True and isinstance(response.get('error'),str):
+        notify('mcp','The MCP server returned an error for this request.')
+        return {'error':response['error']+' The request was not retried; any server-side effects are unknown.'}
+    raise ResearchError(response['error'])
+
+
 class ChatMCP(QObject):
     approval_requested=Signal(object)
     close_requested=Signal()
@@ -194,13 +201,15 @@ class ChatMCP(QObject):
         if name=='mcp_complete_argument':
             value,target=validated
             response=self.bridge.request('complete',{'kind':value['kind'],'target':target,'argument':value['argument'],'value':value['value'],'context':value['context']},runtime)
-            if 'error' in response:raise ResearchError(response['error'])
+            if 'error' in response:return recoverable_server_error(response,notify)
             notify('mcp','Argument suggestions received from '+server['name']+'.')
             return {'server':server['name'],'completion':response['completion'],'notice':'Untrusted server-provided suggestions.'}
         if name in ('mcp_resources_list','mcp_resources_read'):
             uri=validated['uri'] if name=='mcp_resources_read' else ''
             response=self.bridge.request('resources_read' if uri else 'resources_list',{'uri':uri} if uri else {},runtime)
-            if 'error' in response:raise ResearchError(response['error'])
+            if 'error' in response:
+                if not uri:self.resources=None
+                return recoverable_server_error(response,notify)
             if not uri:
                 self.resources=response.get('resources',[])
                 notify('mcp','Resources listed on '+server['name']+'.')
@@ -213,12 +222,14 @@ class ChatMCP(QObject):
         if name in ('mcp_prompts_list','mcp_prompts_get'):
             if name=='mcp_prompts_list':
                 response=self.bridge.request('prompts_list',{},runtime)
-                if 'error' in response:raise ResearchError(response['error'])
+                if 'error' in response:
+                    self.prompts=None;return recoverable_server_error(response,notify)
                 self.prompts=response.get('prompts',[]);notify('mcp','Prompts listed on '+server['name']+'.')
                 return {'server':server['name'],'prompts':self.prompts,'more_prompts':response.get('more_prompts',False),'notice':'Untrusted MCP prompt metadata.'}
             value,prompt=validated
             response=self.bridge.request('prompts_get',{'prompt':prompt,'arguments':value['arguments']},runtime)
-            if 'error' in response:raise ResearchError(response['error'])
+            if 'error' in response:
+                self.prompts=None;return recoverable_server_error(response,notify)
             from .mcp_content import model_images
             messages=[]
             for message in response.get('messages',[]):
@@ -234,12 +245,13 @@ class ChatMCP(QObject):
         if name in ('mcp_templates_list','mcp_templates_read'):
             if name=='mcp_templates_list':
                 response=self.bridge.request('templates_list',{},runtime)
-                if 'error' in response:raise ResearchError(response['error'])
+                if 'error' in response:
+                    self.templates=None;return recoverable_server_error(response,notify)
                 self.templates=response.get('templates',[]);notify('mcp','Resource templates listed on '+server['name']+'.')
                 return {'server':server['name'],'templates':self.templates,'more_templates':response.get('more_templates',False),'notice':'Untrusted MCP resource template metadata.'}
             value,template,uri=validated
             response=self.bridge.request('templates_read',{'template':template,'arguments':value['variables'],'uri':uri},runtime)
-            if 'error' in response:raise ResearchError(response['error'])
+            if 'error' in response:return recoverable_server_error(response,notify)
             from .mcp_content import model_resource_contents
             contents,images=model_resource_contents(response.get('contents',[]),self.vision_enabled,max(0,4-len(self.image_buffer)),'MCP',self.image_sequence[0])
             self.image_buffer.extend(images);self.image_sequence[0]+=len(images)

@@ -1901,6 +1901,37 @@ for line in sys.stdin:
             session.discovered.connect(ready);session.resources.connect(resource);session.ended.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
             self.assertEqual(results[0]['resources'][0]['name'],'Record');self.assertFalse(results[0]['more_resources']);self.assertEqual(results[0]['resources'][1]['name'],'Second');self.assertEqual(results[1]['contents'][0]['text'],'Resource text '*5000)
 
+    def test_local_resource_server_error_keeps_session_usable(self):
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_local import LocalSession
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            server=Path(folder)/'resource_errors.py';marker=Path(folder)/'reads.txt'
+            server.write_text('''import json,sys,pathlib
+for line in sys.stdin:
+ request=json.loads(line);method=request['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':reply={'result':{'protocolVersion':request['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}}
+ elif method=='resources/list':reply={'result':{'resources':[{'uri':'test://missing','name':'Missing'},{'uri':'test://good','name':'Good'}]}}
+ elif method=='resources/read':
+  uri=request['params']['uri']
+  with pathlib.Path(sys.argv[1]).open('a') as file:file.write(uri+'\\n')
+  reply={'error':{'code':-32002,'message':'Missing','data':'private-error-data'}} if uri=='test://missing' else {'result':{'contents':[{'uri':uri,'text':'Evidence'}]}}
+ else:raise RuntimeError(method)
+ print(json.dumps({'jsonrpc':'2.0','id':request['id'],**reply}),flush=True)
+''',encoding='utf-8')
+            session=LocalSession(sys.executable,[str(server),str(marker)],prefer_modern=False);loop=QEventLoop();out=[]
+            def received(value):
+                out.append(value)
+                if len(out)==1:session.read_resource('test://missing')
+                elif len(out)==2:session.read_resource('test://good')
+                else:loop.quit()
+            session.discovered.connect(lambda _:session.list_resources());session.resources.connect(received);session.ended.connect(lambda value:(out.append(value),loop.quit()))
+            session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
+            self.assertTrue(out[1]['server_error']);self.assertIn('Missing',out[1]['error']);self.assertNotIn('private-error-data',str(out));self.assertEqual(out[2]['contents'][0]['text'],'Evidence')
+            self.assertEqual(marker.read_text().splitlines(),['test://missing','test://good'])
+
     def test_resource_images_validate_mime_base64_and_requested_uri(self):
         import base64
         from test_image_generation import png
@@ -2222,6 +2253,71 @@ for line in sys.stdin:
                 thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() and any(c[0]=='DELETE' for c in calls) else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1)
             self.assertFalse(thread.is_alive());self.assertIn('error',out[2]);self.assertEqual(out[3]['messages'][0]['content']['text'],'Review safe'+' details 雪 '*5000);self.assertEqual([c[0] for c in calls].count('prompts/get'),1);self.assertTrue(all(c[1]=='session-one' for c in calls[1:]));self.assertNotIn('secret-token',str(out))
         finally:bridge.close();server.shutdown();server.server_close();server_thread.join(2)
+
+    def test_remote_prompt_server_error_requires_fresh_listing(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method']
+                if method=='server/discover':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if method=='initialize':reply={'result':{'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'prompts':{}}}}
+                elif method=='prompts/list':calls.append(method);reply={'result':{'prompts':[{'name':'review','arguments':[]}]}}
+                elif method=='prompts/get':calls.append(method);reply={'error':{'code':-32002,'message':'Unavailable','data':'private-error-data'}}
+                else:raise AssertionError(method)
+                payload=json.dumps({'jsonrpc':'2.0','id':request['id'],**reply}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
+        def received(value):
+            out.append(value)
+            if len(out)==1:session.list_prompts({'prompt':value['prompts'][0],'arguments':{}})
+            elif len(out)==2:session.list_prompts()
+            else:loop.quit()
+        session.discovered.connect(lambda _:session.list_prompts());session.prompts.connect(received);session.ended.connect(lambda value:(out.append(value),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(out[1]['server_error']);self.assertNotIn('private-error-data',str(out));self.assertEqual(out[2]['prompts'][0]['name'],'review')
+            self.assertEqual(calls,['prompts/list','prompts/list','prompts/get','prompts/list']);self.assertIsNone(session.prompt_invocation)
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
+    def test_remote_resource_server_error_keeps_session_usable(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from PySide6.QtCore import QEventLoop,QTimer
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        calls=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method']
+                if method=='server/discover':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                if method=='notifications/initialized':self.send_response(202);self.end_headers();return
+                if method=='initialize':reply={'result':{'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}}
+                elif method=='resources/list':reply={'result':{'resources':[{'uri':'test://missing','name':'Missing'},{'uri':'test://good','name':'Good'}]}}
+                elif method=='resources/read':
+                    uri=request['params']['uri'];calls.append(uri)
+                    reply={'error':{'code':-32002,'message':'Missing','data':'private-error-data'}} if uri=='test://missing' else {'result':{'contents':[{'uri':uri,'text':'Evidence'}]}}
+                else:raise AssertionError(method)
+                payload=json.dumps({'jsonrpc':'2.0','id':request['id'],**reply}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        app=QApplication.instance() or QApplication([]);server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
+        def received(value):
+            out.append(value)
+            if len(out)==1:session.read_resource('test://missing')
+            elif len(out)==2:session.read_resource('test://good')
+            else:loop.quit()
+        session.discovered.connect(lambda _:session.list_resources());session.resources.connect(received);session.ended.connect(lambda value:(out.append(value),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(out[1]['server_error']);self.assertIn('Missing',out[1]['error']);self.assertNotIn('private-error-data',str(out));self.assertEqual(out[2]['contents'][0]['text'],'Evidence');self.assertEqual(calls,['test://missing','test://good'])
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
     def test_remote_resource_listing_and_read_in_authenticated_session(self):
         import threading

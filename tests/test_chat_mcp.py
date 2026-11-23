@@ -786,6 +786,46 @@ for line in sys.stdin:
         self.assertIn('tool_failed',[event['kind'] for event in result['research']['events']])
         self.assertIn('fixture failure',json.dumps(bodies[-1]))
 
+    def test_chat_recovers_from_explicit_mcp_resource_error(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Documents','command':sys.executable,'args':[],'enabled':True};controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[]
+        controller.resources=[{'uri':'test://missing','name':'Missing'},{'uri':'test://good','name':'Good'}];controller.bridge=Mock()
+        controller.bridge.request.side_effect=[{'error':'MCP server error (-32002): Missing [untrusted server message]','server_error':True},{'contents':[{'uri':'test://good','text':'Evidence found'}]}]
+        def arguments(uri):return {'request':json.dumps({'server':'Documents','uri':uri})}
+        replies=[Wire(response([function('mcp_resources_read',arguments('test://missing'),'one')]),False),Wire(response([function('mcp_resources_read',arguments('test://good'),'two')]),False),Wire(response([message('Done')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Read'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');self.assertIn('MCP server error (-32002)',json.dumps(bodies[1]));self.assertIn('Evidence found',json.dumps(bodies[2]))
+        self.assertEqual([item['status'] for item in result['research']['tool_records']],['failed','completed']);self.assertEqual(controller.bridge.request.call_count,2)
+
+    def test_chat_does_not_recover_from_unconfirmed_resource_failure(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Documents','command':sys.executable,'args':[],'enabled':True};controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[];controller.resources=[{'uri':'test://one','name':'One'}]
+        controller.bridge=Mock();controller.bridge.request.return_value={'error':'Connection closed','call_uncertain':False}
+        request={'request':json.dumps({'server':'Documents','uri':'test://one'})};replies=[Wire(response([function('mcp_resources_read',request,'one')]),False)]
+        with patch.object(core,'open_request',side_effect=replies):result=research.run_managed(C,[{'role':'user','content':'Read'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'failed');self.assertEqual(controller.bridge.request.call_count,1)
+
+    def test_resource_prompt_template_and_completion_server_errors_are_recoverable(self):
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        server={'name':'Documents','command':sys.executable,'args':[],'enabled':True};controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[]
+        controller.resources=[{'uri':'test://one','name':'One'}];controller.prompts=[{'name':'review','arguments':[{'name':'code','required':False}]}];controller.templates=[{'uriTemplate':'test://{id}','name':'Item','supported':True}]
+        controller.bridge=Mock();controller.bridge.request.return_value={'error':'MCP server error (-32002): Missing [untrusted server message]','server_error':True}
+        request=lambda value:{'request':json.dumps(value)}
+        calls=[('mcp_resources_list',{'server':'Documents'}),('mcp_resources_read',request({'server':'Documents','uri':'test://one'})),('mcp_prompts_list',{'server':'Documents'}),('mcp_prompts_get',request({'server':'Documents','name':'review','arguments':{}})),('mcp_templates_list',{'server':'Documents'}),('mcp_templates_read',request({'server':'Documents','template':'test://{id}','variables':{'id':'one'}})),('mcp_complete_argument',request({'server':'Documents','kind':'prompt','target':'review','argument':'code','value':'a','context':{}}))]
+        for name,args in calls:
+            with self.subTest(name=name):
+                controller.resources=[{'uri':'test://one','name':'One'}];controller.prompts=[{'name':'review','arguments':[{'name':'code','required':False}]}];controller.templates=[{'uriTemplate':'test://{id}','name':'Item','supported':True}]
+                self.assertIn('not retried',controller.invoke(name,args,Runtime())['error'])
+                if name=='mcp_resources_list':self.assertIsNone(controller.resources)
+                if name in ('mcp_prompts_list','mcp_prompts_get'):self.assertIsNone(controller.prompts)
+                if name=='mcp_templates_list':self.assertIsNone(controller.templates)
+        controller.bridge.request.return_value={'error':'Uncertain','server_error':True,'call_uncertain':True}
+        with self.assertRaises(ResearchError):controller.invoke('mcp_resources_list',{'server':'Documents'},Runtime())
+
     def test_invalid_batch_is_not_executed_and_model_can_correct_it(self):
         import threading
         from agentnik.chat_mcp import ChatMCP

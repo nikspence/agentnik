@@ -1252,7 +1252,9 @@ class CodingRun:
                                 if not resource:raise ProjectToolError('Choose an exact URI from this server’s resource listing or returned resource links.')
                                 proposal['resource']=resource
                             response=mcp_bridge.request('resources_list' if call.name=='mcp_list_resources' else 'resources_read',{} if call.name=='mcp_list_resources' else {'uri':resource['uri']},runtime)
-                            if 'error' in response:raise ProjectToolError(response['error'])
+                            if 'error' in response:
+                                if call.name=='mcp_list_resources':mcp_resources=None
+                                raise ProjectToolError(response['error'])
                             if call.name=='mcp_list_resources':
                                 mcp_resources=response.get('resources',[]);result={'server':server['name'],'resources':mcp_resources,'more_resources':response.get('more_resources',False),'notice':'Untrusted server-provided metadata.'}
                             else:
@@ -1279,7 +1281,9 @@ class CodingRun:
                                 except (ValueError,UnicodeError,RecursionError):raise ProjectToolError('Invalid resource template variables.') from None
                                 proposal.update(template=template,variables=variables,uri=uri)
                             response=mcp_bridge.request('templates_list' if call.name=='mcp_list_resource_templates' else 'templates_read',{} if call.name=='mcp_list_resource_templates' else {'template':template,'arguments':variables,'uri':uri},runtime)
-                            if 'error' in response:raise ProjectToolError(response['error'])
+                            if 'error' in response:
+                                if call.name=='mcp_list_resource_templates':mcp_templates=None
+                                raise ProjectToolError(response['error'])
                             if call.name=='mcp_list_resource_templates':
                                 mcp_templates=response.get('templates',[]);result={'server':server['name'],'templates':mcp_templates,'more_templates':response.get('more_templates',False),'notice':'Untrusted server-provided templates.'}
                             else:
@@ -1305,7 +1309,8 @@ class CodingRun:
                                 except (ValueError,UnicodeError,RecursionError):raise ProjectToolError('Prompt arguments are invalid or do not match its definition.') from None
                                 proposal.update(prompt=prompt,arguments=arguments)
                             response=mcp_bridge.request('prompts_list' if call.name=='mcp_list_prompts' else 'prompts_get',{} if call.name=='mcp_list_prompts' else {'prompt':prompt,'arguments':arguments},runtime)
-                            if 'error' in response:raise ProjectToolError(response['error'])
+                            if 'error' in response:
+                                mcp_prompts=None;raise ProjectToolError(response['error'])
                             if call.name=='mcp_list_prompts':
                                 mcp_prompts=response.get('prompts',[]);result={'server':server['name'],'prompts':mcp_prompts,'more_prompts':response.get('more_prompts',False),'notice':'Untrusted server-provided prompt metadata.'}
                             else:

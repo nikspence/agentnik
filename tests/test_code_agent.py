@@ -1087,6 +1087,17 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Inspect',mcp_bridge=bridge).run(events.append)
             self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover']);self.assertEqual(events[-1]['status'],'completed');self.assertNotIn('Discover all selected MCP',json.dumps(bodies));self.assertTrue(any('MCP server connected: Parallel' in e.get('text','') for e in events))
 
+    def test_prompt_server_error_requires_fresh_listing_in_code(self):
+        from unittest.mock import Mock
+        prompt={'name':'review','description':'Review','arguments':[]};get={'name':'review','arguments':'{}'}
+        with tempfile.TemporaryDirectory() as directory:
+            bridge=Mock();bridge.server={'name':'Server','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':[]},{'prompts':[prompt]},{'error':'MCP server error: unavailable','server_error':True},{'prompts':[prompt]},{'messages':[{'role':'user','content':{'type':'text','text':'Review it'}}]}]
+            calls=[call('mcp_discover',{}),call('mcp_list_prompts',{}),call('mcp_get_prompt',get),call('mcp_get_prompt',get),call('mcp_list_prompts',{}),call('mcp_get_prompt',get)]
+            replies=[*[Wire(chat(calls=[item],finish='tool_calls'),False) for item in calls],Wire(chat('Done'),False)];bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Review',mcp_bridge=bridge).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertIn('List prompts first',json.dumps(bodies[4]));self.assertEqual([item.args[0] for item in bridge.request.call_args_list],['discover','prompts_list','prompts_get','prompts_list','prompts_get'])
+
     def test_auto_discovery_guidance_precedes_entire_batch_and_is_cached(self):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as directory:

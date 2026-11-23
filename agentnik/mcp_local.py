@@ -327,11 +327,11 @@ class LocalSession(QObject):
                         except (ValueError,TypeError,UnicodeError,RecursionError):self.fail('Invalid MCP URL input request; the operation was not retried.');return
                         self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);continue
                     if self.phase=='completion':
-                        self.phase='ready';self.timer.stop();self.called.emit({'error':error});continue
+                        self.phase='ready';self.timer.stop();self.called.emit({'error':error,'server_error':True});continue
                     if self.phase in ('prompt_list','prompt_get'):
-                        self.phase='ready';self.timer.stop();self.prompts.emit({'error':error});continue
+                        self.prompt_invocation=None;self.phase='ready';self.timer.stop();self.prompts.emit({'error':error,'server_error':True});continue
                     if self.phase in ('resource_list','resource_read','template_list'):
-                        self.phase='ready';self.timer.stop();self.resources.emit({'error':error});continue
+                        self.phase='ready';self.timer.stop();self.resources.emit({'error':error,'server_error':True});continue
                     self.fail(error);return
                 if self.phase == 'initialize':
                     self.probe_timer.stop()

@@ -20,6 +20,8 @@ Open **＋ Chat** to start an independent session. Tabs remain separate even whe
 
   If an MCP result exceeds the remaining context budget, Chat may retain its model-facing JSON temporarily for this turn. The model can search it and read ranges without calling the server again. A partial preview and any storage failure are reported; the full artifact is cleared when the turn ends.
 
+  Explicit server errors for resource, prompt, template, and completion requests are returned to the model without automatically retrying. Failed listings are cleared, and a prompt must be listed again after a retrieval error. A connection failure or uncertain tool call still stops the run.
+
   If an MCP request has invalid arguments, Agentnik rejects the entire requested batch before any tools execute and returns validation feedback to the model, which may correct the request within the chat's limits. This does not retry calls already sent to a server.
 
   **MCP activity** shows the selected server, discovered tool count, tool names, and outcomes, including when a call may have completed despite an error. It does not add tool arguments or returned records to these activity messages.

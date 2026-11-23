@@ -627,7 +627,11 @@ class RemoteProbe(QObject):
                         self.elicitation_pending=parse_url_required(message['error'])
                     except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('Invalid MCP URL input request; the operation was not retried.');return
                     self.timer.stop();self.elicitation_requested.emit(self.elicitation_pending['forms']);return
-                if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error});return
+                if self.phase=='completion':self.timer.stop();self.phase='ready';self.called.emit({'error':error,'server_error':True});return
+                if self.phase in ('prompt_list','prompt_get'):
+                    self.prompt_invocation=None;self.timer.stop();self.phase='ready';self.prompts.emit({'error':error,'server_error':True});return
+                if self.phase in ('resource_list','resource_read','template_list'):
+                    self.timer.stop();self.phase='ready';self.resources.emit({'error':error,'server_error':True});return
                 self.stop(error);return
             result=message.get('result')
             if self.modern and self.phase=='call' and isinstance(result,dict) and result.get('resultType')=='task':
