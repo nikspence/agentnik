@@ -1073,6 +1073,10 @@ class ModelCoding(unittest.TestCase):
         for detail in ('403 Forbidden','Access denied','request timed out','The call may have completed; inspect server state before retrying.'):
             self.assertIsNone(mcp_fetch_fallback_url({'result':{'isError':True,'content':[{'type':'text','text':detail}]}},args))
         self.assertEqual(mcp_fetch_fallback_url({'result':{'isError':True,'content':[{'type':'text','text':'Could not retrieve content'}]}},args),'https://example.com/page')
+        blocked={'result':{'isError':True,'content':[{'type':'text','text':'Could not retrieve content'}],'structuredContent':{'message':'403 Forbidden'}}}
+        self.assertIsNone(mcp_fetch_fallback_url(blocked,args))
+        partial={'result':{'structuredContent':{'errors':[{'url':'https://example.com/page','message':'Access denied'}]}}}
+        self.assertIsNone(mcp_fetch_fallback_url(partial,args))
         self.assertIsNone(mcp_fetch_fallback_url({'error':'MCP session is unavailable; discover the server first.'},args))
         cache_only={'tool':'web_fetch','arguments':json.dumps({'urls':['https://example.com'],'allow_live_fetch':False})}
         self.assertIsNone(mcp_fetch_fallback_url({'error':'MCP tool not found on the selected server: web_fetch'},cache_only))

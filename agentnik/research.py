@@ -6,7 +6,7 @@ import re
 import time
 from . import core, ollama_tools, responses_tools, compat_tools
 from .failures import classify
-from .tools import (Capability, DEFINITIONS, MCP_TOOL_NAMES, LimitError, ResearchError, ResearchEvent,
+from .tools import (Capability, DEFINITIONS, MCP_TOOL_NAMES, MCPStructuredOutputError, LimitError, ResearchError, ResearchEvent,
                     AccessError, Registry, RouteAttempt, Runtime, Source, ToolResult, utc_now)
 from .web import OllamaWeb
 from .retention import retain_result
@@ -163,6 +163,22 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
             state['tool_records'].append({'call_id':call.id,'name':call.name,'status':'skipped','source_ids':[],'error':error})
         event('mcp','Server usage guidance received; no tools in the batch were executed.')
         return True
+    def missing_mcp_fetch(calls,exc):
+        if not web_tools or not mcp or len(calls)!=1 or calls[0].name!='mcp_call' or getattr(mcp,'more_tools',True) is not False or not isinstance(getattr(mcp,'tools',None),list):return None
+        if str(exc) not in ('MCP tool was not found in the selected server tool list.','MCP tool was not found on the selected servers.'):return None
+        try:
+            value=json.loads(registry.validate(calls[0],runtime.limits)['request'])
+            if not isinstance(value,dict) or value.get('tool')!='web_fetch' or not isinstance(value.get('arguments'),dict):return None
+            controllers=getattr(mcp,'controllers',None)
+            if isinstance(controllers,list):
+                if set(value) not in ({'tool','arguments'},{'server','tool','arguments'}):return None
+                if 'server' in value and (not isinstance(value['server'],str) or not any(item.server['name'].casefold()==value['server'].casefold() for item in controllers)):return None
+            elif set(value)!={'tool','arguments'}:return None
+            from .mcp_fallback import mcp_fetch_fallback_urls
+            detail='MCP tool not found on the selected server: web_fetch'
+            if not mcp_fetch_fallback_urls({'error':detail},{'tool':'web_fetch','arguments':json.dumps(value['arguments'])}):return None
+            return detail
+        except (ValueError,TypeError,KeyError,RecursionError):return None
     try:
         runtime.check()
         if protocol not in core.PROTOCOLS: raise ResearchError('Unsupported managed protocol')
@@ -234,6 +250,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
             if round_number>=runtime.limits.rounds: raise LimitError('Research tool round limit reached')
             # Validate the whole batch before the first side effect.
             batch=[]
+            missing_fetch=None
             try:
                 for call in calls:
                     arguments=registry.validate(call,runtime.limits)
@@ -252,13 +269,17 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     runtime.charge('calls',1,runtime.limits.calls);discovery=mcp.invoke('mcp_discover',{'server':'connect'},runtime)
                     if discovery.get('more_tools'):raise ResearchError('MCP tool list is incomplete; cannot safely choose between MCP and local tools.')
                     if report_mcp_guidance(calls,discovery):continue
+                if mcp and numeric and mcp_priority=='first' and getattr(mcp,'more_tools',False) is True:
+                    raise ResearchError('MCP tool list is incomplete; cannot safely choose between MCP and local tools.')
                 mcp_batch=[item for item in batch if item[0] in MCP_TOOL_NAMES]
                 reconnect=bool(mcp and mcp_batch and hasattr(mcp,'needs_reconnect') and mcp.needs_reconnect(mcp_batch))
                 if not reconnect and mcp and mcp_batch:mcp.validate_batch(mcp_batch)
             except ResearchError as exc:
                 if not mcp:raise
-                reject_mcp_batch(calls,exc)
-                continue
+                missing_fetch=missing_mcp_fetch(calls,exc)
+                if not missing_fetch:
+                    reject_mcp_batch(calls,exc)
+                    continue
             discovery_count=getattr(mcp,'discovery_call_count',1) if mcp else 1
             discovery_cost=(discovery_count if reconnect else max(0,discovery_count-1) if any(name=='mcp_discover' for name,_ in mcp_batch) else 0)
             if runtime.calls+len(calls)+discovery_cost>runtime.limits.calls:
@@ -287,8 +308,10 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 if report_mcp_guidance(calls,connection):continue
                 try:mcp.validate_batch(mcp_batch)
                 except ResearchError as exc:
-                    reject_mcp_batch(calls,exc)
-                    continue
+                    missing_fetch=missing_mcp_fetch(calls,exc)
+                    if not missing_fetch:
+                        reject_mcp_batch(calls,exc)
+                        continue
             for call in calls:
                 runtime.check()
                 image_buffer=getattr(mcp,'image_buffer',None) if mcp else None
@@ -297,9 +320,12 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 started=time.monotonic()
                 record={'call_id':call.id,'name':call.name,'status':'running','source_ids':[]}
                 state['tool_records'].append(record)
+                fallback_used=False;fallback_error='';output_validation=None
                 try:
                     match=next((tool for tool in (mcp.tools or []) if tool.get('name')==call.name),None) if mcp and mcp_priority=='first' and not call.name.startswith('mcp_') else None
-                    if match:
+                    if missing_fetch:
+                        runtime.charge('calls',1,runtime.limits.calls);returned=ToolResult(call.id,call.name,error=missing_fetch,data={'error':missing_fetch})
+                    elif match:
                         args=registry.validate(call,runtime.limits);runtime.charge('calls',1,runtime.limits.calls)
                         event('mcp','Using the selected MCP server tool '+call.name+' instead of the local tool.')
                         payload={'request':json.dumps({'tool':call.name,'arguments':args})}
@@ -308,7 +334,12 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                             detail=str(exc)+' Use mcp_call with the selected server tool schema: '+json.dumps(match,ensure_ascii=True)[:2000]
                             returned=ToolResult(call.id,call.name,error=detail)
                         else:
-                            answer=mcp.invoke('mcp_call',payload,runtime);returned=ToolResult(call.id,call.name,data=answer)
+                            try:
+                                answer=mcp.invoke('mcp_call',payload,runtime)
+                                nested=answer.get('result') if isinstance(answer,dict) else None
+                                returned=ToolResult(call.id,call.name,error='MCP tool reported an error.' if isinstance(nested,dict) and nested.get('isError') is True else '',data=answer)
+                            except MCPStructuredOutputError as exc:
+                                output_validation=exc;detail='MCP structured output failed validation: '+str(exc);returned=ToolResult(call.id,call.name,error=detail,data={'error':detail})
                     elif call.name=='image_gen' and image_tool:
                         from .image_generation import ImageRequestError, ImageRequestUncertain, request_options
                         from .tools import UncertainError
@@ -328,7 +359,41 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                                 result.setdefault('images',[]).append(path)
                                 event('image_generated','Generated image saved to this conversation.')
                                 returned=ToolResult(call.id,call.name,data=data)
-                    else:returned=registry.execute(call,runtime)
+                    else:
+                        try:returned=registry.execute(call,runtime)
+                        except MCPStructuredOutputError as exc:
+                            output_validation=exc;detail='MCP structured output failed validation: '+str(exc);returned=ToolResult(call.id,call.name,error=detail,data={'error':detail})
+                    if mcp and service and web_tools and (call.name=='mcp_call' or match and call.name=='web_fetch') and isinstance(returned.data,dict):
+                        from .mcp_fallback import mcp_fetch_fallback_urls
+                        try:
+                            if call.name=='mcp_call':
+                                request=json.loads(registry.validate(call,runtime.limits)['request']);fallback_args={'tool':request['tool'],'arguments':json.dumps(request['arguments'])}
+                            else:fallback_args={'tool':'web_fetch','arguments':json.dumps(args)}
+                            urls=mcp_fetch_fallback_urls(returned.data,fallback_args,output_validation.result if output_validation else None)
+                        except (ValueError,TypeError,KeyError,RecursionError):urls=None
+                        if output_validation and not urls:raise output_validation
+                        if urls:
+                            event('fetch_fallback','MCP web_fetch failed; '+('trying Agentnik-managed page fetch.' if runtime.calls<runtime.limits.calls else 'managed fetch was not attempted because the tool-call limit was reached.'))
+                            fetched=[];attempted=[]
+                            for url in urls:
+                                if runtime.calls>=runtime.limits.calls:
+                                    fallback_error='Managed fetch was not attempted for remaining URLs because the tool-call limit was reached.';break
+                                runtime.charge('calls',1,runtime.limits.calls)
+                                attempted.append(url)
+                                try:
+                                    items=runtime.wait(lambda:service.fetch(url,runtime));runtime.check()
+                                    if not isinstance(items,(list,tuple)) or any(not isinstance(item,Source) for item in items):raise ResearchError('Invalid managed fetch source records')
+                                    fetched.extend(items[:max(0,runtime.limits.results-len(fetched))])
+                                    if len(fetched)>=runtime.limits.results:break
+                                except (LimitError,InterruptedError):raise
+                                except Exception as exc:
+                                    fallback_error=scrub('Managed page fetch stopped: '+str(exc)[:400],secrets);break
+                            if not fetched and not fallback_error:fallback_error='Managed page fetch returned no evidence.'
+                            data=dict(returned.data);data['agentnik_fallback']={'source':'Agentnik-managed page fetch','error':fallback_error,'unattempted_urls':urls[len(attempted):]}
+                            if fallback_error:event('fetch_fallback_failed','Agentnik-managed page fetch did not complete; details were returned to the model.')
+                            if fetched:event('fetch_fallback_result','Agentnik-managed page fetch returned '+str(len(fetched))+' source(s); '+str(len(urls)-len(attempted))+' URL(s) were not attempted.')
+                            returned=ToolResult(call.id,call.name,tuple(fetched),error=returned.error if fallback_error else '',data=data);fallback_used=True
+                    if output_validation and not fallback_used:raise output_validation
                 except Exception as exc:
                     record.update(status='failed',error=str(exc)[:500]); raise
                 finally:
@@ -339,6 +404,8 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     source=replace(source,id=f'S{next_source}')
                     next_source+=1
                     state['sources'].append(asdict(source)); sources.append(source)
+                if fallback_used:
+                    data=dict(returned.data);data['agentnik_fallback']=dict(data['agentnik_fallback'],sources=[asdict(source) for source in sources]);returned=replace(returned,data=data)
                 record.update(status='failed' if returned.error else 'completed',source_ids=[s.id for s in sources])
                 if call.name=='image_gen' and returned.error:record['error']=scrub(returned.error[:500],secrets)
                 tool_result=ToolResult(call.id,call.name,tuple(sources),error=returned.error,data=returned.data)

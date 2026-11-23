@@ -17,6 +17,11 @@ class ResearchError(ValueError):
     pass
 
 
+class MCPStructuredOutputError(ResearchError):
+    def __init__(self,message,result):
+        super().__init__(message);self.result=result
+
+
 class UncertainError(ResearchError):
     pass
 

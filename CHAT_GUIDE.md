@@ -22,6 +22,8 @@ Open **＋ Chat** to start an independent session. Tabs remain separate even whe
 
   Explicit server errors for resource, prompt, template, and completion requests are returned to the model without automatically retrying. Failed listings are cleared, and a prompt must be listed again after a retrieval error. A connection failure or uncertain tool call still stops the run.
 
+  With Web enabled on the managed route, an unavailable MCP `web_fetch` tool or eligible completed fetch error can fall back to Agentnik-managed public page retrieval. Partial results retain successful MCP content and retry only eligible failed URLs through the managed reader. Access blocks, uncertain calls, timeouts, and requests for cached content only do not trigger this fallback. Managed retrieval may use a configured page provider after a direct fetch fails, as described in the research settings.
+
   If an MCP request has invalid arguments, Agentnik rejects the entire requested batch before any tools execute and returns validation feedback to the model, which may correct the request within the chat's limits. This does not retry calls already sent to a server.
 
   **MCP activity** shows the selected server, discovered tool count, tool names, and outcomes, including when a call may have completed despite an error. It does not add tool arguments or returned records to these activity messages.

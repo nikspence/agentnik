@@ -786,6 +786,160 @@ for line in sys.stdin:
         self.assertIn('tool_failed',[event['kind'] for event in result['research']['events']])
         self.assertIn('fixture failure',json.dumps(bodies[-1]))
 
+    def test_mcp_web_fetch_error_uses_managed_fetch_in_chat(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Source
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True};tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        cases=[('Could not retrieve page',True,True,{'url':'https://example.com/page'}),('403 Forbidden',True,False,{'url':'https://example.com/page'}),('request timed out',True,False,{'url':'https://example.com/page'}),('Could not retrieve page',False,False,{'url':'https://example.com/page'}),('Could not retrieve page',True,False,{'urls':['https://example.com/page'],'allow_live_fetch':False}),('Could not retrieve page',True,False,{'url':'http://127.0.0.1'})]
+        for failure_message,web_enabled,expected,arguments in cases:
+            with self.subTest(message=failure_message,web_enabled=web_enabled,arguments=arguments):
+                controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'isError':True,'content':[{'type':'text','text':failure_message}]}}
+                backend=Mock();backend.secret_values=[];backend.attempts=[];backend.fetch.return_value=[Source('','Page','https://example.com/page','Recovered evidence','now')]
+                request=json.dumps({'tool':'web_fetch','arguments':arguments})
+                replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False),Wire(response([message('Done [S1]' if expected else 'Done')]),False)];bodies=[]
+                def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=web_enabled,mcp=controller)
+                self.assertEqual(result['status'],'ok');self.assertEqual(backend.fetch.call_count,int(expected));self.assertEqual(controller.bridge.request.call_count,1)
+                if expected:
+                    self.assertIn('Recovered evidence',json.dumps(bodies[-1]));self.assertEqual(result['research']['sources'][0]['id'],'S1');self.assertEqual(result['research']['citations'],['S1']);self.assertTrue(any(item['kind']=='fetch_fallback' for item in result['research']['events']))
+                else:self.assertNotIn('Recovered evidence',json.dumps(bodies[-1]))
+
+    def test_mcp_web_fetch_partial_results_preserve_successes_and_fallback_only_for_eligible_urls(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Source
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True};tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'content':[],'structuredContent':{'results':[{'url':'https://example.com/a','excerpts':['Original evidence']}],'errors':[{'url':'https://example.com/b','error_type':'not_found','http_status_code':404},{'url':'https://example.com/c','error_type':'forbidden','http_status_code':403}]}}}
+        backend=Mock();backend.secret_values=[];backend.attempts=[];backend.fetch.return_value=[Source('','B','https://example.com/b','Fallback evidence','now')]
+        request=json.dumps({'tool':'web_fetch','arguments':{'urls':['https://example.com/a','https://example.com/b','https://example.com/c']}})
+        replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False),Wire(response([message('Done')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=True,mcp=controller)
+        self.assertEqual(result['status'],'ok');backend.fetch.assert_called_once();self.assertEqual(backend.fetch.call_args.args[0],'https://example.com/b');body=json.dumps(bodies[-1]);self.assertIn('Original evidence',body);self.assertIn('Fallback evidence',body)
+
+    def test_mcp_fetch_invalid_structured_output_falls_back_only_without_access_blocks(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Source
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True}
+        tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema_status':'available','schema':{'type':'object'},'output_schema_status':'available','output_schema':{'type':'object','properties':{'count':{'type':'integer'}},'required':['count']}}
+        for text,expected in (('Fetched page',True),('403 Forbidden',False)):
+            with self.subTest(text=text):
+                controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'content':[{'type':'text','text':text}],'structuredContent':{'count':'wrong'}}}
+                backend=Mock();backend.secret_values=[];backend.attempts=[];backend.fetch.return_value=[Source('','Page','https://example.com/page','Recovered evidence','now')]
+                request=json.dumps({'tool':'web_fetch','arguments':{'url':'https://example.com/page'}});replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False)]
+                if expected:replies.append(Wire(response([message('Done')]),False))
+                with patch.object(core,'open_request',side_effect=replies):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=True,mcp=controller)
+                self.assertEqual(result['status'],'ok' if expected else 'failed');self.assertEqual(backend.fetch.call_count,int(expected));self.assertEqual(controller.bridge.request.call_count,1)
+                if expected:self.assertIn('Recovered evidence',json.dumps(result['research']['sources']))
+
+    def test_mcp_fetch_does_not_fallback_after_uncertain_call(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True};tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'error':'Connection closed','call_uncertain':True}
+        backend=Mock();backend.secret_values=[];backend.attempts=[];request=json.dumps({'tool':'web_fetch','arguments':{'url':'https://example.com/page'}});replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False)]
+        with patch.object(core,'open_request',side_effect=replies):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=True,mcp=controller)
+        self.assertEqual(result['status'],'failed');backend.fetch.assert_not_called();self.assertEqual(controller.bridge.request.call_count,1)
+
+    def test_managed_fallback_error_is_reported_without_further_fetches(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import AccessError
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True};tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'isError':True,'content':[{'type':'text','text':'Could not retrieve pages'}]}}
+        backend=Mock();backend.secret_values=[];backend.attempts=[];backend.fetch.side_effect=AccessError('Destination blocked')
+        request=json.dumps({'tool':'web_fetch','arguments':{'urls':['https://example.com/a','https://example.com/b']}});replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False),Wire(response([message('Could not retrieve')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=True,mcp=controller)
+        self.assertEqual(result['status'],'ok');self.assertEqual(backend.fetch.call_count,1);payload=json.loads(bodies[-1]['input'][-1]['output']);self.assertIn('Destination blocked',payload['data']['agentnik_fallback']['error']);self.assertEqual(payload['data']['agentnik_fallback']['unattempted_urls'],['https://example.com/b']);self.assertEqual(result['research']['tool_records'][0]['status'],'failed')
+
+    def test_mcp_fetch_reports_when_fallback_exceeds_tool_call_limit(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Limits
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True};tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'isError':True,'content':[{'type':'text','text':'Could not retrieve'}]}}
+        backend=Mock();backend.secret_values=[];backend.attempts=[];request=json.dumps({'tool':'web_fetch','arguments':{'url':'https://example.com/page'}});replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False),Wire(response([message('Could not retrieve')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),limits=Limits(calls=1),backend=backend,web_tools=True,mcp=controller)
+        self.assertEqual(result['status'],'ok');backend.fetch.assert_not_called();payload=json.loads(bodies[-1]['input'][-1]['output']);self.assertIn('tool-call limit',payload['data']['agentnik_fallback']['error']);self.assertEqual(payload['data']['agentnik_fallback']['unattempted_urls'],['https://example.com/page']);self.assertTrue(any(item['kind']=='fetch_fallback_failed' for item in result['research']['events']))
+
+    def test_mcp_fetch_fallback_respects_source_limit_and_reports_unattempted_urls(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Limits,Source
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True};tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'isError':True,'content':[{'type':'text','text':'Could not retrieve pages'}]}}
+        backend=Mock();backend.secret_values=[];backend.attempts=[];backend.fetch.return_value=[Source('','A','https://example.com/a','Evidence A','now')]
+        request=json.dumps({'tool':'web_fetch','arguments':{'urls':['https://example.com/a','https://example.com/b']}});replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False),Wire(response([message('Done')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),limits=Limits(results=1),backend=backend,web_tools=True,mcp=controller)
+        self.assertEqual(result['status'],'ok');self.assertEqual(backend.fetch.call_count,1);payload=json.loads(bodies[-1]['input'][-1]['output']);self.assertEqual(payload['data']['agentnik_fallback']['unattempted_urls'],['https://example.com/b']);self.assertEqual(payload['data']['agentnik_fallback']['sources'][0]['id'],'S1')
+
+    def test_chat_mcp_first_web_fetch_alias_uses_managed_fallback(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Source
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True};tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema_status':'available','schema':{'type':'object','properties':{'url':{'type':'string'}},'required':['url']}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'isError':True,'content':[{'type':'text','text':'Could not retrieve page'}]}}
+        backend=Mock();backend.secret_values=[];backend.attempts=[];backend.fetch.return_value=[Source('','Page','https://example.com/page','Alias fallback evidence','now')]
+        replies=[Wire(response([function('web_fetch',{'url':'https://example.com/page'},'one')]),False),Wire(response([message('Done')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=True,mcp=controller,mcp_priority='first')
+        self.assertEqual(result['status'],'ok');backend.fetch.assert_called_once();self.assertEqual(controller.bridge.request.call_count,1);self.assertIn('Alias fallback evidence',json.dumps(bodies[-1]))
+
+    def test_chat_mcp_first_web_fetch_alias_reports_access_denial(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True};tool={'name':'web_fetch','description':'Fetch','description_clipped':False,'schema_status':'available','schema':{'type':'object','properties':{'url':{'type':'string'}},'required':['url']}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'isError':True,'content':[{'type':'text','text':'403 Forbidden'}]}}
+        backend=Mock();backend.secret_values=[];backend.attempts=[];replies=[Wire(response([function('web_fetch',{'url':'https://example.com/page'},'one')]),False),Wire(response([message('Blocked')]),False)]
+        with patch.object(core,'open_request',side_effect=replies):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=True,mcp=controller,mcp_priority='first')
+        self.assertEqual(result['status'],'ok');backend.fetch.assert_not_called();self.assertEqual(result['research']['tool_records'][0]['status'],'failed')
+
+    def test_missing_mcp_web_fetch_uses_managed_fallback_only_after_complete_discovery(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Source
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True}
+        for already_connected,more_tools,web_enabled,expected in ((True,False,True,True),(False,False,True,True),(True,True,True,False),(False,True,True,False),(True,False,False,False)):
+            with self.subTest(connected=already_connected,more_tools=more_tools,web_enabled=web_enabled):
+                controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[] if already_connected else None;controller.more_tools=more_tools;controller.bridge=Mock();controller.bridge.request.return_value={'tool_details':[],'more_tools':more_tools}
+                backend=Mock();backend.secret_values=[];backend.attempts=[];backend.fetch.return_value=[Source('','Page','https://example.com/page','Missing-tool fallback evidence','now')]
+                request=json.dumps({'tool':'web_fetch','arguments':{'url':'https://example.com/page'}});replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False),Wire(response([message('Done')]),False)];bodies=[]
+                def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=web_enabled,mcp=controller)
+                self.assertEqual(result['status'],'ok');self.assertEqual(backend.fetch.call_count,int(expected));self.assertEqual(controller.bridge.request.call_count,int(not already_connected))
+                self.assertEqual('Missing-tool fallback evidence' in json.dumps(bodies[-1]),expected)
+
+    def test_missing_fetch_does_not_bypass_server_selection_or_batch_validation(self):
+        import threading
+        from agentnik.chat_mcp import MultiChatMCP
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
+        for mixed in (False,True):
+            with self.subTest(mixed=mixed):
+                group=MultiChatMCP(servers,{'mcp_servers':servers});group.tools=[]
+                for controller in group.controllers:controller.tools=[];controller.bridge=Mock()
+                backend=Mock();backend.secret_values=[];backend.attempts=[]
+                value={'tool':'web_fetch','arguments':{'url':'https://example.com/page'},'server':'First' if mixed else 'Not selected'}
+                calls=[function('mcp_call',{'request':json.dumps(value)},'one')]
+                if mixed:calls.append(function('mcp_call',{'request':json.dumps({'tool':'other','arguments':{}})},'two'))
+                replies=[Wire(response(calls),False),Wire(response([message('Done')]),False)]
+                with patch.object(core,'open_request',side_effect=replies):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=True,mcp=group)
+                self.assertEqual(result['status'],'ok');backend.fetch.assert_not_called()
+                for controller in group.controllers:controller.bridge.request.assert_not_called()
+                self.assertTrue(all(item['status']=='failed' for item in result['research']['tool_records']))
+
+    def test_incomplete_discovery_blocks_conflicting_managed_fetch(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Parallel','command':sys.executable,'args':[],'enabled':True};controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[];controller.more_tools=True;controller.bridge=Mock()
+        backend=Mock();backend.secret_values=[];backend.attempts=[];replies=[Wire(response([function('web_fetch',{'url':'https://example.com/page'},'one')]),False),Wire(response([message('Could not determine precedence')]),False)]
+        with patch.object(core,'open_request',side_effect=replies):result=research.run_managed(C,[{'role':'user','content':'Fetch'}],'',lambda _:None,threading.Event(),backend=backend,web_tools=True,mcp=controller,mcp_priority='first')
+        self.assertEqual(result['status'],'ok');backend.fetch.assert_not_called();controller.bridge.request.assert_not_called();self.assertEqual(result['research']['tool_records'][0]['status'],'failed')
+
     def test_chat_recovers_from_explicit_mcp_resource_error(self):
         import threading
         from agentnik.chat_mcp import ChatMCP
