@@ -5,6 +5,8 @@ import json
 import re
 from urllib.parse import quote
 
+MAX_TEXT_RESOURCE_BYTES=1_000_000
+
 def parse_resources(result):
     entries=result.get('resources');cursor=result.get('nextCursor')
     if not isinstance(entries,list) or len(entries)>100 or (cursor is not None and (not isinstance(cursor,str) or not cursor or len(cursor)>1024)):raise ValueError('Invalid MCP resource list')
@@ -47,7 +49,7 @@ def parse_resource_text(result,uri):
     if not isinstance(contents,list) or len(contents)>16:raise ValueError('Invalid MCP resource content')
     safe=[]
     for item in contents:
-        if not isinstance(item,dict) or item.get('uri')!=uri or not isinstance(item.get('text'),str) or 'blob' in item or len(item['text'].encode('utf-8'))>32000:raise ValueError('Invalid MCP resource text')
+        if not isinstance(item,dict) or item.get('uri')!=uri or not isinstance(item.get('text'),str) or 'blob' in item or len(item['text'].encode('utf-8'))>MAX_TEXT_RESOURCE_BYTES:raise ValueError('Invalid MCP resource text')
         if 'mimeType' in item and (not isinstance(item['mimeType'],str) or len(item['mimeType'])>256):raise ValueError('Invalid MCP resource type')
         safe.append({key:item[key] for key in ('uri','text','mimeType') if key in item})
     return {'contents':safe}
@@ -74,10 +76,10 @@ def parse_resource_contents(result,uri):
             media,*parameters=mime.lower().split(';')
             media=media.strip()
             if text_blob_mime(mime):
-                if 'text' in item or not isinstance(blob,str) or len(blob)>42668 or len(mime)>256 or len(parameters)>1 or any(parameter.strip().replace(' ','') not in ('charset=utf-8','charset="utf-8"','charset=us-ascii','charset="us-ascii"') for parameter in parameters):raise ValueError('Unsupported MCP text resource blob')
+                if 'text' in item or not isinstance(blob,str) or len(blob)>4*((MAX_TEXT_RESOURCE_BYTES+2)//3) or len(mime)>256 or len(parameters)>1 or any(parameter.strip().replace(' ','') not in ('charset=utf-8','charset="utf-8"','charset=us-ascii','charset="us-ascii"') for parameter in parameters):raise ValueError('Unsupported MCP text resource blob')
                 try:
                     data=base64.b64decode(blob,validate=True)
-                    if len(data)>32000:raise ValueError()
+                    if len(data)>MAX_TEXT_RESOURCE_BYTES:raise ValueError()
                     text=data.decode('ascii' if parameters and 'us-ascii' in parameters[0] else 'utf-8')
                 except (ValueError,binascii.Error,UnicodeError):raise ValueError('Invalid MCP text resource blob') from None
                 safe.append({'uri':uri,'mimeType':mime,'text':text});continue

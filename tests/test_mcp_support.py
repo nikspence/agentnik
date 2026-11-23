@@ -1770,6 +1770,7 @@ for line in sys.stdin:
 
     def test_prompt_embedded_resources_and_audience(self):
         from agentnik.mcp_prompts import parse_prompt_messages
+        from agentnik.mcp_resources import MAX_TEXT_RESOURCE_BYTES
         messages=[{'role':'user','content':{'type':'resource','resource':{'uri':'file:///guide.md','mimeType':'text/markdown','text':'Public guide'}}},
                   {'role':'assistant','content':{'type':'text','text':'Private text','annotations':{'audience':['user']}}},
                   {'role':'user','content':{'type':'resource','resource':{'uri':'file:///private','text':'Private guide'},'annotations':{'audience':['user']}}}]
@@ -1781,7 +1782,7 @@ for line in sys.stdin:
         result=parse_prompt_messages({'messages':[{'role':'user','content':{'type':'resource','resource':{'uri':'file:///guide','mimeType':'text/plain','blob':encoded}}}]})
         self.assertEqual(result['messages'][0]['content']['resource']['text'],'제목')
         for content in ({'type':'resource','resource':{'uri':'file:///x','blob':'AAAA'}},
-                        {'type':'resource','resource':{'uri':'file:///x','text':'x'*32001}},
+                        {'type':'resource','resource':{'uri':'file:///x','text':'x'*(MAX_TEXT_RESOURCE_BYTES+1)}},
                         {'type':'resource','resource':{'uri':'bad\nuri','text':'x'}},
                         {'type':'text','text':'secret','annotations':{'audience':'user'}}):
             with self.subTest(content=content),self.assertRaises(ValueError):parse_prompt_messages({'messages':[{'role':'user','content':content}]})
@@ -1862,13 +1863,13 @@ for line in sys.stdin:
         app=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as folder:
             server=Path(folder)/'resources.py'
-            server.write_text('''import json,sys
+            server.write_text('''import base64,json,sys
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
  elif method=='resources/list':result={'resources':[{'uri':'test://record/2','name':'Second'}]} if req.get('params',{}).get('cursor') else {'resources':[{'uri':'test://record/1','name':'Record','description':'Test','mimeType':'text/plain'}],'nextCursor':'next'}
- elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'blob':'UmVzb3VyY2UgdGV4dA==','mimeType':'text/plain'}]}
+ elif method=='resources/read':result={'contents':[{'uri':req['params']['uri'],'blob':base64.b64encode(('Resource text '*5000).encode()).decode(),'mimeType':'text/plain'}]}
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
@@ -1881,7 +1882,7 @@ for line in sys.stdin:
                     self.assertFalse(session.read_resource('test://unlisted'));self.assertTrue(session.read_resource(result['resources'][1]['uri']))
                 else:loop.quit()
             session.discovered.connect(ready);session.resources.connect(resource);session.ended.connect(lambda result:(results.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
-            self.assertEqual(results[0]['resources'][0]['name'],'Record');self.assertFalse(results[0]['more_resources']);self.assertEqual(results[0]['resources'][1]['name'],'Second');self.assertEqual(results[1]['contents'][0]['text'],'Resource text')
+            self.assertEqual(results[0]['resources'][0]['name'],'Record');self.assertFalse(results[0]['more_resources']);self.assertEqual(results[0]['resources'][1]['name'],'Second');self.assertEqual(results[1]['contents'][0]['text'],'Resource text '*5000)
 
     def test_resource_images_validate_mime_base64_and_requested_uri(self):
         import base64
@@ -1910,14 +1911,27 @@ for line in sys.stdin:
 
     def test_text_resource_blobs_decode_with_validation(self):
         import base64
-        from agentnik.mcp_resources import parse_resource_contents
+        from agentnik.mcp_resources import MAX_TEXT_RESOURCE_BYTES,parse_resource_contents
         def item(mime,data):return {'uri':'test://doc','mimeType':mime,'blob':base64.b64encode(data).decode()}
         for mime in ('text/csv','application/json','application/problem+json','application/xml','application/example+xml','text/plain; charset="UTF-8"'):
             with self.subTest(mime=mime):
                 result=parse_resource_contents({'contents':[item(mime,'snow 雪'.encode())]},'test://doc')
                 self.assertEqual(result['contents'][0]['text'],'snow 雪');self.assertNotIn('blob',result['contents'][0])
-        for invalid in (item('text/plain',b'\xff'),item('text/plain',b'x'*32001),item('text/plain; charset=iso-8859-1',b'x'),item('text/plain; charset=us-ascii','雪'.encode()),dict(item('text/plain',b'x'),blob='!!'),dict(item('text/plain',b'x'),text='duplicate')):
+        for invalid in (item('text/plain',b'\xff'),item('text/plain',b'x'*(MAX_TEXT_RESOURCE_BYTES+1)),item('text/plain; charset=iso-8859-1',b'x'),item('text/plain; charset=us-ascii','雪'.encode()),dict(item('text/plain',b'x'),blob='!!'),dict(item('text/plain',b'x'),text='duplicate')):
             with self.subTest(invalid=invalid.get('mimeType')),self.assertRaises(ValueError):parse_resource_contents({'contents':[invalid]},'test://doc')
+
+    def test_large_text_resources_preserve_utf8_and_enforce_byte_limit(self):
+        import base64
+        from agentnik.mcp_resources import MAX_TEXT_RESOURCE_BYTES,parse_resource_contents
+        text='snow 雪\n'*12000;uri='test://large';self.assertGreater(len(text.encode('utf-8')),32000)
+        for content in ({'uri':uri,'mimeType':'text/plain','text':text},{'uri':uri,'mimeType':'text/plain','blob':base64.b64encode(text.encode('utf-8')).decode('ascii')}):
+            with self.subTest(kind='blob' if 'blob' in content else 'text'):
+                result=parse_resource_contents({'contents':[content]},uri);self.assertEqual(result['contents'][0]['text'],text)
+        exact='x'*MAX_TEXT_RESOURCE_BYTES
+        for content in ({'uri':uri,'text':exact},{'uri':uri,'mimeType':'text/plain','blob':base64.b64encode(exact.encode()).decode('ascii')}):
+            self.assertEqual(len(parse_resource_contents({'contents':[content]},uri)['contents'][0]['text']),MAX_TEXT_RESOURCE_BYTES)
+        for content in ({'uri':uri,'text':'雪'*(MAX_TEXT_RESOURCE_BYTES//3+1)},{'uri':uri,'mimeType':'text/plain','blob':base64.b64encode(b'x'*(MAX_TEXT_RESOURCE_BYTES+1)).decode('ascii')}):
+            with self.assertRaises(ValueError):parse_resource_contents({'contents':[content]},uri)
 
     def test_tool_embedded_text_blob_and_audience(self):
         import base64
@@ -2210,7 +2224,7 @@ for line in sys.stdin:
                 if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                 if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'resources':{}}}
                 elif method=='resources/list':result={'resources':[{'uri':'test://two','name':'Two'}]} if body.get('params',{}).get('cursor') else {'resources':[{'uri':'test://one','name':'One','description':'Example'}],'nextCursor':'next'}
-                elif method=='resources/read':result={'contents':[{'uri':body['params']['uri'],'text':'Evidence'}]}
+                elif method=='resources/read':result={'contents':[{'uri':body['params']['uri'],'text':'Evidence 雪 '*5000}]}
                 else:raise AssertionError(method)
                 payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
             def do_DELETE(self):
@@ -2223,7 +2237,7 @@ for line in sys.stdin:
         try:
             with patch('keyring.get_password',return_value='secret-token'):
                 thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() and any(c[0]=='DELETE' for c in calls) else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1)
-            self.assertFalse(thread.is_alive());self.assertIn('resources',out[0]['capabilities']);self.assertFalse(out[1]['more_resources']);self.assertEqual(len(out[1]['resources']),2);self.assertIn('error',out[2]);self.assertEqual(out[3]['contents'][0]['text'],'Evidence')
+            self.assertFalse(thread.is_alive());self.assertIn('resources',out[0]['capabilities']);self.assertFalse(out[1]['more_resources']);self.assertEqual(len(out[1]['resources']),2);self.assertIn('error',out[2]);self.assertEqual(out[3]['contents'][0]['text'],'Evidence 雪 '*5000)
             self.assertEqual([c[0] for c in calls],['initialize','notifications/initialized','resources/list','resources/list','resources/read','DELETE']);self.assertTrue(all(c[1]=='session-one' for c in calls[1:]));self.assertTrue(all(c[2]=='Bearer secret-token' for c in calls));self.assertNotIn('secret-token',str(out))
         finally:bridge.close();server.shutdown();server.server_close();server_thread.join(2)
 

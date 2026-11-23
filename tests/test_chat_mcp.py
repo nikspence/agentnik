@@ -203,6 +203,19 @@ for line in sys.stdin:
         with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Read report'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
         self.assertEqual(result['status'],'ok');self.assertIn('Revenue was 42.',json.dumps(bodies[-1]));self.assertEqual([item.args[0] for item in controller.bridge.request.call_args_list],['discover','resources_list','resources_read'])
 
+    def test_chat_model_receives_large_mcp_text_resource(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.mcp_resources import parse_resource_contents
+        server={'name':'Documents','command':sys.executable,'args':[],'enabled':True};uri='test://report';text='Account 雪: 42 '*5000
+        contents=parse_resource_contents({'contents':[{'uri':uri,'text':text}]},uri)['contents']
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[]},{'resources':[{'uri':uri,'name':'report'}]},{'contents':contents}]
+        request=json.dumps({'server':'Documents','uri':uri})
+        replies=[Wire(response([function('mcp_discover',{'server':'connect'},'one')]),False),Wire(response([function('mcp_resources_list',{'server':'Documents'},'two')]),False),Wire(response([function('mcp_resources_read',{'request':request},'three')]),False),Wire(response([message('Read')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Read'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');self.assertIn(text,json.dumps(bodies[-1],ensure_ascii=False))
+
     def test_chat_mcp_images_are_opt_in_bounded_and_transient(self):
         import base64,threading
         from agentnik.chat_mcp import ChatMCP
