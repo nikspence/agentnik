@@ -10,7 +10,7 @@ from referencing import Registry
 SCHEMA_URL='https://json-schema.org/draft/2020-12/schema'
 DRAFT7_URLS=('http://json-schema.org/draft-07/schema','https://json-schema.org/draft-07/schema')
 ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment','format','discriminator','x-mcp-header','enumNames'}
-KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','patternProperties','required','additionalProperties','items','prefixItems','additionalItems','uniqueItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
+KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','patternProperties','propertyNames','required','additionalProperties','items','prefixItems','additionalItems','uniqueItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
 MAX_NODES=1000
 MAX_DEPTH=24
 MAX_BRANCHES=32
@@ -36,6 +36,13 @@ def _bounded_pattern_properties(validator,patterns,instance,schema):
     for pattern,subschema in patterns.items():
         for key,value in instance.items():
             if _pattern_matches(pattern,key):yield from validator.descend(value,subschema,path=key,schema_path=pattern)
+
+
+def _bounded_property_names(validator,subschema,instance,schema):
+    if not validator.is_type(instance,'object'):return
+    for key in instance:
+        if time.monotonic()>=_pattern_deadline.get():raise TimeoutError('MCP schema validation timed out')
+        yield from validator.descend(key,subschema)
 
 
 def _bounded_additional_properties(validator,additional,instance,schema):
@@ -88,7 +95,7 @@ def _bounded_unique_items(validator,unique,instance,schema):
         seen.add(key)
 
 
-_bounded_keywords={'pattern':_bounded_pattern,'patternProperties':_bounded_pattern_properties,'additionalProperties':_bounded_additional_properties,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf'),'uniqueItems':_bounded_unique_items}
+_bounded_keywords={'pattern':_bounded_pattern,'patternProperties':_bounded_pattern_properties,'propertyNames':_bounded_property_names,'additionalProperties':_bounded_additional_properties,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf'),'uniqueItems':_bounded_unique_items}
 BOUNDED_2020=validators.extend(Draft202012Validator,_bounded_keywords)
 BOUNDED_7=validators.extend(Draft7Validator,_bounded_keywords)
 
@@ -147,7 +154,7 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
                 entries=node.get(key);index=decoded[pos] if pos<len(decoded) else ''
                 if not isinstance(entries,list) or len(index)>3 or not index.isascii() or not index.isdigit() or (len(index)>1 and index[0]=='0') or int(index)>=len(entries):raise ValueError('The tool schema has an unresolved reference.')
                 node=entries[int(index)];pos+=1
-            elif key in ('items','additionalItems','additionalProperties') and key in node:node=node[key]
+            elif key in ('items','additionalItems','additionalProperties','propertyNames') and key in node:node=node[key]
             else:raise ValueError('The tool schema uses unsupported references.')
         if type(node) is not bool and not isinstance(node,dict):raise ValueError('The tool schema has an unresolved reference.')
         return node
@@ -204,6 +211,7 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
         if not isinstance(patterns,dict) or len(patterns)>128:raise ValueError('Invalid tool schema pattern properties.')
         for pattern,value in patterns.items():
             validate_pattern(pattern);pending.append((value,depth+1,width,ancestors))
+        if 'propertyNames' in node:pending.append((node['propertyNames'],depth+1,width,ancestors))
         if 'items' in node:
             items=node['items']
             if isinstance(items,list):
