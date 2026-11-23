@@ -111,6 +111,30 @@ class ModernRemoteSession(unittest.TestCase):
                     cancel=next(headers for method,headers in calls if method=='tasks/cancel');self.assertEqual(cancel['Mcp-Name'],private_id);self.assertEqual(cancel['Authorization'],'Bearer fixture-token')
                 finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
+    def test_modern_task_http_error_does_not_expose_task_identifier(self):
+        calls=[];private_id='private-task-id'
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method'];calls.append(method);status=200
+                if method=='initialize':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
+                if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{},'extensions':{'io.modelcontextprotocol/tasks':{}}}}
+                elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
+                elif method=='tools/call':result={'resultType':'task','taskId':private_id,'status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttlMs':None,'pollIntervalMs':100}
+                elif method=='tasks/get':
+                    status=400;body={'jsonrpc':'2.0','id':request['id'],'error':{'code':-32602,'message':'Unknown '+private_id}}
+                elif method=='tasks/cancel':result={'resultType':'complete'}
+                else:raise AssertionError(method)
+                if status==200:body={'jsonrpc':'2.0','id':request['id'],'result':result}
+                payload=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();out=[]
+        session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda value:(out.append(value),loop.quit()))
+        timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+        try:
+            loop.exec();timer.stop();self.assertTrue(out[0]['call_uncertain']);self.assertIn('omitted',out[0]['error']);self.assertNotIn(private_id,str(out));self.assertEqual(calls.count('tasks/get'),1)
+        finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
+
     def test_unstructured_initialization_rejection_probes_modern_without_replaying(self):
         for status in (400,404,405):
             with self.subTest(status=status):

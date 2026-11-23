@@ -583,6 +583,14 @@ class RemoteProbe(QObject):
                     if not self.token or not contains_secret(challenge,self.token):self.oauth_challenge={key:challenge[key] for key in ('resource_metadata','scope') if key in challenge}
                     if status==403 and challenge.get('error')=='insufficient_scope':self.stop('MCP authorization has insufficient scope. Sign in again or use a bearer token with the required permissions.');return
                     if status==401:self.stop('MCP server requires a valid bearer token. Sign in or enter one in MCP server settings.');return
+            if self.modern and not self.modern_first_probe and status in (400,404):
+                try:
+                    message=response_message(bytes(self.buffer),ctype,self.current_id)
+                    if self.token and contains_secret(message,self.token):raise ValueError('Credential reflected in response')
+                    detail=rpc_error(message)
+                    if self.modern_task is not None and self.modern_task.task_id in detail:detail='MCP task request failed; server error details were omitted.'
+                except (ValueError,UnicodeError,TypeError,RecursionError):pass
+                else:self.stop(detail);return
             if self.phase=='modern_discovery' and self.legacy_rejection is not None and isinstance(status,int):
                 self.stop('MCP server rejected legacy initialization ('+self.legacy_rejection+') and 2026 discovery (HTTP '+str(status)+').');return
             self.stop('MCP server returned an HTTP or network error'+(' ('+str(status)+').' if isinstance(status,int) else '.'));return

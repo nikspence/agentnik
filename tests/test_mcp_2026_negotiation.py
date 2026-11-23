@@ -65,3 +65,31 @@ class RemoteNegotiationTests(unittest.TestCase):
                 timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                 try:loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(calls,['server/discover' if modern_first else 'initialize']);self.assertNotIn('synthetic-token',str(out))
                 finally:server.shutdown();server.server_close();thread.join(2)
+
+    def test_modern_http_rpc_errors_preserve_safe_diagnostics_without_retry(self):
+        for mode in ('400','404','wrong-id','credential','malformed'):
+            with self.subTest(mode=mode):
+                calls=[]
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method'];calls.append(method)
+                        status=200
+                        if method=='server/discover':body={'result':{'supportedVersions':['2026-07-28'],'capabilities':{'tools':{}}}}
+                        elif method=='tools/list':body={'result':{'tools':[{'name':'work','inputSchema':{'type':'object'}}]}}
+                        elif method=='tools/call':
+                            status=404 if mode=='404' else 400
+                            body={'error':{'code':-32020 if status==400 else -32601,'message':'synthetic-token' if mode=='credential' else 'Header mismatch','data':{'private':'hidden'}}}
+                        else:raise AssertionError(method)
+                        body=dict(body,jsonrpc='2.0',id=request['id']+1 if method=='tools/call' and mode=='wrong-id' else request['id'])
+                        payload=b'invalid' if method=='tools/call' and mode=='malformed' else json.dumps(body).encode()
+                        self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','synthetic-token',timeout_seconds=5);loop=QEventLoop();out=[]
+                session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda value:(out.append(value),loop.quit()))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:
+                    loop.exec();timer.stop();self.assertTrue(out[0]['call_uncertain']);self.assertEqual(calls.count('tools/call'),1);self.assertNotIn('synthetic-token',str(out));self.assertNotIn('hidden',str(out))
+                    if mode in ('400','404'):self.assertIn('-32020' if mode=='400' else '-32601',out[0]['error']);self.assertIn('Header mismatch',out[0]['error'])
+                    else:self.assertNotIn('Header mismatch',out[0]['error']);self.assertIn('HTTP',out[0]['error'])
+                finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
