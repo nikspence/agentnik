@@ -56,6 +56,7 @@ def validate_session(value, ident=None):
     options=data['research_options']
     if 'local_tools' in options: require(type(options['local_tools']) is bool)
     if 'enabled' in options: require(type(options['enabled']) is bool)
+    if 'mcp_vision_enabled' in options: require(type(options['mcp_vision_enabled']) is bool)
     if 'policy' in options: require(options['policy'] in (None,'Provider first','Agentnik first','Provider only','Agentnik only'))
     if 'mcp' in options and options['mcp'] is not None:
         ref=options['mcp'];require(isinstance(ref,dict) and set(ref)=={'name','sha256'})

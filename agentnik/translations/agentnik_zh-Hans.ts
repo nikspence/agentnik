@@ -4521,6 +4521,14 @@ Saved excerpt;不是新鲜或完整的页面。
             <source>Local tools completed</source>
             <translation>本地工具完成</translation>
         </message>
+        <message>
+            <source>MCP image input</source>
+            <translation>MCP 图像输入</translation>
+        </message>
+        <message>
+            <source>Enable for a vision-capable model to send MCP images to the selected connection.</source>
+            <translation>为支持视觉的模型启用，以将 MCP 图像发送到所选连接。</translation>
+        </message>
     </context>
     <context>
         <name>WebSettings</name>

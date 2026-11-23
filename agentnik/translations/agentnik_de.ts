@@ -4521,6 +4521,14 @@ Gespeicherter Auszug; keine neue oder vollständige Seite.
             <source>Local tools completed</source>
             <translation>Lokale Tools abgeschlossen</translation>
         </message>
+        <message>
+            <source>MCP image input</source>
+            <translation>MCP-Bildeingabe</translation>
+        </message>
+        <message>
+            <source>Enable for a vision-capable model to send MCP images to the selected connection.</source>
+            <translation>Aktivieren, um MCP-Bilder mit einem bildfähigen Modell an die ausgewählte Verbindung zu senden.</translation>
+        </message>
     </context>
     <context>
         <name>WebSettings</name>

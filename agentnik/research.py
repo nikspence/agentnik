@@ -325,6 +325,15 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 append_tool_output(call,content)
                 detail=(returned.error if returned.error and call.name=='image_gen' else 'tool reported an error' if returned.error else 'completed' if call.name.startswith('mcp_') else f'{len(sources)} source(s)')
                 event('tool_failed' if returned.error else 'tool_completed',f'{call.name}: '+detail)
+            take_images=getattr(mcp,'take_images',None) if mcp else None
+            images=take_images() if callable(take_images) else []
+            if isinstance(images,list) and images:
+                from .code_vision import image_message
+                visual=image_message(images,protocol,native)
+                runtime.charge('context_bytes',len(json.dumps(visual).encode('utf-8')),runtime.limits.context_bytes)
+                if is_responses:body['input'].append(visual)
+                else:body['messages'].append(visual)
+                event('mcp','Sending '+str(len(images))+' MCP image(s) to the selected model for this turn.')
         else: raise LimitError('Research round limit reached')
     except Exception as exc:
         if isinstance(exc,core.EndpointError): active.setdefault('metrics',{}).update(core.usage_metrics(exc.payload if isinstance(exc.payload,dict) else {}))

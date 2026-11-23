@@ -536,6 +536,7 @@ class SessionTab(QWidget):
             self.mcp_refresh=button(self.tr('Refresh MCP'),self.refresh_chat_mcp,mcp_row)
             self.mcp_extra_refs=copy.deepcopy(session.get('research_options',{}).get('mcp_extra',[]))
             self.mcp_servers_button=button(self.tr('MCP servers…'),self.choose_chat_mcp_servers,mcp_row)
+            self.mcp_vision=QCheckBox(self.tr('MCP image input'));self.mcp_vision.setToolTip(self.tr('Enable for a vision-capable model to send MCP images to the selected connection.'));self.mcp_vision.setChecked(session.get('research_options',{}).get('mcp_vision_enabled',False));mcp_row.addWidget(self.mcp_vision)
             self.refresh_chat_mcp();self.mcp_choice.currentIndexChanged.connect(self.chat_mcp_changed)
 
         self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True); self.results_widget = QWidget(); self.results = QVBoxLayout(self.results_widget); self.results.addStretch(); self.scroll.setWidget(self.results_widget)
@@ -555,6 +556,7 @@ class SessionTab(QWidget):
             self.documents = copy.deepcopy(session.get('draft_documents', []))
             self.document_row = QHBoxLayout(); layout.addLayout(self.document_row); self.refresh_documents()
             self.composer.textChanged.connect(self.save_draft)
+            self.mcp_vision.toggled.connect(self.save_draft)
         else:
             split = QSplitter(Qt.Orientation.Horizontal); layout.addWidget(split,1)
             form_scroll = QScrollArea(); form_scroll.setWidgetResizable(True); form_widget = QWidget(); form_layout = QVBoxLayout(form_widget); form_scroll.setWidget(form_widget); split.addWidget(form_scroll); split.addWidget(self.scroll); split.setSizes([520,460])
@@ -873,7 +875,7 @@ class SessionTab(QWidget):
         self.session['connection'].update(model=self.model.currentText(),reasoning=self.reasoning.text(),stream=self.stream.isChecked())
         if self.session['mode'] == 'chat':
             options=self.session.get('research_options',{})
-            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={**options,'mcp':copy.deepcopy(self.mcp_choice.currentData()),'mcp_extra':copy.deepcopy(self.mcp_extra_refs)})
+            self.session.update(draft=self.composer.toPlainText(),draft_images=list(self.attachments.paths),draft_documents=copy.deepcopy(self.documents),research_options={**options,'mcp':copy.deepcopy(self.mcp_choice.currentData()),'mcp_extra':copy.deepcopy(self.mcp_extra_refs),'mcp_vision_enabled':self.mcp_vision.isChecked()})
         else: self.session['form'] = self.form_value()
         self.store.save(self.session); self.update_current_star(); self.updated.emit()
     def update_current_star(self):
@@ -885,7 +887,7 @@ class SessionTab(QWidget):
         self.send_button.setEnabled(not value); self.cancel_button.setEnabled(value)
         for widget in (self.model,self.reasoning,self.stream,self.models_button,self.attachments): widget.setEnabled(not value)
         if self.session['mode'] == 'chat':
-                self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value);self.mcp_servers_button.setEnabled(not value)
+                self.context_button.setEnabled(not value);self.auto_compact.setEnabled(not value); self.documents_button.setEnabled(not value); self.composer.setReadOnly(value); self.mcp_choice.setEnabled(not value);self.mcp_refresh.setEnabled(not value);self.mcp_servers_button.setEnabled(not value);self.mcp_vision.setEnabled(not value)
     def submit(self,continuation=False):
         if self.job: return
         try:
@@ -934,7 +936,7 @@ class SessionTab(QWidget):
                         servers.append(server)
                     if access_policy=='strict_public':raise ValueError('Strict public-only navigation does not allow MCP in Chat.')
                     from .chat_mcp import ChatMCP,MultiChatMCP
-                    self.chat_mcp=(ChatMCP(servers[0],self.store.config,self,extra_secrets=(c.get('api_key',''),)) if len(servers)==1 else MultiChatMCP(servers,self.store.config,self,extra_secrets=(c.get('api_key',''),)));self.chat_mcp.approval_requested.connect(self.review_chat_mcp)
+                    self.chat_mcp=(ChatMCP(servers[0],self.store.config,self,extra_secrets=(c.get('api_key',''),),vision_enabled=self.mcp_vision.isChecked()) if len(servers)==1 else MultiChatMCP(servers,self.store.config,self,extra_secrets=(c.get('api_key',''),),vision_enabled=self.mcp_vision.isChecked()));self.chat_mcp.approval_requested.connect(self.review_chat_mcp)
                 research_config={'research_capabilities':copy.deepcopy(self.store.config.get('research_capabilities',{})),'local_tools':True,'web_enabled':self.web_access.isChecked(),'mcp_priority':self.store.config['settings'].get('mcp_priority','first')}
                 backend_specs=self.store.web_backend_specs()
                 key=next((b['key'] for b in backend_specs if b.get('key')),'')

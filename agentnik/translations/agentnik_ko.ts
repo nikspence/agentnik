@@ -4569,6 +4569,14 @@ Saved excerpt; not a fresh or complete page.
             <source>Local tools completed</source>
             <translation>로컬 도구 실행 완료</translation>
         </message>
+        <message>
+            <source>MCP image input</source>
+            <translation>MCP 이미지 입력</translation>
+        </message>
+        <message>
+            <source>Enable for a vision-capable model to send MCP images to the selected connection.</source>
+            <translation>이미지를 볼 수 있는 모델에서 MCP 이미지를 선택한 연결로 보내려면 활성화하세요.</translation>
+        </message>
     </context>
     <context>
         <name>WebSettings</name>

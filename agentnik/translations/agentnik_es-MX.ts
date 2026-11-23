@@ -4521,6 +4521,14 @@ Extracto guardado; no es una página nueva o completa.
             <source>Local tools completed</source>
             <translation>Herramientas locales completadas</translation>
         </message>
+        <message>
+            <source>MCP image input</source>
+            <translation>Imágenes de MCP</translation>
+        </message>
+        <message>
+            <source>Enable for a vision-capable model to send MCP images to the selected connection.</source>
+            <translation>Actívalo para enviar imágenes de MCP a la conexión seleccionada con un modelo compatible con imágenes.</translation>
+        </message>
     </context>
     <context>
         <name>WebSettings</name>

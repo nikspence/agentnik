@@ -167,6 +167,58 @@ for line in sys.stdin:
         with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Read report'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
         self.assertEqual(result['status'],'ok');self.assertIn('Revenue was 42.',json.dumps(bodies[-1]));self.assertEqual([item.args[0] for item in controller.bridge.request.call_args_list],['discover','resources_list','resources_read'])
 
+    def test_chat_mcp_images_are_opt_in_bounded_and_transient(self):
+        import base64,threading
+        from agentnik.chat_mcp import ChatMCP
+        from test_image_generation import png
+        image=base64.b64encode(png()).decode('ascii')
+        server={'name':'Documents','command':sys.executable,'args':[],'enabled':True}
+        tool={'name':'picture','description':'Picture','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        request=json.dumps({'tool':'picture','arguments':{}})
+        for enabled in (False,True):
+            with self.subTest(enabled=enabled):
+                controller=ChatMCP(server,{'mcp_servers':[server]},vision_enabled=enabled);controller.bridge=Mock()
+                block={'type':'image','mimeType':'image/png','data':image}
+                private=dict(block,annotations={'audience':['user']})
+                controller.bridge.request.side_effect=[{'tool_details':[tool]},{'call_result':{'content':[block]*5+[private]}}]
+                replies=[Wire(response([function('mcp_discover',{'server':'connect'},'one')]),False),Wire(response([function('mcp_call',{'request':request},'two')]),False),Wire(response([message('Done')]),False)]
+                bodies=[]
+                def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+                with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Inspect'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
+                self.assertEqual(result['status'],'ok');self.assertNotIn(image,json.dumps(result))
+                content=bodies[-1]['input'];visual=[item for item in content if item.get('role')=='user' and isinstance(item.get('content'),list) and any(part.get('type')=='input_image' for part in item['content'])]
+                self.assertEqual(len(visual),int(enabled))
+                if enabled:
+                    self.assertEqual(sum(part.get('type')=='input_image' for part in visual[0]['content']),4)
+                    self.assertIn('batch limit',json.dumps(content));self.assertEqual(controller.take_images(),[])
+                else:self.assertNotIn(image,json.dumps(content))
+
+    def test_chat_mcp_image_option_is_saved_per_chat(self):
+        with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
+            store=Store(folder);window=Window(store);window.connections={'test':dict(C)}
+            try:
+                window.new_session('chat','test');tab=window.tabs.currentWidget()
+                self.assertFalse(tab.mcp_vision.isChecked());tab.mcp_vision.setChecked(True)
+                saved=next(item for item in store.list_sessions() if item['id']==tab.session['id'])
+                self.assertTrue(saved['research_options']['mcp_vision_enabled'])
+                tab.busy(True);self.assertFalse(tab.mcp_vision.isEnabled());tab.busy(False)
+            finally:window.close();self.app.processEvents();store.db.close()
+
+    def test_chat_mcp_image_batch_limit_is_shared_between_servers(self):
+        import base64
+        from agentnik.chat_mcp import MultiChatMCP
+        from agentnik.tools import Runtime
+        from test_image_generation import png
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers},vision_enabled=True)
+        tool={'name':'picture','description':'Picture','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        image=base64.b64encode(png()).decode('ascii');block={'type':'image','mimeType':'image/png','data':image}
+        for controller in group.controllers:
+            controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'content':[block]*3}}
+        for controller in group.controllers:
+            controller.invoke('mcp_call',{'request':json.dumps({'tool':'picture','arguments':{}})},Runtime())
+        self.assertEqual(len(group.take_images()),4);self.assertEqual(group.take_images(),[])
+
     def test_chat_resource_list_reconnects_and_read_requires_fresh_listing(self):
         import threading
         from agentnik.chat_mcp import ChatMCP
@@ -603,6 +655,33 @@ for line in sys.stdin:
                 result=research.run_managed(connection,MESSAGES,'',lambda _:None,threading.Event(),web_tools=False,mcp=InvalidMCP())
                 self.assertEqual(result['status'],'ok');self.assertEqual(result['text'],'Done')
                 self.assertIn('Invalid fixture request',json.dumps(bodies[-1]))
+
+    def test_mcp_images_continue_across_other_chat_protocols(self):
+        import base64,threading
+        from agentnik.tools import ToolDefinition
+        from test_image_generation import png
+        from test_research import C as native,MESSAGES,Response,answer,call
+        from test_compat_tools import chat,msg,chat_call
+        data=png();encoded=base64.b64encode(data).decode('ascii')
+        class FakeMCP:
+            secret_values=[]
+            definitions=(ToolDefinition('mcp_discover','server','Connect.',200),)
+            def __init__(self):self.images=[]
+            def invoke(self,name,args,runtime):self.images=[('MCP image',data,'image/png')];return {'notice':'image follows'}
+            def validate_batch(self,calls):pass
+            def take_images(self):images=self.images;self.images=[];return images
+        one=chat_call();one['function'].update(name='mcp_discover',arguments='{"server":"connect"}')
+        block={'type':'tool_use','id':'call-1','name':'mcp_discover','input':{'server':'connect'}}
+        fixtures=[(dict(native,stream=False),[Response([answer('',[call('mcp_discover',{'server':'connect'})])],False),Response([answer('Done')],False)]),
+                  ({'url':'https://example.com/v1','protocol':'chat','model':'test','stream':False},[Wire(chat(calls=[one],finish='tool_calls'),False),Wire(chat('Done'),False)]),
+                  ({'url':'https://example.com/v1','protocol':'messages','model':'test','stream':False},[Wire(msg([block],'tool_use'),False),Wire(msg([{'type':'text','text':'Done'}]),False)])]
+        for connection,replies in fixtures:
+            bodies=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with self.subTest(protocol=connection['protocol'],url=connection['url']),patch.object(core,'open_request',side_effect=send):
+                result=research.run_managed(connection,MESSAGES,'',lambda _:None,threading.Event(),web_tools=False,mcp=FakeMCP())
+                self.assertEqual(result['status'],'ok');self.assertIn(encoded,json.dumps(bodies[-1]));self.assertNotIn(encoded,json.dumps(result))
+                self.assertEqual(bodies[-1]['messages'][-1]['role'],'user')
 
     def test_approved_responses_turn_persists_and_reopens_without_server_restart(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}),patch.object(core,'models',return_value=[]):
