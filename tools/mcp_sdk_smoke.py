@@ -68,6 +68,11 @@ def make_server(cancelled=None,resumption=None,tasks=False):
         return {'sum':a+b}
 
     @server.tool()
+    def unique_tags(tags:set[str])->str:
+        """Summarize synthetic distinct tags."""
+        return ','.join(sorted(tags))
+
+    @server.tool()
     async def ping_client(ctx:Context)->str:
         """Ping the client before returning a synthetic result."""
         await ctx.session.send_ping()
@@ -298,7 +303,7 @@ def run(session,transport):
     return {'sdk_version':version('mcp'),'transport':transport,'protocol':result['protocol'],'checks':checks}
 
 
-def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False,test_elicitation=False,test_url=False,test_required=False,test_pattern=False,test_choices=False,test_rpc_rejection=False,test_modern_tasks=False,test_modern_state=False,test_legacy_probe=False):
+def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,test_oauth=False,test_oauth_flow=False,test_oauth_refresh=False,test_oauth_ui=False,test_oauth_dynamic=False,test_modern=False,test_modern_notifications=False,test_modern_elicitation=False,test_elicitation=False,test_url=False,test_required=False,test_pattern=False,test_choices=False,test_rpc_rejection=False,test_modern_tasks=False,test_modern_state=False,test_legacy_probe=False,test_unique=False):
     import datetime
     import ipaddress
     import socket
@@ -419,7 +424,7 @@ def run_https(test_cancel=False,test_resume=False,test_standalone_resume=False,t
             elif test_oauth_ui or test_oauth_dynamic:result=run_oauth_ui(url,oauth_requests,dynamic=test_oauth_dynamic)
             else:
                 session=RemoteSession(url,'',timeout_seconds=15,prefer_modern=test_modern or test_legacy_probe)
-                result=run_modern_state(session,'https-modern') if test_modern_state else run_modern_tasks(session,'https-modern') if test_modern_tasks else run_modern_elicitation(session,'https-modern' if test_modern else 'https',url=test_url,required=test_required,pattern=test_pattern,choices=test_choices) if test_modern_elicitation or test_elicitation or test_url or test_required or test_pattern or test_choices else run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
+                result=run_unique_items(session,'https-modern') if test_unique else run_modern_state(session,'https-modern') if test_modern_state else run_modern_tasks(session,'https-modern') if test_modern_tasks else run_modern_elicitation(session,'https-modern' if test_modern else 'https',url=test_url,required=test_required,pattern=test_pattern,choices=test_choices) if test_modern_elicitation or test_elicitation or test_url or test_required or test_pattern or test_choices else run_modern_notifications(session) if test_modern_notifications else run(session,'https-modern') if test_modern else run_cancel(session,cancelled,observed) if test_cancel else run_standalone_resume(session,resume) if test_standalone_resume else run_resume(session,resume) if test_resume else run(session,'https')
             result['tls_probe_version']=negotiated
         finally:
             server.should_exit=True;thread.join(10);listener.close();QSslConfiguration.setDefaultConfiguration(original)
@@ -657,6 +662,28 @@ def run_cancel(session,cancelled,observed):
     return {'sdk_version':version('mcp'),'transport':'https','checks':['notification received with matching request ID','synthetic server operation ended','session closed']}
 
 
+def run_unique_items(session,transport):
+    from PySide6.QtCore import QEventLoop,QTimer,QCoreApplication
+    from agentnik.mcp_schema import validate_tool_arguments,MCPArgumentValidationError
+    loop=QEventLoop();out=[]
+    def discovered(info):
+        try:
+            tool=next(item for item in info['tool_details'] if item['name']=='unique_tags')
+            try:validate_tool_arguments(tool['schema'],{'tags':['alpha','alpha']})
+            except MCPArgumentValidationError:pass
+            else:raise RuntimeError('Duplicate tags were accepted')
+            validate_tool_arguments(tool['schema'],{'tags':['beta','alpha']})
+            if not session.call(tool,{'tags':['beta','alpha']}):raise RuntimeError('Call rejected')
+        except Exception as exc:out.append({'error':str(exc)});loop.quit()
+    session.discovered.connect(discovered);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
+    timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(15000);session.start();loop.exec();timer.stop()
+    if transport.startswith('stdio'):session.close()
+    else:session.shutdown();session.manager.clearConnectionCache()
+    QCoreApplication.processEvents()
+    if not out or out[0].get('call_result',{}).get('content',[{}])[0].get('text')!='alpha,beta':raise RuntimeError('SDK unique-items test failed: '+str(out))
+    return {'sdk_version':version('mcp'),'transport':transport,'protocol':'2026-07-28','checks':['set schema discovery','duplicate rejection','distinct tool call']}
+
+
 def run_modern_state(session,transport):
     from PySide6.QtCore import QEventLoop,QTimer,QCoreApplication
     loop=QEventLoop();out=[];forms=[]
@@ -730,6 +757,7 @@ if __name__=='__main__':
     elif sys.argv[1:]==['--https-modern']:print(json.dumps(run_https(test_modern=True)))
     elif sys.argv[1:]==['--https-modern-tasks']:print(json.dumps(run_https(test_modern=True,test_modern_tasks=True)))
     elif sys.argv[1:]==['--https-modern-state']:print(json.dumps(run_https(test_modern=True,test_modern_state=True)))
+    elif sys.argv[1:]==['--https-unique-items']:print(json.dumps(run_https(test_modern=True,test_unique=True)))
     elif sys.argv[1:]==['--https-legacy-probe']:print(json.dumps(run_https(test_legacy_probe=True)))
     elif sys.argv[1:]==['--https-modern-rpc-negotiation']:print(json.dumps(run_https(test_modern=True,test_rpc_rejection=True)))
     elif sys.argv[1:]==['--https-modern-notifications']:print(json.dumps(run_https(test_modern=True,test_modern_notifications=True)))
@@ -757,6 +785,11 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio-modern')))
+    elif sys.argv[1:]==['--stdio-unique-items']:
+        from PySide6.QtCore import QCoreApplication
+        from agentnik.mcp_local import LocalSession
+        app=QCoreApplication.instance() or QCoreApplication([])
+        print(json.dumps(run_unique_items(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15),'stdio-modern')))
     elif sys.argv[1:]==['--stdio-legacy-probe']:
         from PySide6.QtCore import QCoreApplication
         from agentnik.mcp_local import LocalSession
@@ -812,4 +845,4 @@ if __name__=='__main__':
         from agentnik.mcp_local import LocalSession
         app=QCoreApplication.instance() or QCoreApplication([])
         print(json.dumps(run_modern_elicitation(LocalSession(sys.executable,[str(Path(__file__).resolve()),'--server'],timeout_seconds=15,prefer_modern=False),'stdio',required=True)))
-    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--stdio-dual-probe|--stdio-legacy-probe|--https-legacy-probe|--https-modern-state|--stdio-modern-state|--https-modern-tasks|--stdio-modern-tasks|--https-modern-rpc-negotiation|--stdio-modern-rpc-negotiation|--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')
+    else:raise SystemExit('Usage: mcp_sdk_smoke.py [--https-unique-items|--stdio-unique-items|--stdio-dual-probe|--stdio-legacy-probe|--https-legacy-probe|--https-modern-state|--stdio-modern-state|--https-modern-tasks|--stdio-modern-tasks|--https-modern-rpc-negotiation|--stdio-modern-rpc-negotiation|--https-choice-elicitation|--stdio-choice-elicitation|--https-pattern-elicitation|--stdio-pattern-elicitation|--https-url-required|--stdio-url-required|--https-url-elicitation|--stdio-url-elicitation|--https-elicitation|--stdio-elicitation|--stdio-modern|--stdio-modern-notifications|--stdio-modern-elicitation|--https|--https-modern|--https-modern-notifications|--https-modern-elicitation|--https-cancel|--https-resume|--https-standalone-resume|--https-oauth-discovery|--https-oauth-flow|--https-oauth-refresh|--https-oauth-ui|--https-oauth-dynamic]')

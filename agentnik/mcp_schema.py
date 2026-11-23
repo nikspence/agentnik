@@ -10,7 +10,7 @@ from referencing import Registry
 SCHEMA_URL='https://json-schema.org/draft/2020-12/schema'
 DRAFT7_URLS=('http://json-schema.org/draft-07/schema','https://json-schema.org/draft-07/schema')
 ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment','format','discriminator','x-mcp-header','enumNames'}
-KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','required','additionalProperties','items','prefixItems','additionalItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
+KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','required','additionalProperties','items','prefixItems','additionalItems','uniqueItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
 MAX_NODES=1000
 MAX_DEPTH=24
 MAX_BRANCHES=32
@@ -43,7 +43,29 @@ def _bounded_alternatives(keyword):
     return validate
 
 
-_bounded_keywords={'pattern':_bounded_pattern,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf')}
+def _unique_item_key(value):
+    """Hash JSON values using JSON Schema equality, including nested booleans."""
+    if time.monotonic()>=_pattern_deadline.get():raise TimeoutError('MCP schema validation timed out')
+    if value is None:return ('null',)
+    if type(value) is bool:return ('boolean',value)
+    if type(value) in (int,float):return ('number',value)
+    if isinstance(value,str):return ('string',value)
+    if isinstance(value,list):return ('array',tuple(_unique_item_key(item) for item in value))
+    if isinstance(value,dict):return ('object',frozenset((key,_unique_item_key(item)) for key,item in value.items()))
+    raise ValueError('Invalid JSON value')
+
+
+def _bounded_unique_items(validator,unique,instance,schema):
+    if not unique or not isinstance(instance,list):return
+    seen=set()
+    for item in instance:
+        key=_unique_item_key(item)
+        if key in seen:
+            yield ValidationError('The array contains duplicate items.');return
+        seen.add(key)
+
+
+_bounded_keywords={'pattern':_bounded_pattern,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf'),'uniqueItems':_bounded_unique_items}
 BOUNDED_2020=validators.extend(Draft202012Validator,_bounded_keywords)
 BOUNDED_7=validators.extend(Draft7Validator,_bounded_keywords)
 
@@ -61,7 +83,7 @@ def _validation_feedback(error):
     if error.validator=='required' and isinstance(error.validator_value,list) and isinstance(error.instance,dict):
         missing=[name for name in error.validator_value if isinstance(name,str) and name not in error.instance and name.isascii() and name.isidentifier() and len(name)<=64]
         if missing:fields.append(missing[0])
-    reasons={'required':'a required field is missing','type':'the value has the wrong type','enum':'the value is not an allowed choice','const':'the value does not match the required constant','pattern':'the value does not match the required pattern','minimum':'the value is below the minimum','maximum':'the value is above the maximum','minItems':'the array has too few items','maxItems':'the array has too many items','additionalProperties':'an unexpected field was supplied'}
+    reasons={'required':'a required field is missing','type':'the value has the wrong type','enum':'the value is not an allowed choice','const':'the value does not match the required constant','pattern':'the value does not match the required pattern','minimum':'the value is below the minimum','maximum':'the value is above the maximum','minItems':'the array has too few items','maxItems':'the array has too many items','uniqueItems':'the array contains duplicate items','additionalProperties':'an unexpected field was supplied'}
     reason=reasons.get(error.validator,'a schema constraint was not met')
     location=' for field '+'.'.join(fields[:4]) if fields else ''
     return 'MCP arguments do not match the tool input schema'+location+': '+reason+'.'
@@ -186,7 +208,7 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
         token=_pattern_deadline.set(time.monotonic()+.25);choices_token=_choice_cache.set({})
         try:bounded(schema,registry=Registry(),format_checker=FormatChecker() if check_formats else None).validate(arguments)
         finally:_choice_cache.reset(choices_token);_pattern_deadline.reset(token)
-    except TimeoutError:raise ValueError('MCP schema pattern matching timed out.') from None
+    except TimeoutError:raise ValueError('MCP schema validation timed out.') from None
     except Exception as exc:
         from jsonschema.exceptions import SchemaError
         if isinstance(exc,ValidationError):raise MCPArgumentValidationError(_validation_feedback(exc)) from None
