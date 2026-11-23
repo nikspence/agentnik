@@ -10,7 +10,6 @@ from .tools import LimitError
 
 MAX_OUTPUT = 32000
 MAX_SECONDS = 1800
-ENVIRONMENT_KEYS = {'PATH','SYSTEMROOT','WINDIR','COMSPEC','PATHEXT','TEMP','TMP','LANG','LC_ALL','LC_CTYPE','TERM'}
 _ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-_])')
 
 
@@ -60,8 +59,9 @@ def shell_path():
     return '/bin/sh'
 
 
-def snapshot_environment(secrets=()):
-    return {key:value for key,value in os.environ.items() if key.upper() in ENVIRONMENT_KEYS and not any(secret and secret in value for secret in secrets)}
+def snapshot_environment():
+    """Capture the launching user's environment for review and execution."""
+    return dict(os.environ)
 
 
 def execute(command,cwd,runtime,environment=None,program=None):

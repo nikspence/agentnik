@@ -1905,7 +1905,7 @@ class CodingRun:
                             command=args['command'];cwd=files.path(args['path'])
                             if not cwd.is_dir() or not command.strip() or len(command.encode('utf-8'))>4096 or any((ord(ch)<32 and ch not in '\n\r\t') or 127<=ord(ch)<=159 or unicodedata.bidirectional(ch) in ('LRE','RLE','LRO','RLO','PDF','LRI','RLI','FSI','PDI') for ch in command):
                                 raise ProjectToolError('Invalid command or working directory. Use an existing project directory and a nonempty command without control characters.')
-                            environment=shell.snapshot_environment(secrets)
+                            environment=shell.snapshot_environment()
                             proposal={'operation':'run_shell','cwd':str(cwd),'path':args['path'],'command':command,'shell':shell.shell_path(),'environment_keys':sorted(environment),'environment_hash':hashlib.sha256(json.dumps(environment,sort_keys=True).encode()).hexdigest(),'max_seconds':min(shell.MAX_SECONDS,max(0,int(runtime.limits.turn_seconds-(time.monotonic()-runtime.started)))),'max_output_bytes':shell.MAX_OUTPUT}
                             if runtime.external_deadline is not None:proposal['max_seconds']=min(proposal['max_seconds'],max(0,int(runtime.external_deadline-time.monotonic())))
                             if call.name=='run_tests':proposal.update(purpose='tests',test_format=args['format'])

@@ -1,6 +1,9 @@
 """Local, temporary tests for approved command process handling."""
 import os
 from pathlib import Path
+import shlex
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -48,13 +51,31 @@ class ShellExecutor(unittest.TestCase):
             result=shell.execute(command,directory,runtime)
             self.assertEqual(result['exit_code'],0);self.assertIn('done',result['output'])
 
-    def test_output_is_bounded_and_environment_omits_credentials(self):
-        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'AGENTNIK_TEST_KEY':'secret-value'}):
+    def test_output_is_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
             command="Write-Output 'shell-ok'; Write-Output ('x' * 40000)" if os.name=='nt' else "printf 'shell-ok\\n'; head -c 40000 /dev/zero | tr '\\0' x"
             result=shell.execute(command,directory,Runtime())
             self.assertEqual(result['exit_code'],0);self.assertIn('shell-ok',result['output'])
             self.assertTrue(result['truncated']);self.assertLessEqual(len(result['output'].encode()),shell.MAX_OUTPUT)
-            self.assertNotIn('AGENTNIK_TEST_KEY',shell.snapshot_environment())
+
+    def test_inherits_user_environment_and_uses_reviewed_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'AGENTNIK_SHELL_TEST':'reviewed'}):
+            environment=shell.snapshot_environment()
+            os.environ['AGENTNIK_SHELL_TEST']='changed'
+            command="Write-Output $env:AGENTNIK_SHELL_TEST" if os.name=='nt' else 'printf "%s" "$AGENTNIK_SHELL_TEST"'
+            result=shell.execute(command,directory,Runtime(),environment=environment)
+            self.assertEqual(result['exit_code'],0);self.assertEqual(result['output'].strip(),'reviewed')
+            self.assertEqual(shell.snapshot_environment()['AGENTNIK_SHELL_TEST'],'changed')
+
+    def test_python_can_import_user_site_and_standard_library(self):
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'PYTHONUSERBASE':directory}):
+            python=sys._base_executable
+            site=Path(subprocess.check_output([python,'-c','import site; print(site.getusersitepackages())'],text=True).strip())
+            site.mkdir(parents=True);(site/'agentnik_user_site_fixture.py').write_text('value = 42\n',encoding='utf-8')
+            quoted="'"+python.replace("'","''")+"'" if os.name=='nt' else shlex.quote(python)
+            command=("& " if os.name=='nt' else '')+quoted+" -c 'import json, agentnik_user_site_fixture; print(json.dumps(agentnik_user_site_fixture.value))'"
+            result=shell.execute(command,directory,Runtime())
+            self.assertEqual(result['exit_code'],0,result['output']);self.assertEqual(result['output'].strip(),'42')
 
     @unittest.skipUnless(os.name=='nt','Windows job object process-tree check')
     def test_cancellation_stops_windows_child_process(self):
