@@ -120,7 +120,7 @@ class RemoteProbe(QObject):
         self.subscription_timer=QTimer(self);self.subscription_timer.setSingleShot(True);self.subscription_timer.timeout.connect(self.subscription_timed_out)
         self.modern_task_timer=QTimer(self);self.modern_task_timer.setSingleShot(True);self.modern_task_timer.timeout.connect(self.poll_modern_task);self.modern_task=None;self.modern_cancel_ack=None
         self.state_timer=QTimer(self);self.state_timer.setSingleShot(True);self.state_timer.timeout.connect(lambda:self.continue_elicitation({},state_only=True))
-        self.prefer_modern=prefer_modern;self.modern_first_probe=False;self.modern_probe_finished=False
+        self.prefer_modern=prefer_modern;self.modern_first_probe=False;self.modern_probe_finished=False;self.completed=False
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.timeout.connect(lambda:self.stop('MCP connection timed out.'))
     def start(self):
         self.timer.start(self.timeout_ms)
@@ -131,6 +131,7 @@ class RemoteProbe(QObject):
     def fallback_legacy(self):
         self.modern_first_probe=False;self.modern_probe_finished=True;self.modern=False;self.protocol=PROTOCOL;self.phase='initialize'
         self.progress.emit('MCP 2026 discovery was rejected; checking legacy initialization.')
+        if getattr(self,'closed',False) or self.failure is not None or self.phase!='initialize':return
         self.send(initialize_request(elicitation=self.elicitation_enabled))
     def send(self,message):
         if message.get('method') in ('tools/call','prompts/get','resources/read') and 'inputResponses' not in message.get('params',{}):self.elicitation_original=copy.deepcopy(message)
@@ -572,6 +573,7 @@ class RemoteProbe(QObject):
             if self.phase=='initialize' and not self.modern_probe_finished and status in (400,404,405):
                 self.legacy_rejection='HTTP '+str(status);self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
                 self.progress.emit('Legacy MCP initialization was rejected; checking 2026 discovery.')
+                if getattr(self,'closed',False) or self.failure is not None or self.phase!='modern_discovery':return
                 self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
             if status in (401,403):
                 from .mcp_oauth import bearer_challenge
@@ -607,6 +609,7 @@ class RemoteProbe(QObject):
                 if self.phase=='initialize' and not self.modern_probe_finished and message['error']['code'] in LEGACY_ENVELOPE_ERRORS:
                     self.legacy_rejection='JSON-RPC '+str(message['error']['code']);self.modern=True;self.protocol=MODERN_PROTOCOL;self.phase='modern_discovery'
                     self.progress.emit('Legacy MCP initialization was rejected; checking 2026 discovery.')
+                    if getattr(self,'closed',False) or self.failure is not None or self.phase!='modern_discovery':return
                     self.send({'jsonrpc':'2.0','id':0,'method':'server/discover','params':{}});return
                 if self.phase=='modern_discovery' and self.legacy_rejection is not None:
                     self.stop('MCP server rejected legacy initialization ('+self.legacy_rejection+') and 2026 discovery (JSON-RPC '+str(message['error']['code'])+').');return
@@ -707,6 +710,7 @@ class RemoteProbe(QObject):
             if self.phase=='call' and self.task_mode:
                 self.task_id=created_task_id(message.get('result'));self.task_status_last='working';self.task_status_count=0;self.phase='task_result'
                 self.progress.emit('Task started: '+self.task_id+'; awaiting result.')
+                if getattr(self,'closed',False) or self.failure is not None or self.phase!='task_result':return
                 self.send({'jsonrpc':'2.0','id':0,'method':'tasks/result','params':{'taskId':self.task_id}});return
             if self.phase in ('call','task_result'):
                 outcome=message.get('result')
@@ -764,6 +768,7 @@ class RemoteProbe(QObject):
     def finish_call(self):
         self.close_session()
     def close_session(self):
+        if self.completed or self.phase=='closing':return
         self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls.clear();self.modern_task_timer.stop();self.state_timer.stop();self.modern_task=None
         self.sse_resuming=False;self.sse_resume_timer.stop()
         self.close_server_stream()
@@ -775,6 +780,8 @@ class RemoteProbe(QObject):
         if self.token:request.setRawHeader(b'Authorization',('Bearer '+self.token).encode('ascii'))
         self.buffer=bytearray();self.reply=self.manager.deleteResource(request);self.configure_reply();self.reply.readyRead.connect(self.consume);self.reply.finished.connect(self.received)
     def complete(self,closed):
+        if self.completed:return
+        self.completed=True
         self.timer.stop();self.token=''
         result=self.failure if self.failure is not None else self.result
         result['session_closed']=closed
@@ -804,7 +811,9 @@ class RemoteProbe(QObject):
         if reply:
             reply.finished.disconnect(self.received);reply.readyRead.disconnect(self.consume);reply.abort();reply.deleteLater()
         if self.phase=='closing' and (self.result is not None or self.failure is not None):self.complete(False);return
-        if self.phase in ('task_cancel','modern_task_cancel'):self.task_cancelled=False;self.close_session();return
+        if self.phase in ('task_cancel','modern_task_cancel'):
+            if self.phase=='task_cancel':self.task_cancelled=False
+            self.close_session();return
         if self.phase=='request_cancel':self.close_session();return
         if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
         self.failure={'error':message,'call_uncertain':self.phase in ('call','task_result') or self.modern_task is not None}
@@ -916,6 +925,8 @@ class RemoteSession(RemoteProbe):
         self.cancel_task_or_close(request_id)
 
     def complete(self,closed):
+        if self.completed:return
+        self.completed=True
         self.timer.stop();self.token='';result={'session_closed':closed}
         if self.task_id:result['task_id']=self.task_id
         if self.task_cancelled is not None:result['task_cancelled']=self.task_cancelled

@@ -4,7 +4,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from PySide6.QtCore import QEventLoop,QTimer
 from PySide6.QtWidgets import QApplication
-from agentnik.mcp_remote import RemoteSession
+from agentnik.mcp_remote import RemoteSession,RemoteProbe
 
 
 class RemoteNegotiationTests(unittest.TestCase):
@@ -49,3 +49,19 @@ class RemoteNegotiationTests(unittest.TestCase):
         for mode in ('401','403','429','500','modern_error','modern_http_error','reflected_token'):
             with self.subTest(mode=mode):
                 result,calls=self.exercise(mode);self.assertIn('error',result);self.assertEqual([item[0] for item in calls],['server/discover']);self.assertNotIn('private',str(result));self.assertNotIn('synthetic-token',str(result))
+
+    def test_stop_from_fallback_progress_prevents_legacy_request(self):
+        for kind,modern_first in (('session',True),('probe',True),('session',False),('probe',False)):
+            with self.subTest(kind=kind,modern_first=modern_first):
+                calls=[]
+                class Handler(BaseHTTPRequestHandler):
+                    def log_message(self,*args):pass
+                    def do_POST(self):
+                        request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));calls.append(request['method']);self.send_response(400);self.send_header('Content-Length','0');self.end_headers()
+                server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                session=(RemoteSession if kind=='session' else RemoteProbe)('http://127.0.0.1:'+str(server.server_port)+'/mcp','synthetic-token',timeout_seconds=5,prefer_modern=modern_first);loop=QEventLoop();out=[]
+                session.progress.connect(lambda message:session.stop() if 'checking ' in message else None)
+                (session.ended if kind=='session' else session.finished).connect(lambda value:(out.append(value),QTimer.singleShot(300,loop.quit)))
+                timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
+                try:loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(calls,['server/discover' if modern_first else 'initialize']);self.assertNotIn('synthetic-token',str(out))
+                finally:server.shutdown();server.server_close();thread.join(2)

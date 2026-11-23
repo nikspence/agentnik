@@ -475,11 +475,11 @@ for line in sys.stdin:
  if method=='notifications/initialized':continue
  if method=='initialize':
   tasks={'requests':{'tools':{'call':{}}}}
-  if mode!='not-advertised':tasks['cancel']={}
+  if mode not in ('not-advertised','immediate-no-cancel'):tasks['cancel']={}
   result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'tasks':tasks}}
  elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'},'execution':{'taskSupport':'required'}}]}
  elif method=='tools/call':result={'task':{'taskId':'task-123','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttl':60000}}
- elif method=='tasks/result':old_id=req['id'];continue
+ elif method=='tasks/result':pathlib.Path(sys.argv[2]+'.result').write_text('sent');old_id=req['id'];continue
  elif method=='tasks/cancel':
   pathlib.Path(sys.argv[2]).write_text(req['params']['taskId'])
   if mode=='timeout':continue
@@ -488,18 +488,20 @@ for line in sys.stdin:
  else:raise RuntimeError('unexpected '+method)
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
-            for mode in ('confirmed','race','rejected','timeout','not-advertised','operation-timeout'):
+            for mode in ('confirmed','race','rejected','timeout','not-advertised','operation-timeout','immediate','immediate-no-cancel'):
                 with self.subTest(mode=mode):
-                    marker.unlink(missing_ok=True);timeout=1 if mode=='operation-timeout' else 5
+                    marker.unlink(missing_ok=True);result_marker=Path(str(marker)+'.result');result_marker.unlink(missing_ok=True);timeout=1 if mode=='operation-timeout' else 5
                     session=LocalSession(sys.executable,[str(server),mode,str(marker)],timeout_seconds=timeout,prefer_modern=False);loop=QEventLoop();finished=[];ended=[]
                     session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
-                    if mode!='operation-timeout':session.progress.connect(lambda text:QTimer.singleShot(100,session.close) if text.startswith('Task started:') else None)
+                    if mode in ('immediate','immediate-no-cancel'):session.progress.connect(lambda text:session.close() if text.startswith('Task started:') else None)
+                    elif mode!='operation-timeout':session.progress.connect(lambda text:QTimer.singleShot(100,session.close) if text.startswith('Task started:') else None)
                     session.ended.connect(ended.append);session.shutdown_finished.connect(lambda value:(finished.append(value),loop.quit()));session.start();QTimer.singleShot(7000,loop.quit)
                     loop.exec();self.assertTrue(finished,mode);self.assertTrue(session.closed)
                     self.assertEqual(finished[0]['task_id'],'task-123')
-                    if mode=='not-advertised':self.assertFalse(marker.exists());self.assertNotIn('task_cancelled',finished[0])
+                    if mode in ('not-advertised','immediate-no-cancel'):self.assertFalse(marker.exists());self.assertNotIn('task_cancelled',finished[0])
                     else:
-                        self.assertEqual(marker.read_text(),'task-123');self.assertEqual(finished[0].get('task_cancelled'),mode in ('confirmed','race','operation-timeout'))
+                        self.assertEqual(marker.read_text(),'task-123');self.assertEqual(finished[0].get('task_cancelled'),mode in ('confirmed','race','operation-timeout','immediate'))
+                    if mode in ('immediate','immediate-no-cancel'):self.assertFalse(result_marker.exists())
                     if mode=='operation-timeout':self.assertTrue(ended[0]['call_uncertain']);self.assertIn('task-123',ended[0]['error'])
 
     def test_remote_shutdown_cancels_active_task_when_advertised(self):
@@ -509,7 +511,7 @@ for line in sys.stdin:
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
         app=QApplication.instance() or QApplication([])
-        for mode in ('confirmed','rejected','timeout','not-advertised'):
+        for mode in ('confirmed','rejected','timeout','not-advertised','immediate','immediate-no-cancel'):
             with self.subTest(mode=mode):
                 calls=[];release=threading.Event();result_started=threading.Event()
                 class Handler(BaseHTTPRequestHandler):
@@ -519,7 +521,7 @@ for line in sys.stdin:
                         if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                         if method=='initialize':
                             tasks={'requests':{'tools':{'call':{}}}}
-                            if mode!='not-advertised':tasks['cancel']={}
+                            if mode not in ('not-advertised','immediate-no-cancel'):tasks['cancel']={}
                             result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'tools':{},'tasks':tasks}}
                         elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'},'execution':{'taskSupport':'required'}}]}
                         elif method=='tools/call':result={'task':{'taskId':'task-123','status':'working','createdAt':'2026-01-01T00:00:00Z','lastUpdatedAt':'2026-01-01T00:00:00Z','ttl':60000}}
@@ -527,7 +529,7 @@ for line in sys.stdin:
                         elif method=='tasks/cancel':
                             assert req['params']['taskId']=='task-123'
                             if mode=='timeout':time.sleep(4)
-                            result={'taskId':'task-123','status':'cancelled' if mode=='confirmed' else 'working'};release.set()
+                            result={'taskId':'task-123','status':'cancelled' if mode in ('confirmed','immediate') else 'working'};release.set()
                         else:raise AssertionError(method)
                         payload=json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}).encode()
                         try:self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
@@ -536,11 +538,13 @@ for line in sys.stdin:
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
                 session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',prefer_modern=False);loop=QEventLoop();finished=[]
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.finished.connect(lambda value:(finished.append(value),loop.quit()))
+                if mode in ('immediate','immediate-no-cancel'):session.progress.connect(lambda text:session.shutdown() if text.startswith('Task started:') else None)
                 timer=QTimer();timer.timeout.connect(lambda:session.shutdown() if result_started.is_set() else None);timer.start(10);session.start();QTimer.singleShot(7000,loop.quit)
                 try:
                     loop.exec();timer.stop();self.assertTrue(finished,mode);self.assertEqual(finished[0]['task_id'],'task-123')
-                    if mode=='not-advertised':self.assertNotIn('task_cancelled',finished[0]);self.assertNotIn('tasks/cancel',[item[0] for item in calls])
-                    else:self.assertEqual(finished[0].get('task_cancelled'),mode=='confirmed');self.assertEqual([item[0] for item in calls].count('tasks/cancel'),1)
+                    if mode in ('not-advertised','immediate-no-cancel'):self.assertNotIn('task_cancelled',finished[0]);self.assertNotIn('tasks/cancel',[item[0] for item in calls])
+                    else:self.assertEqual(finished[0].get('task_cancelled'),mode in ('confirmed','immediate'));self.assertEqual([item[0] for item in calls].count('tasks/cancel'),1)
+                    if mode in ('immediate','immediate-no-cancel'):self.assertNotIn('tasks/result',[item[0] for item in calls])
                     self.assertEqual([item[0] for item in calls].count('tools/call'),1);self.assertIn(('DELETE','session-one'),calls)
                 finally:release.set();session.shutdown();server.shutdown();server.server_close();thread.join(2)
 

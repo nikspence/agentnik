@@ -414,6 +414,7 @@ class LocalSession(QObject):
                 if self.phase=='call' and self.task_mode:
                     self.task_id=created_task_id(result);self.task_status_last='working';self.task_status_count=0;self.phase='task_result';self.next_id+=1
                     self.progress.emit('Task started: '+self.task_id+'; awaiting result.')
+                    if self.closed or self.phase!='task_result':return
                     self.send({'jsonrpc':'2.0','id':self.next_id,'method':'tasks/result','params':{'taskId':self.task_id}});continue
                 if self.phase in ('call','task_result'):
                     if self.modern and result.get('resultType','complete')!='complete':raise ValueError('MCP multi-round-trip input is not supported')
@@ -545,7 +546,9 @@ class LocalSession(QObject):
     def fail(self, message):
         from shiboken6 import isValid
         if not isValid(self) or self.closed: return
-        if self.phase in ('task_cancel','modern_task_cancel'):self.task_cancelled=False;self._close_now();return
+        if self.phase in ('task_cancel','modern_task_cancel'):
+            if self.phase=='task_cancel':self.task_cancelled=False
+            self._close_now();return
         uncertain = self.phase in ('call','task_result') or self.modern_task is not None
         if self.task_id:message+=' Task '+self.task_id+' may still be running; inspect the server before retrying.'
         self.close()

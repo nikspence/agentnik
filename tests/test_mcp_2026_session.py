@@ -102,10 +102,11 @@ class ModernRemoteSession(unittest.TestCase):
                 def on_progress(message):
                     progress.append(message)
                     if message=='MCP task started; awaiting result.':session.shutdown()
+                    if message=='MCP task cancellation was requested; completion is not confirmed.':session.stop()
                 session.progress.connect(on_progress);session.finished.connect(lambda value:(out.append(value),loop.quit()))
                 timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
                 try:
-                    loop.exec();timer.stop();self.assertTrue(out);self.assertEqual(out[0]['modern_task_cancel_ack'],acknowledge)
+                    loop.exec();timer.stop();self.assertEqual(len(out),1);self.assertEqual(out[0]['modern_task_cancel_ack'],acknowledge);self.assertNotIn('task_cancelled',out[0])
                     self.assertNotIn(private_id,str(out)+str(progress));self.assertEqual([m for m,_ in calls].count('tools/call'),1)
                     cancel=next(headers for method,headers in calls if method=='tasks/cancel');self.assertEqual(cancel['Mcp-Name'],private_id);self.assertEqual(cancel['Authorization'],'Bearer fixture-token')
                 finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
