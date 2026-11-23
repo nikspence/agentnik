@@ -123,6 +123,25 @@ class CodeVisionTests(unittest.TestCase):
         self.assertEqual(len(images),1);self.assertNotIn(encoded,json.dumps(safe));self.assertIn('invalid',safe['content'][0]['text']);self.assertIn('invalid',safe['content'][1]['text'])
         safe,images=model_images(result,True,0,'MCP chart');self.assertEqual(images,[]);self.assertIn('batch limit',safe['content'][0]['text'])
 
+    def test_code_omits_mcp_images_that_exceed_remaining_context(self):
+        from unittest.mock import Mock
+        from agentnik.code_limits import coding_limits
+        small=png();large=small+b'x'*30000
+        blocks=[{'type':'image','data':base64.b64encode(data).decode('ascii'),'mimeType':'image/png'} for data in (large,small)]
+        detail={'name':'chart','description':'Chart','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as root:
+            bridge=Mock();bridge.server={'name':'Charts','command':'server','args':[],'enabled':True}
+            bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':blocks}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'chart','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)]
+            limits=coding_limits();limits['context_bytes']=12000;bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Inspect',limits=limits,mcp_bridge=bridge,vision_enabled=True).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);model=json.dumps(bodies[-1])
+            self.assertIn(base64.b64encode(small).decode('ascii'),model);self.assertNotIn(base64.b64encode(large).decode('ascii'),model)
+            self.assertIn('1 image(s) were omitted because the coding run context limit',model)
+            self.assertTrue(any('1 omitted due to the coding run context limit' in event.get('text','') for event in events))
+            self.assertNotIn(base64.b64encode(small).decode('ascii'),json.dumps(events))
+
     def test_model_receives_image_after_tool_result(self):
         with tempfile.TemporaryDirectory() as root:
             Path(root,'image.png').write_bytes(png());events=[];bodies=[]
@@ -133,6 +152,19 @@ class CodeVisionTests(unittest.TestCase):
             self.assertEqual(bodies[1]['messages'][-2]['role'],'tool');block=bodies[1]['messages'][-1]['content'][1]
             self.assertEqual(block['image_url']['url'],'data:image/png;base64,'+base64.b64encode(png()).decode())
             self.assertNotIn(base64.b64encode(png()).decode(),json.dumps(events))
+
+    def test_code_reports_omitted_project_image_and_continues(self):
+        from agentnik.code_limits import coding_limits
+        with tempfile.TemporaryDirectory() as root:
+            data=png()+b'x'*30000;Path(root,'image.png').write_bytes(data)
+            replies=[Wire(chat(calls=[call('view_image',{'path':'image.png'})],finish='tool_calls'),False),Wire(chat('I cannot inspect it.'),False)]
+            limits=coding_limits();limits['context_bytes']=12000;events=[];bodies=[]
+            def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Inspect',limits=limits,vision_enabled=True).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            self.assertIn('1 image(s) were omitted because the coding run context limit',json.dumps(bodies[-1]))
+            self.assertNotIn(base64.b64encode(data).decode('ascii'),json.dumps(bodies[-1]))
+            self.assertTrue(any('Sending 0 image(s)' in event.get('text','') for event in events))
     def test_protocol_shapes_and_path_boundaries(self):
         image=[('picture.png',png(),'image/png')]
         self.assertEqual(image_message(image,'responses')['content'][1]['type'],'input_image')
