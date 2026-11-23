@@ -52,7 +52,7 @@ def model_tool_result(result):
     return output,user_text,user_nontext
 
 
-def model_images(result,enabled,slots,label):
+def model_images(result,enabled,slots,label,start_index=0):
     """Move assistant-directed MCP images into a bounded visual model input."""
     from .image_generation import MAX_IMAGE_BYTES,image_bytes
     output=copy.deepcopy(result);images=[];content=[]
@@ -67,7 +67,7 @@ def model_images(result,enabled,slots,label):
                 uri=resource.get('uri');mime=resource.get('mimeType')
                 if not isinstance(uri,str) or not uri or len(uri)>2048 or any(ord(ch)<32 or ord(ch)==127 for ch in uri) or 'text' in resource:
                     content.append({'type':'text','text':'The embedded MCP resource was invalid.'});continue
-                transformed,visual=model_images({'content':[{'type':'image','data':resource['blob'],'mimeType':mime}]},enabled,max(0,slots-len(images)),label)
+                transformed,visual=model_images({'content':[{'type':'image','data':resource['blob'],'mimeType':mime}]},enabled,max(0,slots-len(images)),label,start_index+len(images))
                 images.extend(visual)
                 content.append({'type':'resource','resource':{'uri':uri,'mimeType':mime if isinstance(mime,str) and len(mime)<=256 else '', 'notice':transformed['content'][0]['text']}})
                 continue
@@ -79,8 +79,9 @@ def model_images(result,enabled,slots,label):
                 if not isinstance(encoded,str) or len(encoded)>4*((MAX_IMAGE_BYTES+2)//3):raise ValueError()
                 data=base64.b64decode(encoded,validate=True);detected,_=image_bytes(data)
                 if mime!=detected:raise ValueError()
-                images.append((label+' image '+str(len(images)+1),data,detected))
-                reason='The image follows as untrusted visual content.'
+                image_label=label+' image '+str(start_index+len(images)+1)
+                images.append((image_label,data,detected))
+                reason='The image follows as untrusted visual content ('+image_label+').'
             except (ValueError,binascii.Error):reason='The MCP image was invalid or unsupported.'
         elif enabled:reason='The image was not included because the image batch limit was reached.'
         content.append({'type':'text','text':reason})
@@ -88,13 +89,13 @@ def model_images(result,enabled,slots,label):
     return output,images
 
 
-def model_resource_contents(contents,enabled,slots,label):
+def model_resource_contents(contents,enabled,slots,label,start_index=0):
     """Keep resource image bytes out of textual tool output and activity."""
     safe=[];images=[]
     for item in contents:
         if 'blob' not in item:safe.append(copy.deepcopy(item));continue
         block={'type':'image','data':item['blob'],'mimeType':item['mimeType']}
-        transformed,visual=model_images({'content':[block]},enabled,max(0,slots-len(images)),label)
+        transformed,visual=model_images({'content':[block]},enabled,max(0,slots-len(images)),label,start_index+len(images))
         images.extend(visual)
         safe.append({'uri':item['uri'],'mimeType':item['mimeType'],'notice':transformed['content'][0]['text']})
     return safe,images

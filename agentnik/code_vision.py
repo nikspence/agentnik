@@ -29,10 +29,11 @@ def image_message(images,protocol,native=False):
 def context_image_message(images,protocol,native,budget,source='MCP image',context='research'):
     """Include the images that fit and tell the model about omissions."""
     def build(selected):
-        omitted=len(images)-len(selected)
-        message=image_message(selected,protocol,native)
+        chosen=[images[index] for index in selected]
+        omitted=[images[index][0] for index in range(len(images)) if index not in selected]
+        message=image_message(chosen,protocol,native)
         if omitted:
-            notice=f'{omitted} {source}(s) were omitted because the {context} context limit was reached.'
+            notice=f'{len(omitted)} {source}(s) were omitted because the {context} context limit was reached. Omitted image labels: '+json.dumps(omitted,ensure_ascii=True)+'.'
             if native:
                 message['content']=(message['content']+' ' if selected else '')+notice
                 if not selected:message.pop('images',None)
@@ -40,11 +41,11 @@ def context_image_message(images,protocol,native,budget,source='MCP image',conte
                 text=message['content'][0]
                 text['text']=(text['text']+' ' if selected else '')+notice
         return message
-    complete=build(images);complete_size=len(json.dumps(complete).encode('utf-8'))
+    complete=build(list(range(len(images))));complete_size=len(json.dumps(complete).encode('utf-8'))
     if complete_size<=budget:return complete,len(images),complete_size
     selected=[]
-    for item in images:
-        candidate=selected+[item];message=build(candidate)
+    for index in range(len(images)):
+        candidate=selected+[index];message=build(candidate)
         if len(json.dumps(message).encode('utf-8'))<=budget:selected=candidate
     message=build(selected)
     return message,len(selected),len(json.dumps(message).encode('utf-8'))

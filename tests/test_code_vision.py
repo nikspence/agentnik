@@ -36,6 +36,17 @@ class CodeVisionTests(unittest.TestCase):
         result,images=model_images({'content':[invalid]},True,4,'server')
         self.assertEqual(images,[]);self.assertNotIn(encoded,json.dumps(result));self.assertIn('invalid',result['content'][0]['text'])
 
+    def test_mcp_resource_image_labels_track_all_content_blocks(self):
+        from agentnik.mcp_content import model_images,model_resource_contents
+        encoded=base64.b64encode(png()).decode('ascii');resource={'uri':'test://chart','mimeType':'image/png','blob':encoded}
+        blocks=[{'type':'image','mimeType':'image/png','data':encoded},{'type':'resource','resource':resource}]
+        content,images=model_images({'content':blocks},True,4,'MCP',7)
+        self.assertEqual([image[0] for image in images],['MCP image 8','MCP image 9'])
+        self.assertIn('MCP image 8',content['content'][0]['text']);self.assertIn('MCP image 9',content['content'][1]['resource']['notice'])
+        contents,images=model_resource_contents([resource,resource],True,4,'MCP',9)
+        self.assertEqual([image[0] for image in images],['MCP image 10','MCP image 11'])
+        self.assertIn('MCP image 11',contents[1]['notice'])
+
     def test_mcp_tool_embedded_image_reaches_model_as_visual(self):
         from unittest.mock import Mock
         encoded=base64.b64encode(png()).decode()
@@ -139,8 +150,26 @@ class CodeVisionTests(unittest.TestCase):
             self.assertEqual(events[-1]['status'],'completed',events);model=json.dumps(bodies[-1])
             self.assertIn(base64.b64encode(small).decode('ascii'),model);self.assertNotIn(base64.b64encode(large).decode('ascii'),model)
             self.assertIn('1 image(s) were omitted because the coding run context limit',model)
+            visual=bodies[-1]['messages'][-1]['content'][0]['text']
+            self.assertIn('MCP image 2',visual);self.assertIn('Omitted image labels: ["MCP image 1"]',visual)
             self.assertTrue(any('1 omitted due to the coding run context limit' in event.get('text','') for event in events))
             self.assertNotIn(base64.b64encode(small).decode('ascii'),json.dumps(events))
+
+    def test_code_mcp_image_labels_are_unique_across_model_rounds(self):
+        from unittest.mock import Mock
+        encoded=base64.b64encode(png()).decode('ascii');detail={'name':'chart','description':'Chart','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as root:
+            bridge=Mock();bridge.server={'name':'Charts','command':'server','args':[],'enabled':True}
+            result={'call_result':{'content':[{'type':'image','data':encoded,'mimeType':'image/png'}]}}
+            bridge.request.side_effect=[{'tool_details':[detail]},result,result]
+            calls=[call('mcp_call',{'tool':'chart','arguments':'{}'},'first'),call('mcp_call',{'tool':'chart','arguments':'{}'},'second')]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),*[Wire(chat(calls=[item],finish='tool_calls'),False) for item in calls],Wire(chat('Done'),False)]
+            bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Inspect',mcp_bridge=bridge,vision_enabled=True).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            messages=bodies[-1]['messages'];visual=[item for item in messages if item.get('role')=='user' and isinstance(item.get('content'),list) and any(block.get('type')=='image_url' for block in item['content'])]
+            self.assertEqual(len(visual),2);self.assertIn('MCP image 1',visual[0]['content'][0]['text']);self.assertIn('MCP image 2',visual[1]['content'][0]['text'])
 
     def test_model_receives_image_after_tool_result(self):
         with tempfile.TemporaryDirectory() as root:

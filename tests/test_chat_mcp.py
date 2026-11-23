@@ -222,6 +222,8 @@ for line in sys.stdin:
             result=research.run_managed(C,[{'role':'user','content':'Inspect'}],'',lambda _:None,threading.Event(),limits=Limits(context_bytes=6000),web_tools=False,mcp=controller)
         self.assertEqual(result['status'],'ok');last=json.dumps(bodies[-1]);self.assertIn(base64.b64encode(small).decode('ascii'),last)
         self.assertNotIn(base64.b64encode(large).decode('ascii'),last);self.assertIn('omitted because the research context limit',last)
+        visual=bodies[-1]['input'][-1]['content'][0]['text']
+        self.assertIn('MCP image 2',visual);self.assertIn('Omitted image labels: ["MCP image 1"]',visual)
         self.assertIn('1 omitted due to the research context limit',json.dumps(result['research']['events']))
         self.assertNotIn(base64.b64encode(small).decode('ascii'),json.dumps(result))
 
@@ -245,9 +247,13 @@ for line in sys.stdin:
         image=base64.b64encode(png()).decode('ascii');block={'type':'image','mimeType':'image/png','data':image}
         for controller in group.controllers:
             controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'content':[block]*3}}
+        outputs=[]
         for controller in group.controllers:
-            controller.invoke('mcp_call',{'request':json.dumps({'tool':'picture','arguments':{}})},Runtime())
-        self.assertEqual(len(group.take_images()),4);self.assertEqual(group.take_images(),[])
+            outputs.append(controller.invoke('mcp_call',{'request':json.dumps({'tool':'picture','arguments':{}})},Runtime()))
+        first=group.take_images();self.assertEqual([item[0] for item in first],['MCP image 1','MCP image 2','MCP image 3','MCP image 4'])
+        self.assertIn('MCP image 3',json.dumps(outputs[0]));self.assertIn('MCP image 4',json.dumps(outputs[1]));self.assertEqual(group.take_images(),[])
+        group.controllers[0].invoke('mcp_call',{'request':json.dumps({'tool':'picture','arguments':{}})},Runtime())
+        self.assertEqual(group.take_images()[0][0],'MCP image 5')
 
     def test_chat_resource_list_reconnects_and_read_requires_fresh_listing(self):
         import threading

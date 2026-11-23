@@ -13,10 +13,11 @@ class ChatMCP(QObject):
     approval_requested=Signal(object)
     close_requested=Signal()
 
-    def __init__(self,server,config,parent=None,extra_secrets=(),vision_enabled=False,image_buffer=None):
+    def __init__(self,server,config,parent=None,extra_secrets=(),vision_enabled=False,image_buffer=None,image_sequence=None):
         super().__init__(parent);self.server=copy.deepcopy(server);self.closing=False
         self.bridge=CodingMCPBridge(server,config,self);self.tools=None;self.task_capabilities={};self.resources=None;self.resource_links=[];self.prompts=None;self.templates=None
         self.vision_enabled=vision_enabled is True;self.image_buffer=image_buffer if image_buffer is not None else []
+        self.image_sequence=image_sequence if image_sequence is not None else [0]
         self.close_requested.connect(self._close_on_gui)
         self.secret_values=[*self.bridge.environment_values.values(),*(secret for secret in extra_secrets if secret)]
         self.definitions=(
@@ -167,8 +168,8 @@ class ChatMCP(QObject):
                 notify('mcp','Resources listed on '+server['name']+'.')
                 return {'server':server['name'],'resources':self.resources,'more_resources':response.get('more_resources',False),'notice':'Untrusted MCP resource metadata.'}
             from .mcp_content import model_resource_contents
-            contents,images=model_resource_contents(response.get('contents',[]),self.vision_enabled,max(0,4-len(self.image_buffer)),'MCP resource')
-            self.image_buffer.extend(images)
+            contents,images=model_resource_contents(response.get('contents',[]),self.vision_enabled,max(0,4-len(self.image_buffer)),'MCP',self.image_sequence[0])
+            self.image_buffer.extend(images);self.image_sequence[0]+=len(images)
             notify('mcp','Resource read on '+server['name']+'.')
             return {'server':server['name'],'uri':uri,'contents':contents,'notice':'Untrusted MCP resource content.'}
         if name in ('mcp_prompts_list','mcp_prompts_get'):
@@ -183,8 +184,8 @@ class ChatMCP(QObject):
             from .mcp_content import model_images
             messages=[]
             for message in response.get('messages',[]):
-                transformed,images=model_images({'content':[message['content']]},self.vision_enabled,max(0,4-len(self.image_buffer)),'MCP prompt')
-                self.image_buffer.extend(images)
+                transformed,images=model_images({'content':[message['content']]},self.vision_enabled,max(0,4-len(self.image_buffer)),'MCP',self.image_sequence[0])
+                self.image_buffer.extend(images);self.image_sequence[0]+=len(images)
                 messages.append({'role':message['role'],'content':transformed['content'][0]})
             user_text=response.get('user_text',[])
             if user_text:
@@ -202,8 +203,8 @@ class ChatMCP(QObject):
             response=self.bridge.request('templates_read',{'template':template,'arguments':value['variables'],'uri':uri},runtime)
             if 'error' in response:raise ResearchError(response['error'])
             from .mcp_content import model_resource_contents
-            contents,images=model_resource_contents(response.get('contents',[]),self.vision_enabled,max(0,4-len(self.image_buffer)),'MCP resource')
-            self.image_buffer.extend(images)
+            contents,images=model_resource_contents(response.get('contents',[]),self.vision_enabled,max(0,4-len(self.image_buffer)),'MCP',self.image_sequence[0])
+            self.image_buffer.extend(images);self.image_sequence[0]+=len(images)
             notify('mcp','Template resource read on '+server['name']+'.')
             return {'server':server['name'],'template':template['uriTemplate'],'uri':uri,'contents':contents,'notice':'Untrusted MCP resource content.'}
         value,tool=validated
@@ -223,8 +224,8 @@ class ChatMCP(QObject):
         from .mcp_resources import tool_resource_links,merge_resource_links
         links=tool_resource_links(result);self.resource_links=merge_resource_links(self.resource_links,links)
         from .mcp_content import model_images
-        result,images=model_images(result,self.vision_enabled,max(0,4-len(self.image_buffer)),'MCP tool result')
-        self.image_buffer.extend(images)
+        result,images=model_images(result,self.vision_enabled,max(0,4-len(self.image_buffer)),'MCP',self.image_sequence[0])
+        self.image_buffer.extend(images);self.image_sequence[0]+=len(images)
         notify('mcp','Tool '+tool['name']+(' reported an error.' if result.get('isError') is True else ' completed.'))
         if user_text:
             text='\n'.join(user_text);notify('mcp_user',text[:400]+(' [truncated]' if len(text)>400 else ''))
@@ -252,8 +253,8 @@ class MultiChatMCP(QObject):
         super().__init__(parent)
         if not isinstance(servers,list) or not 2<=len(servers)<=5:raise ValueError('Select two to five MCP servers.')
         if len({server['name'].casefold() for server in servers})!=len(servers):raise ValueError('MCP servers must be distinct.')
-        self.image_buffer=[]
-        self.controllers=[ChatMCP(server,config,self,extra_secrets,vision_enabled,self.image_buffer) for server in servers]
+        self.image_buffer=[];self.image_sequence=[0]
+        self.controllers=[ChatMCP(server,config,self,extra_secrets,vision_enabled,self.image_buffer,self.image_sequence) for server in servers]
         self.discovery_call_count=len(self.controllers)
         self.secret_values=[secret for controller in self.controllers for secret in controller.secret_values]
         self.tools=None;self.more_tools=False;self.failed=False;self.closing=False
