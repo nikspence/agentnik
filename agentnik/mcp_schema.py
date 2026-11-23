@@ -10,7 +10,7 @@ from referencing import Registry
 SCHEMA_URL='https://json-schema.org/draft/2020-12/schema'
 DRAFT7_URLS=('http://json-schema.org/draft-07/schema','https://json-schema.org/draft-07/schema')
 ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment','format','discriminator','x-mcp-header','enumNames'}
-KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','patternProperties','propertyNames','required','additionalProperties','items','prefixItems','additionalItems','uniqueItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf','if','then','else','dependentRequired','dependentSchemas','dependencies'}
+KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','patternProperties','propertyNames','required','additionalProperties','items','prefixItems','additionalItems','uniqueItems','contains','minContains','maxContains','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf','not','if','then','else','dependentRequired','dependentSchemas','dependencies'}
 MAX_NODES=1000
 MAX_DEPTH=24
 MAX_BRANCHES=32
@@ -105,6 +105,29 @@ def _bounded_if(validator,condition,instance,schema):
     if branch in schema:yield from validator.descend(instance,schema[branch],schema_path=branch)
 
 
+def _bounded_not(validator,prohibited,instance,schema):
+    _validation_deadline();matched=validator.evolve(schema=prohibited).is_valid(instance);_validation_deadline()
+    if matched:yield ValidationError('The value matches a prohibited condition.')
+
+
+def _bounded_contains(legacy=False):
+    def validate(validator,subschema,instance,schema):
+        if not validator.is_type(instance,'array'):return
+        minimum=1 if legacy else schema.get('minContains',1)
+        maximum=None if legacy else schema.get('maxContains')
+        if minimum==0 and maximum is None:return
+        matches=0;child=validator.evolve(schema=subschema)
+        for item in instance:
+            _validation_deadline();matched=child.is_valid(item);_validation_deadline()
+            if matched:
+                matches+=1
+                if maximum is not None and matches>maximum:
+                    yield ValidationError('The array has too many matching items.',validator='maxContains',validator_value=maximum);return
+                if maximum is None and matches>=minimum:return
+        if matches<minimum:yield ValidationError('The array has too few matching items.',validator='minContains',validator_value=minimum)
+    return validate
+
+
 def _bounded_dependencies(validator,dependencies,instance,schema):
     if not validator.is_type(instance,'object'):return
     for key,dependency in dependencies.items():
@@ -117,9 +140,9 @@ def _bounded_dependencies(validator,dependencies,instance,schema):
         else:yield from validator.descend(instance,dependency,schema_path=key)
 
 
-_bounded_keywords={'pattern':_bounded_pattern,'patternProperties':_bounded_pattern_properties,'propertyNames':_bounded_property_names,'additionalProperties':_bounded_additional_properties,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf'),'uniqueItems':_bounded_unique_items,'if':_bounded_if,'dependentRequired':_bounded_dependencies,'dependentSchemas':_bounded_dependencies,'dependencies':_bounded_dependencies}
-BOUNDED_2020=validators.extend(Draft202012Validator,_bounded_keywords)
-BOUNDED_7=validators.extend(Draft7Validator,_bounded_keywords)
+_bounded_keywords={'pattern':_bounded_pattern,'patternProperties':_bounded_pattern_properties,'propertyNames':_bounded_property_names,'additionalProperties':_bounded_additional_properties,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf'),'uniqueItems':_bounded_unique_items,'if':_bounded_if,'not':_bounded_not,'dependentRequired':_bounded_dependencies,'dependentSchemas':_bounded_dependencies,'dependencies':_bounded_dependencies}
+BOUNDED_2020=validators.extend(Draft202012Validator,dict(_bounded_keywords,contains=_bounded_contains()))
+BOUNDED_7=validators.extend(Draft7Validator,dict(_bounded_keywords,contains=_bounded_contains(legacy=True)))
 
 
 class MCPArgumentValidationError(ValueError):
@@ -140,7 +163,7 @@ def _validation_feedback(error):
             if trigger in error.instance and isinstance(names,list):
                 missing=[name for name in names if isinstance(name,str) and name not in error.instance and name.isascii() and name.isidentifier() and len(name)<=64]
                 if missing:fields.append(missing[0]);break
-    reasons={'required':'a required field is missing','dependentRequired':'a dependent field is missing','dependencies':'a dependent field is missing','type':'the value has the wrong type','enum':'the value is not an allowed choice','const':'the value does not match the required constant','pattern':'the value does not match the required pattern','minimum':'the value is below the minimum','maximum':'the value is above the maximum','minItems':'the array has too few items','maxItems':'the array has too many items','uniqueItems':'the array contains duplicate items','additionalProperties':'an unexpected field was supplied'}
+    reasons={'required':'a required field is missing','dependentRequired':'a dependent field is missing','dependencies':'a dependent field is missing','type':'the value has the wrong type','enum':'the value is not an allowed choice','const':'the value does not match the required constant','pattern':'the value does not match the required pattern','minimum':'the value is below the minimum','maximum':'the value is above the maximum','minItems':'the array has too few items','maxItems':'the array has too many items','minContains':'the array has too few matching items','maxContains':'the array has too many matching items','not':'the value matches a prohibited condition','uniqueItems':'the array contains duplicate items','additionalProperties':'an unexpected field was supplied'}
     reason=reasons.get(error.validator,'a schema constraint was not met')
     location=' for field '+'.'.join(fields[:4]) if fields else ''
     return 'MCP arguments do not match the tool input schema'+location+': '+reason+'.'
@@ -181,7 +204,7 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
                 entries=node.get(key);index=decoded[pos] if pos<len(decoded) else ''
                 if not isinstance(entries,list) or len(index)>3 or not index.isascii() or not index.isdigit() or (len(index)>1 and index[0]=='0') or int(index)>=len(entries):raise ValueError('The tool schema has an unresolved reference.')
                 node=entries[int(index)];pos+=1
-            elif key in ('items','additionalItems','additionalProperties','propertyNames','if','then','else') and key in node:node=node[key]
+            elif key in ('items','additionalItems','additionalProperties','propertyNames','if','then','else','not','contains') and key in node:node=node[key]
             else:raise ValueError('The tool schema uses unsupported references.')
         if type(node) is not bool and not isinstance(node,dict):raise ValueError('The tool schema has an unresolved reference.')
         return node
@@ -239,8 +262,9 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
         for pattern,value in patterns.items():
             validate_pattern(pattern);pending.append((value,depth+1,width,ancestors))
         if 'propertyNames' in node:pending.append((node['propertyNames'],depth+1,width,ancestors))
-        for keyword in ('if','then','else'):
+        for keyword in ('if','then','else','not','contains'):
             if keyword in node:pending.append((node[keyword],depth+1,width*2,ancestors))
+        if validator is Draft7Validator and ('minContains' in node or 'maxContains' in node):raise ValueError('The tool schema uses unsupported contains keywords for this version.')
         if validator is Draft7Validator and ('dependentRequired' in node or 'dependentSchemas' in node):raise ValueError('The tool schema uses unsupported dependency keywords for this version.')
         if validator is Draft202012Validator and 'dependencies' in node:raise ValueError('The tool schema uses unsupported dependency keywords for this version.')
         for keyword in ('dependentRequired','dependentSchemas','dependencies'):
