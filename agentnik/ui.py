@@ -54,9 +54,14 @@ class Signals(QObject):
     error = Signal(str)
 
 class Job:
+    # A cancelled job may outlive its dialog. Keep its Qt signal object alive
+    # until the worker has exited and release it on the GUI thread.
+    _active = set()
+
     def __init__(self, fn, done, error, progress=None):
         self.signals = Signals(); self.cancel = threading.Event()
         self.signals.done.connect(done); self.signals.error.connect(error)
+        self.signals.done.connect(self._finished); self.signals.error.connect(self._finished)
         if progress: self.signals.progress.connect(progress)
         def work():
             try: result = fn(self.signals.progress.emit, self.cancel)
@@ -67,7 +72,12 @@ class Job:
                 try: self.signals.done.emit(result)
                 except RuntimeError: pass
         self.thread = threading.Thread(target=work, daemon=True)
+        self._active.add(self)
         self.thread.start()
+
+    def _finished(self, _result):
+        self.thread.join()
+        self._active.discard(self)
 
 def button(text, fn, layout=None):
     b = QPushButton(text); b.clicked.connect(fn)

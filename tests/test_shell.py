@@ -68,7 +68,9 @@ class ShellExecutor(unittest.TestCase):
                 except Exception as exc:out.append(exc)
             thread=threading.Thread(target=run);thread.start()
             try:
-                deadline=time.monotonic()+30
+                # Hosted Windows runners can take much longer to start both
+                # PowerShell processes than a developer workstation.
+                deadline=time.monotonic()+90
                 while not pidfile.exists() and thread.is_alive() and time.monotonic()<deadline:time.sleep(.05)
                 self.assertTrue(pidfile.exists(),f'Child PID file was not created; worker alive={thread.is_alive()}, errors={out!r}');pid=int(pidfile.read_text().strip());runtime.cancel.set();thread.join(5)
                 self.assertFalse(thread.is_alive());self.assertIsInstance(out[0],InterruptedError)
