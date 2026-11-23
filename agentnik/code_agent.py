@@ -2017,10 +2017,16 @@ class CodingRun:
                     content=json.dumps(result)
                     if call.name.startswith('mcp_') or guidance_result:
                         from .mcp_content import fit_mcp_output
-                        content,partial=fit_mcp_output(content,max(0,runtime.limits.context_bytes-runtime.context_bytes))
+                        available=max(0,runtime.limits.context_bytes-runtime.context_bytes);artifact=None;artifact_unavailable=False
+                        if call.name.startswith('mcp_') and len(content.encode('utf-8'))>available:
+                            try:
+                                stored=self.artifacts.add(content,'mcp_result');artifact={key:stored[key] for key in ('id','kind','characters')}
+                            except ValueError:artifact_unavailable=True
+                        content,partial=fit_mcp_output(content,available,artifact,artifact_unavailable)
                         if partial:
                             del viewed_images[image_mark:]
                             event('output',text='MCP result exceeded the remaining context budget; a partial preview was returned and images from this result were omitted.')
+                            if artifact:event('output',text='Model-facing MCP result retained as current-run artifact '+artifact['id']+'.')
                     runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
                     if protocol=='responses':body['input'].append({'type':'function_call_output','call_id':call.id,'output':content})
                     elif protocol=='messages':results.append({'type':'tool_result','tool_use_id':call.id,'content':content})

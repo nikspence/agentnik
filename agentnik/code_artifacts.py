@@ -5,6 +5,8 @@ MAX_NOTES = 32
 MAX_NOTE_CHARS = 4000
 MAX_ARTIFACTS = 32
 MAX_ARTIFACT_CHARS = 200_000
+MAX_MCP_ARTIFACT_CHARS = 16_000_000
+MAX_ARTIFACT_TOTAL_CHARS = 24_000_000
 
 
 def validate_notes(notes):
@@ -22,12 +24,15 @@ class Artifacts:
     def __init__(self):
         self.items = {}
         self.next_id = 1
+        self.total_chars = 0
 
     def add(self, text, kind):
-        if not isinstance(text, str) or len(text) > MAX_ARTIFACT_CHARS or len(self.items) >= MAX_ARTIFACTS:
+        maximum=MAX_MCP_ARTIFACT_CHARS if kind=='mcp_result' else MAX_ARTIFACT_CHARS
+        if not isinstance(text, str) or len(text) > maximum or self.total_chars+len(text)>MAX_ARTIFACT_TOTAL_CHARS or len(self.items) >= MAX_ARTIFACTS:
             raise ValueError('Artifact storage limit reached')
         ident = 'A' + str(self.next_id); self.next_id += 1
         self.items[ident] = {'text':text, 'kind':kind}
+        self.total_chars+=len(text)
         return {'id':ident, 'kind':kind, 'characters':len(text), 'preview':text[:500]}
 
     def read(self, ident, start, length):
