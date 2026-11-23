@@ -1,14 +1,14 @@
-# Agentnik v0.10.0
+# Agentnik v0.11.0
 
 Windows x64 onedir release. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. The build is unsigned; verify the SHA-256 sidecar.
 
-## Changes since v0.9.3
+## Changes since v0.10.0
 
-- **Image generation and editing:** Chat and Code can use a separately selected OpenRouter-compatible image connection and model, including a configured LiteLLM passthrough. Chat retains generated images; Code creates or edits project assets. See the guides for setup, reference images, provider charges and uncertain outcomes.
-- **Visual inspection:** Enable image inspection for a vision-capable Code model to inspect project images. Subagents can review approved image snapshots.
-- **Subagent artifacts:** Assign separate output folders to parallel subagents to create text files and copy or crop approved images. Staged outputs publish only after successful completion and do not overwrite existing files.
-- **Reliability:** Web page responses can be processed up to the configured limits, with clearer handling of larger responses.
+- **MCP support:** Expanded local and remote protocol support, including prompts and resources, progress and cancellation, selected task and elicitation workflows, OAuth authorization, event streams, and compatibility with newer MCP servers. Chat and Code can use MCP images with compatible models and retain larger results for inspection.
+- **Research and tools:** Chat can fall back to Agentnik-managed web fetching when an MCP fetch fails. Server guidance and validation errors provide more context during tool use.
+- **Chat and Code:** Generated Chat images can be previewed and saved; Code activity renders Markdown, and skill discovery and image workflows have been improved.
+- **Reliability:** Improved background job cancellation, MCP response handling, and offline test isolation across Windows, macOS, and Linux.
 
-Offline tests use mocked endpoints and offscreen Qt. Live observations are scoped in VALIDATION.md; an editable PowerPoint workflow has not been qualified end to end. Build-host startup evidence is recorded in BUILD-MANIFEST.json. This release has not been separately qualified on a clean machine. macOS/Linux validation, signing and a complete bundled-library license review remain open.
+Offline tests use mocked endpoints and offscreen Qt. MCP capabilities depend on the server and negotiated protocol; see the guides and VALIDATION.md for the scope of testing. Build-host startup evidence is recorded in BUILD-MANIFEST.json. This release has not been separately qualified on a clean machine. macOS/Linux distribution validation, signing, and a complete bundled-library license review remain open.
 
 Earlier release notes are available in the corresponding Git tags and GitHub releases.
