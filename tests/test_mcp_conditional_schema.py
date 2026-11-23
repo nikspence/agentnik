@@ -49,7 +49,14 @@ class ConditionalSchemaTests(unittest.TestCase):
 
     def test_condition_patterns_remain_time_bounded(self):
         schema={'type':'object','if':{'properties':{'value':{'pattern':'^(a+)+$'}}},'then':{'required':['x']}};start=time.monotonic()
-        with self.assertRaises(ValueError):validate_tool_arguments(schema,{'value':'a'*10000+'!'})
+        try:
+            result=validate_tool_arguments(schema,{'value':'a'*10000+'!'})
+        except ValueError as error:
+            self.assertIn('timed out',str(error).lower())
+        else:
+            # A fast regex engine can establish that the condition does not
+            # match, in which case the document is valid without "x".
+            self.assertTrue(result)
         self.assertLess(time.monotonic()-start,2)
 
 
