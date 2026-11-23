@@ -1,6 +1,8 @@
 """Bounded untrusted MCP prompt templates and text messages."""
 import json
 
+MAX_PROMPT_TEXT_BYTES=1_000_000
+
 class PromptPages:
     def __init__(self):
         self.items=[];self.names=set();self.cursors=set();self.pages=0;self.size=0
@@ -48,7 +50,7 @@ def parse_prompt_messages(result):
         if not isinstance(content,dict):raise ValueError('Unsupported MCP prompt content')
         if content.get('type')=='text':
             text=content.get('text')
-            if not isinstance(text,str) or len(text.encode('utf-8'))>32000:raise ValueError('Unsupported MCP prompt content')
+            if not isinstance(text,str) or len(text.encode('utf-8'))>MAX_PROMPT_TEXT_BYTES:raise ValueError('Unsupported MCP prompt content')
             sanitized={'type':'text','text':text}
         elif content.get('type')=='image':
             from .image_generation import MAX_IMAGE_BYTES

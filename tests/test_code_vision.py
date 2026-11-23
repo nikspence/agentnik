@@ -132,6 +132,20 @@ class CodeVisionTests(unittest.TestCase):
                 if enabled:self.assertEqual(messages[-1]['content'][1]['image_url']['url'],'data:image/png;base64,'+encoded)
                 else:self.assertIn('inspection is disabled',tool['content']);self.assertNotIn(encoded,json.dumps(messages))
 
+    def test_code_model_receives_large_mcp_prompt_without_user_only_content(self):
+        from unittest.mock import Mock
+        from agentnik.mcp_prompts import parse_prompt_messages
+        public='Public 雪 '*5000;private='Private-only '*4000;prompt={'name':'review','description':'Review','arguments':[]}
+        contents=parse_prompt_messages({'messages':[{'role':'user','content':{'type':'text','text':public}},{'role':'assistant','content':{'type':'text','text':private,'annotations':{'audience':['user']}}}]})
+        with tempfile.TemporaryDirectory() as root:
+            bridge=Mock();bridge.server={'name':'Prompts','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':[]},{'prompts':[prompt]},contents]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_list_prompts',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_get_prompt',{'name':'review','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Done'),False)];bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Review',mcp_bridge=bridge).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            tool=next(item for item in reversed(bodies[-1]['messages']) if item.get('role')=='tool');self.assertEqual(json.loads(tool['content'])['messages'][0]['content']['text'],public)
+            self.assertNotIn('Private-only',json.dumps(bodies[-1]))
+
     def test_mcp_image_result_is_visual_only_when_enabled(self):
         from unittest.mock import Mock
         encoded=base64.b64encode(png()).decode()

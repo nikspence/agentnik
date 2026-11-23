@@ -1787,6 +1787,15 @@ for line in sys.stdin:
                         {'type':'text','text':'secret','annotations':{'audience':'user'}}):
             with self.subTest(content=content),self.assertRaises(ValueError):parse_prompt_messages({'messages':[{'role':'user','content':content}]})
 
+    def test_large_prompt_text_preserves_audience_and_utf8_byte_limit(self):
+        from agentnik.mcp_prompts import MAX_PROMPT_TEXT_BYTES,parse_prompt_messages
+        public='Account 雪 '*5000;private='Private 雪 '*5000
+        messages=[{'role':'user','content':{'type':'text','text':public}},{'role':'assistant','content':{'type':'text','text':private,'annotations':{'audience':['user']}}}]
+        result=parse_prompt_messages({'messages':messages});self.assertEqual(result['messages'][0]['content']['text'],public);self.assertEqual(result['user_text'],[private]);self.assertNotIn(private,str(result['messages']))
+        self.assertEqual(len(parse_prompt_messages({'messages':[{'role':'user','content':{'type':'text','text':'x'*MAX_PROMPT_TEXT_BYTES}}]})['messages'][0]['content']['text']),MAX_PROMPT_TEXT_BYTES)
+        for text in ('x'*(MAX_PROMPT_TEXT_BYTES+1),'雪'*(MAX_PROMPT_TEXT_BYTES//3+1)):
+            with self.assertRaises(ValueError):parse_prompt_messages({'messages':[{'role':'user','content':{'type':'text','text':text}}]})
+
     def test_mcp_prompt_image_response_limit(self):
         from agentnik.mcp_support import response_limit,MAX_TOOL_RESULT_OUTPUT,MAX_OUTPUT
         self.assertEqual(response_limit('prompt_get'),MAX_TOOL_RESULT_OUTPUT)
@@ -1841,7 +1850,7 @@ for line in sys.stdin:
  elif method=='prompts/list':
   pages+=1;result={'prompts':[{'name':'review','description':'Changed' if pages>2 else 'Review','arguments':[{'name':'code','required':True}]}]}
  elif method=='prompts/get':
-  pathlib.Path(sys.argv[1]).write_text('called');result={'messages':[{'role':'user','content':{'type':'text','text':'Review '+req['params']['arguments']['code']}}]}
+  pathlib.Path(sys.argv[1]).write_text('called');result={'messages':[{'role':'user','content':{'type':'text','text':'Review '+req['params']['arguments']['code']+' details '*5000}}]}
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
@@ -1853,7 +1862,7 @@ for line in sys.stdin:
                 elif len(out)==2:
                     self.assertTrue(marker.exists());marker.unlink();self.assertTrue(session.list_prompts({'prompt':out[0]['prompts'][0],'arguments':{'code':'safe'}}))
             session.discovered.connect(lambda _:session.list_prompts());session.prompts.connect(response);session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
-            self.assertEqual(out[1]['messages'][0]['content']['text'],'Review safe');self.assertIn('definition changed',out[2]['error']);self.assertFalse(marker.exists())
+            self.assertEqual(out[1]['messages'][0]['content']['text'],'Review safe'+' details '*5000);self.assertIn('definition changed',out[2]['error']);self.assertFalse(marker.exists())
 
     def test_local_resource_listing_and_text_read(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -2191,7 +2200,7 @@ for line in sys.stdin:
                 if method=='notifications/initialized':self.send_response(202);self.end_headers();return
                 if method=='initialize':result={'protocolVersion':PROTOCOL,'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'prompts':{}}}
                 elif method=='prompts/list':result={'prompts':[{'name':'review','arguments':[{'name':'code','required':True}]}]}
-                elif method=='prompts/get':result={'messages':[{'role':'user','content':{'type':'text','text':'Review '+body['params']['arguments']['code']}}]}
+                elif method=='prompts/get':result={'messages':[{'role':'user','content':{'type':'text','text':'Review '+body['params']['arguments']['code']+' details 雪 '*5000}}]}
                 else:raise AssertionError(method)
                 payload=json.dumps({'jsonrpc':'2.0','id':body['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.send_header('Mcp-Session-Id','session-one');self.end_headers();self.wfile.write(payload)
             def do_DELETE(self):calls.append(('DELETE',self.headers.get('Mcp-Session-Id')));self.send_response(204);self.end_headers()
@@ -2203,7 +2212,7 @@ for line in sys.stdin:
         try:
             with patch('keyring.get_password',return_value='secret-token'):
                 thread=threading.Thread(target=work);thread.start();loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if not thread.is_alive() and any(c[0]=='DELETE' for c in calls) else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();thread.join(1)
-            self.assertFalse(thread.is_alive());self.assertIn('error',out[2]);self.assertEqual(out[3]['messages'][0]['content']['text'],'Review safe');self.assertEqual([c[0] for c in calls].count('prompts/get'),1);self.assertTrue(all(c[1]=='session-one' for c in calls[1:]));self.assertNotIn('secret-token',str(out))
+            self.assertFalse(thread.is_alive());self.assertIn('error',out[2]);self.assertEqual(out[3]['messages'][0]['content']['text'],'Review safe'+' details 雪 '*5000);self.assertEqual([c[0] for c in calls].count('prompts/get'),1);self.assertTrue(all(c[1]=='session-one' for c in calls[1:]));self.assertNotIn('secret-token',str(out))
         finally:bridge.close();server.shutdown();server.server_close();server_thread.join(2)
 
     def test_remote_resource_listing_and_read_in_authenticated_session(self):
