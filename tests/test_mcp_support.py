@@ -189,11 +189,11 @@ class MCPFoundation(unittest.TestCase):
         for stream in ('response','standalone'):
             for action in ('accept','decline'):
                 with self.subTest(stream=stream,action=action):
-                    sent=threading.Event();answered=threading.Event();received=[]
+                    sent=threading.Event();answered=threading.Event();received=[];methods=[];network=[]
                     class Handler(BaseHTTPRequestHandler):
                         def log_message(self,*args):pass
                         def do_POST(self):
-                            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body.get('method')
+                            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=body.get('method');methods.append(method)
                             if method is None:
                                 received.append((body,self.headers.get('Mcp-Session-Id'),self.headers.get('Authorization'),self.headers.get('MCP-Protocol-Version')));self.send_response(202);self.end_headers();answered.set();return
                             if method=='notifications/initialized':self.send_response(202);self.end_headers();return
@@ -219,6 +219,8 @@ class MCPFoundation(unittest.TestCase):
                         def do_DELETE(self):self.send_response(204);self.end_headers()
                     server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
                     session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);session.elicitation_enabled=True;loop=QEventLoop();out=[];presented=[]
+                    from PySide6.QtNetwork import QNetworkRequest
+                    session.manager.finished.connect(lambda reply:network.append((session.phase,reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute),str(reply.error()),reply.errorString())))
                     session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
                     def request_input(forms):
                         presented.append(forms);self.assertFalse(session.timer.isActive());self.assertEqual(received,[])
@@ -226,7 +228,7 @@ class MCPFoundation(unittest.TestCase):
                         QTimer.singleShot(50,lambda:session.continue_elicitation({'request':response}))
                     session.elicitation_requested.connect(request_input);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(8000,loop.quit)
                     try:
-                        loop.exec();self.assertTrue(out, 'MCP session did not finish');self.assertIn('call_result',out[0],str(out));self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(presented),1);self.assertEqual(len(received),1)
+                        loop.exec();app.processEvents();self.assertTrue(out, 'MCP session did not finish');self.assertIn('call_result',out[0],f'out={out!r}; methods={methods!r}; network={network!r}');self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(presented),1);self.assertEqual(len(received),1)
                         response,session_header,auth,protocol=received[0];self.assertEqual(response['id'],'input');self.assertEqual(response['result']['action'],action)
                         if action=='accept':self.assertEqual(response['result']['content'],{'choice':'yes'})
                         self.assertEqual((session_header,auth,protocol),('session-one','Bearer fixture-token',PROTOCOL));self.assertNotIn('yes',str(out))
