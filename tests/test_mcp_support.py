@@ -816,14 +816,28 @@ for line in sys.stdin:
         from agentnik.mcp_support import MAX_OUTPUT,MAX_TOOL_RESULT_OUTPUT
         app=QApplication.instance() or QApplication([])
         session=LocalSession(sys.executable,[],prefer_modern=False);session.phase='call';session.next_id=7;results=[];session.called.connect(results.append)
-        payload=(json.dumps({'jsonrpc':'2.0','id':7,'result':{'content':[{'type':'text','text':'x'*500000}]}})+'\n').encode()
+        payload=(json.dumps({'jsonrpc':'2.0','id':7,'result':{'content':[{'type':'text','text':'x'*1400000}]}})+'\n').encode()
         self.assertGreater(len(payload),MAX_OUTPUT);self.assertLess(len(payload),MAX_TOOL_RESULT_OUTPUT)
         with patch.object(session.process,'readAllStandardOutput',return_value=payload):session.read()
-        self.assertEqual(len(results[0]['call_result']['content'][0]['text']),500000);session.close()
-        for phase,amount,rejected in [('call',500000,False),('call',MAX_TOOL_RESULT_OUTPUT+1,True),('initialize',MAX_OUTPUT+1,True)]:
+        self.assertEqual(len(results[0]['call_result']['content'][0]['text']),1400000);session.close()
+        for phase,amount,rejected in [('call',1400000,False),('call',MAX_TOOL_RESULT_OUTPUT+1,True),('initialize',MAX_OUTPUT+1,True)]:
             with self.subTest(phase=phase,amount=amount):
                 probe=RemoteProbe('http://127.0.0.1/','',prefer_modern=False);probe.phase=phase;probe.reply=unittest.mock.Mock();probe.reply.readAll.return_value=b'x'*amount
                 with patch.object(probe,'stop') as stop:probe.consume();self.assertEqual(stop.called,rejected)
+
+    def test_large_tool_image_survives_local_transport_and_validation(self):
+        import base64
+        from PySide6.QtWidgets import QApplication
+        from test_image_generation import png
+        from agentnik.mcp_local import LocalSession
+        from agentnik.mcp_content import model_tool_result,model_images
+        app=QApplication.instance() or QApplication([])
+        data=png()+b'x'*(1024*1024);encoded=base64.b64encode(data).decode('ascii')
+        session=LocalSession(sys.executable,[],prefer_modern=False);session.phase='call';session.next_id=7;results=[];session.called.connect(results.append)
+        payload=(json.dumps({'jsonrpc':'2.0','id':7,'result':{'content':[{'type':'image','mimeType':'image/png','data':encoded}]}})+'\n').encode()
+        with patch.object(session.process,'readAllStandardOutput',return_value=payload):session.read()
+        visible,_,_=model_tool_result(results[0]['call_result']);sanitized,images=model_images(visible,True,1,'test')
+        self.assertEqual(images[0][1],data);self.assertNotIn(encoded,json.dumps(sanitized));session.close()
 
     def test_local_discovery_accepts_large_page_and_enforces_128k(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -1771,6 +1785,9 @@ for line in sys.stdin:
         self.assertEqual(response_limit('prompt_list'),MAX_OUTPUT)
 
     def test_local_prompt_with_large_image_content(self):
+        import base64
+        from test_image_generation import png
+        from agentnik.mcp_content import model_images
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -1778,13 +1795,14 @@ for line in sys.stdin:
         app=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as folder:
             server=Path(folder)/'image_prompt.py'
-            server.write_text('''import json,sys
+            data=png()+b'x'*(1024*1024);(Path(folder)/'image.png').write_bytes(data)
+            server.write_text('''import base64,json,sys,pathlib
 for line in sys.stdin:
  req=json.loads(line);method=req['method']
  if method=='notifications/initialized':continue
  if method=='initialize':result={'protocolVersion':req['params']['protocolVersion'],'serverInfo':{'name':'Fake','version':'1'},'capabilities':{'prompts':{}}}
  elif method=='prompts/list':result={'prompts':[{'name':'image'}]}
- elif method=='prompts/get':result={'messages':[{'role':'user','content':{'type':'image','mimeType':'image/png','data':'A'*70000}}]}
+ elif method=='prompts/get':result={'messages':[{'role':'user','content':{'type':'image','mimeType':'image/png','data':base64.b64encode(pathlib.Path(__file__).with_name('image.png').read_bytes()).decode()}}]}
  else:raise RuntimeError('unexpected')
  print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':result}),flush=True)
 ''',encoding='utf-8')
@@ -1794,7 +1812,9 @@ for line in sys.stdin:
                 if len(out)==1:self.assertTrue(session.list_prompts({'prompt':result['prompts'][0],'arguments':{}}))
                 else:loop.quit()
             session.discovered.connect(lambda _:session.list_prompts());session.prompts.connect(response);session.ended.connect(lambda result:(out.append(result),loop.quit()));session.start();QTimer.singleShot(5000,loop.quit);loop.exec();session.close()
-            self.assertEqual(len(out[1]['messages'][0]['content']['data']),70000)
+            content=out[1]['messages'][0]['content'];self.assertEqual(content['data'],base64.b64encode(data).decode('ascii'))
+            transformed,images=model_images({'content':[content]},True,1,'test')
+            self.assertEqual(images[0][1],data);self.assertNotIn(content['data'],json.dumps(transformed))
 
     def test_local_prompt_listing_get_and_definition_recheck(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
@@ -1867,6 +1887,19 @@ for line in sys.stdin:
         self.assertEqual(response_limit('resource_read'),MAX_RESOURCE_RESULT_OUTPUT)
         for invalid in (dict(item,mimeType='image/jpeg'),dict(item,blob='bad base64'),dict(item,uri='test://other'),dict(item,mimeType='application/pdf'),dict(item,text='also text')):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):parse_resource_contents({'contents':[invalid]},'test://chart')
+
+    def test_resource_and_prompt_allow_images_beyond_previous_limits(self):
+        import base64
+        from test_image_generation import png
+        from agentnik.mcp_resources import parse_resource_contents
+        from agentnik.mcp_prompts import parse_prompt_messages
+        data=png()+b'x'*(12*1024*1024+100);encoded=base64.b64encode(data).decode('ascii')
+        self.assertGreater(len(encoded),16*1024*1024)
+        item={'uri':'test://chart','mimeType':'image/png','blob':encoded}
+        parsed=parse_resource_contents({'contents':[item]},'test://chart')
+        self.assertEqual(parsed['contents'][0]['blob'],encoded)
+        message={'role':'user','content':{'type':'image','mimeType':'image/png','data':encoded}}
+        self.assertEqual(parse_prompt_messages({'messages':[message]})['messages'][0]['content']['data'],encoded)
 
     def test_text_resource_blobs_decode_with_validation(self):
         import base64

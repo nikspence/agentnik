@@ -51,8 +51,9 @@ def parse_prompt_messages(result):
             if not isinstance(text,str) or len(text.encode('utf-8'))>32000:raise ValueError('Unsupported MCP prompt content')
             sanitized={'type':'text','text':text}
         elif content.get('type')=='image':
+            from .image_generation import MAX_IMAGE_BYTES
             data=content.get('data');mime=content.get('mimeType')
-            if not isinstance(data,str) or not data or len(data)>1_000_000 or mime not in ('image/png','image/jpeg','image/webp'):raise ValueError('Invalid MCP prompt image')
+            if not isinstance(data,str) or not data or len(data)>4*((MAX_IMAGE_BYTES+2)//3) or mime not in ('image/png','image/jpeg','image/webp'):raise ValueError('Invalid MCP prompt image')
             sanitized={'type':'image','data':data,'mimeType':mime}
         elif content.get('type')=='resource':
             resource=content.get('resource')

@@ -11,8 +11,10 @@ from urllib.parse import urlsplit
 PROTOCOL='2025-11-25'
 MAX_OUTPUT=65536
 MAX_DISCOVERY_OUTPUT=131072
-MAX_TOOL_RESULT_OUTPUT=1048576
-MAX_RESOURCE_RESULT_OUTPUT=16*1024*1024
+# Allow one maximum-sized supported image after base64 encoding, plus JSON
+# envelope space. Individual images and the complete response remain bounded.
+MAX_TOOL_RESULT_OUTPUT=36*1024*1024
+MAX_RESOURCE_RESULT_OUTPUT=36*1024*1024
 
 def response_limit(phase):
     return MAX_DISCOVERY_OUTPUT if phase=='tools' else MAX_RESOURCE_RESULT_OUTPUT if phase=='resource_read' else MAX_TOOL_RESULT_OUTPUT if phase in ('call','task_result','modern_task_poll','prompt_get') else MAX_OUTPUT

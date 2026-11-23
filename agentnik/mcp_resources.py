@@ -61,7 +61,7 @@ def text_blob_mime(mime):
 
 def parse_resource_contents(result,uri):
     """Accept text, UTF-8 text blobs, and images for the requested URI."""
-    from .image_generation import image_bytes
+    from .image_generation import MAX_IMAGE_BYTES,image_bytes
     contents=result.get('contents')
     if not isinstance(contents,list) or len(contents)>16:raise ValueError('Invalid MCP resource content')
     safe=[]
@@ -81,7 +81,7 @@ def parse_resource_contents(result,uri):
                     text=data.decode('ascii' if parameters and 'us-ascii' in parameters[0] else 'utf-8')
                 except (ValueError,binascii.Error,UnicodeError):raise ValueError('Invalid MCP text resource blob') from None
                 safe.append({'uri':uri,'mimeType':mime,'text':text});continue
-        if 'text' in item or not isinstance(blob,str) or len(blob)>16*1024*1024 or mime not in ('image/png','image/jpeg','image/webp'):raise ValueError('Unsupported MCP resource blob')
+        if 'text' in item or not isinstance(blob,str) or len(blob)>4*((MAX_IMAGE_BYTES+2)//3) or mime not in ('image/png','image/jpeg','image/webp'):raise ValueError('Unsupported MCP resource blob')
         try:data=base64.b64decode(blob,validate=True);actual,_=image_bytes(data)
         except (ValueError,binascii.Error):raise ValueError('Invalid MCP image resource') from None
         if actual!=mime:raise ValueError('MCP image resource type does not match its content')
