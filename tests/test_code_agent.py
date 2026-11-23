@@ -1087,6 +1087,35 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Inspect',mcp_bridge=bridge).run(events.append)
             self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover']);self.assertEqual(events[-1]['status'],'completed');self.assertNotIn('Discover all selected MCP',json.dumps(bodies));self.assertTrue(any('MCP server connected: Parallel' in e.get('text','') for e in events))
 
+    def test_auto_discovery_guidance_precedes_entire_batch_and_is_cached(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            first=Mock();first.server={'name':'Database','command':'server','args':[],'enabled':True};first.request.return_value={'tool_details':[],'instructions':'Use exact account IDs. model-secret-value'}
+            second=Mock();second.server={'name':'Search','command':'server','args':[],'enabled':True};second.request.return_value={'tool_details':[],'instructions':'Use focused queries.'}
+            target=Path(directory,'created.txt');calls=[call('mcp_discover',{'server':'Database'},'overview'),call('write_file',{'path':'created.txt','content':'done'},'write')]
+            replies=[Wire(chat(calls=calls,finish='tool_calls'),False),Wire(chat(calls=[call('mcp_discover',{'server':'Database'},'discover')],finish='tool_calls'),False),Wire(chat(calls=[call('write_file',{'path':'created.txt','content':'done'},'write-again')],finish='tool_calls'),False),Wire(chat('Done'),False)];bodies=[];events=[]
+            def send(c,url,body,timeout):
+                bodies.append(json.loads(json.dumps(body)))
+                if len(bodies)==2:self.assertFalse(target.exists())
+                return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False,api_key='model-secret-value'),directory,'Inspect',mcp_bridges=[first,second]).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual(target.read_text(),'done')
+            feedback=[item['content'] for item in bodies[1]['messages'] if item.get('role')=='tool']
+            self.assertEqual(len(feedback),2);self.assertIn('Use exact account IDs.',feedback[0]);self.assertIn('Use focused queries.',feedback[0]);self.assertIn('No requested tools in this batch were executed',feedback[1]);self.assertNotIn('model-secret-value',json.dumps(bodies))
+            self.assertIn('Use exact account IDs.',bodies[2]['messages'][-1]['content']);self.assertEqual(first.request.call_count,1);self.assertEqual(second.request.call_count,1)
+
+    def test_failed_auto_discovery_retains_guidance_without_executing_batch(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            first=Mock();first.server={'name':'Database','command':'server','args':[],'enabled':True};first.request.return_value={'tool_details':[],'instructions':'Use exact account IDs.'}
+            second=Mock();second.server={'name':'Search','command':'server','args':[],'enabled':True};second.request.side_effect=[{'error':'offline'},{'tool_details':[]}]
+            target=Path(directory,'created.txt');batch=[call('project_overview',{},'overview'),call('write_file',{'path':'created.txt','content':'done'},'write')]
+            replies=[Wire(chat(calls=batch,finish='tool_calls'),False),Wire(chat(calls=[call('project_overview',{},'again')],finish='tool_calls'),False),Wire(chat('Done'),False)];bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),directory,'Inspect',mcp_bridges=[first,second]).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertFalse(target.exists());self.assertIn('No requested tools in this batch were executed',json.dumps(bodies[1]))
+            self.assertIn('Use exact account IDs.',json.dumps(bodies[2]));self.assertEqual(first.request.call_count,1);self.assertEqual(second.request.call_count,2)
+
     def test_mcp_priority_controls_conflicting_builtin_code_tool(self):
         from unittest.mock import Mock
         tool={'name':'calculate','description':'MCP calculator','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
