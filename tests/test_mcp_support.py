@@ -37,7 +37,7 @@ class MCPFoundation(unittest.TestCase):
         self.assertIn('No retry was made',parsed['error'])
     def test_remote_initialization_sse_completes_without_stream_closure(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -75,7 +75,7 @@ class MCPFoundation(unittest.TestCase):
 
     def test_remote_tool_response_completes_before_stream_closes(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -101,7 +101,7 @@ class MCPFoundation(unittest.TestCase):
 
     def test_remote_stream_answers_server_ping_without_interrupting_tool(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -181,7 +181,7 @@ class MCPFoundation(unittest.TestCase):
 
     def test_remote_2025_form_request_on_both_event_streams(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -277,7 +277,7 @@ class MCPFoundation(unittest.TestCase):
 
     def test_remote_initialization_stream_resumes_with_original_session(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -313,7 +313,7 @@ class MCPFoundation(unittest.TestCase):
 
     def test_remote_tool_response_stream_resumes_without_repeating_call(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -345,7 +345,7 @@ class MCPFoundation(unittest.TestCase):
 
     def test_remote_server_stream_reconnects_without_replaying_calls(self):
         import threading,time
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -534,7 +534,7 @@ for line in sys.stdin:
 
     def test_remote_shutdown_cancels_active_task_when_advertised(self):
         import threading,time
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -578,7 +578,7 @@ for line in sys.stdin:
 
     def test_remote_stopped_tool_sends_cancellation_notification(self):
         import threading,time
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -621,7 +621,7 @@ for line in sys.stdin:
 
     def test_remote_task_required_tool_lifecycle_and_uncertain_failures(self):
         import threading,time
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -766,7 +766,7 @@ for line in sys.stdin:
 
     def test_remote_stream_progress_reaches_worker_before_response(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_code import CodingMCPBridge
@@ -887,7 +887,7 @@ for line in sys.stdin:
 
     def test_remote_discovery_accepts_large_page_and_enforces_128k(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -1397,7 +1397,7 @@ for line in sys.stdin:
 
     def test_remote_call_rpc_error_reports_diagnostic_and_uncertainty(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -1454,7 +1454,7 @@ for line in sys.stdin:
 
     def test_remote_session_and_discovery_with_fake_server(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -1501,7 +1501,7 @@ for line in sys.stdin:
 
     def test_manual_remote_failure_preserves_error_when_cleanup_fails(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -1529,7 +1529,7 @@ for line in sys.stdin:
 
     def test_remote_cleanup_after_identity_mismatch_and_oversized_response(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -1558,7 +1558,7 @@ for line in sys.stdin:
 
     def test_manual_remote_timeout_attempts_cleanup_without_replaying_call(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -1587,7 +1587,7 @@ for line in sys.stdin:
 
     def test_remote_protocol_negotiation_and_headers(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -1624,7 +1624,7 @@ for line in sys.stdin:
 
     def test_remote_discovery_rejects_repeated_cursor(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -2243,7 +2243,7 @@ for line in sys.stdin:
 
     def test_remote_prompt_session_and_secret_isolation(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -2276,7 +2276,7 @@ for line in sys.stdin:
 
     def test_remote_prompt_server_error_requires_fresh_listing(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -2308,7 +2308,7 @@ for line in sys.stdin:
 
     def test_remote_resource_server_error_keeps_session_usable(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession
@@ -2341,7 +2341,7 @@ for line in sys.stdin:
 
     def test_remote_resource_listing_and_read_in_authenticated_session(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -2376,7 +2376,7 @@ for line in sys.stdin:
 
     def test_coding_remote_session_is_stateful_and_rechecks_tool_changes(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
@@ -2411,7 +2411,7 @@ for line in sys.stdin:
 
     def test_coding_remote_bridge_rechecks_and_stops_after_uncertainty(self):
         import threading
-        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
