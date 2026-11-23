@@ -284,10 +284,12 @@ class MCPFoundation(unittest.TestCase):
                 payload=json.dumps({'jsonrpc':'2.0','id':state['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers();self.wfile.write(b'id: ping\ndata: {"jsonrpc":"2.0","id":"ping-1","method":"ping"}\n\n');self.wfile.flush();ping_received.wait(3);self.wfile.write(b'id: init-result\ndata: '+payload+b'\n\n');self.wfile.flush()
             def do_DELETE(self):self.send_response(204);self.end_headers()
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[];network=[]
+        from PySide6.QtNetwork import QNetworkRequest
+        session.manager.finished.connect(lambda reply:network.append((session.phase,reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute),str(reply.error()),reply.errorString())))
         session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda error:(out.append(error),loop.quit()));session.start();timeout=QTimer();timeout.setSingleShot(True);timeout.timeout.connect(loop.quit);timeout.start(7000)
         try:
-            loop.exec();timeout.stop();self.assertTrue(out);self.assertIn('name',out[0],str(out));self.assertEqual(out[0]['name'],'Fixture')
+            loop.exec();timeout.stop();self.assertTrue(out);self.assertIn('name',out[0],f'out={out!r}; calls={calls!r}; network={network!r}');self.assertEqual(out[0]['name'],'Fixture')
             self.assertEqual(calls.count('initialize'),1);self.assertEqual(calls.count(('GET','init-cursor','session-one',PROTOCOL,'Bearer fixture-token')),2);self.assertIn(('ping-response','session-one',{'jsonrpc':'2.0','id':'ping-1','result':{}}),calls);self.assertEqual(session.session,'session-one')
         finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 

@@ -582,10 +582,12 @@ class MCPOAuthDiscovery(unittest.TestCase):
                     def do_GET(self):self.send_response(405);self.end_headers()
                     def do_DELETE(self):self.send_response(204);self.end_headers()
                 server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=3,prefer_modern=False);loop=QEventLoop();out=[]
+                session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=3,prefer_modern=False);loop=QEventLoop();out=[];network=[]
+                from PySide6.QtNetwork import QNetworkRequest
+                session.manager.finished.connect(lambda reply:network.append((session.phase,reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute),str(reply.error()),reply.errorString())))
                 session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.ended.connect(lambda error:(out.append(error),loop.quit()));session.start();timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(5000)
                 try:
-                    loop.exec();timer.stop();self.assertTrue(out);self.assertIn('sign in',out[0]['error'].lower());self.assertNotIn('private:scope',out[0]['error'])
+                    loop.exec();timer.stop();self.assertTrue(out);self.assertIn('sign in',out[0]['error'].lower(),f'calls={calls!r}; network={network!r}');self.assertNotIn('private:scope',out[0]['error'])
                     self.assertEqual(out[0]['call_uncertain'],mode=='insufficient')
                     self.assertEqual(session.oauth_challenge,{'scope':'private:scope'})
                     if mode=='insufficient':self.assertEqual(calls.count('tools/call'),1);self.assertIn('insufficient scope',out[0]['error'])
