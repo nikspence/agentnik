@@ -31,10 +31,13 @@ def main():
             'AGENTNIK_HOME': str(home / 'agentnik'), 'GIT_CONFIG_NOSYSTEM': '1',
             'GIT_CONFIG_GLOBAL': str(home / 'gitconfig'), 'QT_QPA_PLATFORM': 'offscreen',
             'PYTHONIOENCODING': 'utf-8',
+            'PYTHONFAULTHANDLER': '1', 'PYTHONUNBUFFERED': '1',
             'PYTHONPATH': os.pathsep.join(import_paths),
             'AGENTNIK_OFFLINE_GUARD': '1', 'AGENTNIK_OFFLINE_AUDIT': str(audit),
         })
         result = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-v'], cwd=ROOT, env=env)
+        if result.returncode:
+            print(f'Offline test process exited with status {result.returncode}.', file=sys.stderr, flush=True)
         if audit.exists() and audit.stat().st_size:
             print('Offline guard blocked unexpected network operations:', file=sys.stderr)
             print(audit.read_text(encoding='utf-8'), file=sys.stderr)

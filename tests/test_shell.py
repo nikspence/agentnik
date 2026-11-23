@@ -70,7 +70,7 @@ class ShellExecutor(unittest.TestCase):
             try:
                 deadline=time.monotonic()+30
                 while not pidfile.exists() and thread.is_alive() and time.monotonic()<deadline:time.sleep(.05)
-                self.assertTrue(pidfile.exists());pid=int(pidfile.read_text().strip());runtime.cancel.set();thread.join(5)
+                self.assertTrue(pidfile.exists(),f'Child PID file was not created; worker alive={thread.is_alive()}, errors={out!r}');pid=int(pidfile.read_text().strip());runtime.cancel.set();thread.join(5)
                 self.assertFalse(thread.is_alive());self.assertIsInstance(out[0],InterruptedError)
                 kernel=ctypes.WinDLL('kernel32',use_last_error=True)
                 kernel.OpenProcess.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_ulong];kernel.OpenProcess.restype=ctypes.c_void_p

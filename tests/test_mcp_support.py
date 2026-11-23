@@ -210,7 +210,7 @@ class MCPFoundation(unittest.TestCase):
                         QTimer.singleShot(50,lambda:session.continue_elicitation({'request':response}))
                     session.elicitation_requested.connect(request_input);session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()));session.start();QTimer.singleShot(8000,loop.quit)
                     try:
-                        loop.exec();self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(presented),1);self.assertEqual(len(received),1)
+                        loop.exec();self.assertTrue(out, 'MCP session did not finish');self.assertIn('call_result',out[0],str(out));self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(presented),1);self.assertEqual(len(received),1)
                         response,session_header,auth,protocol=received[0];self.assertEqual(response['id'],'input');self.assertEqual(response['result']['action'],action)
                         if action=='accept':self.assertEqual(response['result']['content'],{'choice':'yes'})
                         self.assertEqual((session_header,auth,protocol),('session-one','Bearer fixture-token',PROTOCOL));self.assertNotIn('yes',str(out))
@@ -287,7 +287,7 @@ class MCPFoundation(unittest.TestCase):
         session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','fixture-token',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[]
         session.discovered.connect(lambda result:(out.append(result),loop.quit()));session.ended.connect(lambda error:(out.append(error),loop.quit()));session.start();timeout=QTimer();timeout.setSingleShot(True);timeout.timeout.connect(loop.quit);timeout.start(7000)
         try:
-            loop.exec();timeout.stop();self.assertTrue(out);self.assertEqual(out[0]['name'],'Fixture')
+            loop.exec();timeout.stop();self.assertTrue(out);self.assertIn('name',out[0],str(out));self.assertEqual(out[0]['name'],'Fixture')
             self.assertEqual(calls.count('initialize'),1);self.assertEqual(calls.count(('GET','init-cursor','session-one',PROTOCOL,'Bearer fixture-token')),2);self.assertIn(('ping-response','session-one',{'jsonrpc':'2.0','id':'ping-1','result':{}}),calls);self.assertEqual(session.session,'session-one')
         finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 
