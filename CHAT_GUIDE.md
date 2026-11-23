@@ -16,6 +16,8 @@ Open **＋ Chat** to start an independent session. Tabs remain separate even whe
 
   For a vision-capable model, enable **MCP image input** to send assistant-directed PNG, JPEG, or WebP images from MCP tools, resources, and prompts to the selected connection. Up to four images are included per tool batch, subject to the research context limit. Model-facing results identify each image, and images that do not fit are identified as omitted to the model and counted in activity. Image bytes are available only during the current turn and are not saved in chat history. MCP audio blocks are replaced with notices. Code can inspect supported MCP images when image inspection is enabled.
 
+  Optional server usage guidance is sent to the model as untrusted discovery data. When Chat reconnects automatically and receives guidance, it returns that guidance before executing the requested batch; the model can then choose its next action. Server guidance does not grant permissions or override your instructions.
+
   If an MCP request has invalid arguments, Agentnik rejects the entire requested batch before any tools execute and returns validation feedback to the model, which may correct the request within the chat's limits. This does not retry calls already sent to a server.
 
   **MCP activity** shows the selected server, discovered tool count, tool names, and outcomes, including when a call may have completed despite an error. It does not add tool arguments or returned records to these activity messages.

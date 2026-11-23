@@ -1297,6 +1297,13 @@ sys.stdin.read()
         for message in (b'not json',json.dumps(dict(result,id=True)).encode(),json.dumps(dict(result,result={'protocolVersion':'different'})).encode()):
             with self.assertRaises(ValueError):parse_initialize(message)
 
+    def test_legacy_initialize_preserves_bounded_server_guidance(self):
+        from agentnik.mcp_support import MAX_SERVER_INSTRUCTIONS_BYTES
+        result={'jsonrpc':'2.0','id':1,'result':{'protocolVersion':PROTOCOL,'serverInfo':{'name':'Example','version':'1'},'capabilities':{},'instructions':'Use the lookup tool first.'}}
+        parsed=parse_initialize(json.dumps(result).encode());self.assertEqual(parsed['instructions'],'Use the lookup tool first.');self.assertFalse(parsed['instructions_clipped'])
+        result['result']['instructions']='x'*(MAX_SERVER_INSTRUCTIONS_BYTES+1)
+        parsed=parse_initialize(json.dumps(result).encode());self.assertEqual(len(parsed['instructions']),MAX_SERVER_INSTRUCTIONS_BYTES);self.assertTrue(parsed['instructions_clipped'])
+
     def test_task_capabilities_are_reported_only_for_supported_protocol_and_shapes(self):
         result={'jsonrpc':'2.0','id':1,'result':{'protocolVersion':PROTOCOL,'serverInfo':{'name':'Example','version':'1'},'capabilities':{'tools':{},'tasks':{'list':{},'cancel':{},'requests':{'tools':{'call':{}}}}}}}
         parsed=parse_initialize(json.dumps(result).encode())
@@ -2355,8 +2362,8 @@ for line in sys.stdin:
                     dialog.save();put.assert_called_once();self.assertNotIn('secret-test-token',store.config_path.read_text(encoding='utf-8'))
                     self.assertTrue(store.config['mcp_servers'][0]['credential_id']);dialog.url.setText('https://other.example/mcp');dialog.save()
                     self.assertEqual(store.config['mcp_servers'][0]['credential_id'],'');delete.assert_called_once()
-                dialog.discovered_config=dict(store.config['mcp_servers'][0]);dialog.remote_done({'name':'Fake','version':'1','protocol':PROTOCOL,'tools':['search'],'tool_details':[{'name':'search','description':'Search web','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}]})
-                self.assertIn('Search web',dialog.tool_details.toPlainText());self.assertIn('"type": "object"',dialog.tool_details.toPlainText())
+                dialog.discovered_config=dict(store.config['mcp_servers'][0]);dialog.remote_done({'name':'Fake','version':'1','protocol':PROTOCOL,'tools':['search'],'instructions':'Use focused queries.','tool_details':[{'name':'search','description':'Search web','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}]})
+                self.assertIn('Search web',dialog.tool_details.toPlainText());self.assertIn('"type": "object"',dialog.tool_details.toPlainText());self.assertIn('Use focused queries.',dialog.tool_details.toPlainText())
                 def wait_validation():
                     loop=QEventLoop();timer=QTimer();timer.timeout.connect(lambda:loop.quit() if dialog.validation_job is None else None);timer.start(10);QTimer.singleShot(5000,loop.quit);loop.exec();timer.stop();self.assertIsNone(dialog.validation_job)
                 dialog.tool_args.setPlainText('{"value":1e999}');dialog.call_remote();self.assertIsNone(dialog.validation_job);self.assertIn('JSON object',dialog.status.text());dialog.tool_args.setPlainText('{}')

@@ -31,6 +31,42 @@ class ChatMCPIntegration(unittest.TestCase):
         while not predicate() and time.monotonic()<end:self.app.processEvents();time.sleep(.005)
         self.assertTrue(predicate());self.app.processEvents()
 
+    def test_server_guidance_reaches_chat_and_reconnect_defers_execution(self):
+        import threading
+        from agentnik.chat_mcp import MultiChatMCP
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers});tool={'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        for index,controller in enumerate(group.controllers):
+            controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[tool] if index==0 else [],'instructions':'Use precise account identifiers. model-secret-value' if index==0 else 'Read-only reference data.'},{'call_result':{'content':[{'type':'text','text':'done'}]}}]
+        request={'request':json.dumps({'tool':'query','arguments':{}})}
+        replies=[Wire(response([function('mcp_call',request,'one')]),False),Wire(response([function('mcp_call',request,'two')]),False),Wire(response([message('Done')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(dict(C,api_key='model-secret-value'),[{'role':'user','content':'Query'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=group)
+        self.assertEqual(result['status'],'ok');self.assertIn('Use precise account identifiers.',json.dumps(bodies[1]));self.assertIn('Read-only reference data.',json.dumps(bodies[1]));self.assertIn('No tools in this batch were executed',json.dumps(bodies[1]))
+        self.assertEqual([item.args[0] for item in group.controllers[0].bridge.request.call_args_list],['discover','call'])
+        self.assertNotIn('model-secret-value',json.dumps(result));self.assertNotIn('model-secret-value',json.dumps(bodies))
+        self.assertEqual([item['status'] for item in result['research']['tool_records']],['skipped','completed'])
+
+    def test_chat_explicit_discovery_returns_server_guidance(self):
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Runtime
+        server={'name':'Example','command':sys.executable,'args':[],'enabled':True}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock();controller.bridge.request.return_value={'tool_details':[],'instructions':'Use the account identifier.','instructions_clipped':True}
+        result=controller.invoke('mcp_discover',{'server':'connect'},Runtime())
+        self.assertEqual(result['instructions'],'Use the account identifier.');self.assertTrue(result['instructions_clipped']);self.assertIn('Untrusted',result['instructions_notice'])
+
+    def test_automatic_mcp_precedence_displays_guidance_before_numeric_tool(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        server={'name':'Example','command':sys.executable,'args':[],'enabled':True}
+        tool={'name':'calculate','description':'Calculate','description_clipped':False,'schema_status':'available','schema':{'type':'object','properties':{'expression':{'type':'string'}}}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.bridge=Mock();controller.bridge.request.side_effect=[{'tool_details':[tool],'instructions':'This calculator uses approximate values.'},{'call_result':{'content':[{'type':'text','text':'4'}]}}]
+        replies=[Wire(response([function('calculate',{'expression':'2+2'},'one')]),False),Wire(response([function('calculate',{'expression':'2+2'},'two')]),False),Wire(response([message('4')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Calculate'}],'',lambda _:None,threading.Event(),web_tools=False,local_tools=True,mcp=controller)
+        self.assertEqual(result['status'],'ok');self.assertIn('approximate values',json.dumps(bodies[1]));self.assertEqual([entry.args[0] for entry in controller.bridge.request.call_args_list],['discover','call'])
+        self.assertEqual([item['status'] for item in result['research']['tool_records']],['skipped','completed'])
+
     def test_chat_resources_require_listing_and_correct_server(self):
         from agentnik.chat_mcp import MultiChatMCP
         from agentnik.tools import Runtime,ResearchError

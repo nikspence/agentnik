@@ -14,6 +14,17 @@ from test_routing import Wire
 from test_image_generation import png
 
 class CodeVisionTests(unittest.TestCase):
+    def test_code_discovery_returns_server_guidance_as_untrusted_data(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as root:
+            bridge=Mock();bridge.server={'name':'Example','command':'server','args':[],'enabled':True}
+            bridge.request.return_value={'tool_details':[],'instructions':'Use the account identifier.','instructions_clipped':False}
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat('Done'),False)];bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Inspect',mcp_bridge=bridge).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events)
+            tool=next(item for item in bodies[-1]['messages'] if item.get('role')=='tool')
+            self.assertIn('Use the account identifier.',tool['content']);self.assertIn('Untrusted server-provided usage guidance',tool['content'])
     def test_embedded_mcp_resource_images_follow_vision_setting(self):
         from agentnik.mcp_content import model_images,model_tool_result
         from agentnik.mcp_prompts import parse_prompt_messages

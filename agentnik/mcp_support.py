@@ -15,6 +15,15 @@ MAX_DISCOVERY_OUTPUT=131072
 # envelope space. Individual images and the complete response remain bounded.
 MAX_TOOL_RESULT_OUTPUT=36*1024*1024
 MAX_RESOURCE_RESULT_OUTPUT=36*1024*1024
+MAX_SERVER_INSTRUCTIONS_BYTES=8000
+
+def server_instructions(result):
+    """Bound optional server guidance; it is untrusted data, not policy."""
+    value=result.get('instructions')
+    if not isinstance(value,str) or not value:return {}
+    try:encoded=value.encode('utf-8')
+    except UnicodeError:return {}
+    return {'instructions':encoded[:MAX_SERVER_INSTRUCTIONS_BYTES].decode('utf-8','ignore'),'instructions_clipped':len(encoded)>MAX_SERVER_INSTRUCTIONS_BYTES}
 
 def response_limit(phase):
     return MAX_DISCOVERY_OUTPUT if phase=='tools' else MAX_RESOURCE_RESULT_OUTPUT if phase=='resource_read' else MAX_TOOL_RESULT_OUTPUT if phase in ('call','task_result','modern_task_poll','prompt_get') else MAX_OUTPUT
@@ -211,4 +220,4 @@ def parse_initialize(line, supported_protocols=(PROTOCOL,),expected_id=1):
         requests=tasks.get('requests');tools=requests.get('tools') if isinstance(requests,dict) else None
         task_capabilities={'tool_calls':isinstance(tools,dict) and isinstance(tools.get('call'),dict),
                            'list':isinstance(tasks.get('list'),dict),'cancel':isinstance(tasks.get('cancel'),dict)}
-    return {'name':info['name'],'version':info['version'] or 'unknown','protocol':result['protocolVersion'],'capabilities':names,'task_capabilities':task_capabilities}
+    return {'name':info['name'],'version':info['version'] or 'unknown','protocol':result['protocolVersion'],'capabilities':names,'task_capabilities':task_capabilities,**server_instructions(result)}

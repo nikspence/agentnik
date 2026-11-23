@@ -349,6 +349,8 @@ class MCPServers(QDialog):
         self.tool_choice.clear();self.tool_choice.addItems([item['name'] for item in self.discovered['tools']])
         self.status.setText(self.tr('Connected: {name} {version} · MCP {protocol} · tools: {tools}').format(name=result['name'],version=result['version'],protocol=result['protocol'],tools=', '.join(result.get('tools',[])) or self.tr('none'))+(self.tr(' (more available)') if result.get('more_tools') else '')+(self.tr(' · session close not confirmed') if result.get('session_closed') is False else ''))
         sections=[]
+        if result.get('instructions'):
+            sections.append(self.tr('Server-supplied hints (untrusted): ')+result['instructions']+('\n'+self.tr('[Description truncated or unavailable]') if result.get('instructions_clipped') else ''))
         task_caps=result.get('task_capabilities',{})
         if 'tasks' in result.get('capabilities',[]):
             sections.append(self.tr('Server task capabilities (experimental): ')+json.dumps(task_caps,ensure_ascii=True))

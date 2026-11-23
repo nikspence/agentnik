@@ -14,6 +14,7 @@ LEGACY_ENVELOPE_ERRORS=frozenset((-32600,-32601,-32602,-32020,-32022))
 
 
 def parse_discovery(result):
+    from .mcp_support import server_instructions
     versions=result.get('supportedVersions') if isinstance(result,dict) else None
     capabilities=result.get('capabilities') if isinstance(result,dict) else None
     if not isinstance(versions,list) or PROTOCOL not in versions or any(not isinstance(version,str) for version in versions) or not isinstance(capabilities,dict) or result.get('resultType','complete')!='complete':raise ValueError('Invalid MCP discovery response')
@@ -21,7 +22,7 @@ def parse_discovery(result):
     valid=(isinstance(info,dict) and isinstance(info.get('name'),str) and bool(info['name']) and len(info['name'])<=256 and isinstance(info.get('version'),str) and len(info['version'])<=256 and all(ch.isprintable() for ch in info['name']+info['version']))
     filters={field:True for capability,field in (('tools','toolsListChanged'),('resources','resourcesListChanged'),('prompts','promptsListChanged')) if isinstance(capabilities.get(capability),dict) and capabilities[capability].get('listChanged') is True}
     extensions=capabilities.get('extensions');task_extension=isinstance(extensions,dict) and isinstance(extensions.get('io.modelcontextprotocol/tasks'),dict)
-    return {'name':info['name'] if valid else 'MCP server','version':(info['version'] or 'unknown') if valid else 'unknown','server_identity_reported':valid,'protocol':PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if isinstance(capabilities.get(name),dict)],'subscription_filters':filters,'task_capabilities':{'tool_calls':False,'list':False,'cancel':False},'task_extension_advertised':task_extension}
+    return {'name':info['name'] if valid else 'MCP server','version':(info['version'] or 'unknown') if valid else 'unknown','server_identity_reported':valid,'protocol':PROTOCOL,'capabilities':[name for name in ('tools','resources','prompts','logging','completions') if isinstance(capabilities.get(name),dict)],'subscription_filters':filters,'task_capabilities':{'tool_calls':False,'list':False,'cancel':False},'task_extension_advertised':task_extension,**server_instructions(result)}
 
 
 def header_value(value):

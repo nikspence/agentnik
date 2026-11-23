@@ -21,18 +21,18 @@ class ModernRemoteSession(unittest.TestCase):
             def do_POST(self):
                 request=json.loads(self.rfile.read(int(self.headers['Content-Length'])));method=request['method'];calls.append((method,request['params'],time.monotonic()))
                 if method=='initialize':self.send_response(400);self.send_header('Content-Length','0');self.end_headers();return
-                if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{}}}
+                if method=='server/discover':result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{}},'instructions':'Choose a specific account.'}
                 elif method=='tools/list':result={'tools':[{'name':'work','inputSchema':{'type':'object'}}]}
                 elif method=='tools/call':result={'content':[{'type':'text','text':'done'}]} if request['params'].get('requestState')=='opaque-private-state' else {'resultType':'input_required','requestState':'opaque-private-state'}
                 else:raise AssertionError(method)
                 payload=json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[];forms=[]
-        session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}));session.elicitation_requested.connect(forms.append)
+        session=RemoteSession('http://127.0.0.1:'+str(server.server_port)+'/mcp','',timeout_seconds=5,prefer_modern=False);loop=QEventLoop();out=[];forms=[];discovery=[]
+        session.discovered.connect(lambda info:(discovery.append(info),session.call(info['tool_details'][0],{})));session.elicitation_requested.connect(forms.append)
         session.called.connect(lambda value:(out.append(value),loop.quit()));session.ended.connect(lambda value:(out.append(value),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(7000);session.start()
         try:
-            loop.exec();timer.stop();self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertFalse(forms);self.assertNotIn('opaque-private-state',str(out))
+            loop.exec();timer.stop();self.assertEqual(discovery[0]['instructions'],'Choose a specific account.');self.assertEqual(out[0]['call_result']['content'][0]['text'],'done');self.assertFalse(forms);self.assertNotIn('opaque-private-state',str(out))
             invoked=[call for call in calls if call[0]=='tools/call'];self.assertEqual(len(invoked),2);self.assertEqual(invoked[1][1]['inputResponses'],{});self.assertGreaterEqual(invoked[1][2]-invoked[0][2],.2)
         finally:session.shutdown();server.shutdown();server.server_close();thread.join(2)
 

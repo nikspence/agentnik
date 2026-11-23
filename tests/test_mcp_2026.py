@@ -4,6 +4,13 @@ from agentnik.mcp_2026 import PROTOCOL,header_fields,header_value,prepare_reques
 
 
 class ModernMCPRequests(unittest.TestCase):
+    def test_modern_discovery_preserves_bounded_server_guidance(self):
+        from agentnik.mcp_support import MAX_SERVER_INSTRUCTIONS_BYTES
+        result={'supportedVersions':[PROTOCOL],'capabilities':{},'instructions':'가'*4000}
+        parsed=parse_discovery(result);self.assertTrue(parsed['instructions_clipped'])
+        self.assertLessEqual(len(parsed['instructions'].encode('utf-8')),MAX_SERVER_INSTRUCTIONS_BYTES)
+        for value in (None,False,[], '\ud800'):
+            result['instructions']=value;self.assertNotIn('instructions',parse_discovery(result))
     def test_server_metadata_is_untrusted_optional_information(self):
         result={'supportedVersions':[PROTOCOL],'capabilities':{'tools':{}}}
         self.assertFalse(parse_discovery(result)['server_identity_reported'])
