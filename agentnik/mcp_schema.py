@@ -10,7 +10,7 @@ from referencing import Registry
 SCHEMA_URL='https://json-schema.org/draft/2020-12/schema'
 DRAFT7_URLS=('http://json-schema.org/draft-07/schema','https://json-schema.org/draft-07/schema')
 ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment','format','discriminator','x-mcp-header','enumNames'}
-KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','patternProperties','propertyNames','required','additionalProperties','items','prefixItems','additionalItems','uniqueItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
+KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','patternProperties','propertyNames','required','additionalProperties','items','prefixItems','additionalItems','uniqueItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf','if','then','else','dependentRequired','dependentSchemas','dependencies'}
 MAX_NODES=1000
 MAX_DEPTH=24
 MAX_BRANCHES=32
@@ -95,7 +95,29 @@ def _bounded_unique_items(validator,unique,instance,schema):
         seen.add(key)
 
 
-_bounded_keywords={'pattern':_bounded_pattern,'patternProperties':_bounded_pattern_properties,'propertyNames':_bounded_property_names,'additionalProperties':_bounded_additional_properties,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf'),'uniqueItems':_bounded_unique_items}
+def _validation_deadline():
+    if time.monotonic()>=_pattern_deadline.get():raise TimeoutError('MCP schema validation timed out')
+
+
+def _bounded_if(validator,condition,instance,schema):
+    _validation_deadline();matched=validator.evolve(schema=condition).is_valid(instance);_validation_deadline()
+    branch='then' if matched else 'else'
+    if branch in schema:yield from validator.descend(instance,schema[branch],schema_path=branch)
+
+
+def _bounded_dependencies(validator,dependencies,instance,schema):
+    if not validator.is_type(instance,'object'):return
+    for key,dependency in dependencies.items():
+        _validation_deadline()
+        if key not in instance:continue
+        if isinstance(dependency,list):
+            for name in dependency:
+                _validation_deadline()
+                if name not in instance:yield ValidationError('A dependent property is missing.')
+        else:yield from validator.descend(instance,dependency,schema_path=key)
+
+
+_bounded_keywords={'pattern':_bounded_pattern,'patternProperties':_bounded_pattern_properties,'propertyNames':_bounded_property_names,'additionalProperties':_bounded_additional_properties,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf'),'uniqueItems':_bounded_unique_items,'if':_bounded_if,'dependentRequired':_bounded_dependencies,'dependentSchemas':_bounded_dependencies,'dependencies':_bounded_dependencies}
 BOUNDED_2020=validators.extend(Draft202012Validator,_bounded_keywords)
 BOUNDED_7=validators.extend(Draft7Validator,_bounded_keywords)
 
@@ -113,7 +135,12 @@ def _validation_feedback(error):
     if error.validator=='required' and isinstance(error.validator_value,list) and isinstance(error.instance,dict):
         missing=[name for name in error.validator_value if isinstance(name,str) and name not in error.instance and name.isascii() and name.isidentifier() and len(name)<=64]
         if missing:fields.append(missing[0])
-    reasons={'required':'a required field is missing','type':'the value has the wrong type','enum':'the value is not an allowed choice','const':'the value does not match the required constant','pattern':'the value does not match the required pattern','minimum':'the value is below the minimum','maximum':'the value is above the maximum','minItems':'the array has too few items','maxItems':'the array has too many items','uniqueItems':'the array contains duplicate items','additionalProperties':'an unexpected field was supplied'}
+    if error.validator in ('dependentRequired','dependencies') and isinstance(error.validator_value,dict) and isinstance(error.instance,dict):
+        for trigger,names in error.validator_value.items():
+            if trigger in error.instance and isinstance(names,list):
+                missing=[name for name in names if isinstance(name,str) and name not in error.instance and name.isascii() and name.isidentifier() and len(name)<=64]
+                if missing:fields.append(missing[0]);break
+    reasons={'required':'a required field is missing','dependentRequired':'a dependent field is missing','dependencies':'a dependent field is missing','type':'the value has the wrong type','enum':'the value is not an allowed choice','const':'the value does not match the required constant','pattern':'the value does not match the required pattern','minimum':'the value is below the minimum','maximum':'the value is above the maximum','minItems':'the array has too few items','maxItems':'the array has too many items','uniqueItems':'the array contains duplicate items','additionalProperties':'an unexpected field was supplied'}
     reason=reasons.get(error.validator,'a schema constraint was not met')
     location=' for field '+'.'.join(fields[:4]) if fields else ''
     return 'MCP arguments do not match the tool input schema'+location+': '+reason+'.'
@@ -147,14 +174,14 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
         while pos<len(decoded):
             if not isinstance(node,dict):raise ValueError('The tool schema has an unresolved reference.')
             key=decoded[pos];pos+=1
-            if key in ('properties','patternProperties','$defs','definitions'):
+            if key in ('properties','patternProperties','dependentSchemas','dependencies','$defs','definitions'):
                 if pos>=len(decoded) or not isinstance(node.get(key),dict) or decoded[pos] not in node[key]:raise ValueError('The tool schema has an unresolved reference.')
                 node=node[key][decoded[pos]];pos+=1
             elif key in ('anyOf','oneOf','allOf','prefixItems') or (key=='items' and isinstance(node.get(key),list)):
                 entries=node.get(key);index=decoded[pos] if pos<len(decoded) else ''
                 if not isinstance(entries,list) or len(index)>3 or not index.isascii() or not index.isdigit() or (len(index)>1 and index[0]=='0') or int(index)>=len(entries):raise ValueError('The tool schema has an unresolved reference.')
                 node=entries[int(index)];pos+=1
-            elif key in ('items','additionalItems','additionalProperties','propertyNames') and key in node:node=node[key]
+            elif key in ('items','additionalItems','additionalProperties','propertyNames','if','then','else') and key in node:node=node[key]
             else:raise ValueError('The tool schema uses unsupported references.')
         if type(node) is not bool and not isinstance(node,dict):raise ValueError('The tool schema has an unresolved reference.')
         return node
@@ -212,6 +239,18 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
         for pattern,value in patterns.items():
             validate_pattern(pattern);pending.append((value,depth+1,width,ancestors))
         if 'propertyNames' in node:pending.append((node['propertyNames'],depth+1,width,ancestors))
+        for keyword in ('if','then','else'):
+            if keyword in node:pending.append((node[keyword],depth+1,width*2,ancestors))
+        if validator is Draft7Validator and ('dependentRequired' in node or 'dependentSchemas' in node):raise ValueError('The tool schema uses unsupported dependency keywords for this version.')
+        if validator is Draft202012Validator and 'dependencies' in node:raise ValueError('The tool schema uses unsupported dependency keywords for this version.')
+        for keyword in ('dependentRequired','dependentSchemas','dependencies'):
+            if keyword not in node:continue
+            dependencies=node[keyword]
+            if not isinstance(dependencies,dict) or len(dependencies)>128:raise ValueError('Invalid tool schema dependencies.')
+            for dependency in dependencies.values():
+                if keyword=='dependentRequired' or keyword=='dependencies' and isinstance(dependency,list):
+                    if not isinstance(dependency,list) or len(dependency)>128:raise ValueError('Invalid tool schema dependencies.')
+                else:pending.append((dependency,depth+1,width,ancestors))
         if 'items' in node:
             items=node['items']
             if isinstance(items,list):
