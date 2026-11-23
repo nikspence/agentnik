@@ -23,7 +23,10 @@ class TaskInputTests(unittest.TestCase):
         self.assertIsNone(input_task_metadata({},None,False))
 
     def run_session(self,session,expected_input):
-        session.elicitation_enabled=True;loop=QEventLoop();output=[];forms=[]
+        session.elicitation_enabled=True;loop=QEventLoop();output=[];forms=[];network=[]
+        if isinstance(session,RemoteSession):
+            from PySide6.QtNetwork import QNetworkRequest
+            session.manager.finished.connect(lambda reply:network.append((session.phase,reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute),str(reply.error()),reply.errorString())))
         session.discovered.connect(lambda info:session.call(info['tool_details'][0],{}))
         def requested(value):
             forms.append(value);self.assertFalse(session.timer.isActive())
@@ -31,7 +34,7 @@ class TaskInputTests(unittest.TestCase):
         session.elicitation_requested.connect(requested)
         session.called.connect(lambda value:(output.append(value),loop.quit()));session.ended.connect(lambda value:(output.append(value),loop.quit()))
         timer=QTimer();timer.setSingleShot(True);timer.timeout.connect(loop.quit);timer.start(8000);session.start();loop.exec();timer.stop()
-        self.assertTrue(output);self.assertIn('call_result',output[0],str(output));self.assertEqual(output[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(forms),expected_input)
+        self.app.processEvents();self.assertTrue(output);self.assertIn('call_result',output[0],f'output={output!r}; network={network!r}');self.assertEqual(output[0]['call_result']['content'][0]['text'],'done');self.assertEqual(len(forms),expected_input)
 
     def test_local_task_input_requires_matching_task(self):
         path=Path(__file__).parent/'fixtures'/'mcp_legacy_task_input.py'
