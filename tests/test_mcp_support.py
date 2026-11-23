@@ -937,7 +937,7 @@ for line in sys.stdin:
         for arguments in ({},{'query':3},{'query':'ok','n':0},{'query':'ok','extra':True}):
             with self.subTest(arguments=arguments),self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,arguments)
         self.assertTrue(validate_tool_arguments({'type':'object','properties':{'database':{'anyOf':[{'type':'string'},{'type':'null'}]}}},{'database':None}))
-        for unsafe in ({'type':'object','$ref':'https://example.com/schema'},{'type':'object','patternProperties':{'^x':{'type':'string'}}}):
+        for unsafe in ({'type':'object','$ref':'https://example.com/schema'},):
             with self.subTest(schema=unsafe),self.assertRaisesRegex(ValueError,'unsupported'):validate_tool_arguments(unsafe,{})
 
     def test_schema_boolean_and_tuple_subschemas(self):
@@ -997,7 +997,8 @@ for line in sys.stdin:
         with self.assertRaisesRegex(ValueError,'do not match'):validate_tool_arguments(schema,{'id':0})
         cycle={'type':'object','definitions':{'x':{'$ref':'#/$defs/y'}},'$defs':{'y':{'$ref':'#/definitions/x'}}}
         with self.assertRaisesRegex(ValueError,'recursive'):validate_tool_arguments(cycle,{})
-        for invalid in ({'type':'object','definitions':{'bad':{'patternProperties':{'x':{}}}}}, {'type':'object','properties':{'x':{'definitions':{'y':{'type':'string'}}}}}, {'type':'object','definitions':{str(i):{} for i in range(129)}}, {'type':'object','definitions':{'a':{}},'properties':{'x':{'$ref':'#/definitions/a/extra'}}}):
+        self.assertTrue(validate_tool_arguments({'type':'object','definitions':{'patterns':{'patternProperties':{'x':{}}}}},{}))
+        for invalid in ({'type':'object','properties':{'x':{'definitions':{'y':{'type':'string'}}}}}, {'type':'object','definitions':{str(i):{} for i in range(129)}}, {'type':'object','definitions':{'a':{}},'properties':{'x':{'$ref':'#/definitions/a/extra'}}}):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):validate_tool_arguments(invalid,{})
 
     def test_schema_references_to_nested_subschemas(self):

@@ -10,7 +10,7 @@ from referencing import Registry
 SCHEMA_URL='https://json-schema.org/draft/2020-12/schema'
 DRAFT7_URLS=('http://json-schema.org/draft-07/schema','https://json-schema.org/draft-07/schema')
 ANNOTATIONS={'title','description','default','examples','deprecated','readOnly','writeOnly','$comment','format','discriminator','x-mcp-header','enumNames'}
-KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','required','additionalProperties','items','prefixItems','additionalItems','uniqueItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
+KEYWORDS=ANNOTATIONS|{'$schema','$defs','definitions','$ref','type','properties','patternProperties','required','additionalProperties','items','prefixItems','additionalItems','uniqueItems','enum','const','minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','pattern','minItems','maxItems','minProperties','maxProperties','anyOf','oneOf','allOf'}
 MAX_NODES=1000
 MAX_DEPTH=24
 MAX_BRANCHES=32
@@ -23,6 +23,29 @@ def _bounded_pattern(_validator,pattern,instance,_schema):
     remaining=_pattern_deadline.get()-time.monotonic()
     if remaining<=0:raise TimeoutError('MCP pattern validation timed out')
     if regex.search(pattern,instance,timeout=remaining) is None:yield ValidationError('The value does not match the requested pattern.')
+
+
+def _pattern_matches(pattern,value):
+    remaining=_pattern_deadline.get()-time.monotonic()
+    if remaining<=0:raise TimeoutError('MCP schema validation timed out')
+    return regex.search(pattern,value,timeout=remaining) is not None
+
+
+def _bounded_pattern_properties(validator,patterns,instance,schema):
+    if not validator.is_type(instance,'object'):return
+    for pattern,subschema in patterns.items():
+        for key,value in instance.items():
+            if _pattern_matches(pattern,key):yield from validator.descend(value,subschema,path=key,schema_path=pattern)
+
+
+def _bounded_additional_properties(validator,additional,instance,schema):
+    if not validator.is_type(instance,'object') or additional is True:return
+    properties=schema.get('properties',{});patterns=schema.get('patternProperties',{})
+    for key,value in instance.items():
+        if key in properties or any(_pattern_matches(pattern,key) for pattern in patterns):continue
+        if additional is False:
+            yield ValidationError('An unexpected property was supplied.');return
+        yield from validator.descend(value,additional,path=key)
 
 
 def _flat_string_choices(variants):
@@ -65,7 +88,7 @@ def _bounded_unique_items(validator,unique,instance,schema):
         seen.add(key)
 
 
-_bounded_keywords={'pattern':_bounded_pattern,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf'),'uniqueItems':_bounded_unique_items}
+_bounded_keywords={'pattern':_bounded_pattern,'patternProperties':_bounded_pattern_properties,'additionalProperties':_bounded_additional_properties,'oneOf':_bounded_alternatives('oneOf'),'anyOf':_bounded_alternatives('anyOf'),'uniqueItems':_bounded_unique_items}
 BOUNDED_2020=validators.extend(Draft202012Validator,_bounded_keywords)
 BOUNDED_7=validators.extend(Draft7Validator,_bounded_keywords)
 
@@ -117,7 +140,7 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
         while pos<len(decoded):
             if not isinstance(node,dict):raise ValueError('The tool schema has an unresolved reference.')
             key=decoded[pos];pos+=1
-            if key in ('properties','$defs','definitions'):
+            if key in ('properties','patternProperties','$defs','definitions'):
                 if pos>=len(decoded) or not isinstance(node.get(key),dict) or decoded[pos] not in node[key]:raise ValueError('The tool schema has an unresolved reference.')
                 node=node[key][decoded[pos]];pos+=1
             elif key in ('anyOf','oneOf','allOf','prefixItems') or (key=='items' and isinstance(node.get(key),list)):
@@ -132,6 +155,20 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
     # Traversing each reference in context catches cycles and bounds repeated work.
     # Combination width is multiplied along each path to cap nested alternatives.
     pending=[(schema,0,1,frozenset())];count=0;pattern_deadline=time.monotonic()+.5
+    def validate_pattern(pattern):
+        if time.monotonic()>=pattern_deadline:raise ValueError('The tool schema patterns are too complex to validate.')
+        if not isinstance(pattern,str) or len(pattern)>512:raise ValueError('The tool schema pattern is invalid or too large.')
+        repetitions=1
+        for match in re.finditer(r'\{([0-9]*)(?:,([0-9]*))?\}',pattern):
+            backslashes=0;position=match.start()-1
+            while position>=0 and pattern[position]=='\\':backslashes+=1;position-=1
+            if backslashes%2:continue
+            upper=match.group(2) or match.group(1) or '0'
+            if len(upper)>6:raise ValueError('The tool schema pattern repetition is too large.')
+            repetitions*=max(1,int(upper))
+            if repetitions>100000:raise ValueError('The tool schema pattern repetition is too large.')
+        try:regex.compile(pattern)
+        except (regex.error,OverflowError,RecursionError):raise ValueError('The tool schema pattern is invalid.') from None
     while pending:
         node,depth,width,ancestors=pending.pop();count+=1
         if count>MAX_NODES or depth>MAX_DEPTH or width>MAX_BRANCHES:raise ValueError('The tool schema is too complex to validate.')
@@ -143,21 +180,7 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
         if not set(node).issubset(KEYWORDS):raise ValueError('The tool schema uses unsupported validation features.')
         if '$schema' in node and node is not schema:raise ValueError('The tool schema uses unsupported nested schema versions.')
         if 'enum' in node and (not isinstance(node['enum'],list) or len(node['enum'])>128):raise ValueError('The tool schema enumeration is too large.')
-        if 'pattern' in node:
-            if time.monotonic()>=pattern_deadline:raise ValueError('The tool schema patterns are too complex to validate.')
-            pattern=node['pattern']
-            if not isinstance(pattern,str) or len(pattern)>512:raise ValueError('The tool schema pattern is invalid or too large.')
-            repetitions=1
-            for match in re.finditer(r'\{([0-9]*)(?:,([0-9]*))?\}',pattern):
-                backslashes=0;position=match.start()-1
-                while position>=0 and pattern[position]=='\\':backslashes+=1;position-=1
-                if backslashes%2:continue
-                upper=match.group(2) or match.group(1) or '0'
-                if len(upper)>6:raise ValueError('The tool schema pattern repetition is too large.')
-                repetitions*=max(1,int(upper))
-                if repetitions>100000:raise ValueError('The tool schema pattern repetition is too large.')
-            try:regex.compile(pattern)
-            except (regex.error,OverflowError,RecursionError):raise ValueError('The tool schema pattern is invalid.') from None
+        if 'pattern' in node:validate_pattern(node['pattern'])
         # format and OpenAPI discriminator are bounded annotations; the
         # JSON Schema validator still enforces every oneOf/type constraint.
         if 'format' in node and (not isinstance(node['format'],str) or not 1<=len(node['format'])<=128):raise ValueError('The tool schema format annotation is invalid.')
@@ -177,6 +200,10 @@ def validate_tool_arguments(schema,arguments,check_formats=False):
         properties=node.get('properties',{})
         if not isinstance(properties,dict) or len(properties)>256:raise ValueError('Invalid tool schema properties.')
         pending.extend((value,depth+1,width,ancestors) for value in properties.values())
+        patterns=node.get('patternProperties',{})
+        if not isinstance(patterns,dict) or len(patterns)>128:raise ValueError('Invalid tool schema pattern properties.')
+        for pattern,value in patterns.items():
+            validate_pattern(pattern);pending.append((value,depth+1,width,ancestors))
         if 'items' in node:
             items=node['items']
             if isinstance(items,list):
