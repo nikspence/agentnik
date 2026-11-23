@@ -94,6 +94,8 @@ LOCAL_DEFINITIONS = (
     ToolDefinition('analyze_data','data','Summarize CSV or JSON row objects. data is a JSON-encoded string with format (csv/json), content (string), optional group_by (column). Up to 1000 rows, 32 columns, 10 groups. Reports missing/nonnumeric counts and finite numeric min/max/sum/mean/median/sample_stdev. Supply data explicitly; no file access. Shared argument budgets also apply.',16000),
 )
 
+MCP_TOOL_NAMES=frozenset(('mcp_discover','mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read','mcp_complete_argument','mcp_result_read','mcp_result_search'))
+
 
 @dataclass(frozen=True)
 class ToolCall:
@@ -268,7 +270,7 @@ class Registry:
     def execute(self, call, runtime):
         args=self.validate(call,runtime.limits)
         runtime.charge('calls',1,runtime.limits.calls)
-        if call.name in ('mcp_discover','mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read','mcp_complete_argument') and self.extra_handler:
+        if call.name in MCP_TOOL_NAMES and self.extra_handler:
             result=self.extra_handler(call.name,args,runtime)
             if isinstance(result,dict) and set(result)=={'error'} and isinstance(result['error'],str):return ToolResult(call.id,call.name,error=result['error'])
             if call.name=='mcp_call' and isinstance(result,dict) and isinstance(result.get('result'),dict) and result['result'].get('isError') is True:

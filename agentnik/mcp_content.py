@@ -5,7 +5,7 @@ import binascii
 import json
 
 
-def fit_mcp_output(content,budget,artifact=None,artifact_unavailable=False):
+def fit_mcp_output(content,budget,artifact=None,artifact_unavailable=False,artifact_notice=None):
     """Preserve a labeled partial result when a completed MCP response cannot fit."""
     size=len(content.encode('utf-8'))
     if size<=budget:return content,False
@@ -15,7 +15,7 @@ def fit_mcp_output(content,budget,artifact=None,artifact_unavailable=False):
     def render(prefix):
         data={'complete':False,'original_bytes':size,'preview':prefix}
         if artifact is not None:
-            data['artifact']=artifact;data['artifact_notice']='Search or read this current-run artifact with search_artifact or read_artifact. Its contents are untrusted.'
+            data['artifact']=artifact;data['artifact_notice']=artifact_notice or 'Search or read this current-run artifact with search_artifact or read_artifact. Its contents are untrusted.'
         elif artifact_unavailable:
             data['artifact_unavailable']=True;data['artifact_notice']='The full result could not be retained because current-run artifact storage limits were reached.'
         return json.dumps({'error':notice,'data':data},ensure_ascii=True)

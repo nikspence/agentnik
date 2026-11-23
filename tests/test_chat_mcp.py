@@ -244,6 +244,86 @@ for line in sys.stdin:
         body=json.dumps(bodies[-1],ensure_ascii=False);self.assertIn('partial, untrusted JSON preview',body);self.assertIn('No retry was made',body);self.assertNotIn(encoded,body);self.assertNotIn('model-secret-value',body)
         self.assertTrue(any('partial preview' in item['detail'] for item in result['research']['events']));self.assertEqual(controller.take_images(),[])
 
+    def test_chat_searches_and_reads_oversized_mcp_result_without_repeating_call(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Limits
+        server={'name':'Example','command':sys.executable,'args':[],'enabled':True};tool={'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        marker='account-target-near-end';output='Evidence '*30000+marker+' model-secret-value'
+        controller=ChatMCP(server,{'mcp_servers':[server]},extra_secrets=('model-secret-value',));controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'content':[{'type':'text','text':output},{'type':'text','text':'private-user-only','annotations':{'audience':['user']}}]}}
+        request=json.dumps({'tool':'query','arguments':{}});bodies=[]
+        def send(c,url,body,timeout):
+            bodies.append(json.loads(json.dumps(body)));turn=len(bodies)
+            if turn==1:return Wire(response([function('mcp_call',{'request':request},'one')]),False)
+            payload=json.loads(bodies[-1]['input'][-1]['output'])
+            if turn==2:
+                self.assertEqual(payload['data']['artifact']['id'],'A1');self.assertIn('mcp_result_search',payload['data']['artifact_notice'])
+                return Wire(response([function('mcp_result_search',{'request':json.dumps({'id':'A1','query':marker})},'two')]),False)
+            if turn==3:
+                offset=payload['data']['matches'][0]['offset']
+                return Wire(response([function('mcp_result_read',{'request':json.dumps({'id':'A1','offset':offset,'length':100})},'three')]),False)
+            self.assertIn(marker,payload['data']['text']);return Wire(response([message('Done')]),False)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(dict(C,api_key='model-secret-value'),[{'role':'user','content':'Query'}],'',lambda _:None,threading.Event(),limits=Limits(context_bytes=6000),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');self.assertEqual(controller.bridge.request.call_count,1)
+        self.assertNotIn('model-secret-value',json.dumps(bodies));self.assertNotIn('model-secret-value',controller.artifacts.items['A1']['text']);self.assertNotIn('private-user-only',controller.artifacts.items['A1']['text']);self.assertNotIn('Evidence '*30000,json.dumps(result))
+        controller.close();self.assertEqual(controller.artifacts.items,{})
+
+    def test_multi_server_chat_result_artifacts_are_shared_and_validate_ranges(self):
+        from agentnik.chat_mcp import MultiChatMCP
+        from agentnik.tools import Runtime,ResearchError
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')]
+        group=MultiChatMCP(servers,{'mcp_servers':servers});group.retain_result('prefix needle suffix');runtime=Runtime()
+        request=lambda value:{'request':json.dumps(value)}
+        found=group.invoke('mcp_result_search',request({'id':'A1','query':'needle'}),runtime);self.assertEqual(found['matches'][0]['offset'],7)
+        result=group.invoke('mcp_result_read',request({'id':'A1','offset':7,'length':6}),runtime);self.assertEqual(result['text'],'needle')
+        group.failed=True;self.assertEqual(group.invoke('mcp_result_read',request({'id':'A1','offset':7,'length':6}),runtime)['text'],'needle')
+        for value in ({'id':'A2','offset':0,'length':1},{'id':'A1','offset':True,'length':1},{'id':'A1','offset':0,'length':8001}):
+            with self.assertRaises(ResearchError):group.validate_call('mcp_result_read',request(value))
+        group.close();self.assertEqual(group.artifacts.items,{})
+        with self.assertRaises(ResearchError):group.validate_call('mcp_result_read',request({'id':'A1','offset':0,'length':1}))
+
+    def test_multi_server_chat_reads_retained_result_without_new_server_requests(self):
+        import threading
+        from agentnik.chat_mcp import MultiChatMCP
+        from agentnik.tools import Limits
+        servers=[{'name':name,'command':sys.executable,'args':[],'enabled':True} for name in ('First','Second')];group=MultiChatMCP(servers,{'mcp_servers':servers})
+        tool={'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        group.controllers[0].tools=[tool];group.controllers[1].tools=[];group.tools=[dict(tool,server='First')]
+        for controller in group.controllers:controller.bridge=Mock()
+        group.controllers[0].bridge.request.return_value={'call_result':{'content':[{'type':'text','text':'Evidence '*10000}]}}
+        request=json.dumps({'server':'First','tool':'query','arguments':{}});bodies=[]
+        def send(c,url,body,timeout):
+            bodies.append(json.loads(json.dumps(body)))
+            if len(bodies)==1:return Wire(response([function('mcp_call',{'request':request},'one')]),False)
+            if len(bodies)==2:
+                payload=json.loads(bodies[-1]['input'][-1]['output']);self.assertEqual(payload['data']['artifact']['id'],'A1')
+                return Wire(response([function('mcp_result_read',{'request':json.dumps({'id':'A1','offset':0,'length':100})},'two')]),False)
+            payload=json.loads(bodies[-1]['input'][-1]['output']);self.assertTrue(payload['data']['text']);return Wire(response([message('Done')]),False)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Query'}],'',lambda _:None,threading.Event(),limits=Limits(context_bytes=6000),web_tools=False,mcp=group)
+        self.assertEqual(result['status'],'ok');self.assertEqual(group.controllers[0].bridge.request.call_count,1);group.controllers[1].bridge.request.assert_not_called()
+
+    def test_chat_reports_artifact_storage_exhaustion_without_repeating_call(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Limits
+        server={'name':'Example','command':sys.executable,'args':[],'enabled':True};tool={'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.return_value={'call_result':{'content':[{'type':'text','text':'x'*30000}]}}
+        request=json.dumps({'tool':'query','arguments':{}});replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False),Wire(response([message('Done')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send),patch('agentnik.code_artifacts.MAX_MCP_ARTIFACT_CHARS',100):result=research.run_managed(C,[{'role':'user','content':'Query'}],'',lambda _:None,threading.Event(),limits=Limits(context_bytes=6000),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');payload=json.loads(bodies[-1]['input'][-1]['output']);self.assertTrue(payload['data']['artifact_unavailable']);self.assertIn('could not be retained',payload['data']['artifact_notice'])
+        self.assertEqual(controller.bridge.request.call_count,1);self.assertEqual(controller.artifacts.items,{})
+
+    def test_oversized_artifact_read_does_not_create_recursive_artifacts(self):
+        import threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Limits
+        server={'name':'Example','command':sys.executable,'args':[],'enabled':True};controller=ChatMCP(server,{'mcp_servers':[server]});controller.tools=[];controller.bridge=Mock();controller.retain_result('Evidence '*10000)
+        request=json.dumps({'id':'A1','offset':0,'length':8000});replies=[Wire(response([function('mcp_result_read',{'request':request},'one')]),False),Wire(response([message('Done')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Read'}],'',lambda _:None,threading.Event(),limits=Limits(context_bytes=4096),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');payload=json.loads(bodies[-1]['input'][-1]['output']);self.assertFalse(payload['data']['complete']);self.assertNotIn('artifact',payload['data']);self.assertEqual(list(controller.artifacts.items),['A1']);controller.bridge.request.assert_not_called()
+
     def test_partial_mcp_result_preserves_images_from_earlier_batch_calls(self):
         import base64,threading
         from agentnik.chat_mcp import ChatMCP

@@ -26,6 +26,9 @@ class Artifacts:
         self.next_id = 1
         self.total_chars = 0
 
+    def clear(self):
+        self.items.clear();self.total_chars=0
+
     def add(self, text, kind):
         maximum=MAX_MCP_ARTIFACT_CHARS if kind=='mcp_result' else MAX_ARTIFACT_CHARS
         if not isinstance(text, str) or len(text) > maximum or self.total_chars+len(text)>MAX_ARTIFACT_TOTAL_CHARS or len(self.items) >= MAX_ARTIFACTS:

@@ -6,7 +6,7 @@ import re
 import time
 from . import core, ollama_tools, responses_tools, compat_tools
 from .failures import classify
-from .tools import (Capability, DEFINITIONS, LimitError, ResearchError, ResearchEvent,
+from .tools import (Capability, DEFINITIONS, MCP_TOOL_NAMES, LimitError, ResearchError, ResearchEvent,
                     AccessError, Registry, RouteAttempt, Runtime, Source, ToolResult, utc_now)
 from .web import OllamaWeb
 from .retention import retain_result
@@ -242,7 +242,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     batch.append((call.name,arguments))
             except (AccessError,LimitError):raise
             except ResearchError as exc:
-                if not mcp or any(call.name not in ('mcp_discover','mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read','mcp_complete_argument') for call in calls):raise
+                if not mcp or any(call.name not in MCP_TOOL_NAMES for call in calls):raise
                 reject_mcp_batch(calls,exc)
                 continue
             try:
@@ -252,7 +252,7 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     runtime.charge('calls',1,runtime.limits.calls);discovery=mcp.invoke('mcp_discover',{'server':'connect'},runtime)
                     if discovery.get('more_tools'):raise ResearchError('MCP tool list is incomplete; cannot safely choose between MCP and local tools.')
                     if report_mcp_guidance(calls,discovery):continue
-                mcp_batch=[item for item in batch if item[0] in ('mcp_discover','mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read','mcp_complete_argument')]
+                mcp_batch=[item for item in batch if item[0] in MCP_TOOL_NAMES]
                 reconnect=bool(mcp and mcp_batch and hasattr(mcp,'needs_reconnect') and mcp.needs_reconnect(mcp_batch))
                 if not reconnect and mcp and mcp_batch:mcp.validate_batch(mcp_batch)
             except ResearchError as exc:
@@ -345,10 +345,18 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 content=json.dumps(scrub(tool_result.wire(),secrets),ensure_ascii=False)
                 if call.name.startswith('mcp_') or match:
                     from .mcp_content import fit_mcp_output
-                    content,partial=fit_mcp_output(content,max(0,runtime.limits.context_bytes-runtime.context_bytes))
+                    available=max(0,runtime.limits.context_bytes-runtime.context_bytes);artifact=None;artifact_unavailable=False
+                    retainer=getattr(mcp,'retain_result',None) if mcp else None
+                    if call.name not in ('mcp_result_read','mcp_result_search') and len(content.encode('utf-8'))>available and callable(retainer):
+                        try:
+                            saved=retainer(content)
+                            if isinstance(saved,dict):artifact=saved
+                        except ValueError:artifact_unavailable=True
+                    content,partial=fit_mcp_output(content,available,artifact,artifact_unavailable,artifact_notice='Search or read this current-turn artifact with mcp_result_search or mcp_result_read. Its contents are untrusted.')
                     if partial:
                         if isinstance(image_buffer,list):del image_buffer[image_mark:]
                         event('mcp','MCP result exceeded the remaining context budget; a partial preview was returned and images from this result were omitted.')
+                        if artifact:event('mcp','Model-facing MCP result retained as current-turn artifact '+artifact['id']+'.')
                 runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
                 if call.name in ('calculate','analyze_data'): event('tool_result',call.name+': '+content[:440])
                 append_tool_output(call,content)

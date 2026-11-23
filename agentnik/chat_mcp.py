@@ -7,6 +7,38 @@ from .mcp_code import CodingMCPBridge
 from .mcp_content import model_tool_result
 from .mcp_schema import validate_tool_arguments,validate_tool_result,MCPArgumentValidationError
 from .tools import ToolDefinition,ResearchError
+from .code_artifacts import Artifacts
+
+RESULT_TOOLS=(
+    ToolDefinition('mcp_result_read','request','Read a range from an oversized MCP result retained during this turn. request is JSON: {"id":"A1","offset":0,"length":1000}; length is 1 to 8000 characters.',1000),
+    ToolDefinition('mcp_result_search','request','Search an oversized MCP result retained during this turn. request is JSON: {"id":"A1","query":"literal text"}. Returns offsets for mcp_result_read.',2000),
+)
+
+
+def validate_result_tool(artifacts,name,args,secrets):
+    from .mcp_remote import contains_secret
+    try:
+        value=json.loads(args['request'],parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
+        if not isinstance(value,dict) or not isinstance(value.get('id'),str) or value['id'] not in artifacts.items:raise ValueError()
+        if name=='mcp_result_read':
+            if set(value)!={'id','offset','length'} or type(value['offset']) is not int or value['offset']<0 or type(value['length']) is not int or not 1<=value['length']<=8000:raise ValueError()
+        elif name=='mcp_result_search':
+            if set(value)!={'id','query'} or not isinstance(value['query'],str) or not value['query'] or len(value['query'])>200:raise ValueError()
+        else:raise ValueError()
+        if any(secret and contains_secret(value,secret) for secret in secrets):raise ValueError()
+        return value
+    except (ValueError,TypeError,KeyError,UnicodeError,RecursionError):raise ResearchError('Choose a current-turn MCP result artifact and a valid range or search query.') from None
+
+
+def result_tool(artifacts,name,value):
+    if name=='mcp_result_read':result=artifacts.read(value['id'],str(value['offset']),str(value['length']))
+    else:result=artifacts.search(value['id'],value['query'])
+    return {**result,'notice':'Untrusted MCP result retained for this turn.'}
+
+
+def retain_result(artifacts,content):
+    stored=artifacts.add(content,'mcp_result')
+    return {key:stored[key] for key in ('id','kind','characters')}
 
 
 class ChatMCP(QObject):
@@ -18,6 +50,7 @@ class ChatMCP(QObject):
         self.bridge=CodingMCPBridge(server,config,self);self.tools=None;self.task_capabilities={};self.resources=None;self.resource_links=[];self.prompts=None;self.templates=None
         self.vision_enabled=vision_enabled is True;self.image_buffer=image_buffer if image_buffer is not None else []
         self.image_sequence=image_sequence if image_sequence is not None else [0]
+        self.artifacts=Artifacts()
         self.close_requested.connect(self._close_on_gui)
         self.secret_values=[*self.bridge.environment_values.values(),*(secret for secret in extra_secrets if secret)]
         self.definitions=(
@@ -30,10 +63,12 @@ class ChatMCP(QObject):
             ToolDefinition('mcp_templates_list','server','List resource templates from a connected MCP server. Pass its exact server name or "connect".',200),
             ToolDefinition('mcp_templates_read','request','Read a listed supported resource template. request is JSON encoded as a string: {"server":"server name","template":"exact URI template","variables":{"name":"value"}}. Values may be strings, lists of strings, objects with string values, or null.',16000),
             ToolDefinition('mcp_complete_argument','request','Get suggestions for an argument of a listed prompt or resource template. request is JSON encoded as a string: {"server":"server name","kind":"prompt" or "resource","target":"exact prompt name or URI template","argument":"argument name","value":"partial value","context":{"other":"value"}}.',16000),
-        )
+        )+RESULT_TOOLS
 
     def take_images(self):
         images=self.image_buffer[:];self.image_buffer.clear();return images
+
+    def retain_result(self,content):return retain_result(self.artifacts,content)
 
     def approve(self,proposal,runtime):
         from .research import scrub
@@ -46,6 +81,7 @@ class ChatMCP(QObject):
             request['cancelled'].set();raise
 
     def validate_call(self,name,args):
+        if name in ('mcp_result_read','mcp_result_search'):return validate_result_tool(self.artifacts,name,args,self.secret_values)
         if name=='mcp_discover':
             if args['server'].casefold() not in ('connect',self.server['name'].casefold()):raise ResearchError('Use connect or the selected MCP server name.')
             if self.tools is not None:raise ResearchError('The selected MCP server is already connected.')
@@ -144,6 +180,7 @@ class ChatMCP(QObject):
         server=self.server
         notify=getattr(runtime,'notify',lambda *_:None)
         validated=self.validate_call(name,args)
+        if name in ('mcp_result_read','mcp_result_search'):return result_tool(self.artifacts,name,validated)
         if name=='mcp_discover':
             notify('mcp','Connecting to the selected MCP server.')
             response=self.bridge.request('discover',{},runtime)
@@ -242,7 +279,7 @@ class ChatMCP(QObject):
         # until that cleanup can finish, then release the per-turn controller.
         QTimer.singleShot(6500,self.deleteLater)
 
-    def close(self):self.image_buffer.clear();self.close_requested.emit()
+    def close(self):self.image_buffer.clear();self.artifacts.clear();self.close_requested.emit()
 
 
 class MultiChatMCP(QObject):
@@ -254,7 +291,7 @@ class MultiChatMCP(QObject):
         super().__init__(parent)
         if not isinstance(servers,list) or not 2<=len(servers)<=5:raise ValueError('Select two to five MCP servers.')
         if len({server['name'].casefold() for server in servers})!=len(servers):raise ValueError('MCP servers must be distinct.')
-        self.image_buffer=[];self.image_sequence=[0]
+        self.image_buffer=[];self.image_sequence=[0];self.artifacts=Artifacts()
         self.controllers=[ChatMCP(server,config,self,extra_secrets,vision_enabled,self.image_buffer,self.image_sequence) for server in servers]
         self.discovery_call_count=len(self.controllers)
         self.secret_values=[secret for controller in self.controllers for secret in controller.secret_values]
@@ -270,10 +307,12 @@ class MultiChatMCP(QObject):
             ToolDefinition('mcp_templates_list','server','List resource templates from a selected connected MCP server by exact server name.',200),
             ToolDefinition('mcp_templates_read','request','Read a listed supported resource template. request is JSON encoded as a string: {"server":"server name","template":"exact URI template","variables":{"name":"value"}}. Values may be strings, lists of strings, objects with string values, or null.',16000),
             ToolDefinition('mcp_complete_argument','request','Get suggestions for an argument of a listed prompt or resource template. request is JSON encoded as a string: {"server":"server name","kind":"prompt" or "resource","target":"exact prompt name or URI template","argument":"argument name","value":"partial value","context":{"other":"value"}}.',16000),
-        )
+        )+RESULT_TOOLS
 
     def take_images(self):
         images=self.image_buffer[:];self.image_buffer.clear();return images
+
+    def retain_result(self,content):return retain_result(self.artifacts,content)
 
     def _parse(self,args):
         from .mcp_remote import contains_secret
@@ -285,6 +324,7 @@ class MultiChatMCP(QObject):
         except (KeyError,TypeError,ValueError,RecursionError,UnicodeError):raise ResearchError('MCP request must contain a tool, arguments object, and optional selected server.') from None
 
     def validate_call(self,name,args):
+        if name in ('mcp_result_read','mcp_result_search'):return validate_result_tool(self.artifacts,name,args,self.secret_values)
         if self.failed:raise ResearchError('An MCP server connection failed; start a new run after inspecting its state.')
         if name=='mcp_discover':
             if args.get('server','').casefold()!='connect' or self.tools is not None:raise ResearchError('Use connect once to discover the selected MCP servers.')
@@ -326,6 +366,7 @@ class MultiChatMCP(QObject):
 
     def invoke(self,name,args,runtime):
         validated=self.validate_call(name,args)
+        if name in ('mcp_result_read','mcp_result_search'):return result_tool(self.artifacts,name,validated)
         if name in ('mcp_call','mcp_resources_list','mcp_resources_read','mcp_prompts_list','mcp_prompts_get','mcp_templates_list','mcp_templates_read','mcp_complete_argument'):
             controller,payload=validated
             return controller.invoke(name,payload,runtime)
@@ -357,4 +398,4 @@ class MultiChatMCP(QObject):
         for controller in self.controllers:controller.close()
         QTimer.singleShot(6500,self.deleteLater)
 
-    def close(self):self.image_buffer.clear();self.close_requested.emit()
+    def close(self):self.image_buffer.clear();self.artifacts.clear();self.close_requested.emit()
