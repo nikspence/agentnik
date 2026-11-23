@@ -35,14 +35,27 @@ def main():
             'PYTHONPATH': os.pathsep.join(import_paths),
             'AGENTNIK_OFFLINE_GUARD': '1', 'AGENTNIK_OFFLINE_AUDIT': str(audit),
         })
-        result = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-v'], cwd=ROOT, env=env)
-        if result.returncode:
-            print(f'Offline test process exited with status {result.returncode}.', file=sys.stderr, flush=True)
+        # Qt retains process-wide state and deferred objects between tests. Run
+        # each test module in a fresh interpreter so one module cannot leave a
+        # stale event or native object for a later module's event loop.
+        failed = []
+        for module in sorted((ROOT / 'tests').glob('test_*.py')):
+            print(f'\nRunning {module.name}', flush=True)
+            result = subprocess.run(
+                [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', module.name, '-v'],
+                cwd=ROOT, env=env,
+            )
+            if result.returncode:
+                print(f'{module.name} exited with status {result.returncode}.', file=sys.stderr, flush=True)
+                failed.append(module.name)
         if audit.exists() and audit.stat().st_size:
             print('Offline guard blocked unexpected network operations:', file=sys.stderr)
             print(audit.read_text(encoding='utf-8'), file=sys.stderr)
             return 1
-        return result.returncode
+        if failed:
+            print('Failed test modules: ' + ', '.join(failed), file=sys.stderr)
+            return 1
+        return 0
 
 
 if __name__ == '__main__':
