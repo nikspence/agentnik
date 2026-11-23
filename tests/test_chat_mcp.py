@@ -204,6 +204,36 @@ for line in sys.stdin:
                 tab.busy(True);self.assertFalse(tab.mcp_vision.isEnabled());tab.busy(False)
             finally:window.close();self.app.processEvents();store.db.close()
 
+    def test_mcp_image_budget_keeps_fitting_images_and_explains_omissions(self):
+        import base64,threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Limits
+        from test_image_generation import png
+        server={'name':'Pictures','command':sys.executable,'args':[],'enabled':True}
+        tool={'name':'picture','description':'Picture','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        small=png();large=small+b'x'*12000
+        blocks=[{'type':'image','mimeType':'image/png','data':base64.b64encode(data).decode('ascii')} for data in (large,small)]
+        controller=ChatMCP(server,{'mcp_servers':[server]},vision_enabled=True);controller.bridge=Mock();controller.tools=[tool]
+        controller.bridge.request.return_value={'call_result':{'content':blocks}}
+        request=json.dumps({'tool':'picture','arguments':{}})
+        replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False),Wire(response([message('Done')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):
+            result=research.run_managed(C,[{'role':'user','content':'Inspect'}],'',lambda _:None,threading.Event(),limits=Limits(context_bytes=6000),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');last=json.dumps(bodies[-1]);self.assertIn(base64.b64encode(small).decode('ascii'),last)
+        self.assertNotIn(base64.b64encode(large).decode('ascii'),last);self.assertIn('omitted because the research context limit',last)
+        self.assertIn('1 omitted due to the research context limit',json.dumps(result['research']['events']))
+        self.assertNotIn(base64.b64encode(small).decode('ascii'),json.dumps(result))
+
+    def test_mcp_image_budget_reports_all_omissions_for_each_protocol(self):
+        from test_image_generation import png
+        images=[('large',png()+b'x'*5000,'image/png')]
+        for protocol,native in (('responses',False),('chat',False),('messages',False),('chat',True)):
+            with self.subTest(protocol=protocol,native=native):
+                visual,included,size=research.mcp_image_message(images,protocol,native,1000)
+                self.assertEqual(included,0);self.assertLessEqual(size,1000)
+                self.assertIn('1 MCP image(s) were omitted',json.dumps(visual));self.assertNotIn('images',visual)
+
     def test_chat_mcp_image_batch_limit_is_shared_between_servers(self):
         import base64
         from agentnik.chat_mcp import MultiChatMCP

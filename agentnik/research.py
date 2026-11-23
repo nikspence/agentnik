@@ -57,6 +57,31 @@ def scrub(value,secrets):
     return value
 
 
+def mcp_image_message(images,protocol,native,budget):
+    """Include images that fit the remaining context and explain omissions."""
+    from .code_vision import image_message
+    def build(selected):
+        omitted=len(images)-len(selected)
+        message=image_message(selected,protocol,native)
+        if omitted:
+            notice=f'{omitted} MCP image(s) were omitted because the research context limit was reached.'
+            if native:
+                message['content']=(message['content']+' ' if selected else '')+notice
+                if not selected:message.pop('images',None)
+            else:
+                text=message['content'][0]
+                text['text']=(text['text']+' ' if selected else '')+notice
+        return message
+    complete=build(images);complete_size=len(json.dumps(complete).encode('utf-8'))
+    if complete_size<=budget:return complete,len(images),complete_size
+    selected=[]
+    for item in images:
+        candidate=selected+[item];message=build(candidate)
+        if len(json.dumps(message).encode('utf-8'))<=budget:selected=candidate
+    message=build(selected)
+    return message,len(selected),len(json.dumps(message).encode('utf-8'))
+
+
 def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,runtime=None,local_tools=False,web_tools=True,mcp=None,hosted_web=False,mcp_priority='first',image_tool=None):
     owned_runtime=runtime is None
     runtime=runtime or Runtime(cancel,limits,run_id); attempt_started=time.monotonic(); route=RouteAttempt()
@@ -328,12 +353,11 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
             take_images=getattr(mcp,'take_images',None) if mcp else None
             images=take_images() if callable(take_images) else []
             if isinstance(images,list) and images:
-                from .code_vision import image_message
-                visual=image_message(images,protocol,native)
-                runtime.charge('context_bytes',len(json.dumps(visual).encode('utf-8')),runtime.limits.context_bytes)
+                visual,included,size=mcp_image_message(images,protocol,native,max(0,runtime.limits.context_bytes-runtime.context_bytes))
+                runtime.charge('context_bytes',size,runtime.limits.context_bytes)
                 if is_responses:body['input'].append(visual)
                 else:body['messages'].append(visual)
-                event('mcp','Sending '+str(len(images))+' MCP image(s) to the selected model for this turn.')
+                event('mcp','Sending '+str(included)+' MCP image(s) to the selected model for this turn.'+(' '+str(len(images)-included)+' omitted due to the research context limit.' if included<len(images) else ''))
         else: raise LimitError('Research round limit reached')
     except Exception as exc:
         if isinstance(exc,core.EndpointError): active.setdefault('metrics',{}).update(core.usage_metrics(exc.payload if isinstance(exc.payload,dict) else {}))
