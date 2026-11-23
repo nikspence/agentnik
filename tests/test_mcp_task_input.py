@@ -2,7 +2,7 @@ import json
 import sys
 import threading
 import unittest
-from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 
 from PySide6.QtCore import QEventLoop,QTimer

@@ -11,7 +11,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
 
     def test_dynamic_registration_and_authorization_use_same_loopback_redirect(self):
         import json,threading,time
-        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         from urllib.parse import parse_qs,urlencode,urlsplit
         from PySide6.QtCore import QEventLoop,QTimer,QUrl
         from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QSsl
@@ -41,7 +41,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
 
     def test_dynamic_registration_rejects_unsafe_responses_without_opening_browser(self):
         import json,threading
-        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer,QUrl
         from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
         from agentnik.mcp_oauth_flow import OAuthAuthorization
@@ -70,7 +70,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
 
     def test_cancelling_dynamic_registration_does_not_open_browser_or_retry(self):
         import threading
-        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer,QUrl
         from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
         from agentnik.mcp_oauth_flow import OAuthAuthorization
@@ -326,7 +326,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
 
     def test_oauth_refresh_rotates_token_once_without_credential_leak(self):
         import json,threading
-        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         from urllib.parse import parse_qs
         from PySide6.QtCore import QEventLoop,QTimer,QUrl
         from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QSsl
@@ -358,7 +358,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
 
     def test_authorization_pkce_state_and_token_exchange(self):
         import base64,hashlib,json,threading
-        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         from urllib.parse import parse_qs,urlencode,urlsplit
         from PySide6.QtCore import QEventLoop,QTimer,QUrl
         from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QSsl
@@ -409,7 +409,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
 
     def test_token_exchange_rejects_redirects_and_invalid_responses(self):
         import json,threading
-        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         from urllib.parse import parse_qs,urlencode,urlsplit
         from PySide6.QtCore import QEventLoop,QTimer,QUrl
         from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
@@ -465,7 +465,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
 
     def test_async_metadata_discovery_fallback_and_no_credentials(self):
         import json,threading
-        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer,QUrl
         from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
         from PySide6.QtWidgets import QApplication
@@ -499,7 +499,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
 
     def test_async_discovery_honors_challenge_and_rejects_unsafe_responses(self):
         import json,threading
-        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer,QUrl
         from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest,QSsl
         from PySide6.QtWidgets import QApplication
@@ -561,7 +561,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
 
     def test_remote_authentication_failures_are_actionable_and_do_not_echo_server_text(self):
         import json,threading
-        from mcp_http_fixture import BaseHTTPRequestHandler,ThreadingHTTPServer
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         from PySide6.QtCore import QEventLoop,QTimer
         from PySide6.QtWidgets import QApplication
         from agentnik.mcp_remote import RemoteSession

@@ -105,7 +105,7 @@ class RemoteProbe(QObject):
     elicitation_requested=Signal(object)
     elicitation_completed=Signal(str)
     def __init__(self,url,token,parent=None,invocation=None,expected_identity=None,timeout_seconds=60,prefer_modern=True):
-        super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
+        super().__init__(parent);self.url=url;self.token=token;self.invocation=invocation;self.expected_identity=expected_identity;self.manager=QNetworkAccessManager(self);self.server_stream_manager=QNetworkAccessManager(self);self.reply=None;self.buffer=bytearray();self.session='';self.protocol=PROTOCOL;self.phase='initialize';self.result=None;self.pages=0;self.names=[];self.details=[];self.detail_bytes=0;self.cursors=set();self.next_id=0;self.current_id=None
         self.timeout_ms=1000*server_timeout({'timeout_seconds':timeout_seconds});self.failure=None;self.oauth_challenge=None;self.modern=False;self.call_schema=None;self.legacy_rejection=None;self.elicitation_enabled=False;self.elicitation_original=None;self.elicitation_pending=None;self.elicitation_urls={}
         self.progress_token=None;self.progress_last=None;self.progress_count=0;self.progress_emitted_at=0;self.progress_final_seen=False
         self.task_mode=False;self.task_id=None;self.task_cancelled=None;self.task_status_last=None;self.task_status_count=0;self.log_count=0
@@ -350,7 +350,10 @@ class RemoteProbe(QObject):
         if key not in self.server_pings or self.server_pings[key]!=message:raise ValueError('Unsupported server request')
 
     def open_server_stream(self):
-        """Open the optional, independent server-to-client event stream."""
+        """Open the optional event stream with a separate connection pool.
+
+        A refused or aborted stream must not close an in-flight MCP request.
+        """
         if self.server_stream is not None:return
         request=QNetworkRequest(QUrl(self.url));request.setAttribute(QNetworkRequest.Attribute.RedirectPolicyAttribute,QNetworkRequest.RedirectPolicy.ManualRedirectPolicy);tls.configure_qt_request(request)
         request.setRawHeader(b'Accept',b'application/json, text/event-stream' if self.modern else b'text/event-stream');request.setRawHeader(b'MCP-Protocol-Version',self.protocol.encode())
@@ -361,8 +364,8 @@ class RemoteProbe(QObject):
             self.next_id+=1;self.subscription_id=self.next_id;self.subscription_ack=None
             message,headers=prepare_request({'jsonrpc':'2.0','id':self.subscription_id,'method':'subscriptions/listen','params':{'notifications':self.result['subscription_filters']}})
             for name,value in headers.items():request.setRawHeader(name.encode('ascii'),value.encode('ascii'))
-            request.setRawHeader(b'Content-Type',b'application/json');reply=self.manager.post(request,json.dumps(message).encode());self.subscription_timer.start(self.timeout_ms)
-        else:reply=self.manager.get(request)
+            request.setRawHeader(b'Content-Type',b'application/json');reply=self.server_stream_manager.post(request,json.dumps(message).encode());self.subscription_timer.start(self.timeout_ms)
+        else:reply=self.server_stream_manager.get(request)
         self.server_stream=reply;self.server_stream_buffer=bytearray();self.server_stream_parts=[];self.server_stream_bytes=0;self.server_stream_first=True;self.server_stream_event_id=None
         reply.setReadBufferSize(65536)
         if tls.relaxed():reply.sslErrors.connect(lambda _errors,reply=reply:reply.ignoreSslErrors())
