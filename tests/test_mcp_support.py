@@ -11,6 +11,22 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_stale_reply_signals_do_not_consume_or_finish_current_request(self):
+        from unittest.mock import Mock
+        from PySide6.QtCore import QObject,Signal
+        from PySide6.QtWidgets import QApplication
+        from agentnik.mcp_remote import RemoteSession
+        app=QApplication.instance() or QApplication([])
+        class Reply(QObject):
+            readyRead=Signal()
+            finished=Signal()
+        session=RemoteSession('https://example.com/mcp','',prefer_modern=False)
+        stale=Reply();current=Mock();session.reply=current
+        stale.readyRead.connect(session.consume);stale.finished.connect(session.received)
+        stale.readyRead.emit();stale.finished.emit()
+        current.readAll.assert_not_called();current.attribute.assert_not_called()
+        self.assertIs(session.reply,current);session.reply=None;session.closed=True
+
     def test_partial_mcp_output_is_valid_bounded_json_and_preserves_full_results(self):
         from agentnik.mcp_content import fit_mcp_output
         original=json.dumps({'data':{'text':'雪\\"'*3000}},ensure_ascii=False)

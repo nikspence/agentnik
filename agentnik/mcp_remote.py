@@ -206,6 +206,8 @@ class RemoteProbe(QObject):
         if tls.relaxed(): self.reply.sslErrors.connect(lambda _errors,reply=self.reply:reply.ignoreSslErrors())
     def consume(self,final=False):
         if not self.reply:return
+        sender=self.sender()
+        if sender is not None and sender is not self.reply:return
         self.buffer.extend(bytes(self.reply.readAll()))
         if len(self.buffer)>response_limit(self.phase):self.stop('MCP response exceeded the output limit.');return
         ctype=str(self.reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower()
@@ -509,6 +511,8 @@ class RemoteProbe(QObject):
     def received(self):
         reply=self.reply
         if reply is None:return
+        sender=self.sender()
+        if sender is not None and sender is not reply:return
         self.consume(final=True)
         if self.reply is not reply:return
         status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
