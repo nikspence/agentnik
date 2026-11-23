@@ -195,6 +195,19 @@ class CodeVisionTests(unittest.TestCase):
             self.assertTrue(any('1 omitted due to the coding run context limit' in event.get('text','') for event in events))
             self.assertNotIn(base64.b64encode(small).decode('ascii'),json.dumps(events))
 
+    def test_code_continues_after_oversized_mcp_result_without_repeating_call(self):
+        from unittest.mock import Mock
+        from agentnik.code_limits import coding_limits
+        encoded=base64.b64encode(png()).decode('ascii');detail={'name':'query','description':'Query','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}
+        with tempfile.TemporaryDirectory() as root:
+            bridge=Mock();bridge.server={'name':'Example','command':'server','args':[],'enabled':True};bridge.request.side_effect=[{'tool_details':[detail]},{'call_result':{'content':[{'type':'text','text':'Evidence 雪 '*10000},{'type':'image','data':encoded,'mimeType':'image/png'}]}}]
+            replies=[Wire(chat(calls=[call('mcp_discover',{})],finish='tool_calls'),False),Wire(chat(calls=[call('mcp_call',{'tool':'query','arguments':'{}'})],finish='tool_calls'),False),Wire(chat('Partial result'),False)];limits=coding_limits();limits['context_bytes']=12000;bodies=[];events=[]
+            def send(c,url,body,timeout):bodies.append(copy.deepcopy(body));return replies.pop(0)
+            with patch.object(core,'open_request',side_effect=send):CodingRun(dict(C,stream=False),root,'Query',limits=limits,mcp_bridge=bridge,vision_enabled=True).run(events.append)
+            self.assertEqual(events[-1]['status'],'completed',events);self.assertEqual([item.args[0] for item in bridge.request.call_args_list],['discover','call'])
+            body=json.dumps(bodies[-1]);self.assertIn('partial, untrusted JSON preview',body);self.assertIn('No retry was made',body);self.assertNotIn(encoded,body)
+            self.assertTrue(any('partial preview' in item.get('text','') for item in events))
+
     def test_code_mcp_image_labels_are_unique_across_model_rounds(self):
         from unittest.mock import Mock
         encoded=base64.b64encode(png()).decode('ascii');detail={'name':'chart','description':'Chart','description_clipped':False,'schema':{'type':'object'},'schema_status':'available'}

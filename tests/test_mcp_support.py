@@ -11,6 +11,14 @@ from agentnik.storage import Store,load_config,ConfigurationError
 
 
 class MCPFoundation(unittest.TestCase):
+    def test_partial_mcp_output_is_valid_bounded_json_and_preserves_full_results(self):
+        from agentnik.mcp_content import fit_mcp_output
+        original=json.dumps({'data':{'text':'雪\\"'*3000}},ensure_ascii=False)
+        unchanged,partial=fit_mcp_output(original,len(original.encode('utf-8')));self.assertFalse(partial);self.assertEqual(unchanged,original)
+        shortened,partial=fit_mcp_output(original,3000);parsed=json.loads(shortened)
+        self.assertTrue(partial);self.assertLessEqual(len(shortened.encode('utf-8')),1500);self.assertFalse(parsed['data']['complete'])
+        self.assertEqual(parsed['data']['original_bytes'],len(original.encode('utf-8')));self.assertTrue(original.startswith(parsed['data']['preview']))
+        self.assertIn('No retry was made',parsed['error'])
     def test_remote_initialization_sse_completes_without_stream_closure(self):
         import threading
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer

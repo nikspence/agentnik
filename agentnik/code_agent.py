@@ -1164,6 +1164,7 @@ class CodingRun:
                 results=[];viewed_images=[]
                 for call,args,validation_error in validated:
                     runtime.check();check_skill_versions()
+                    image_mark=len(viewed_images)
                     if not batch_invalid:discover_arguments(args);sync_guidance()
                     display_args={}
                     if isinstance(args,dict):
@@ -1990,7 +1991,14 @@ class CodingRun:
                     if call.name in ('run_tests','run_shell') and isinstance(result.get('output'),str) and len(result['output'])>2000:
                         try:result['output_artifact']=self.artifacts.add(result['output'],call.name);result['output']=result['output'][:500]
                         except ValueError:pass
-                    content=json.dumps(result);runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
+                    content=json.dumps(result)
+                    if call.name.startswith('mcp_'):
+                        from .mcp_content import fit_mcp_output
+                        content,partial=fit_mcp_output(content,max(0,runtime.limits.context_bytes-runtime.context_bytes))
+                        if partial:
+                            del viewed_images[image_mark:]
+                            event('output',text='MCP result exceeded the remaining context budget; a partial preview was returned and images from this result were omitted.')
+                    runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
                     if protocol=='responses':body['input'].append({'type':'function_call_output','call_id':call.id,'output':content})
                     elif protocol=='messages':results.append({'type':'tool_result','tool_use_id':call.id,'content':content})
                     else:body['messages'].append(dict(role='tool',content=content,**({'tool_name':call.name,**({'tool_call_id':call.provider['id']} if call.provider.get('id') else {})} if native else {'tool_call_id':call.id})))

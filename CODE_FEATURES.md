@@ -19,6 +19,8 @@ Agentnik runs its own coding loop using your configured connections and models, 
 
   Optional server usage guidance from legacy initialization or 2026 discovery is shown in the server test and passed to Code and Chat as untrusted discovery data, limited to 8,000 UTF-8 bytes with truncation indicated. It does not grant permissions or override user instructions.
 
+  If a completed MCP result exceeds the remaining Chat or Code context budget, Agentnik returns a labeled partial JSON preview when space permits, omits images from that result, and reports the omission in activity. The tool may already have changed server state; Agentnik does not retry it automatically.
+
   Each server has an **Operation timeout** in MCP servers, from 1 to 900 seconds; the default for existing and new profiles is 60 seconds. It covers the complete operation, including discovery or rechecking definitions and the server response. Code's overall run deadline can stop it sooner; remote session shutdown remains separately bounded. A timed-out call may have completed on the server and is not replayed automatically. Changing the timeout changes the saved server configuration, so reselect it in existing Code sessions.
 
   To test a local server, save and select its profile, then choose **Test connection**. The Arguments field is JSON: on Windows use forward slashes, for example `["D:/dev/my-server/server.py"]`, or escape each backslash. Use the full path to the Python interpreter that has the server's dependencies installed. Unsaved edits must be saved before testing, so the reviewed command matches the editor.

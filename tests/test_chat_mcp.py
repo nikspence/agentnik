@@ -229,6 +229,35 @@ for line in sys.stdin:
         with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Read'}],'',lambda _:None,threading.Event(),web_tools=False,mcp=controller)
         self.assertEqual(result['status'],'ok');self.assertIn(text,json.dumps(bodies[-1],ensure_ascii=False))
 
+    def test_chat_continues_after_oversized_mcp_result_without_repeating_call(self):
+        import base64,threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Limits
+        from test_image_generation import png
+        server={'name':'Example','command':sys.executable,'args':[],'enabled':True};tool={'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        encoded=base64.b64encode(png()).decode('ascii');controller=ChatMCP(server,{'mcp_servers':[server]},vision_enabled=True);controller.tools=[tool];controller.bridge=Mock()
+        controller.bridge.request.return_value={'call_result':{'content':[{'type':'text','text':'Evidence 雪 '*10000+' model-secret-value'},{'type':'image','mimeType':'image/png','data':encoded}]}}
+        request=json.dumps({'tool':'query','arguments':{}});replies=[Wire(response([function('mcp_call',{'request':request},'one')]),False),Wire(response([message('Partial result')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(dict(C,api_key='model-secret-value'),[{'role':'user','content':'Query'}],'',lambda _:None,threading.Event(),limits=Limits(context_bytes=6000),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');self.assertEqual(controller.bridge.request.call_count,1)
+        body=json.dumps(bodies[-1],ensure_ascii=False);self.assertIn('partial, untrusted JSON preview',body);self.assertIn('No retry was made',body);self.assertNotIn(encoded,body);self.assertNotIn('model-secret-value',body)
+        self.assertTrue(any('partial preview' in item['detail'] for item in result['research']['events']));self.assertEqual(controller.take_images(),[])
+
+    def test_partial_mcp_result_preserves_images_from_earlier_batch_calls(self):
+        import base64,threading
+        from agentnik.chat_mcp import ChatMCP
+        from agentnik.tools import Limits
+        from test_image_generation import png
+        server={'name':'Example','command':sys.executable,'args':[],'enabled':True};tool={'name':'query','description':'Query','description_clipped':False,'schema_status':'available','schema':{'type':'object'}}
+        image={'type':'image','mimeType':'image/png','data':base64.b64encode(png()).decode('ascii')}
+        controller=ChatMCP(server,{'mcp_servers':[server]},vision_enabled=True);controller.tools=[tool];controller.bridge=Mock();controller.bridge.request.side_effect=[{'call_result':{'content':[image]}},{'call_result':{'content':[{'type':'text','text':'x'*30000},image]}}]
+        request=json.dumps({'tool':'query','arguments':{}});replies=[Wire(response([function('mcp_call',{'request':request},'one'),function('mcp_call',{'request':request},'two')]),False),Wire(response([message('Partial result')]),False)];bodies=[]
+        def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+        with patch.object(core,'open_request',side_effect=send):result=research.run_managed(C,[{'role':'user','content':'Query'}],'',lambda _:None,threading.Event(),limits=Limits(context_bytes=6000),web_tools=False,mcp=controller)
+        self.assertEqual(result['status'],'ok');visual=bodies[-1]['input'][-1]['content'];self.assertEqual(sum(item.get('type')=='input_image' for item in visual),1)
+        self.assertIn('MCP image 1',visual[0]['text']);self.assertNotIn('MCP image 2',visual[0]['text']);self.assertEqual(controller.bridge.request.call_count,2)
+
     def test_chat_mcp_images_are_opt_in_bounded_and_transient(self):
         import base64,threading
         from agentnik.chat_mcp import ChatMCP
@@ -730,6 +759,29 @@ for line in sys.stdin:
             with self.subTest(protocol=connection['protocol'],url=connection['url']),patch.object(core,'open_request',side_effect=replies):
                 result=research.run_managed(connection,MESSAGES,'',lambda _:None,threading.Event(),web_tools=False,mcp=FakeMCP())
                 self.assertEqual(result['status'],'ok');self.assertEqual(result['text'],'Done')
+
+    def test_partial_mcp_result_continues_across_other_chat_protocols(self):
+        import threading
+        from agentnik.tools import Limits,ToolDefinition
+        from test_research import C as native,MESSAGES,Response,answer,call
+        from test_compat_tools import chat,msg,chat_call
+        class FakeMCP:
+            secret_values=[]
+            definitions=(ToolDefinition('mcp_discover','server','Connect.',200),)
+            def __init__(self):self.count=0
+            def invoke(self,name,args,runtime):self.count+=1;return {'text':'Evidence '*5000}
+            def validate_batch(self,calls):pass
+        one=chat_call();one['function'].update(name='mcp_discover',arguments='{"server":"connect"}')
+        block={'type':'tool_use','id':'call-1','name':'mcp_discover','input':{'server':'connect'}}
+        fixtures=[(dict(native,stream=False),[Response([answer('',[call('mcp_discover',{'server':'connect'})])],False),Response([answer('Done')],False)]),
+                  ({'url':'https://example.com/v1','protocol':'chat','model':'test','stream':False},[Wire(chat(calls=[one],finish='tool_calls'),False),Wire(chat('Done'),False)]),
+                  ({'url':'https://example.com/v1','protocol':'messages','model':'test','stream':False},[Wire(msg([block],'tool_use'),False),Wire(msg([{'type':'text','text':'Done'}]),False)])]
+        for connection,replies in fixtures:
+            bodies=[];mcp=FakeMCP()
+            def send(c,url,body,timeout):bodies.append(json.loads(json.dumps(body)));return replies.pop(0)
+            with self.subTest(protocol=connection['protocol'],url=connection['url']),patch.object(core,'open_request',side_effect=send):
+                result=research.run_managed(connection,MESSAGES,'',lambda _:None,threading.Event(),limits=Limits(context_bytes=6000),web_tools=False,mcp=mcp)
+                self.assertEqual(result['status'],'ok');self.assertEqual(mcp.count,1);self.assertIn('partial, untrusted JSON preview',json.dumps(bodies[-1]))
 
     def test_invalid_call_feedback_continues_across_chat_protocols(self):
         import threading

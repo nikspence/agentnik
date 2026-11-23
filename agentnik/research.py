@@ -291,6 +291,8 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                     continue
             for call in calls:
                 runtime.check()
+                image_buffer=getattr(mcp,'image_buffer',None) if mcp else None
+                image_mark=len(image_buffer) if isinstance(image_buffer,list) else 0
                 event('mcp' if call.name.startswith('mcp_') else 'calculating' if call.name in ('calculate','analyze_data') else 'searching' if call.name=='web_search' or call.name.startswith('parallel_') else 'reading',call.name if call.name in ('analyze_data','image_gen') or call.name.startswith(('mcp_','parallel_')) else f'{call.name}: {next(iter(registry.validate(call,runtime.limits).values()))[:200]}')
                 started=time.monotonic()
                 record={'call_id':call.id,'name':call.name,'status':'running','source_ids':[]}
@@ -341,6 +343,12 @@ def run_managed(c,messages,key,emit,cancel,limits=None,run_id=None,backend=None,
                 if call.name=='image_gen' and returned.error:record['error']=scrub(returned.error[:500],secrets)
                 tool_result=ToolResult(call.id,call.name,tuple(sources),error=returned.error,data=returned.data)
                 content=json.dumps(scrub(tool_result.wire(),secrets),ensure_ascii=False)
+                if call.name.startswith('mcp_') or match:
+                    from .mcp_content import fit_mcp_output
+                    content,partial=fit_mcp_output(content,max(0,runtime.limits.context_bytes-runtime.context_bytes))
+                    if partial:
+                        if isinstance(image_buffer,list):del image_buffer[image_mark:]
+                        event('mcp','MCP result exceeded the remaining context budget; a partial preview was returned and images from this result were omitted.')
                 runtime.charge('context_bytes',len(content.encode()),runtime.limits.context_bytes)
                 if call.name in ('calculate','analyze_data'): event('tool_result',call.name+': '+content[:440])
                 append_tool_output(call,content)

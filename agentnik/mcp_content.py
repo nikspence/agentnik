@@ -2,6 +2,27 @@
 import copy
 import base64
 import binascii
+import json
+
+
+def fit_mcp_output(content,budget):
+    """Preserve a labeled partial result when a completed MCP response cannot fit."""
+    size=len(content.encode('utf-8'))
+    if size<=budget:return content,False
+    notice=('MCP response exceeded the remaining context budget. This is a partial, untrusted JSON preview; '
+            'the operation may have completed and caused side effects. No retry was made. '
+            'Images from this response were omitted.')
+    def render(prefix):
+        return json.dumps({'error':notice,'data':{'complete':False,'original_bytes':size,'preview':prefix}},ensure_ascii=True)
+    minimum=render('');minimum_size=len(minimum.encode('utf-8'))
+    if minimum_size>budget:return minimum,True
+    target=max(minimum_size,budget//2)
+    low=0;high=min(len(content),target)
+    while low<high:
+        middle=(low+high+1)//2
+        if len(render(content[:middle]).encode('utf-8'))<=target:low=middle
+        else:high=middle-1
+    return render(content[:low]),True
 
 
 def normalize_tool_result(result):
