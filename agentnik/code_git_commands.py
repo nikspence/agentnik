@@ -1,5 +1,6 @@
 """User-issued Git commands for the terminal client."""
 
+from pathlib import Path
 import shutil
 import subprocess
 
@@ -7,13 +8,14 @@ from .code_terminal import terminal_text
 
 
 def manual_git(root, argument, *, prompt=None, write=print):
+    usage = "Use /git status, /git stage PATH, /git unstage PATH, /git commit MESSAGE, or /git push REMOTE BRANCH."
     action, _, value = argument.partition(" ")
     value = value.strip()
     if not action:
-        write("Use /git status, /git commit MESSAGE, or /git push REMOTE BRANCH.")
+        write(usage)
         return
-    if action not in ("status", "commit", "push"):
-        raise ValueError("Use /git to list supported commands.")
+    if action not in ("status", "stage", "unstage", "commit", "push"):
+        raise ValueError(usage)
     executable = shutil.which("git")
     if not executable:
         raise ValueError("Install Git and make it available on PATH to use /git.")
@@ -25,6 +27,17 @@ def manual_git(root, argument, *, prompt=None, write=print):
 
     if action == "status" and not value:
         result = run("status", "--short", "--branch")
+    elif action in ("stage", "unstage") and value:
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        path = Path(value)
+        if (not value or path.anchor or ".." in path.parts or not path.parts
+                or any(ord(ch) < 32 for ch in value) or (root / path).is_dir()):
+            raise ValueError("Choose one project-relative file, not a folder.")
+        verb = "Stage" if action == "stage" else "Unstage"
+        if prompt(f"{verb} {terminal_text(value)!r}? [y/N] ").strip().lower() != "y":
+            return
+        result = run("--literal-pathspecs", "add" if action == "stage" else "reset", "--", value)
     elif action == "commit" and value:
         write(f"Commit the staged changes in {terminal_text(root)} with message {terminal_text(value)!r}.")
         if prompt("Create commit? [y/N] ").strip().lower() != "y":
@@ -48,6 +61,6 @@ def manual_git(root, argument, *, prompt=None, write=print):
         result = run("-c", f"remote.{remote}.mirror=false", "push", "--no-follow-tags",
                      "--recurse-submodules=no", "--", remote, f"{commit}:{ref}")
     else:
-        raise ValueError("Use /git status, /git commit MESSAGE, or /git push REMOTE BRANCH.")
+        raise ValueError(usage)
     if result.returncode:
         write(f"Git exited with status {result.returncode}. Check the output before retrying.")
