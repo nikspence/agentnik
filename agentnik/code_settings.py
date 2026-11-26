@@ -566,8 +566,8 @@ def configure_code(store, arguments, root=None):
         return configure_decision(store, arguments[1:])
     if arguments[0] == "mcp":
         return configure_mcp(store, arguments[1:])
-    if len(arguments) == 3 and arguments[0] in ("limits", "goal"):
-        section, key, value = arguments
+    if len(arguments) in (2, 3) and arguments[0] in ("limits", "goal"):
+        section, key = arguments[:2]
         fields, validator, setting = (
             (GOAL_FIELDS, goal_limits, "coding_goal_limits") if section == "goal"
             else (FIELDS, coding_limits, "coding_limits")
@@ -575,6 +575,13 @@ def configure_code(store, arguments, root=None):
         if key not in fields:
             raise ValueError("Unknown limit. Use /settings to list limits.")
         values = validator(settings.get(setting))
+        if len(arguments) == 2:
+            default, low, high = fields[key]
+            allow_unlimited = section == "goal" or key in UNLIMITED_FIELDS
+            return (f"{key}: {values[key] or 'unlimited'} (range {low}–{high}, "
+                    f"default {default or 'unlimited'}"
+                    + (", 0 means unlimited" if allow_unlimited else "") + ")")
+        value = arguments[2]
         if value == "unlimited":
             if section != "goal" and key not in UNLIMITED_FIELDS:
                 raise ValueError(f"{key} cannot be unlimited. Use /settings to see its range.")

@@ -266,6 +266,8 @@ class TerminalRunTests(unittest.TestCase):
                     self.assertIn("requests: unlimited", configure_code(store, ["limits"]))
                     self.assertIn("model_seconds: 300", configure_code(store, ["limits"]))
                     flush.assert_not_called()
+                self.assertIn("requests: unlimited", configure_code(store, ["limits", "requests"]))
+                self.assertIn("default unlimited", configure_code(store, ["goal", "steps"]))
                 with self.assertRaisesRegex(ValueError, "cannot be unlimited"):
                     configure_code(store, ["limits", "model_seconds", "unlimited"])
             finally:
