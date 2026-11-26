@@ -172,7 +172,8 @@ def transcript_pager(text, page_up=False, **terminal):
     def close(event):
         event.app.exit()
 
-    footer = Window(FormattedTextControl("Transcript · PageUp/PageDown · Ctrl+T or Q to return"), height=1)
+    footer = Window(FormattedTextControl("Transcript · PageUp/Down or ^B/^F · Half-page ^U/^D · ^T or Q to return"),
+                    height=1)
     app = Application(layout=Layout(HSplit([window, footer]), focused_element=window),
                       key_bindings=bindings, full_screen=True, **terminal)
     if page_up:

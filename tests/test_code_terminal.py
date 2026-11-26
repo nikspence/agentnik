@@ -1061,7 +1061,7 @@ class TerminalRunTests(unittest.TestCase):
                 assert len(opened) == 1
 
             for keys, at_end in (("\x1b[5~q", False), ("\x1b[5~\x1b[6~q", True),
-                                 ("\x02\x06\x14", True)):
+                                 ("\x02\x06\x14", True), ("\x15q", False), ("\x15\x04q", True)):
                 with create_pipe_input() as pipe:
                     pager = transcript_pager(transcript, input=pipe, output=DummyOutput())
                     pipe.send_text(keys)
