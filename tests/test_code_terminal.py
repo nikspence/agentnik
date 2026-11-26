@@ -2749,6 +2749,13 @@ class TerminalRunTests(unittest.TestCase):
                 store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
                 with patch("builtins.input", side_effect=["Fixture Author", "author@example.org"]):
                     configure_code(store, ["git-author", "set"], root=root)
+                for interruption in (KeyboardInterrupt, EOFError):
+                    with self.subTest(interruption=interruption):
+                        with patch("builtins.input", side_effect=["Unsaved Author", interruption]):
+                            self.assertEqual(configure_code(store, ["git-author", "set"], root=root),
+                                             "Git author unchanged.")
+                        self.assertEqual(load_run_settings(data, "Fixture", "", root=root)[3]["git_author"],
+                                         {"name": "Fixture Author", "email": "author@example.org"})
                 self.assertIn("author@example.org", configure_code(store, ["git-author"], root=root))
                 self.assertEqual(load_run_settings(data, "Fixture", "", root=root)[3]["git_author"],
                                  {"name": "Fixture Author", "email": "author@example.org"})
