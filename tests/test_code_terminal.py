@@ -397,7 +397,7 @@ class TerminalRunTests(unittest.TestCase):
             manual_git(Path.cwd(), "", write=lines.append)
             find.assert_not_called()
             self.assertIn("require native Git on PATH", "\n".join(lines))
-            with self.assertRaisesRegex(ValueError, "Native Git was not found on PATH"):
+            with self.assertRaisesRegex(ValueError, "Native Git was not found on PATH.*Use /diff"):
                 manual_git(Path.cwd(), "status")
             run.assert_not_called()
 

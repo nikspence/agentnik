@@ -20,7 +20,7 @@ def manual_git(root, argument, *, prompt=None, write=print):
         raise ValueError(usage)
     executable = shutil.which("git")
     if not executable:
-        raise ValueError("Native Git was not found on PATH. Install it to use /git, or continue without manual Git commands.")
+        raise ValueError("Native Git was not found on PATH. Install it to use /git. Use /diff for built-in repository status and file diffs without native Git.")
     prompt = prompt or input
 
     def run(*args, capture=False, **options):
