@@ -231,6 +231,7 @@ def terminal_session(options, root, lease, images):
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/context          Inspect, clear, or toggle previous-turn context\n"
+                  "/plan             Show the latest saved plan for this session\n"
                   "/attach PATH      Include a project image or document in the next task\n"
                   "/attachments      List queued files; remove NUMBER or clear\n"
                   "/web on|off       Enable or disable web research for this session\n"
@@ -499,11 +500,12 @@ def terminal_session(options, root, lease, images):
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
-        elif command in ("/history", "/sessions", "/resume") or command.startswith(("/open ", "/resume ", "/sessions ")):
+        elif command in ("/history", "/plan", "/sessions", "/resume") or command.startswith(("/open ", "/resume ", "/sessions ")):
             from .code_history import CodeHistory, Store, resolve_session_id
             from .code_terminal import terminal_text
 
             listing = command == "/resume" or command.split(" ", 1)[0] == "/sessions"
+            current_only = command in ("/history", "/plan")
             argument = command.partition(" ")[2].strip()
             if listing and argument and (not argument.isascii() or not argument.isdecimal()
                                          or len(argument) > 9 or int(argument) < 1):
@@ -513,13 +515,13 @@ def terminal_session(options, root, lease, images):
                 store = Store(options.data_dir)
                 try:
                     history = CodeHistory(store, root)
-                    sessions = history.sessions() if command != "/history" else {}
+                    sessions = history.sessions() if not current_only else {}
                     if not listing:
                         ident = resolve_session_id(sessions, argument)
                         if ident in sessions:
                             lease.select(ident)
-                        records = history.list(session_id if command == "/history" else ident)
-                        if records and command != "/history":
+                        records = history.list(session_id if current_only else ident)
+                        if records and not current_only:
                             history.recover_interrupted(records[0], lease)
                 finally:
                     store.db.close()
@@ -541,6 +543,13 @@ def terminal_session(options, root, lease, images):
                     print("No saved sessions on that page.")
                 elif len(sessions) > offset + 20:
                     print(f"More saved sessions are available under /sessions {page + 1}.")
+                continue
+            if command == "/plan":
+                from .code_terminal import terminal_plan
+
+                saved = next((record["coding_plan"] for record in records if "coding_plan" in record), None)
+                print(terminal_plan(saved, "Saved plan (model reported):") if saved
+                      else "No saved plan for this session.")
                 continue
             if not records:
                 print("No saved history for this session." if command == "/history"

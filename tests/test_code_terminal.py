@@ -476,7 +476,7 @@ class TerminalRunTests(unittest.TestCase):
                             {"step": "Current checklist", "status": "pending"},
                         ]}})
                 composer = Mock()
-                composer.prompt.side_effect = [f"/resume {busy}", "/status", "/exit"]
+                composer.prompt.side_effect = [f"/resume {busy}", "/status", "/plan", "/new", "/plan", "/exit"]
                 argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", current]
                 with SessionLease(data) as other, patch("sys.argv", argv), \
                         patch("sys.stdin.isatty", return_value=True), \
@@ -490,7 +490,8 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertIn("already open in another terminal", errors.getvalue())
                 self.assertIn(f"Session: {current}", output.getvalue())
                 self.assertIn("Connection: 'Fixture' · Model: 'fixture'", output.getvalue())
-                self.assertIn("[pending] Current checklist", output.getvalue())
+                self.assertEqual(output.getvalue().count("[pending] Current checklist"), 2)
+                self.assertIn("No saved plan for this session.", output.getvalue())
                 self.assertNotIn("Other terminal task", output.getvalue())
                 composer.history.append_string.assert_called_once_with("Current task")
             finally:

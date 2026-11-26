@@ -34,6 +34,8 @@ Unrecognized slash commands are not sent to the model. If your task starts with 
 
 Use `/sessions 2`, `/sessions 3`, and so on to find older sessions. Listing a page does not reopen any session. Both `/resume` and `agentnik code --resume` accept a unique ID prefix, so you only need to type enough characters to identify one session in the current project.
 
+Use `/plan` to read the current session's most recent saved checklist. It is model-reported and does not send a new request or authorize any action.
+
 Two terminals can work in the same project using separate sessions. If another terminal already has a session open, trying to resume it leaves your current session and prompt history intact.
 
 ## Testing over SSH

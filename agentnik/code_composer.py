@@ -23,7 +23,7 @@ COMMANDS = (
     "/settings tls strict", "/settings tls relaxed", "/settings web access",
     "/settings web desktop", "/settings web priority", "/settings web providers",
     "/settings web providers set", "/settings web providers remove",
-    "/history", "/new", "/sessions", "/resume", "/exit",
+    "/history", "/plan", "/new", "/sessions", "/resume", "/exit",
 )
 
 
