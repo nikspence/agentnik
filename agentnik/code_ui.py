@@ -1200,11 +1200,13 @@ class CodeTab(QWidget):
                     self.compact_coding_context(auto_start=True,connection=heavy);return
             from .mcp_support import server_fingerprint
             refs=(([self.mcp_primary_ref] if self.mcp_primary_ref else [])+self.mcp_extra_refs) if self.window.mcp_access.isChecked() else []
-            from .code_research import code_research_options
-            enabled=self.web_enabled.isChecked()
-            options=code_research_options(self.store,self.roles['heavy'][0].currentData(),heavy,enabled,
-                                          mcp_first=bool(refs) and self.store.config['settings'].get('mcp_priority','first')=='first')
-            backends=options['web_backends'];provider=options['search_provider'];hosted_enabled=options['hosted_search']
+            from .code_setup import shared_run_options
+            options=shared_run_options(
+                self.store,self.roles['heavy'][0].currentData(),heavy,
+                web_enabled=self.web_enabled.isChecked(),has_mcp=bool(refs),
+                capability_connection=self.subagent_capability_connection('heavy',heavy),
+            )
+            backends=options['web_backends']
             if len(refs)>5:raise ValueError(self.tr('Select at most five MCP servers.'))
             entries=self.store.config.get('mcp_servers',[]);servers=[]
             for ref in refs:
@@ -1214,9 +1216,6 @@ class CodeTab(QWidget):
                 servers.append(server)
             from .mcp_code import CodingMCPBridge
             mcp_bridges=[CodingMCPBridge(server,self.store.config,self) for server in servers]
-            from .subagent_capabilities import unsupported
-            unsupported_roles=set()
-            if unsupported(self.store.config,self.subagent_capability_connection('heavy',heavy)):unsupported_roles.add('model')
             from .project_memory import ProjectMemory
             project_memory=ProjectMemory(self.store.root/'history.sqlite3',self.session['project_id']) if self.window.repositories.get(self.session['project_id']) else None
             selected=None
@@ -1230,7 +1229,7 @@ class CodeTab(QWidget):
             project=self.window.repositories.get(self.session['project_id'])
             git_author=self.window.repositories.git_author(project['id']) if project and os.path.normcase(project['path'])==os.path.normcase(self.session['path_snapshot']) else None
             image_config=self.window.image_tool_config()
-            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,web_backends=backends,limits=self.store.config['settings'].get('coding_limits'),web_enabled=enabled,search_provider=provider,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,unsupported_subagent_roles=unsupported_roles,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),goal_budget=self.store.config['settings'].get('coding_goal_limits'),hosted_search=hosted_enabled,mcp_priority=self.store.config['settings'].get('mcp_priority','first'),git_author=git_author,image_config=image_config,vision_enabled=self.vision_enabled.isChecked())
+            run=CodingRun(heavy,self.session['path_snapshot'],prompt,context=context,skills=self.session.get('coding_skills',[]),skill_pins=self.session.get('coding_skill_pins',{}),mcp_bridges=mcp_bridges,working_notes=self.session.get('coding_working_notes',{}),project_memory=project_memory,selected_track=selected,images=resume.get('images',[]) if resume else self.attachments.paths,documents=resume.get('documents',[]) if resume else self.documents,resume_context={key:resume[key] for key in ('task','evidence')} if resume else None,goal=self.goal_enabled.isChecked(),git_author=git_author,image_config=image_config,vision_enabled=self.vision_enabled.isChecked(),**options)
             secrets=self.draft_secrets()+[heavy.get('api_key','')]+[item.get('key','') for item in backends]
             for bridge in mcp_bridges:secrets.extend(getattr(bridge,'environment_values',{}).values())
             secrets=list(dict.fromkeys(secret for secret in secrets if isinstance(secret,str) and secret))
@@ -1256,7 +1255,7 @@ class CodeTab(QWidget):
         self.advice_connection=advice;self.advice_destination=destination
         self.launch(run,'Agentnik coding started. Project file changes apply without per-file approval. Shell commands '+('run without approval' if self.shell_auto.isChecked() else 'require approval')+'. Repository content goes to the selected models.')
         if not continuation:self.composer.clear()
-        if enabled:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[provider])
+        if options['web_enabled']:self.record('output',{'none':'Web research: public page reads only; strict navigation disables search.','google':'Web research: Google search and public page reads.','ollama':'Web research: Ollama search and public page reads.','managed':'Web research: configured search providers and public page reads.'}[options['search_provider']])
 
     def can_continue(self):
         state=self.session.get('code_state')
