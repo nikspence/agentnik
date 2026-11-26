@@ -126,7 +126,7 @@ Run `/skills` to find installed skills. A user-installed skill at `~/.agents/ski
 | `/settings` | Manage run and goal limits, TLS, desktop appearance, and other shared settings. Use `unlimited` or `0` for rounds, requests, calls, turn time, goal steps, or goal time. Use `/settings limits all unlimited` to uncap the four run budgets together, and `/settings limits all default` to restore those budgets. Individual model requests, shell commands, and retained context remain bounded. |
 | `/settings limits [NAME]` / `/settings goal [NAME]` | Show effective run or goal limits without changing them. Add a name to inspect one limit and its default. |
 | `/settings tls` | Show the saved TLS verification mode without changing it. Use `/settings tls strict` or `/settings tls relaxed` to change it. |
-| `/skills` | List and preview available skills, then pin the ones you want to use. |
+| `/skills` | List and preview available skills, including changed or unavailable selections. Review a changed skill with `/skills show ID` and select its new revision with `/skills add ID`. |
 | `/web on` | Enable research for this session. Manage access policy, routing priority, and provider credentials under `/settings web`. |
 | `/settings desktop-code auto-compact on\|off` | Set the desktop Code default for sessions without an explicit auto-compaction choice. Does not enable compaction in the TUI. |
 | `/settings desktop-code vision on\|off` | Set the desktop Code image inspection default. Use only with a vision-capable connection, as requested project images are sent to that connection. Explicit session choices and terminal `/vision` are unchanged. |

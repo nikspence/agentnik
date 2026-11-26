@@ -1373,6 +1373,41 @@ class TerminalRunTests(unittest.TestCase):
         self.assertNotIn("b-model", output.getvalue())
         self.assertNotIn("\x1b", output.getvalue())
 
+    def test_terminal_skills_show_changed_and_missing_pinned_revisions(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            skill = root / ".agents" / "skills" / "notes" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            header = "---\nname: notes\ndescription: Note formatting\n---\n"
+            skill.write_text(header + "Old instructions.", encoding="utf-8")
+            composer = Mock()
+
+            def prompts():
+                yield "/skills add notes"
+                skill.write_text(header + "New instructions.", encoding="utf-8")
+                yield "/skills"
+                yield "/skills show notes"
+                yield "/skills add notes"
+                skill.unlink()
+                yield "/skills"
+                yield "/skills remove notes"
+                yield "/skills"
+                yield "/exit"
+
+            composer.prompt.side_effect = prompts()
+            argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("* notes [changed since selection]", out.getvalue())
+            self.assertIn("New instructions.", out.getvalue())
+            self.assertEqual(out.getvalue().count("* notes [unavailable]"), 1)
+            request.assert_not_called()
+
     def test_project_diff_can_review_first_commit_without_native_git(self):
         from dulwich import porcelain
         from agentnik.code_terminal import project_diff

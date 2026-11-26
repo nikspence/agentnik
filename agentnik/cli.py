@@ -673,11 +673,21 @@ def terminal_session(options, root, lease, images):
             try:
                 files = ProjectFiles(root)
                 if not action:
-                    for skill in list_skills(files):
-                        name = skill["id"]
+                    available = {skill["id"]: skill for skill in list_skills(files)}
+                    for name, skill in available.items():
                         marker = "*" if name in skill_pins else " "
-                        print(terminal_text(f"{marker} {name} — {skill['description']}"))
-                    print("Use /skills show ID, /skills add ID, or /skills remove ID.")
+                        state = ""
+                        if name in skill_pins:
+                            try:
+                                if read_skill(files, name)["sha256"] != skill_pins[name]:
+                                    state = " [changed since selection]"
+                            except (OSError, ValueError):
+                                state = " [unavailable]"
+                        print(terminal_text(f"{marker} {name}{state} — {skill['description']}"))
+                    for name in skill_pins.keys() - available.keys():
+                        print(terminal_text(f"* {name} [unavailable]"))
+                    print("Use /skills show ID to review, /skills add ID to select the current revision, "
+                          "or /skills remove ID to clear a selection.")
                 elif action in ("show", "add") and ident:
                     skill = read_skill(files, ident)
                     if action == "show":
