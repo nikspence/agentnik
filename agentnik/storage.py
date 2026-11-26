@@ -79,8 +79,12 @@ def load_config(path):
 
 
 class Store:
-    def __init__(self, root=None):
+    def __init__(self, root=None, *, read_only_history=False):
         self.root = Path(root) if root else default_home()
+        if read_only_history:
+            database_uri = (self.root / 'history.sqlite3').absolute().as_uri()
+            self.db = sqlite3.connect(database_uri + '?mode=ro', uri=True)
+            return
         self.root.mkdir(parents=True, exist_ok=True)
         self.config_path = self.root/'connections.json'
         self.config = load_config(self.config_path)

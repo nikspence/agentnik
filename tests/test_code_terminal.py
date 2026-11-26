@@ -2402,7 +2402,11 @@ class TerminalRunTests(unittest.TestCase):
                 history = CodeHistory(store, project)
                 history.start("Fixture", {"model": "test"}, "Private fixture prompt", ident, goal=True)
                 CodeHistory(store, other).start("Fixture", {"model": "test"}, "Other project", str(uuid4()))
-                self.assertEqual(discover(), [{"id": ident, "status": "running", "scope": "project",
+                (data / "attachments").rmdir()
+                with patch("agentnik.storage.load_config", side_effect=AssertionError("configuration not needed")):
+                    listed = discover()
+                self.assertFalse((data / "attachments").exists())
+                self.assertEqual(listed, [{"id": ident, "status": "running", "scope": "project",
                                                "goal_status": "active"}])
                 self.assertEqual(history.list(ident)[0]["code_state"], "running")
             finally:

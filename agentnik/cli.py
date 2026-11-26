@@ -277,7 +277,7 @@ def main():
         sessions = []
         try:
             if (options.data_dir / "history.sqlite3").exists():
-                store = Store(options.data_dir)
+                store = Store(options.data_dir, read_only_history=True)
                 try:
                     sessions = [
                         {"id": ident, "status": record.get("code_state", "idle"),
