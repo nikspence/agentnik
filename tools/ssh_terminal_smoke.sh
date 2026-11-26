@@ -31,6 +31,25 @@ args = ["-tt", "-p", "2222", "-i", "/tmp/agentnik-smoke-key", "-o", "BatchMode=y
         "cd project && TERM=xterm /opt/agentnik-smoke/bin/agentnik code --data-dir ../test-data"]
 with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.expect_exact("code>")
+    session.send("/connections add SSH Fixture\r")
+    for prompt, value in (("Endpoint URL", "http://127.0.0.1:9/v1"),
+                          ("Protocol (", "chat"), ("Model [", "fixture-model")):
+        session.expect_exact(prompt)
+        session.send(value + "\r")
+    session.expect_exact("API key (blank for none):")
+    session.send("synthetic-ssh-key\r")
+    session.expect_exact("Store API key as plaintext")
+    assert "synthetic-ssh-key" not in session.before
+    session.send("y\r")
+    session.expect_exact("Saved connection 'SSH Fixture'.")
+    session.expect_exact("code>")
+    session.send("/connections show SSH Fixture\r")
+    session.expect_exact("Model: 'fixture-model'")
+    session.expect_exact("Endpoint URL and credentials are not displayed.")
+    session.expect_exact("code>")
+    session.send("/connection SSH Fixture\r")
+    session.expect_exact("Selected connection 'SSH Fixture'.")
+    session.expect_exact("code>")
     session.send("/keys\r")
     session.expect_exact("Ctrl+U/Ctrl+D")
     session.expect_exact("code>")
@@ -45,5 +64,5 @@ with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.expect(pexpect.EOF)
     session.close()
     assert session.exitstatus == 0, session.exitstatus
-print("Qt-free preview passed the authenticated SSH terminal smoke test.")
+print("Qt-free preview passed connection setup and terminal commands over authenticated SSH.")
 PY
