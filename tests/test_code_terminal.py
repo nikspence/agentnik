@@ -1260,6 +1260,32 @@ class TerminalRunTests(unittest.TestCase):
             composer.prompt.assert_not_called()
             self.assertIn("No saved session with that ID in this project", output.getvalue())
 
+    def test_history_paging_is_scoped_and_does_not_load_prompt_recall(self):
+        from unittest.mock import Mock
+        from agentnik import cli
+
+        records = [{"code_activity": [{"kind": "prompt", "text": f"Turn {i:02d}"}]} for i in range(21)]
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            composer = Mock()
+            composer.prompt.side_effect = ["/history", "/history 2", "/history 3", "/history 0", "/exit"]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("agentnik.code_history.CodeHistory.list", return_value=records) as read, \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 0)
+            first, second = output.getvalue().split("More saved turns are available under /history 2.")
+            self.assertIn("Turn 19", first)
+            self.assertNotIn("Turn 20", first)
+            self.assertIn("Turn 20", second)
+            self.assertIn("No saved turns on that page.", second)
+            self.assertIn("positive whole page number", second)
+            self.assertEqual(read.call_count, 3)
+            self.assertEqual(len({args.args[0] for args in read.call_args_list}), 1)
+            self.assertTrue(read.call_args.args[0])
+            composer.history.append_string.assert_not_called()
+
     def test_session_listing_can_reach_older_pages_without_opening_sessions(self):
         from unittest.mock import Mock
         from agentnik import cli

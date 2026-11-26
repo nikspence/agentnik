@@ -36,6 +36,8 @@ Use `/sessions 2`, `/sessions 3`, and so on to find older sessions. Listing a pa
 
 Use `/plan` to read the current session's most recent saved checklist. It is model-reported and does not send a new request or authorize any action.
 
+Use `/history 2`, `/history 3`, and so on to inspect older saved turns in the current session without changing prompt recall.
+
 Two terminals can work in the same project using separate sessions. If another terminal already has a session open, trying to resume it leaves your current session and prompt history intact.
 
 ## Testing over SSH

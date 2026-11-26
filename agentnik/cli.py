@@ -241,7 +241,7 @@ def terminal_session(options, root, lease, images):
                   "/mcp              List or select MCP servers for this session\n"
                   "/permissions      Set project and shell approval for this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
-                  "/history          Show history for this session\n"
+                  "/history [PAGE]   Show saved turns for this session\n"
                   "/new              Start a fresh session in this project\n"
                   "/sessions [PAGE]  List saved sessions for the current project\n"
                   "/resume ID        Resume by ID, unique prefix, or latest\n"
@@ -500,16 +500,18 @@ def terminal_session(options, root, lease, images):
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
-        elif command in ("/history", "/plan", "/goal", "/sessions", "/resume") or command.startswith(("/open ", "/resume ", "/sessions ")):
+        elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume")
+              or command.startswith("/open ") or command in ("/plan", "/goal")):
             from .code_history import CodeHistory, Store, resolve_session_id
             from .code_terminal import terminal_text
 
-            listing = command == "/resume" or command.split(" ", 1)[0] == "/sessions"
-            current_only = command in ("/history", "/plan", "/goal")
+            action = command.split(" ", 1)[0]
+            listing = command == "/resume" or action == "/sessions"
+            current_only = action in ("/history", "/plan", "/goal")
             argument = command.partition(" ")[2].strip()
-            if listing and argument and (not argument.isascii() or not argument.isdecimal()
-                                         or len(argument) > 9 or int(argument) < 1):
-                print("Use /sessions PAGE with a positive whole page number.")
+            if (listing or action == "/history") and argument and (
+                    not argument.isascii() or not argument.isdecimal() or len(argument) > 9 or int(argument) < 1):
+                print(f"Use {action} PAGE with a positive whole page number.")
                 continue
             try:
                 store = Store(options.data_dir)
@@ -560,9 +562,22 @@ def terminal_session(options, root, lease, images):
                 print(terminal_plan(saved, "Saved plan (model reported):") if saved
                       else "No saved plan for this session.")
                 continue
+            if action == "/history":
+                page = int(argument or 1)
+                offset = (page - 1) * 20
+                if not records:
+                    print("No saved history for this session.")
+                elif offset >= len(records):
+                    print("No saved turns on that page.")
+                else:
+                    for saved in reversed(records[offset:offset + 20]):
+                        for entry in saved.get("code_activity", [])[-20:]:
+                            print(terminal_text(entry["text"]))
+                    if len(records) > offset + 20:
+                        print(f"More saved turns are available under /history {page + 1}.")
+                continue
             if not records:
-                print("No saved history for this session." if command == "/history"
-                      else "No saved session with that ID in this project. Sessions are saved when a task starts.")
+                print("No saved session with that ID in this project. Sessions are saved when a task starts.")
                 if starting_resume:
                     return 1
                 continue
@@ -596,12 +611,7 @@ def terminal_session(options, root, lease, images):
                 activity = saved.get("code_activity", [])
                 for entry in activity[-20:]:
                     line = terminal_text(entry["text"])
-                    if command == "/history":
-                        print(line)
-                    else:
-                        write_activity(line)
-            if command == "/history":
-                continue
+                    write_activity(line)
             record = records[0]
             last_record = record
             skill_pins = dict(record.get("coding_skill_pins", {}))
