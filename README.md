@@ -23,7 +23,7 @@ Research and coding workflows include preview features. Model listings do not es
 
 On a terminal-only machine, install from this checkout with `pip install ".[terminal]"`. This does not install Qt. For the desktop app, install `pip install ".[desktop]"` or use the desktop setup instructions below. Install both with `pip install ".[desktop,terminal]"`.
 
-Run `agentnik code` from any project folder for terminal coding, independent sessions, approvals, goals, research, and image generation. See the [terminal setup and command guide](TERMINAL_CODE.md).
+Run `agentnik code` from any project folder for terminal coding, independent sessions, approvals, goals, research, and image generation. Use the checkout or a preview wheel for this command. PyPI version `0.11.1` is the earlier desktop release and does not include the TUI. The [terminal guide](TERMINAL_CODE.md) covers preview downloads, SSH setup, and manual Git commands.
 
 ## What Agentnik is not
 
