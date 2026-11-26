@@ -9,8 +9,21 @@ from time import monotonic, sleep
 
 CHILD = """
 from agentnik.code_composer import create_composer
-
-composer = create_composer()
+import agentnik.code_composer as impl
+original_pager = impl.transcript_pager
+def observe_pager(*args, **kwargs):
+    pager = original_pager(*args, **kwargs)
+    start = pager.current_buffer.cursor_position
+    seen = set()
+    def rendered(app):
+        state = "AT-END" if app.current_buffer.cursor_position == start else "SCROLLED"
+        if state not in seen:
+            seen.add(state)
+            print(f"PAGER-{state}", flush=True)
+    pager.after_render += rendered
+    return pager
+impl.transcript_pager = observe_pager
+composer = create_composer(transcript=lambda: chr(10).join(f"Transcript row {i:03}" for i in range(100)))
 print("CANCEL-READY", flush=True)
 try:
     composer.prompt()
@@ -18,7 +31,7 @@ except KeyboardInterrupt:
     print("DRAFT-CANCELLED", flush=True)
 else:
     raise AssertionError("Ctrl+C did not cancel the draft")
-for index in range(3):
+for index in range(4):
     changes = []
     observe = lambda buffer: changes.append(buffer.text)
     composer.default_buffer.on_text_changed += observe
@@ -104,9 +117,22 @@ def main():
         sleep(0.15)
         terminal.write("\x1b[B\r")
         expect(f"SUBMITTED-2:{b'current draft'.hex()}:END")
+        expect("READY-3\r\n")
+        seen = seen.split("READY-3\r\n", 1)[1]
+        expect("code>")
+        terminal.write("draft kept across scrollback")
+        sleep(0.25)
+        terminal.write("\x14")
+        expect("PAGER-AT-END")
+        terminal.write("\x15")
+        expect("PAGER-SCROLLED")
+        terminal.write("q")
+        sleep(0.25)
+        terminal.write("\r")
+        expect(f"SUBMITTED-3:{b'draft kept across scrollback'.hex()}:END")
     finally:
         terminal.close()
-    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Enter, and Up/Down history.")
+    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Enter, Up/Down history, and draft recovery after transcript scrollback.")
 
 
 if __name__ == "__main__":
