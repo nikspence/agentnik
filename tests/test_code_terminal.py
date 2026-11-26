@@ -2372,6 +2372,42 @@ class TerminalRunTests(unittest.TestCase):
             self.assertTrue(read.call_args.args[0])
             composer.history.append_string.assert_not_called()
 
+    def test_list_sessions_json_without_terminal_does_not_resume(self):
+        import json
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            project, other, data = root / "project", root / "other", root / "data"
+            project.mkdir()
+            other.mkdir()
+            argv = ["agentnik", "code", str(project), "--data-dir", str(data), "--list-sessions"]
+
+            def discover():
+                with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=False), \
+                        patch("agentnik.cli.terminal_session") as terminal, patch.object(core, "open_request") as request, \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(cli.main(), 0)
+                terminal.assert_not_called()
+                request.assert_not_called()
+                return json.loads(output.getvalue())
+
+            self.assertEqual(discover(), [])
+            self.assertFalse(data.exists())
+            store = Store(data)
+            ident = str(uuid4())
+            try:
+                history = CodeHistory(store, project)
+                history.start("Fixture", {"model": "test"}, "Private fixture prompt", ident, goal=True)
+                CodeHistory(store, other).start("Fixture", {"model": "test"}, "Other project", str(uuid4()))
+                self.assertEqual(discover(), [{"id": ident, "status": "running", "scope": "project",
+                                               "goal_status": "active"}])
+                self.assertEqual(history.list(ident)[0]["code_state"], "running")
+            finally:
+                store.db.close()
+
     def test_unsaved_session_has_status_but_does_not_appear_in_saved_sessions(self):
         from unittest.mock import Mock
         from agentnik import cli, core

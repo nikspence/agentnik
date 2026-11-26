@@ -243,7 +243,9 @@ def main():
     parser = argparse.ArgumentParser(prog="agentnik code")
     parser.add_argument("--version", action="version", version=f"Agentnik Code {__version__}")
     parser.add_argument("--data-dir", type=Path, help="Override the application data directory")
-    parser.add_argument("--resume", nargs="?", const="latest", metavar="ID",
+    session_action = parser.add_mutually_exclusive_group()
+    session_action.add_argument("--list-sessions", action="store_true", help="List saved project sessions as JSON")
+    session_action.add_argument("--resume", nargs="?", const="latest", metavar="ID",
                         help="Resume a session in this project (default: latest)")
     parser.add_argument("project", nargs="?", type=Path, default=Path.cwd(),
                         help="Project folder (default: current directory)")
@@ -257,8 +259,6 @@ def main():
     if not root.is_dir():
         parser.error("project must be a directory")
 
-    if not sys.stdin.isatty():
-        parser.error("an interactive terminal is required")
     from .code_lease import SessionLease
     from .code_attachments import ImageQueue
     from .storage import default_home
@@ -269,6 +269,30 @@ def main():
         parser.error(f"cannot resolve the application data directory: {exc}")
     if options.data_dir.exists() and not options.data_dir.is_dir():
         parser.error("application data path must be a directory")
+
+    if options.list_sessions:
+        from .code_history import CodeHistory, Store
+        from .code_terminal import terminal_text
+
+        sessions = []
+        try:
+            if (options.data_dir / "history.sqlite3").exists():
+                store = Store(options.data_dir)
+                try:
+                    sessions = [
+                        {"id": ident, "status": record.get("code_state", "idle"),
+                         "scope": record.get("coding_file_scope", "project"), "goal_status": goal}
+                        for ident, (record, goal) in CodeHistory(store, root).session_summaries().items()
+                    ]
+                finally:
+                    store.db.close()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            print(terminal_text(exc), file=sys.stderr)
+            return 1
+        print(json.dumps(sessions))
+        return 0
+    if not sys.stdin.isatty():
+        parser.error("an interactive terminal is required")
 
     with SessionLease(options.data_dir) as lease, ImageQueue() as images:
         return terminal_session(options, root, lease, images)

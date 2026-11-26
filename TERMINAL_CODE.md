@@ -52,6 +52,8 @@ If you want a launcher in **Terminal → Run Task**, add this example to the wor
 
 The first task starts a fresh session. The second reopens the latest saved session for the workspace without sending a model request. If it is already open in another terminal, use that terminal or close it before resuming. It does not install an extension or provide editor-native diffs. [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks)
 
+For editor integrations or scripts, `agentnik code --list-sessions` prints a JSON array of saved sessions in the current project, newest first. It returns the session ID, saved turn status, file scope, and goal status without opening the composer or resuming a run. Pass a project folder to list sessions for a different workspace.
+
 ## First task
 
 1. Run `/connections` to list saved and environment connections. Use `/connections add` to create one if needed. API keys are entered without echo and use the OS credential store by default. If that store is unavailable, the terminal offers to save the key unencrypted in the local Agentnik config. Declining leaves the connection unchanged.
