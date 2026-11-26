@@ -11,6 +11,25 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_project_diff_distinguishes_worktree_from_index(self):
+        from dulwich import porcelain
+        from agentnik.code_terminal import project_diff
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            path = root / "some note.txt"
+            with porcelain.init(root) as repo:
+                path.write_text("base\n")
+                porcelain.add(repo, [path.name])
+                porcelain.commit(repo, message=b" fixture", author=b"Test <test@example.org>",
+                                 committer=b"Test <test@example.org>", no_verify=True, sign=False)
+                path.write_text("staged\n")
+                porcelain.add(repo, [path.name])
+                path.write_text("working\n")
+                self.assertIn("+working", project_diff(root, path.name))
+                self.assertIn("+staged", project_diff(root, "--staged " + path.name))
+                self.assertIn("Unstaged", project_diff(root, ""))
+
     def test_mcp_preferences_and_disabled_https_server_are_saved_without_contact(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store, load_config

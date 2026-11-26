@@ -1,7 +1,7 @@
 """Interactive prompt editing for the terminal Code client."""
 
 COMMANDS = (
-    "/help", "/status", "/connections", "/connections add", "/connections edit",
+    "/help", "/status", "/diff", "/diff --staged", "/connections", "/connections add", "/connections edit",
     "/connections options", "/connections key", "/connections remove", "/connection",
     "/model", "/goal", "/continue", "/web on", "/web off", "/vision on", "/vision off",
     "/thinking on", "/thinking off", "/permissions", "/permissions require",

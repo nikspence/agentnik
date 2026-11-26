@@ -13,6 +13,27 @@ def terminal_text(text):
     )
 
 
+def project_diff(root, argument):
+    from .code_agent import ProjectFiles
+    from .git_service import GitService
+
+    git = GitService(ProjectFiles(root))
+    if not argument:
+        status = git.inspect("git_status")
+        return "\n".join([
+            *(f"Staged: {path!r}" for path in status["staged"]),
+            *(f"Unstaged: {path!r}" for path in status["unstaged"]),
+            status["scope"],
+            "Use /diff PATH to compare with HEAD or /diff --staged PATH to review the index.",
+        ])
+    staged = argument == "--staged" or argument.startswith("--staged ")
+    path = argument.partition(" ")[2].strip() if staged else argument
+    if not path:
+        raise ValueError("Provide a project-relative file after --staged.")
+    result = git.inspect("git_diff_staged" if staged else "git_diff", path)
+    return result["diff"] or "No textual changes for this file."
+
+
 def load_run_settings(data_dir, name, model, web_enabled=False):
     from importlib.util import find_spec
     from . import core, tls

@@ -191,6 +191,7 @@ def main():
             return 0
         if command == "/help":
             print("/status           Show the project folder\n"
+                  "/diff [--staged] PATH  Review a file against HEAD\n"
                   "/connections      List saved and environment connections\n"
                   "/connections add|edit|options|key|remove [NAME]\n"
                   "/connection NAME  Select a connection for this session\n"
@@ -208,6 +209,15 @@ def main():
                   "/sessions         List saved sessions for the current project\n"
                   "/resume ID        Resume a saved session (or use latest)\n"
                   "/exit             Close Agentnik Code")
+        elif command == "/diff" or command.startswith("/diff "):
+            from .code_terminal import project_diff, terminal_text
+
+            try:
+                print(terminal_text(project_diff(root, command.partition(" ")[2].strip())))
+            except (OSError, ValueError) as exc:
+                print(terminal_text(exc), file=sys.stderr)
+            except KeyError:
+                print("Git diff unavailable. The repository may not have an initial commit.", file=sys.stderr)
         elif command == "/status":
             print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
                   f" · Model: {model or '(connection default)'!r} · Web: {'on' if web_enabled else 'off'}"

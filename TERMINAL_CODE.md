@@ -40,5 +40,6 @@ At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T
 | `/settings decision set` / `/settings decision on` | Configure optional System One advice. At a shell approval prompt, press `a` to review and send the proposal for advice. You still approve or decline the command. |
 | `/settings mcp` | Manage desktop MCP profiles, access, tool priority, timeouts, and HTTPS bearer tokens. Setup does not start or contact a server. |
 | `/status` | Show the project, session, model selection, and active switches. |
+| `/diff` / `/diff PATH` / `/diff --staged PATH` | List tracked changes or compare a file in the working tree or index against HEAD. |
 
 The terminal preview does not yet cover all desktop settings and tools. The [roadmap](AGENTNIK_PLAN.md) tracks remaining work, including native SSH and cross-platform validation and a later VS Code integration.
