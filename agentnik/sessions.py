@@ -34,6 +34,24 @@ def append_code_activity(session,kind,text):
     return removed
 
 
+def mark_code_interrupted(session, detail, *, legacy_goal=False, prepend_goal_detail=False):
+    """Reconcile a saved active Code turn without resuming it or performing I/O."""
+    if session.get("code_state") not in ("running", "awaiting_approval"):
+        return False
+    session["code_state"] = "interrupted"
+    goal = session.get("coding_goal", {})
+    if session.get("coding_last_run_goal", legacy_goal) and goal.get("status") == "active":
+        goal["status"] = "interrupted"
+        if prepend_goal_detail:
+            previous = goal.get("detail")
+            goal["detail"] = (detail + ("\n" + previous if previous else ""))[:4000]
+    for subagent in session.get("coding_subagents", []):
+        if subagent["status"] in ("queued", "running"):
+            subagent["status"] = "interrupted"
+    append_code_activity(session, "interrupted", detail)
+    return True
+
+
 def validate_session(value, ident=None):
     def require(ok):
         if not ok: raise SessionError('Session data is invalid or uses an unsupported version. The stored record has been preserved.')

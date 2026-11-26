@@ -19,7 +19,7 @@ from . import decision_advice
 from .decision_advice import parse_advice
 from .task_plan import validate_plan
 from .subagent_status import validate_record
-from .sessions import append_code_activity, coding_model_binding
+from .sessions import append_code_activity, coding_model_binding, mark_code_interrupted
 from .code_limits import FIELDS,UNLIMITED_FIELDS,coding_limits,GOAL_FIELDS,goal_limits,single_request_timeout
 from .selection_scroll import SelectionScroll
 from .web import public_url
@@ -235,12 +235,7 @@ class CodeTab(QWidget):
         self._draft_search_signature=None;self._draft_search_secrets=[];self.refresh_draft_search_secrets()
         self.events=CodeEvents(self);self.events.event.connect(self.receive)
         self.goal_checkpoint_timer=QTimer(self);self.goal_checkpoint_timer.setInterval(2000);self.goal_checkpoint_timer.timeout.connect(self.checkpoint_goal_progress)
-        if session.get("code_state") in ("running","awaiting_approval"):
-            session["code_state"]="interrupted"
-            if session.get('coding_last_run_goal',True) and session.get('coding_goal',{}).get('status')=='active':session['coding_goal']['status']='interrupted'
-            for item in session.get("coding_subagents",[]):
-                if item["status"] in ("queued","running"):item["status"]="interrupted"
-            append_code_activity(session,'interrupted','Interrupted coding run; nothing resumes automatically.')
+        if mark_code_interrupted(session,'Interrupted coding run; nothing resumes automatically.',legacy_goal=True):
             self.store.save(session)
         layout=QVBoxLayout(self)
         header=QHBoxLayout();layout.addLayout(header)

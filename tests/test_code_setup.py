@@ -53,3 +53,18 @@ class CodeSetupTests(unittest.TestCase):
                                          has_mcp=True, capability_connection=capability)
             research.assert_called_once_with(store, "Fixture", connection, True, mcp_first=False)
             self.assertEqual(options["mcp_priority"], "last")
+
+
+class CodeRecoveryTests(unittest.TestCase):
+    def test_interruption_is_idempotent_and_keeps_finished_subagents_and_goal_evidence(self):
+        from agentnik.sessions import mark_code_interrupted
+
+        session = {"code_state": "awaiting_approval", "coding_last_run_goal": True,
+                   "coding_goal": {"status": "active", "detail": "Prior evidence."},
+                   "coding_subagents": [{"status": "queued"}, {"status": "completed"}]}
+        self.assertTrue(mark_code_interrupted(session, "Check the project.", prepend_goal_detail=True))
+        self.assertFalse(mark_code_interrupted(session, "Do not append this."))
+        self.assertEqual(session["code_state"], "interrupted")
+        self.assertEqual(session["coding_goal"], {"status": "interrupted", "detail": "Check the project.\nPrior evidence."})
+        self.assertEqual(session["coding_subagents"], [{"status": "interrupted"}, {"status": "completed"}])
+        self.assertEqual(session["code_activity"], [{"kind": "interrupted", "text": "Check the project."}])

@@ -11,7 +11,7 @@ from uuid import UUID
 from .code_worker import STEERING_OUTCOMES
 from .repositories import RepositoryRegistry
 from .research import scrub
-from .sessions import append_code_activity, coding_model_binding
+from .sessions import append_code_activity, coding_model_binding, mark_code_interrupted
 from .storage import Store
 
 
@@ -292,18 +292,11 @@ class CodeHistory:
     def recover_interrupted(self, record, lease):
         """Reconcile a terminal run only after exclusively reopening its session."""
         session_id = record.get("coding_terminal_session")
-        if not session_id or lease.session_id != session_id or record.get("code_state") not in (
-            "running", "awaiting_approval",
-        ):
+        if not session_id or lease.session_id != session_id:
             return
         detail = "The previous terminal run ended without a saved result. Check the project before continuing."
-        record["code_state"] = "interrupted"
-        if record.get("coding_last_run_goal") and record.get("coding_goal", {}).get("status") == "active":
-            goal = record["coding_goal"]
-            previous = goal.get("detail")
-            goal.update(status="interrupted", detail=(detail + ("\n" + previous if previous else ""))[:4000])
-        append_code_activity(record, "interrupted", detail)
-        self.store.save(record)
+        if mark_code_interrupted(record, detail, prepend_goal_detail=True):
+            self.store.save(record)
 
     def checkpoint_goal(self, record, event):
         goal = record.get("coding_goal")
