@@ -67,18 +67,23 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install terminal dependencies
-        run: python -m pip install ".[terminal]"
-      - name: Check release distributions
-        if: runner.os == 'Linux'
+      - name: Build and check release distributions
         run: |
           python -m pip install build twine
           python -m build --outdir dist/pypi-check
           python -m twine check --strict dist/pypi-check/*
+      - name: Install the built wheel with terminal extras
+        run: >-
+          python -c "import pathlib, subprocess, sys; wheel, = pathlib.Path('dist/pypi-check').glob('*.whl');
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[terminal]'])"
       - name: Verify the installed launcher outside the checkout
         working-directory: ${{ runner.temp }}
         run: |
           python -c "from importlib.util import find_spec; assert find_spec('PySide6') is None"
           agentnik code --help
       - name: Run offline terminal tests
-        run: python -m unittest discover -s tests -p test_code_terminal.py -v
+        working-directory: ${{ runner.temp }}
+        run: python -m unittest discover -s "${{ github.workspace }}/tests" -p test_code_terminal.py -v
+      - name: Run offline terminal OAuth tests
+        working-directory: ${{ runner.temp }}
+        run: python -m unittest discover -s "${{ github.workspace }}/tests" -p test_mcp_oauth_signin.py -v
