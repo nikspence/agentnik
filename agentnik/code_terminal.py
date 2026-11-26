@@ -339,6 +339,10 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 write()
                 partial_line = False
             if kind in ("edit_proposal", "operation_proposal"):
+                approval_pending = getattr(run, "approval_pending", None)
+                if approval_pending is not None and approval_pending(event["fingerprint"]) is False:
+                    write("Skipped an approval prompt that is no longer active.")
+                    continue
                 proposal = event["proposal"]
                 if kind == "edit_proposal":
                     fields = ("cwd", "path", "diff")

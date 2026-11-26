@@ -713,9 +713,16 @@ class CodingRun:
             if self.cancel.is_set() or cancel is None or cancel.is_set():return False
             cancel.set();return True
 
+    def _approval_pending(self,fingerprint):
+        return not self.cancel.is_set() and self.pending is not None and self.pending[0]==fingerprint and self.answer is None
+
+    def approval_pending(self,fingerprint):
+        """Check whether a queued proposal may still accept a decision."""
+        with self.lock:return self._approval_pending(fingerprint)
+
     def decide(self,fingerprint,approved,scope='once',git_credentials=None):
         with self.lock:
-            if self.cancel.is_set() or not self.pending or self.pending[0]!=fingerprint or self.answer is not None or type(approved) is not bool or scope not in ('once','mcp_server_run'):return False
+            if not self._approval_pending(fingerprint) or type(approved) is not bool or scope not in ('once','mcp_server_run'):return False
             if git_credentials is not None:
                 if not approved or self.pending[1].get('operation') not in ('git_fetch_connect','git_push_connect') or not isinstance(git_credentials,tuple) or len(git_credentials)!=2:return False
                 username,token=git_credentials

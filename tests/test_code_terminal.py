@@ -2639,6 +2639,25 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(result["status"], "limited")
         self.assertIn("This approval prompt is no longer active. Your answer was not applied.", lines)
 
+    def test_skips_approval_that_expired_before_display(self):
+        from unittest.mock import Mock
+
+        run = Mock()
+        def work(emit):
+            emit({"kind": "edit_proposal", "fingerprint": "expired",
+                  "proposal": {"path": "note.txt", "diff": "+Not applied"}})
+            emit({"kind": "finished", "status": "limited"})
+        run.run.side_effect = work
+        run.approval_pending.return_value = False
+        lines = []
+        with patch("builtins.input") as prompt:
+            result = drive_run(run, write=lines.append)
+        run.approval_pending.assert_called_once_with("expired")
+        prompt.assert_not_called()
+        run.decide.assert_not_called()
+        self.assertEqual(result["status"], "limited")
+        self.assertEqual(lines, ["Skipped an approval prompt that is no longer active."])
+
     def test_review_requires_explicit_input_and_escapes_terminal_controls(self):
         class Run:
             decisions = []
