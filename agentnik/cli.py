@@ -3,11 +3,45 @@
 import argparse
 from collections import deque
 from getpass import GetPassWarning, getpass
+import json
 from pathlib import Path
 import sqlite3
 import sys
 from uuid import uuid4
 import warnings
+
+
+def import_connection_settings(store, filename):
+    from .core import validate_connections
+
+    filename = filename.strip()
+    if len(filename) >= 2 and filename[0] == filename[-1] and filename[0] in ("'", '"'):
+        filename = filename[1:-1]
+    path = Path(filename).expanduser()
+    if not path.is_file():
+        raise ValueError("Choose an existing connections JSON file.")
+    with path.open("rb") as stream:
+        raw = stream.read(1_048_577)
+    if len(raw) > 1_048_576:
+        raise ValueError("Connection imports must be no larger than 1 MiB.")
+    try:
+        incoming = validate_connections(json.loads(raw.decode("utf-8-sig")))
+    except (ValueError, RecursionError):
+        raise ValueError("The file is not valid Agentnik connections JSON.") from None
+    if len(incoming) > 100:
+        raise ValueError("Import at most 100 connections at a time.")
+    new = {name: settings for name, settings in incoming.items() if name not in store.config["connections"]}
+    if not new:
+        print("No new connections to import. Existing connections were not changed.")
+        return
+    print("Import settings for: " + ", ".join(repr(name) for name in new))
+    print(f"Skip {len(incoming) - len(new)} existing connection(s). API keys will not be imported.")
+    if input("Import these settings? [y/N] ").strip().lower() != "y":
+        return
+    for name, settings in new.items():
+        settings.pop("api_key", None)
+        store.save_connection(name, settings)
+    print(f"Imported {len(new)} connection(s). Use /connections key NAME to add credentials.")
 
 
 def connection_menu(data_dir, action="", selected_name=""):
@@ -20,6 +54,9 @@ def connection_menu(data_dir, action="", selected_name=""):
         print(exc, file=sys.stderr)
         return
     try:
+        if action == "import":
+            import_connection_settings(store, selected_name or input("Connections JSON file: "))
+            return
         if not action:
             saved = store.config["connections"]
             for label, entries in (("Saved", saved), ("Environment", environment_connections())):
@@ -284,6 +321,7 @@ def terminal_session(options, root, lease, images):
                   "/git              Run manual Git status, log, diff, stage, unstage, commit, or push\n"
                   "/connections      List saved and environment connections\n"
                   "/connections show|add|edit|copy|options|key|remove [NAME]\n"
+                  "/connections import PATH   Import connection settings without API keys\n"
                   "/connections discover  Look for supported services on this machine\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model [NAME]     Override the model, or reset to the connection default\n"
@@ -575,8 +613,8 @@ def terminal_session(options, root, lease, images):
         elif command == "/connections" or command.startswith("/connections "):
             _, _, operation = command.partition(" ")
             action, _, name = operation.strip().partition(" ")
-            if action not in ("", "show", "add", "edit", "copy", "options", "key", "remove"):
-                print("Use /connections, or /connections show|add|edit|copy|options|key|remove [NAME].")
+            if action not in ("", "show", "add", "edit", "copy", "options", "key", "remove", "import"):
+                print("Use /connections, /connections import PATH, or /connections show|add|edit|copy|options|key|remove [NAME].")
                 continue
             connection_menu(options.data_dir, action, name.strip())
             if not action:

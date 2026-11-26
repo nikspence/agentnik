@@ -29,6 +29,36 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_connection_import_previews_and_skips_existing_connections_and_keys(self):
+        import json
+        from agentnik.cli import connection_menu
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = Store(root / "data")
+            try:
+                store.save_connection("Existing", {"url": "https://example.org/v1", "model": "keep"})
+                fixture = root / "connection export.json"
+                fixture.write_text(json.dumps({"connections": {
+                    "Existing": {"url": "https://example.org/v1", "model": "replace"},
+                    "New": {"url": "https://example.org/private", "model": "new", "api_key": "synthetic"},
+                }}), encoding="utf-8-sig")
+                before = store.config_path.read_bytes()
+                with contextlib.redirect_stdout(io.StringIO()) as output, \
+                        patch("builtins.input", side_effect=["", "y"]):
+                    connection_menu(root / "data", "import", f'"{fixture}"')
+                    self.assertEqual(store.config_path.read_bytes(), before)
+                    connection_menu(root / "data", "import", str(fixture))
+                current = load_config(store.config_path)["connections"]
+                self.assertEqual(current["Existing"]["model"], "keep")
+                self.assertEqual(current["New"]["model"], "new")
+                self.assertNotIn("api_key", current["New"])
+                self.assertNotIn("synthetic", output.getvalue())
+                self.assertNotIn("example.org/private", output.getvalue())
+            finally:
+                store.db.close()
+
     def test_copy_saved_connection_does_not_copy_credentials_or_overwrite(self):
         from agentnik.cli import connection_menu
         from agentnik.storage import Store, load_config
