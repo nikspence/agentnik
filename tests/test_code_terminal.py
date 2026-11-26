@@ -3577,6 +3577,12 @@ class TerminalRunTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             store = Store(directory)
             try:
+                overview = configure_code(store, [])
+                self.assertIn("/settings desktop for desktop-only preferences", overview)
+                desktop = configure_code(store, ["desktop"])
+                for command in ("appearance", "chat-limits", "desktop-code"):
+                    self.assertNotIn(f"/settings {command}", overview)
+                    self.assertIn(f"/settings {command}", desktop)
                 configure_code(store, ["limits", "rounds", "12"])
                 configure_code(store, ["goal", "steps", "3"])
                 configure_code(store, ["web", "desktop", "on"])

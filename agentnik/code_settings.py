@@ -528,10 +528,7 @@ def configure_code(store, arguments, root=None):
         lines.extend((
             run_help,
             goal_help,
-            "Use /settings chat-limits to manage desktop Chat research budgets.",
             "Use /settings tls strict or /settings tls relaxed.",
-            "Use /settings appearance to manage desktop appearance and layout.",
-            "Use /settings desktop-code to manage desktop Code display and compaction defaults.",
             "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
             "Use /settings web providers to manage search provider credentials.",
             "Use /settings image to configure the image model.",
@@ -539,9 +536,18 @@ def configure_code(store, arguments, root=None):
             "Use /settings git-author to manage the current project's Git author override.",
             "Use /settings subagents to inspect or reset remembered tool rejections.",
             "Use /settings mcp to manage desktop MCP preferences and saved servers.",
+            "Use /settings desktop for desktop-only preferences.",
         ))
         return "\n".join(lines)
 
+    if arguments == ["desktop"]:
+        return "\n".join((
+            "These settings do not change terminal Code behavior.",
+            "Use /settings appearance to manage desktop appearance and layout.",
+            "Use /settings chat-limits to manage desktop Chat research budgets.",
+            "Use /settings desktop-code to manage desktop Code display and compaction defaults.",
+            "Use /settings web desktop on|off to set the desktop web default.",
+        ))
     if arguments[0] == "git-author":
         return configure_git_author(store, root, arguments[1:])
     if arguments == ["subagents"]:

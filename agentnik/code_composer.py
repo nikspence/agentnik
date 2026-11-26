@@ -14,7 +14,7 @@ COMMANDS = (
     "/scope", "/scope project", "/scope machine",
     "/context", "/context on", "/context off", "/context clear", "/context restore", "/attach", "/attachments", "/attachments clear",
     "/attachments remove",
-    "/settings", "/settings appearance", "/settings desktop-code",
+    "/settings", "/settings desktop", "/settings appearance", "/settings desktop-code",
     "/settings desktop-code auto-compact on", "/settings desktop-code auto-compact off",
     "/settings desktop-code thinking on", "/settings desktop-code thinking off",
     "/settings desktop-code vision on", "/settings desktop-code vision off", "/settings chat-limits", "/settings decision",
