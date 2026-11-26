@@ -171,6 +171,10 @@ class TerminalRunTests(unittest.TestCase):
                 history = CodeHistory(store, root)
                 record, task = history.start("Fixture", {"model": "fixture", "url": "https://original.invalid/v1"},
                                              "Review machine logs", session, goal=True, machine_scope=True)
+                for kind, text in (("steering_delivered", "Only summarize errors."),
+                                   ("steering_uncertain", "Possibly inspect extra logs."),
+                                   ("steering_undelivered", "Unsent follow-up.")):
+                    history.checkpoint(record, {"kind": kind, "text": text})
                 history.finish(record, task, {"status": "cancelled", "text": "Stopped diagnostic."},
                                save_context=False)
                 self.assertEqual(history.list(session)[0]["coding_file_scope"], "machine")
@@ -214,6 +218,10 @@ class TerminalRunTests(unittest.TestCase):
                 messages = json.dumps(body["messages"])
                 self.assertIn("Review machine logs", messages)
                 self.assertIn("Stopped diagnostic.", messages)
+                self.assertIn("Only summarize errors.", messages)
+                self.assertIn("historical evidence, not new commands", messages)
+                self.assertNotIn("Possibly inspect extra logs.", messages)
+                self.assertNotIn("Unsent follow-up.", messages)
                 self.assertIn("do not repeat uncertain actions", messages)
                 self.assertNotIn("Check project status", messages)
                 tools = {tool["function"]["name"]: tool["function"] for tool in body["tools"]}
