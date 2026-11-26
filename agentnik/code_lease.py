@@ -7,12 +7,13 @@ from uuid import UUID
 
 
 class SessionLease:
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, namespace="terminal-locks", contention_message=None):
         from .storage import default_home
 
-        self.directory = (Path(data_dir) if data_dir else default_home()) / "terminal-locks"
+        self.directory = (Path(data_dir) if data_dir else default_home()) / namespace
         self.stream = None
         self.session_id = None
+        self.contention_message = contention_message or "This session is already open in another terminal. Use /new or choose another session."
 
     def __enter__(self):
         return self
@@ -46,7 +47,7 @@ class SessionLease:
         except OSError as exc:
             stream.close()
             if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
-                raise ValueError("This session is already open in another terminal. Use /new or choose another session.") from None
+                raise ValueError(self.contention_message) from None
             raise
         self.close()
         self.stream = stream

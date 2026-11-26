@@ -109,7 +109,7 @@ def terminal_mcp_bridges(config, selection):
             except Exception:
                 raise ValueError("A selected MCP OAuth sign-in is unavailable. Sign in again in desktop settings.") from None
             if credential_state(record) != "ready":
-                raise ValueError("A selected MCP OAuth sign-in needs renewal. Renew it in desktop settings.")
+                raise ValueError("A selected MCP OAuth sign-in needs renewal. Use /settings mcp renew NAME.")
             token = record["access_token"]
         elif profile.get("credential_id"):
             import keyring

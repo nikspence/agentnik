@@ -4,7 +4,7 @@ from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
 from . import tls
 from .mcp_oauth import parse_token_response,_MAX_RESPONSE
-from .mcp_oauth_record import validate_record,make_record,read_record,write_record,credential_state
+from .mcp_oauth_record import validate_record,make_record,read_record,write_record,credential_state,oauth_refresh_lease
 from .mcp_support import server_timeout
 
 class OAuthRefresh(QObject):
@@ -47,8 +47,8 @@ class OAuthRefresh(QObject):
 
 class OAuthCredentialBroker(QObject):
     """Serialize refreshes of a rotating credential across active MCP sessions."""
-    def __init__(self,parent=None,refresh_factory=OAuthRefresh):
-        super().__init__(parent);self.refresh_factory=refresh_factory;self.pending={}
+    def __init__(self,parent=None,refresh_factory=OAuthRefresh,lock_factory=oauth_refresh_lease):
+        super().__init__(parent);self.refresh_factory=refresh_factory;self.lock_factory=lock_factory;self.pending={}
 
     @staticmethod
     def current(check):
@@ -68,12 +68,16 @@ class OAuthCredentialBroker(QObject):
         if state=='ready':callback({'token':record['access_token']});return
         if state=='uncertain':callback({'error':'OAuth refresh outcome is uncertain. Sign in again.'});return
         if state=='expired':callback({'error':'OAuth credential expired. Sign in again.'});return
+        try:lease=self.lock_factory(ident)
+        except Exception:callback({'error':'Could not reserve the OAuth credential for refresh. Try again later.'});return
         marked=dict(record,refresh_pending=True)
-        try:write_record(ident,marked)
-        except Exception:callback({'error':'Could not prepare the OAuth credential for refresh. Sign in again.'});return
+        try:
+            if read_record(ident,resource)!=record:raise ValueError('OAuth credential changed')
+            write_record(ident,marked)
+        except Exception:lease.close();callback({'error':'Could not prepare the OAuth credential for refresh. Sign in again.'});return
         try:job=self.refresh_factory(record,self,timeout_ms=server_timeout(server)*1000)
-        except Exception:callback({'error':'Could not start OAuth refresh. Sign in again.'});return
-        pending={'resource':resource,'record':marked,'job':job,'waiters':[(callback,is_current)]};self.pending[ident]=pending
+        except Exception:lease.close();callback({'error':'Could not start OAuth refresh. Sign in again.'});return
+        pending={'resource':resource,'record':marked,'job':job,'lease':lease,'waiters':[(callback,is_current)]};self.pending[ident]=pending
         job.finished.connect(lambda result,ident=ident,job=job:self.refreshed(ident,job,result))
         try:job.start()
         except Exception:self.refreshed(ident,job,{'error':'OAuth refresh failed. Sign in again.'})
@@ -88,6 +92,7 @@ class OAuthCredentialBroker(QObject):
                 if read_record(ident,pending['resource'])!=pending['record']:raise ValueError('OAuth credential changed')
                 record=validate_record(result['credential'],pending['resource']);write_record(ident,record);outcome={'token':record['access_token']}
             except Exception:outcome={'error':'Could not save the refreshed OAuth credential. Sign in again.'}
+        pending['lease'].close()
         for callback,check in waiters:
             callback(outcome if self.current(check) else {'error':'Selected MCP server changed or is unavailable.'})
 

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 
 from agentnik.mcp_oauth import bearer_challenge,protected_resource_metadata_urls,authorization_server_metadata_urls
 
@@ -209,7 +210,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
         old=make_record(server['url'],'https://auth.example','https://auth.example/token','client',{'access_token':'old-secret','refresh_token':'old-refresh','expires_in':1},now=1)
         new=make_record(server['url'],old['issuer'],old['token_endpoint'],old['client_id'],{'access_token':'new-secret','refresh_token':'rotated-secret','expires_in':600})
         with patch('keyring.get_password',side_effect=lambda service,key:values.get(key)),patch('keyring.set_password',side_effect=lambda service,key,value:values.__setitem__(key,value)) as put:
-            write_record('oauth-id',old);put.reset_mock();broker=OAuthCredentialBroker(refresh_factory=FakeRefresh)
+            write_record('oauth-id',old);put.reset_mock();broker=OAuthCredentialBroker(refresh_factory=FakeRefresh,lock_factory=lambda _:Mock())
             broker.request(server,lambda value:out.append(('first',value)),lambda:True);broker.request(server,lambda value:out.append(('second',value)),lambda:True)
             self.assertEqual(len(jobs),1);self.assertEqual(jobs[0].timeout_ms,60000);self.assertTrue(read_record('oauth-id',server['url'])['refresh_pending']);jobs[0].finished.emit({'credential':new});self.assertEqual(put.call_count,2);self.assertEqual(read_record('oauth-id',server['url'])['refresh_token'],'rotated-secret')
             self.assertEqual(out,[('first',{'token':'new-secret'}),('second',{'token':'new-secret'})]);self.assertFalse(broker.pending)
@@ -231,7 +232,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
         old=make_record(server['url'],'https://auth.example','https://auth.example/token','client',{'access_token':'old','refresh_token':'refresh','expires_in':1},now=1)
         new=make_record(server['url'],old['issuer'],old['token_endpoint'],old['client_id'],{'access_token':'new','refresh_token':'rotated','expires_in':600})
         with patch('keyring.get_password',side_effect=lambda service,key:values.get(key)),patch('keyring.set_password',side_effect=lambda service,key,value:values.__setitem__(key,value)) as put:
-            write_record('oauth-id',old);broker=OAuthCredentialBroker(refresh_factory=FakeRefresh);broker.request(server,out.append,lambda:current[0]);put.reset_mock();current[0]=False;values.clear();jobs[0].finished.emit({'credential':new})
+            write_record('oauth-id',old);broker=OAuthCredentialBroker(refresh_factory=FakeRefresh,lock_factory=lambda _:Mock());broker.request(server,out.append,lambda:current[0]);put.reset_mock();current[0]=False;values.clear();jobs[0].finished.emit({'credential':new})
             put.assert_not_called();self.assertNotIn('oauth-id',values);self.assertIn('changed',out[0]['error'])
             from PySide6.QtCore import QCoreApplication,QEvent
             QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
@@ -248,7 +249,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
         server={'url':'https://mcp.example/mcp','credential_id':'oauth-id','auth_type':'oauth'}
         def record(access,refresh,now):return make_record(server['url'],'https://auth.example','https://auth.example/token','client',{'access_token':access,'refresh_token':refresh,'expires_in':1},now=now)
         with patch('keyring.get_password',side_effect=lambda service,key:values.get(key)),patch('keyring.set_password',side_effect=lambda service,key,value:values.__setitem__(key,value)) as put:
-            write_record('oauth-id',record('old','old-refresh',1));broker=OAuthCredentialBroker(refresh_factory=FakeRefresh);broker.request(server,out.append,lambda:True)
+            write_record('oauth-id',record('old','old-refresh',1));broker=OAuthCredentialBroker(refresh_factory=FakeRefresh,lock_factory=lambda _:Mock());broker.request(server,out.append,lambda:True)
             replacement=record('replacement','new-refresh',1);write_record('oauth-id',replacement);put.reset_mock();jobs[0].finished.emit({'credential':record('stale','stale-refresh',1)})
             put.assert_not_called();self.assertEqual(read_record('oauth-id',server['url']),replacement);self.assertIn('Sign in again',out[0]['error']);QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
 
@@ -264,7 +265,7 @@ class MCPOAuthDiscovery(unittest.TestCase):
         server={'url':'https://mcp.example/mcp','credential_id':'oauth-id','auth_type':'oauth'}
         old=make_record(server['url'],'https://auth.example','https://auth.example/token','client',{'access_token':'old','refresh_token':'refresh','expires_in':1},now=1)
         with patch('keyring.get_password',side_effect=lambda service,key:values.get(key)),patch('keyring.set_password',side_effect=lambda service,key,value:values.__setitem__(key,value)):
-            write_record('oauth-id',old);broker=OAuthCredentialBroker(refresh_factory=FakeRefresh);broker.request(server,out.append,lambda:True);jobs[0].finished.emit({'error':'network failure'})
+            write_record('oauth-id',old);broker=OAuthCredentialBroker(refresh_factory=FakeRefresh,lock_factory=lambda _:Mock());broker.request(server,out.append,lambda:True);jobs[0].finished.emit({'error':'network failure'})
             self.assertTrue(read_record('oauth-id',server['url'])['refresh_pending']);broker.request(server,out.append,lambda:True);self.assertEqual(len(jobs),1);self.assertIn('uncertain',out[-1]['error']);QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
 
     def test_oauth_bridge_waits_for_credential_and_ignores_late_completion_after_close(self):

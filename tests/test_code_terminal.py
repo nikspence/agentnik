@@ -11,6 +11,49 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_oauth_renewal_marks_uncertainty_and_never_retries_an_unfinished_exchange(self):
+        from contextlib import nullcontext
+        from email.message import Message
+        import json
+        from unittest.mock import Mock
+        from agentnik.mcp_oauth_terminal import renew_mcp_credential
+
+        server = {"url": "https://example.org/mcp", "credential_id": "fixture"}
+        record = {"version": 1, "resource_url": server["url"], "issuer": "https://auth.example.org",
+                  "token_endpoint": "https://auth.example.org/token", "client_id": "client",
+                  "access_token": "old", "refresh_token": "old-refresh", "expires_at": 1, "refresh_pending": False}
+        stored = [record]
+
+        def write(service, ident, value):
+            stored[0] = json.loads(value)
+
+        def response(request, timeout):
+            self.assertTrue(stored[0]["refresh_pending"])
+            self.assertEqual(request.full_url, record["token_endpoint"])
+            reply = io.BytesIO(b'{"token_type":"Bearer","access_token":"new","expires_in":3600}')
+            reply.status = 200
+            reply.headers = Message()
+            reply.headers["Content-Type"] = "application/json"
+            return reply
+
+        with patch("agentnik.mcp_oauth_terminal.oauth_refresh_lease", side_effect=lambda _: nullcontext()), \
+                patch("keyring.get_password", side_effect=lambda *_: json.dumps(stored[0])), \
+                patch("keyring.set_password", side_effect=write), \
+                patch("agentnik.mcp_oauth_terminal.build_opener") as opener:
+            renew_mcp_credential(server, lambda _: False)
+            opener.assert_not_called()
+            opener.return_value = Mock(open=response)
+            self.assertEqual(renew_mcp_credential(server, lambda _: True), "Renewed MCP OAuth sign-in.")
+            self.assertEqual(stored[0]["access_token"], "new")
+            self.assertFalse(stored[0]["refresh_pending"])
+            stored[0] = record
+            opener.return_value = Mock(open=Mock(side_effect=OSError("offline")))
+            with self.assertRaisesRegex(ValueError, "not retried"):
+                renew_mcp_credential(server, lambda _: True)
+            with self.assertRaisesRegex(ValueError, "cannot be renewed"):
+                renew_mcp_credential(server, lambda _: True)
+            opener.return_value.open.assert_called_once()
+
     def test_terminal_mcp_reuses_only_ready_oauth_records_for_the_selected_server(self):
         import json
         from agentnik.code_terminal import terminal_mcp_bridges

@@ -1,8 +1,20 @@
 """Shared, UI-independent MCP OAuth keyring records."""
 import json
 import time
+from pathlib import Path
+from uuid import NAMESPACE_URL, uuid5
 
 from .mcp_oauth import _https_parts,_endpoint,_object_pairs,parse_token_response
+
+
+def oauth_refresh_lease(credential_id):
+    """Keyring credentials can be shared by processes with different data directories."""
+    from .code_lease import SessionLease
+
+    lease = SessionLease(Path.home() / ".agentnik", "oauth-refresh-locks",
+                         "The OAuth credential is being renewed in another process.")
+    lease.select(str(uuid5(NAMESPACE_URL, "agentnik-mcp-oauth:" + credential_id)))
+    return lease
 
 _FIELDS=frozenset(('version','resource_url','issuer','token_endpoint','client_id','access_token','refresh_token','expires_at','refresh_pending'))
 

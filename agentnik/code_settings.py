@@ -74,10 +74,30 @@ def configure_mcp(store, arguments):
             "Use /settings mcp add-https to save an HTTPS server without credentials.",
             "Use /settings mcp add-local to save a local executable or remove NAME to remove a server.",
             "Use /settings mcp token NAME to set, rotate, or clear an HTTPS bearer token.",
+            "Use /settings mcp renew NAME to renew an existing OAuth sign-in.",
             f"Use /settings mcp timeout SECONDS NAME (1–{MAX_TIMEOUT_SECONDS}, or default).",
         ])
     if len(arguments) >= 2 and arguments[0] == "token":
         return configure_mcp_token(store, servers, " ".join(arguments[1:]))
+    if len(arguments) >= 2 and arguments[0] == "renew":
+        from . import tls
+        from .code_terminal import terminal_text
+        from .mcp_oauth_terminal import renew_mcp_credential
+
+        name = " ".join(arguments[1:])
+        server = next((item for item in servers if item["name"] == name and item.get("auth_type") == "oauth"), None)
+        if server is None:
+            raise ValueError("Choose a saved MCP OAuth profile.")
+        tls.configure(settings.get("relaxed_tls", False))
+
+        def confirm(endpoint):
+            print("Send the saved refresh credential to " + terminal_text(endpoint) + ".")
+            return input("Renew this sign-in? [y/N] ").strip().lower() == "y"
+
+        try:
+            return renew_mcp_credential(server, confirm)
+        except (EOFError, KeyboardInterrupt):
+            return "OAuth renewal stopped. If already sent, the request will not be retried."
     if arguments in (["on"], ["off"]):
         settings["mcp_access_enabled"] = arguments == ["on"]
     elif arguments in (["priority", "first"], ["priority", "last"]):
