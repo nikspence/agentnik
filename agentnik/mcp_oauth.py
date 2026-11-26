@@ -1,6 +1,7 @@
 """MCP OAuth challenge and discovery URL handling; no network requests."""
 import json
 import re
+import time
 from urllib.parse import parse_qsl,urlsplit,urlunsplit
 from urllib.request import parse_http_list
 
@@ -90,3 +91,23 @@ def _endpoint(url):
     parts=_https_parts(url,allow_query=True)
     if any(key.lower() in _RESERVED for key,_ in parse_qsl(parts.query,keep_blank_values=True,max_num_fields=100)):raise ValueError('Reserved OAuth endpoint query parameter')
     return parts
+
+
+def valid_public_client_id(value):
+    return isinstance(value, str) and 0 < len(value) <= 1024 and all(33 <= ord(ch) <= 126 for ch in value)
+
+def parse_public_registration(raw, redirect):
+    """Validate the issuer response for a public loopback client."""
+    result = json.loads(raw.decode("utf-8"), object_pairs_hook=_object_pairs)
+    if not isinstance(result, dict) or not valid_public_client_id(result.get("client_id")):
+        raise ValueError()
+    expires = result.get("client_id_expires_at", 0)
+    if (type(expires) is not int or expires < 0 or (expires and expires <= time.time())
+            or result.get("token_endpoint_auth_method", "none") != "none" or result.get("client_secret")
+            or result.get("redirect_uris", [redirect]) != [redirect]):
+        raise ValueError()
+    for field, required in (("grant_types", "authorization_code"), ("response_types", "code")):
+        choices = result.get(field, [required])
+        if not isinstance(choices, list) or required not in choices:
+            raise ValueError()
+    return result["client_id"], expires or None

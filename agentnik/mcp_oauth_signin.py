@@ -15,7 +15,7 @@ from . import tls
 from .core import NoRedirect
 from .mcp_oauth import (
     _MAX_RESPONSE, _endpoint, _object_pairs, authorization_server_metadata_urls,
-    parse_token_response, protected_resource_metadata_urls,
+    parse_public_registration, parse_token_response, protected_resource_metadata_urls, valid_public_client_id,
 )
 from .mcp_oauth_metadata import MAX_METADATA, parse_authorization_metadata, parse_resource_metadata
 from .mcp_oauth_record import make_record
@@ -122,10 +122,6 @@ def _wait_for_callback(listener, state, issuer, require_issuer):
     raise ValueError("OAuth sign-in timed out.")
 
 
-def _valid_client_id(value):
-    return isinstance(value, str) and 0 < len(value) <= 1024 and all(33 <= ord(ch) <= 126 for ch in value)
-
-
 def register_public_client(metadata, redirect):
     endpoint = metadata.get("registration_endpoint")
     if not endpoint:
@@ -139,19 +135,7 @@ def register_public_client(metadata, redirect):
     try:
         url = _endpoint(endpoint).geturl()
         raw = runtime.wait(lambda: _read(runtime, url, body, _MAX_RESPONSE, registration=True))
-        result = json.loads(raw, object_pairs_hook=_object_pairs)
-        if not isinstance(result, dict) or not _valid_client_id(result.get("client_id")):
-            raise ValueError()
-        expires = result.get("client_id_expires_at", 0)
-        if (type(expires) is not int or expires < 0 or (expires and expires <= time.time())
-                or result.get("token_endpoint_auth_method", "none") != "none" or result.get("client_secret")
-                or result.get("redirect_uris", [redirect]) != [redirect]):
-            raise ValueError()
-        for field, required in (("grant_types", "authorization_code"), ("response_types", "code")):
-            choices = result.get(field, [required])
-            if not isinstance(choices, list) or required not in choices:
-                raise ValueError()
-        return result["client_id"], expires or None
+        return parse_public_registration(raw, redirect)
     except Exception:
         raise ValueError("OAuth client registration did not finish safely. It was not retried.") from None
     finally:
@@ -159,7 +143,7 @@ def register_public_client(metadata, redirect):
 
 
 def sign_in(resource, client_id, scope, present):
-    if client_id != "" and not _valid_client_id(client_id):
+    if client_id != "" and not valid_public_client_id(client_id):
         raise ValueError("Enter the public OAuth client ID registered with this provider.")
     if len(scope) > 4096 or any(not 32 <= ord(ch) <= 126 or ch in '"\\' for ch in scope):
         raise ValueError("Invalid OAuth scopes.")

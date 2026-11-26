@@ -3,13 +3,12 @@ import base64
 import hashlib
 import json
 import secrets
-import time
 from urllib.parse import parse_qs,urlencode,urlsplit,urlunsplit
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtNetwork import QHostAddress,QNetworkAccessManager,QNetworkRequest,QTcpServer
 from . import tls
-from .mcp_oauth import _https_parts,_object_pairs,_endpoint,_MAX_RESPONSE,parse_token_response
+from .mcp_oauth import _https_parts,_endpoint,_MAX_RESPONSE,parse_public_registration,parse_token_response,valid_public_client_id
 
 def _scope(value):
     if not isinstance(value,str) or len(value)>4096 or any(ord(ch)<32 or ord(ch)>126 for ch in value):raise ValueError('Invalid OAuth scope')
@@ -31,7 +30,7 @@ class OAuthAuthorization(QObject):
             resource=_https_parts(self.resource_url,allow_query=True);_endpoint(self.metadata['authorization_endpoint']);_endpoint(self.metadata['token_endpoint']);_https_parts(self.metadata['issuer'])
             if self.metadata.get('pkce_s256') is not True or self.metadata.get('public_client_supported',True) is not True:raise ValueError('PKCE or public client authentication is unavailable')
             if self.dynamic:_endpoint(self.metadata['registration_endpoint'])
-            elif not isinstance(self.client_id,str) or len(self.client_id)>1024 or any(ord(ch)<33 or ord(ch)>126 for ch in self.client_id):raise ValueError('Invalid client ID')
+            elif not valid_public_client_id(self.client_id):raise ValueError('Invalid client ID')
             self.scopes=_scope(self.scopes)
             self.resource=urlunsplit((resource.scheme,resource.netloc,resource.path,resource.query,''))
             if not self.listener.listen(QHostAddress(QHostAddress.SpecialAddress.LocalHost),0):raise ValueError('Loopback callback unavailable')
@@ -58,16 +57,8 @@ class OAuthAuthorization(QObject):
         status=reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute);ctype=str(reply.header(QNetworkRequest.KnownHeaders.ContentTypeHeader) or '').split(';',1)[0].strip().lower();self.reply=None;reply.deleteLater()
         try:
             if status not in (200,201) or ctype!='application/json':raise ValueError()
-            result=json.loads(bytes(self.buffer).decode('utf-8'),object_pairs_hook=_object_pairs);self.buffer.clear()
-            if not isinstance(result,dict):raise ValueError()
-            client_id=result.get('client_id');expires=result.get('client_id_expires_at',0)
-            if not isinstance(client_id,str) or not client_id or len(client_id)>1024 or any(ord(ch)<33 or ord(ch)>126 for ch in client_id):raise ValueError()
-            if type(expires) is not int or expires<0 or (expires and expires<=int(time.time())):raise ValueError()
-            if result.get('token_endpoint_auth_method','none')!='none' or result.get('client_secret'):raise ValueError()
-            if 'redirect_uris' in result and result['redirect_uris']!=[self.redirect_uri]:raise ValueError()
-            if 'grant_types' in result and (not isinstance(result['grant_types'],list) or 'authorization_code' not in result['grant_types']):raise ValueError()
-            if 'response_types' in result and (not isinstance(result['response_types'],list) or 'code' not in result['response_types']):raise ValueError()
-            self.client_id=client_id;self.client_id_expires_at=expires or None;self.open_authorization()
+            self.client_id,self.client_id_expires_at=parse_public_registration(bytes(self.buffer),self.redirect_uri)
+            self.buffer.clear();self.open_authorization()
         except (ValueError,TypeError,UnicodeError,RecursionError):self.stop('OAuth client registration failed or returned invalid metadata.')
 
     def open_authorization(self):
