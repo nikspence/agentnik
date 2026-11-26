@@ -29,6 +29,47 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_switching_scope_pauses_and_restores_project_context(self):
+        import json
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.storage import Store
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture", "stream": False})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = [
+                "/connection Fixture", "Initial project task", "/scope machine", "/context",
+                "Machine diagnostic task", "/scope project", "Follow up on project", "/exit",
+            ]
+            answers = iter(("Prior project answer fixture", "Machine-only answer fixture", "Project follow-up"))
+            bodies = []
+
+            def send(connection, url, body, timeout):
+                bodies.append(json.dumps(body))
+                return Wire(chat(next(answers)), False)
+
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request", side_effect=send), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("Project context is paused in machine scope.", output.getvalue())
+            self.assertEqual(len(bodies), 3)
+            self.assertNotIn("Prior project answer fixture", bodies[1])
+            self.assertNotIn("Machine-only answer fixture", bodies[2])
+            self.assertIn("Prior project answer fixture", bodies[2])
+
     def test_connection_export_is_portable_and_refuses_to_overwrite(self):
         from agentnik.cli import export_connection_settings, import_connection_settings
         from agentnik.storage import Store

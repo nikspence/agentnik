@@ -479,7 +479,9 @@ def terminal_session(options, root, lease, images):
                 print(f"Previous-turn context {'enabled' if use_context else 'disabled'} for this session.")
             elif not action:
                 print(f"Previous-turn context: {'on' if use_context else 'off'}.")
-                if context:
+                if machine_scope:
+                    print("Project context is paused in machine scope.")
+                elif context:
                     print(terminal_text(f"Task:\n{context['task']}\n\nAnswer:\n{context['answer']}"))
                 else:
                     print("No previous-turn context is available.")
@@ -527,10 +529,7 @@ def terminal_session(options, root, lease, images):
         elif command == "/scope" or command.startswith("/scope "):
             mode = command.partition(" ")[2].strip()
             if mode in ("project", "machine"):
-                selected_scope = mode == "machine"
-                if machine_scope != selected_scope:
-                    machine_scope = selected_scope
-                    context = None
+                machine_scope = mode == "machine"
             elif mode:
                 print("Use /scope project or /scope machine.")
                 continue
@@ -888,7 +887,8 @@ def terminal_session(options, root, lease, images):
                     options.data_dir, connection_name, model, web_enabled,
                     discovered=discovered, mcp_selection=mcp_selection, root=root, memory_enabled=memory_enabled,
                 )
-                run = CodingRun(connection, root, command, context=context if use_context and not resume else None,
+                run = CodingRun(connection, root, command,
+                                context=context if use_context and not resume and not machine_scope else None,
                                 limits=limits,
                                 goal=goal, goal_budget=goal_budget, vision_enabled=vision_enabled,
                                 resume_context=resume,
@@ -933,7 +933,8 @@ def terminal_session(options, root, lease, images):
                         images.clear()
                     history.finish(record, task, result, save_context=not machine_scope)
                     last_record = record
-                    context = record.get("coding_context")
+                    if not machine_scope:
+                        context = record.get("coding_context")
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
