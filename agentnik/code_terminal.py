@@ -316,7 +316,10 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
     except (KeyboardInterrupt, EOFError):
         run.stop()
         write("\nStopping Code run…")
-        return {"status": "cancelled", "last_goal_detail": goal_detail}
+        detail = ("Cancelled locally. A submitted request may still finish on its server. "
+                  "Check the project before continuing. Agentnik will not replay the request.")
+        write(detail)
+        return {"status": "cancelled", "text": detail, "last_goal_detail": goal_detail}
     finally:
         run.stop()
         thread.join()

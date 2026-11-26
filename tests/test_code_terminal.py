@@ -858,11 +858,13 @@ class TerminalRunTests(unittest.TestCase):
                     self.assertFalse(returned.is_set(), "Cancellation waited for the blocked provider")
                     ident, record = next(iter(CodeHistory(store, root).sessions().items()))
                     self.assertEqual(record["code_state"], "cancelled")
+                    self.assertIn("may still finish on its server", record["code_activity"][-1]["text"])
                     composer.prompt.side_effect = ["/exit"]
                     with patch("sys.argv", [*argv, "--resume", ident]):
                         self.assertEqual(cli.main(), 0)
                     transport.assert_called_once()
                 self.assertIn("Stopping Code run", output.getvalue())
+                self.assertGreaterEqual(output.getvalue().count("will not replay the request"), 2)
                 self.assertIn(f"Resumed session {ident}", output.getvalue())
                 self.assertEqual(list(root.iterdir()), [])
             finally:
