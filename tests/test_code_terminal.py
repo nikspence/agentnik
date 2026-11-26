@@ -1488,6 +1488,24 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_terminal_settings_interrupt_returns_to_the_composer(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            composer = Mock()
+            composer.prompt.side_effect = ["/settings", "/status", "/exit"]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("agentnik.code_settings.configure_code", side_effect=KeyboardInterrupt), \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("Settings command interrupted.", out.getvalue())
+            self.assertIn("Permissions: require", out.getvalue())
+            request.assert_not_called()
+
     def test_bulk_run_limits_preserve_request_timeout_and_context(self):
         from agentnik.code_limits import coding_limits, UNLIMITED_FIELDS, single_request_timeout
         from agentnik.code_settings import configure_code

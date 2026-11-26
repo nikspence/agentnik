@@ -704,6 +704,8 @@ def terminal_session(options, root, lease, images):
                     print(configure_code(store, command.split()[1:], root=root))
                 finally:
                     store.db.close()
+            except (EOFError, KeyboardInterrupt):
+                print("Settings command interrupted.")
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
         elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume", "/open") or command in ("/plan", "/goal")):
