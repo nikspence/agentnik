@@ -119,6 +119,13 @@ def configure_mcp(store, arguments):
 
     settings = store.config["settings"]
     servers = store.config.get("mcp_servers", [])
+    def profile_name(parts):
+        name = " ".join(parts)
+        if (len(name) >= 2 and name[0] == name[-1] and name[0] in ("'", '"')
+                and not any(item["name"] == name for item in servers)):
+            return name[1:-1]
+        return name
+
     if not arguments:
         def profile_summary(item):
             remote = item.get("transport") == "http"
@@ -148,13 +155,13 @@ def configure_mcp(store, arguments):
             f"Use /settings mcp timeout SECONDS NAME (1–{MAX_TIMEOUT_SECONDS}, or default).",
         ])
     if len(arguments) >= 2 and arguments[0] == "token":
-        return configure_mcp_token(store, servers, " ".join(arguments[1:]))
+        return configure_mcp_token(store, servers, profile_name(arguments[1:]))
     if len(arguments) >= 2 and arguments[0] == "signin":
-        return configure_mcp_signin(store, " ".join(arguments[1:]))
+        return configure_mcp_signin(store, profile_name(arguments[1:]))
     if len(arguments) >= 2 and arguments[0] == "edit-https":
         from .code_terminal import terminal_text
 
-        name = " ".join(arguments[1:])
+        name = profile_name(arguments[1:])
         selected = next((item for item in servers if item["name"] == name and item.get("transport") == "http"), None)
         if selected is None:
             raise ValueError("Choose a saved HTTPS MCP profile.")
@@ -173,7 +180,7 @@ def configure_mcp(store, arguments):
     if len(arguments) >= 2 and arguments[0] == "edit-local":
         from .code_terminal import terminal_text
 
-        name = " ".join(arguments[1:])
+        name = profile_name(arguments[1:])
         selected = next((item for item in servers if item["name"] == name and item.get("transport") != "http"), None)
         if selected is None:
             raise ValueError("Choose a saved local MCP profile.")
@@ -200,7 +207,7 @@ def configure_mcp(store, arguments):
         from .code_terminal import terminal_text
         from .mcp_oauth_terminal import renew_mcp_credential
 
-        name = " ".join(arguments[1:])
+        name = profile_name(arguments[1:])
         server = next((item for item in servers if item["name"] == name and item.get("auth_type") == "oauth"), None)
         if server is None:
             raise ValueError("Choose a saved MCP OAuth profile.")
@@ -219,7 +226,7 @@ def configure_mcp(store, arguments):
     elif arguments in (["priority", "first"], ["priority", "last"]):
         settings["mcp_priority"] = arguments[1]
     elif len(arguments) >= 3 and arguments[0] == "timeout":
-        name = " ".join(arguments[2:])
+        name = profile_name(arguments[2:])
         if not any(item["name"] == name for item in servers):
             raise ValueError("No saved MCP server with that name.")
         try:
@@ -231,7 +238,7 @@ def configure_mcp(store, arguments):
         updated = [dict(item, timeout_seconds=seconds) if item["name"] == name else item for item in servers]
         store.config["mcp_servers"] = validate_servers(updated)
     elif len(arguments) >= 2 and arguments[0] in ("enable", "disable", "remove"):
-        name = " ".join(arguments[1:])
+        name = profile_name(arguments[1:])
         selected = next((item for item in servers if item["name"] == name), None)
         if selected is None:
             raise ValueError("No saved MCP server with that name.")

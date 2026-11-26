@@ -294,6 +294,18 @@ def main():
         return terminal_session(options, root, lease, images)
 
 
+def terminal_settings_arguments(command):
+    """Keep the exact trailing profile name for named MCP settings."""
+    arguments = command.split(None, 3)
+    if len(arguments) > 3 and arguments[1] == "mcp":
+        action, tail = arguments[2:]
+        if action == "timeout":
+            return ["mcp", action, *tail.split(None, 1)]
+        if action in ("edit-https", "edit-local", "token", "signin", "renew", "enable", "disable", "remove"):
+            return ["mcp", action, tail]
+    return command.split()[1:]
+
+
 def terminal_session(options, root, lease, images):
     print(f"Agentnik Code preview · {str(root)!r}")
     print("Select a connection with /connection NAME, then enter a task. Type /help.")
@@ -701,7 +713,7 @@ def terminal_session(options, root, lease, images):
             try:
                 store = Store(options.data_dir)
                 try:
-                    print(configure_code(store, command.split()[1:], root=root))
+                    print(configure_code(store, terminal_settings_arguments(command), root=root))
                 finally:
                     store.db.close()
             except (EOFError, KeyboardInterrupt):

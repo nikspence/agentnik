@@ -1488,6 +1488,26 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_mcp_settings_keep_significant_spaces_in_profile_names(self):
+        from agentnik.cli import terminal_settings_arguments
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            store = Store(directory)
+            try:
+                name = "Team  Server"
+                with patch("builtins.input", side_effect=[name, "https://example.org/mcp"]):
+                    configure_code(store, ["mcp", "add-https"])
+                configure_code(store, terminal_settings_arguments('/settings mcp timeout 42 "Team  Server"'))
+                configure_code(store, terminal_settings_arguments("/settings mcp disable Team  Server"))
+                profile, = store.config["mcp_servers"]
+                self.assertEqual(profile["name"], name)
+                self.assertEqual(profile["timeout_seconds"], 42)
+                self.assertFalse(profile["enabled"])
+            finally:
+                store.db.close()
+
     def test_terminal_settings_interrupt_returns_to_the_composer(self):
         from unittest.mock import Mock
         from agentnik import cli, core
