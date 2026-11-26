@@ -168,6 +168,7 @@ def main():
     connection_name = model = ""
     context = None
     web_enabled = False
+    require_approval = True
     session_id = str(uuid4())
     pending_command = f"/resume {options.resume}" if options.resume else None
     while True:
@@ -192,6 +193,7 @@ def main():
                   "/model NAME       Override the connection model\n"
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/web on|off       Enable or disable web research for this session\n"
+                  "/permissions      Set project and shell approval for this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
                   "/new              Start a fresh session in this project\n"
@@ -200,7 +202,27 @@ def main():
                   "/exit             Close Agentnik Code")
         elif command == "/status":
             print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
-                  f" · Model: {model or '(connection default)'!r} · Web: {'on' if web_enabled else 'off'}")
+                  f" · Model: {model or '(connection default)'!r} · Web: {'on' if web_enabled else 'off'}"
+                  f" · Permissions: {'require' if require_approval else 'allow-all'}")
+        elif command == "/permissions" or command.startswith("/permissions "):
+            mode = command.partition(" ")[2].strip()
+            if not mode:
+                current = "require" if require_approval else "allow-all"
+                print(f"Current mode: {current}. Applies to project edits and shell commands.")
+                try:
+                    mode = input("Choose require or allow-all [Enter to keep]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    continue
+                if not mode:
+                    continue
+            if mode not in ("require", "allow-all"):
+                print("Use /permissions require or /permissions allow-all.")
+                continue
+            require_approval = mode == "require"
+            print("Project edits and shell commands require approval for this session."
+                  if require_approval else
+                  "Project edits and shell commands will run without approval for this session.")
         elif command in ("/web on", "/web off"):
             web_enabled = command.endswith(" on")
             print("Web research enabled for next task. Queries may go to configured or fallback services."
@@ -209,6 +231,7 @@ def main():
             session_id = str(uuid4())
             context = None
             web_enabled = False
+            require_approval = True
             transcript.clear()
             if composer:
                 composer = open_composer()
@@ -266,6 +289,7 @@ def main():
             if command != "/history":
                 session_id = ident
                 web_enabled = False
+                require_approval = True
                 transcript.clear()
                 if composer:
                     composer = open_composer()
@@ -314,7 +338,8 @@ def main():
                 run = CodingRun(connection, root, command, context=context, limits=limits,
                                 goal=goal, goal_budget=goal_budget, **research_options)
                 run.stream_activity = True
-                run.review_project_edits = True
+                run.review_project_edits = require_approval
+                run.set_shell_without_approval(not require_approval)
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 continue

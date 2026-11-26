@@ -77,29 +77,40 @@ class TerminalRunTests(unittest.TestCase):
             argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
             edit = call("write_file", {"path": "note.txt", "content": "reviewed\n"})
             delete = call("delete_file", {"path": "keep.txt"}, ident="call-2")
+            auto_edit = call("write_file", {"path": "auto.txt", "content": "automatic\n"})
+            shell = call("run_shell", {"path": ".", "command": "echo fixture"}, ident="call-shell")
             first = Mock()
             first.prompt.side_effect = ["/connection Fixture",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
-                                        "Create a note", "/new", "/history", "/exit"]
+                                        "Create a note", "/permissions allow-all", "Create another note",
+                                        "/new", "/status", "/history", "/exit"]
             output = io.StringIO()
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=first), \
                     patch("builtins.input", side_effect=["y", "n"]) as approval, \
+                    patch("agentnik.shell.execute", return_value={
+                        "exit_code": 0, "output": "fixture", "truncated": False,
+                    }) as execute, \
                     patch.object(core, "open_request", side_effect=[
                         Wire(chat(calls=[edit, delete], finish="tool_calls"), False),
                         Wire(chat("Created the note."), False),
+                        Wire(chat(calls=[auto_edit, shell], finish="tool_calls"), False),
+                        Wire(chat("Created another note."), False),
                     ]) as transport, contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(), 0)
-            self.assertEqual(transport.call_count, 2, output.getvalue())
+            self.assertEqual(transport.call_count, 4, output.getvalue())
+            execute.assert_called_once()
             self.assertIn("No saved history for this session.", output.getvalue())
+            self.assertIn("Permissions: require", output.getvalue())
             self.assertEqual(approval.call_count, 2, output.getvalue())
             self.assertEqual((root / "note.txt").read_text(), "reviewed\n")
+            self.assertEqual((root / "auto.txt").read_text(), "automatic\n")
             self.assertEqual(preserved.read_text(), "Keep me")
             store = Store(data)
             try:
                 session_id, record = next(iter(CodeHistory(store, root).sessions().items()))
-                self.assertEqual(record["coding_context"]["answer"], "Created the note.")
+                self.assertEqual(record["coding_context"]["answer"], "Created another note.")
             finally:
                 store.db.close()
             reopened = Mock()
