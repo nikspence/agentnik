@@ -125,8 +125,12 @@ with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.expect_exact("code [allow-all]>")
     session.send("/permissions require\r")
     session.expect_exact("code>")
-    session.send("Create the SSH fixture note.\r")
+    task = "Create the SSH fixture note.\nUse the reviewed content."
+    session.send(task.replace("\n", "\x1b[13;5u") + "\r")
     session.expect_exact("Approve once?")
+    assert len(requests) == 1
+    assert any(message.get("role") == "user" and message.get("content") == task
+               for message in requests[0][2]["messages"])
     assert not (project / "note.txt").exists()
     session.send("y\r")
     session.expect_exact("SSH fixture completed the edit.")
