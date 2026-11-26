@@ -814,6 +814,61 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn(f"Resumed session {session_id}", output.getvalue())
             reopened.history.append_string.assert_any_call("Create another note")
 
+    def test_cancel_during_provider_request_saves_session_without_replay(self):
+        from queue import Queue
+        from threading import Event
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+
+        entered, release, returned = Event(), Event(), Event()
+
+        def blocked_request(*args, **kwargs):
+            entered.set()
+            release.wait(10)
+            returned.set()
+            raise OSError("fixture ended")
+
+        class InterruptQueue(Queue):
+            def get(self, *args, **kwargs):
+                if not entered.wait(5):
+                    raise AssertionError("Provider request did not start")
+                raise KeyboardInterrupt
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
+                argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+                composer = Mock()
+                composer.prompt.side_effect = ["/connection Fixture", "Interrupted task", "/exit"]
+                output = io.StringIO()
+                with patch("sys.stdin.isatty", return_value=True), \
+                        patch("agentnik.code_composer.create_composer", return_value=composer), \
+                        patch("agentnik.code_terminal.Queue", InterruptQueue), \
+                        patch.object(core, "open_request", side_effect=blocked_request) as transport, \
+                        contextlib.redirect_stdout(output):
+                    with patch("sys.argv", argv):
+                        self.assertEqual(cli.main(), 0)
+                    transport.assert_called_once()
+                    self.assertFalse(returned.is_set(), "Cancellation waited for the blocked provider")
+                    ident, record = next(iter(CodeHistory(store, root).sessions().items()))
+                    self.assertEqual(record["code_state"], "cancelled")
+                    composer.prompt.side_effect = ["/exit"]
+                    with patch("sys.argv", [*argv, "--resume", ident]):
+                        self.assertEqual(cli.main(), 0)
+                    transport.assert_called_once()
+                self.assertIn("Stopping Code run", output.getvalue())
+                self.assertIn(f"Resumed session {ident}", output.getvalue())
+                self.assertEqual(list(root.iterdir()), [])
+            finally:
+                release.set()
+                store.db.close()
+
     def test_resume_rejects_ambiguous_session_prefix(self):
         from agentnik.code_history import resolve_session_id
 
