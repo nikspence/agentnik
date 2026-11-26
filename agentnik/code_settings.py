@@ -10,6 +10,46 @@ from .image_settings import image_endpoint, validate_image_settings
 from .search_providers import SEARCH_PROVIDERS
 
 
+def configure_mcp(store, arguments):
+    from .mcp_support import validate_servers
+
+    settings = store.config["settings"]
+    servers = store.config.get("mcp_servers", [])
+    if not arguments:
+        return "\n".join([
+            f"Desktop MCP access: {'on' if settings.get('mcp_access_enabled', True) else 'off'}",
+            f"Conflicting tools: MCP {settings.get('mcp_priority', 'first')}",
+            *(f"{item['name']!r} · {'HTTPS' if item.get('transport') == 'http' else 'local'}"
+              f" · {'enabled' if item['enabled'] else 'disabled'}" for item in servers),
+            "Use /settings mcp on|off, priority first|last, or enable|disable NAME.",
+            "Use /settings mcp add-https to save an HTTPS server without credentials.",
+        ])
+    if arguments in (["on"], ["off"]):
+        settings["mcp_access_enabled"] = arguments == ["on"]
+    elif arguments in (["priority", "first"], ["priority", "last"]):
+        settings["mcp_priority"] = arguments[1]
+    elif len(arguments) >= 2 and arguments[0] in ("enable", "disable"):
+        name = " ".join(arguments[1:])
+        if not any(item["name"] == name for item in servers):
+            raise ValueError("No saved MCP server with that name.")
+        updated = [dict(item, enabled=arguments[0] == "enable") if item["name"] == name else item
+                   for item in servers]
+        store.config["mcp_servers"] = validate_servers(updated)
+    elif arguments == ["add-https"]:
+        try:
+            name = input("New server name: ").strip()
+            url = input("Server HTTPS URL: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return "MCP setup cancelled."
+        updated = [*servers, {"name": name, "url": url, "transport": "http",
+                              "credential_id": "", "enabled": False}]
+        store.config["mcp_servers"] = validate_servers(updated)
+    else:
+        raise ValueError("Use /settings mcp to list supported operations.")
+    store.flush()
+    return "Saved desktop MCP settings. No server was contacted."
+
+
 def configure_decision(store, arguments):
     from .core import base_url, environment_connections
 
@@ -187,6 +227,7 @@ def configure_code(store, arguments):
             "Use /settings web providers to manage search provider credentials.",
             "Use /settings image to configure the image model.",
             "Use /settings decision to configure System One shell advice.",
+            "Use /settings mcp to manage desktop MCP preferences and saved servers.",
         ))
         return "\n".join(lines)
 
@@ -202,6 +243,8 @@ def configure_code(store, arguments):
         return configure_image(store, arguments[1:])
     if arguments[0] == "decision":
         return configure_decision(store, arguments[1:])
+    if arguments[0] == "mcp":
+        return configure_mcp(store, arguments[1:])
     if len(arguments) == 3 and arguments[0] in ("limits", "goal"):
         section, key, value = arguments
         fields, validator, setting = (

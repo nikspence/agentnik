@@ -11,6 +11,26 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_mcp_preferences_and_disabled_https_server_are_saved_without_contact(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory:
+            store = Store(directory)
+            try:
+                with patch("builtins.input", side_effect=["Fixture Server", "https://example.org/mcp"]):
+                    configure_code(store, ["mcp", "add-https"])
+                self.assertFalse(load_config(store.config_path)["mcp_servers"][0]["enabled"])
+                configure_code(store, ["mcp", "enable", "Fixture", "Server"])
+                configure_code(store, ["mcp", "priority", "last"])
+                configure_code(store, ["mcp", "off"])
+                saved = load_config(store.config_path)
+                self.assertTrue(saved["mcp_servers"][0]["enabled"])
+                self.assertEqual(saved["settings"]["mcp_priority"], "last")
+                self.assertFalse(saved["settings"]["mcp_access_enabled"])
+            finally:
+                store.db.close()
+
     def test_terminal_composer_keeps_newlines_and_records_submitted_input(self):
         from importlib.util import find_spec
 
