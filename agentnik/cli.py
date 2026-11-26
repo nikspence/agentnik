@@ -321,9 +321,7 @@ def terminal_session(options, root, lease, images):
                     continue
                 if len(documents) >= 4:
                     raise ValueError("Attach up to four documents per prompt.")
-                if path.suffix.lower() == ".pdf":
-                    raise ValueError("PDF extraction is available in the desktop app. Attach a text export here.")
-                document = {"name": path.name, "text": read_document(path)}
+                document = {"name": path.name, "text": read_document(path, headless=True)}
                 documents = validate_documents([*documents, document])
                 print(f"Queued {path.name!r}. Its extracted text will be sent with the next task.")
             except (OSError, ValueError, KeyError, IndexError, ParseError, BadZipFile) as exc:

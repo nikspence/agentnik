@@ -11,7 +11,7 @@ MAX_TEXT = 48000
 SUPPORTED = {'.txt', '.md', '.csv', '.json', '.log', '.rst', '.pdf', '.docx', '.xlsx', '.pptx'}
 
 
-def read_document(path, data=None):
+def read_document(path, data=None, *, headless=False):
     path = Path(path)
     if path.suffix.lower() not in SUPPORTED:
         raise ValueError('Unsupported document type.')
@@ -31,7 +31,25 @@ def read_document(path, data=None):
             block = block[:max(0, remaining)]; truncated = True
         if block: parts.append(block); size += len(block)
     suffix = path.suffix.lower()
-    if suffix == '.pdf':
+    if suffix == '.pdf' and headless:
+        try:
+            from pypdf import PdfReader
+            from pypdf.errors import PyPdfError
+        except ImportError:
+            raise ValueError('PDF text extraction requires the Agentnik terminal extra.') from None
+        try:
+            with PdfReader(io.BytesIO(data), strict=True, xref_stream_maximum_entries=100_000) as doc:
+                if doc.is_encrypted:
+                    raise ValueError('Encrypted PDFs are not supported in the terminal.')
+                count = len(doc.pages)
+                for page in range(min(count, 100)):
+                    add(f'Page {page + 1}', doc.pages[page].extract_text())
+                    if truncated:
+                        break
+                truncated |= count > 100
+        except (PyPdfError, RecursionError, KeyError, TypeError, IndexError):
+            raise ValueError('Cannot read PDF; it may be damaged or unsupported.') from None
+    elif suffix == '.pdf':
         from PySide6.QtCore import QBuffer, QByteArray, QIODevice
         from PySide6.QtPdf import QPdfDocument
         buffer = QBuffer(); buffer.setData(QByteArray(data)); buffer.open(QIODevice.OpenModeFlag.ReadOnly)

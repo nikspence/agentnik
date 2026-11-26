@@ -11,6 +11,34 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_headless_pdf_extracts_text_and_rejects_encryption(self):
+        from importlib.util import find_spec
+        from agentnik.document_reader import read_document
+
+        if find_spec("pypdf") is None:
+            self.skipTest("Terminal PDF extra is not installed")
+        from pypdf import PdfWriter
+        from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=300, height=200)
+        font = DictionaryObject({NameObject("/Type"): NameObject("/Font"),
+                                 NameObject("/Subtype"): NameObject("/Type1"),
+                                 NameObject("/BaseFont"): NameObject("/Helvetica")})
+        page[NameObject("/Resources")] = DictionaryObject({
+            NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})})
+        stream = DecodedStreamObject()
+        stream.set_data(b"BT /F1 12 Tf 20 100 Td (Headless PDF fixture) Tj ET")
+        page[NameObject("/Contents")] = stream
+        data = io.BytesIO()
+        writer.write(data)
+        self.assertIn("[Page 1]\nHeadless PDF fixture", read_document("fixture.pdf", data.getvalue(), headless=True))
+        writer.encrypt("fixture-password")
+        data = io.BytesIO()
+        writer.write(data)
+        with self.assertRaisesRegex(ValueError, "Encrypted PDFs"):
+            read_document("fixture.pdf", data.getvalue(), headless=True)
+
     def test_oauth_renewal_marks_uncertainty_and_never_retries_an_unfinished_exchange(self):
         from contextlib import nullcontext
         from email.message import Message

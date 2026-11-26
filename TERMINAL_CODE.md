@@ -62,7 +62,7 @@ Two terminals can work in the same project using separate sessions. If another t
 | `/mcp` / `/mcp use NAME` / `/mcp add NAME` | List enabled local and HTTPS profiles and select up to five in priority order. Use `/mcp remove NAME` or `/mcp off` to deselect. Code asks before starting or connecting to a server and before tool and resource requests. |
 | `/status` | Show the project, session, model selection, and active switches. |
 | `/context` | Inspect, clear, or toggle the previous task and answer carried into new turns. Explicit goal continuation uses its own saved evidence. |
-| `/attach PATH` | Queue extracted text from a project text file, DOCX, XLSX, or PPTX for the next task. Paste a relative or absolute path inside the project, with optional surrounding quotes. With `/vision on`, you can also queue PNG, JPEG, or WebP images. Use `/attachments` to inspect the queue and `/attachments clear` to empty it. |
+| `/attach PATH` | Queue extracted text from a project text file, PDF, DOCX, XLSX, or PPTX for the next task. Terminal PDF support extracts text only, without page rendering or OCR, and does not accept encrypted files. Paste a relative or absolute path inside the project, with optional surrounding quotes. With `/vision on`, you can also queue PNG, JPEG, or WebP images. Use `/attachments` to inspect the queue and `/attachments clear` to empty it. |
 | `/diff` / `/diff PATH` / `/diff --staged PATH` | List tracked changes or compare a file in the working tree or index against HEAD. |
 | `/attachments remove NUMBER` | Remove one queued file by its number in `/attachments`. The original file stays in the project. |
 
