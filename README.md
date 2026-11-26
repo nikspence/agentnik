@@ -21,6 +21,8 @@ For testing System One Decision models with varying states, images, and question
 
 Research and coding workflows include preview features. Model listings do not establish support for tools, images, research or System One. See [validation](VALIDATION.md) for observed behavior and remaining platform and compatibility checks.
 
+The terminal preview starts with `agentnik code` from the folder you want to work in. Use `/connections` to list connections or `/connections add` to configure one, then select it with `/connection NAME`. Use `/model NAME` to override its default model and enter a task to start a turn. The preview supports review of file edits and shell commands, and Ctrl+C requests cancellation. Terminal history and the full desktop settings are still in development.
+
 ## What Agentnik is not
 
 Agentnik is not a remotely controlled or unattended automated agent. You start and direct work in the desktop application; Code can continue through steps of a goal while the application is running. Agentnik does not connect to messaging services and is not intended for multi-agent orchestration. Code subagents perform bounded work within a user-started run.

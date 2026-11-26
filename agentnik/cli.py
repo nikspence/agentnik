@@ -71,7 +71,8 @@ def main():
     if not sys.stdin.isatty():
         parser.error("an interactive terminal is required")
     print(f"Agentnik Code preview · {str(root)!r}")
-    print("Project selection preview. Model runs are not available yet. Type /help.")
+    print("Select a connection with /connection NAME, then enter a task. Type /help.")
+    connection_name = model = ""
     while True:
         try:
             command = input("code> ").strip()
@@ -84,13 +85,35 @@ def main():
             print("/status           Show the project folder\n"
                   "/connections      List saved and environment connections\n"
                   "/connections add  Configure a new connection\n"
+                  "/connection NAME  Select a connection for this session\n"
+                  "/model NAME       Override the connection model\n"
                   "/exit             Close Agentnik Code")
         elif command == "/status":
-            print(f"Project: {str(root)!r}")
+            print(f"Project: {str(root)!r} · Connection: {connection_name or '(none)'!r}"
+                  f" · Model: {model or '(connection default)'!r}")
         elif command in ("/connections", "/connections add"):
             connection_menu(options.data_dir, command.endswith(" add"))
+        elif command.startswith("/connection "):
+            connection_name = command.removeprefix("/connection ").strip()
+            model = ""
+        elif command == "/model" or command.startswith("/model "):
+            model = command[6:].strip()
+        elif command.startswith("/"):
+            print("Unknown command. Type /help.")
         elif command:
-            print("Command unavailable in this preview. Type /help.")
+            if not connection_name:
+                print("Select a connection with /connection NAME first.")
+                continue
+            from .code_agent import CodingRun
+            from .code_terminal import drive_run, load_run_settings, terminal_text
+
+            try:
+                connection, limits = load_run_settings(options.data_dir, connection_name, model)
+                run = CodingRun(connection, root, command, limits=limits)
+            except (OSError, ValueError) as exc:
+                print(terminal_text(exc), file=sys.stderr)
+                continue
+            drive_run(run)
 
 
 if __name__ == "__main__":
