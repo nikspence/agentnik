@@ -445,10 +445,13 @@ def terminal_session(options, root, lease, images):
             mcp_selection.clear()
             print("MCP disabled in this session.")
         elif command.startswith("/mcp remove "):
-            name = command.removeprefix("/mcp remove ").strip()
+            from .code_settings import mcp_profile_name
+
+            name = mcp_profile_name(command.removeprefix("/mcp remove ").strip(), mcp_selection)
             mcp_selection = [profile for profile in mcp_selection if profile["name"] != name]
             print("Updated the session’s MCP selection.")
         elif command == "/mcp" or command.startswith(("/mcp use ", "/mcp add ")):
+            from .code_settings import mcp_profile_name
             from .code_terminal import terminal_mcp_profiles, terminal_text
 
             try:
@@ -461,7 +464,7 @@ def terminal_session(options, root, lease, images):
                     print("Use /mcp use NAME to replace the selection, /mcp add NAME, /mcp remove NAME, or /mcp off.")
                 else:
                     action, _, name = command.removeprefix("/mcp ").partition(" ")
-                    name = name.strip()
+                    name = mcp_profile_name(name.strip(), profiles)
                     selected = next((profile for profile in profiles if profile["name"] == name), None)
                     if selected is None:
                         raise ValueError("Choose an enabled local or HTTPS MCP server.")

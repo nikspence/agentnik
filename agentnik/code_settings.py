@@ -114,17 +114,21 @@ def configure_mcp_signin(store, name):
     return "Saved MCP OAuth sign-in in the OS credential store."
 
 
+def mcp_profile_name(name, profiles):
+    """Accept optional outer quotes without changing an exact saved name."""
+    if (len(name) >= 2 and name[0] == name[-1] and name[0] in ("'", '"')
+            and not any(item["name"] == name for item in profiles)):
+        return name[1:-1]
+    return name
+
+
 def configure_mcp(store, arguments):
     from .mcp_support import DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, server_timeout, validate_servers
 
     settings = store.config["settings"]
     servers = store.config.get("mcp_servers", [])
     def profile_name(parts):
-        name = " ".join(parts)
-        if (len(name) >= 2 and name[0] == name[-1] and name[0] in ("'", '"')
-                and not any(item["name"] == name for item in servers)):
-            return name[1:-1]
-        return name
+        return mcp_profile_name(" ".join(parts), servers)
 
     if not arguments:
         def profile_summary(item):

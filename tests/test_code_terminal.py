@@ -1115,7 +1115,9 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
             composer = Mock()
-            composer.prompt.side_effect = ["/connection Fixture", "/mcp use Local Fixture", "Run greeting", "/exit"]
+            composer.prompt.side_effect = ["/connection Fixture", '/mcp use "Local Fixture"',
+                                           '/mcp remove "Local Fixture"', '/mcp add "Local Fixture"',
+                                           "Run greeting", "/exit"]
             output = io.StringIO()
             with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(root / "data")]), \
                     patch("sys.stdin.isatty", return_value=True), \
