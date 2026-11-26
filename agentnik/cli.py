@@ -414,7 +414,7 @@ def terminal_session(options, root, lease, images):
                 print("Use /scope project or /scope machine.")
                 continue
             print(f"File scope: {'machine' if machine_scope else 'project'}. "
-                  "Machine scope adds absolute-path text reads. Approval and OS permissions are unchanged. "
+                  "Machine scope adds absolute-path directory listing and text reads. Approval and OS permissions are unchanged. "
                   "Shell commands are not sandboxed.")
         elif command == "/permissions" or command.startswith("/permissions "):
             mode = command.partition(" ")[2].strip()

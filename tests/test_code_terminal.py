@@ -51,7 +51,8 @@ class TerminalRunTests(unittest.TestCase):
             composer = Mock()
             composer.prompt.side_effect = ["/connection Fixture", "/scope machine", "/status", "Read diagnostics",
                                            "/scope project", "Continue project work", "/exit"]
-            reads = [call("machine_read_file", {"path": str(outside)})]
+            reads = [call("machine_list_directory", {"path": str(base)}, ident="list"),
+                     call("machine_read_file", {"path": str(outside)})]
             replies = iter([Wire(chat(calls=reads, finish="tool_calls"), False),
                             Wire(chat("Outside fixture evidence"), False),
                             Wire(chat("Project response"), False)])
@@ -73,11 +74,26 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("machine_read_file", {t["function"]["name"] for t in bodies[0]["tools"]})
             self.assertNotIn("machine_read_file", {t["function"]["name"] for t in bodies[2]["tools"]})
             self.assertIn("Outside fixture evidence", json.dumps(bodies[1]["messages"]))
+            listing = next(m for m in bodies[1]["messages"] if m.get("tool_call_id") == "list")
+            self.assertIn({"name": "diagnostic.txt", "kind": "file"}, json.loads(listing["content"])["entries"])
             from agentnik.code_agent import ProjectFiles
 
             with self.assertRaisesRegex(ValueError, "project-relative path"):
                 ProjectFiles(root).path(str(outside))
             self.assertNotIn("Outside fixture evidence", json.dumps(bodies[2]["messages"]))
+
+    def test_machine_directory_listing_is_bounded_and_rejects_relative_paths(self):
+        from agentnik.machine_files import list_machine_directory
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            for index in range(101):
+                (root / f"fixture-{index}").touch()
+            result = list_machine_directory(str(root))
+            self.assertEqual(len(result["entries"]), 100)
+            self.assertTrue(result["truncated"])
+            with self.assertRaisesRegex(ValueError, "absolute path"):
+                list_machine_directory(".")
 
     def test_terminal_resolves_tilde_data_directory_for_session_and_lock(self):
         from agentnik import cli

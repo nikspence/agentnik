@@ -73,7 +73,7 @@ Run `/skills` to find installed skills. A user-installed skill at `~/.agents/ski
 | `/connections discover` | Check known loopback ports for local model services. Discovered connections last until the terminal exits. |
 | `/connections key NAME` / `/connections remove NAME` | Rotate or clear a credential, or remove a connection. |
 | `/permissions require` / `/permissions allow-all` | Require review or skip prompts for project edits and ordinary shell commands in this session. MCP requests and commands that need separate review still prompt. New and resumed sessions default to review. |
-| `/scope project` / `/scope machine` | Set the next run's file scope. Machine scope adds a separate absolute-path UTF-8 text reader with your OS account's permissions. It does not change approvals or sandbox shell commands. New and resumed sessions start in project scope. |
+| `/scope project` / `/scope machine` | Set the next run's file scope. Machine scope adds separate absolute-path directory listing and UTF-8 text reads with your OS account's permissions. It does not change approvals or sandbox shell commands. New and resumed sessions start in project scope. |
 | `/settings` | Manage run and goal limits, TLS, desktop appearance, and other shared settings. Use `unlimited` or `0` for rounds, requests, calls, turn time, goal steps, or goal time. Model request timeouts and retained context remain bounded. |
 | `/settings limits` / `/settings goal` | Show effective run or goal limits without changing them. |
 | `/skills` | List and preview available skills, then pin the ones you want to use. |
