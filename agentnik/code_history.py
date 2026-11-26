@@ -91,6 +91,8 @@ class ResumeSnapshot:
 
 def resume_snapshot(records):
     """Prepare saved state without starting a run or applying UI formatting."""
+    if not records:
+        raise ValueError("Choose a saved session before preparing resume state.")
     record = records[0]
     binding = coding_model_binding(record)
     prompts = []

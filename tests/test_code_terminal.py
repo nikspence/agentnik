@@ -29,6 +29,21 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_resume_snapshot_keeps_raw_prompts_and_separate_history_bounds(self):
+        from agentnik.code_history import resume_snapshot
+
+        records = [
+            {"coding_models": {"model": {"connection": "Fixture", "model": "fixture"}},
+             "code_activity": [{"kind": "prompt", "text": f"/task {index}"}]}
+            for index in reversed(range(110))
+        ]
+        snapshot = resume_snapshot(records)
+        self.assertEqual(snapshot.prompt_history, tuple(f"/task {i}" for i in range(10, 110)))
+        self.assertEqual(snapshot.activity, tuple(f"/task {i}" for i in range(90, 110)))
+        self.assertEqual((snapshot.connection, snapshot.model), ("Fixture", "fixture"))
+        with self.assertRaisesRegex(ValueError, "Choose a saved session"):
+            resume_snapshot([])
+
     def test_terminal_can_recover_from_stale_image_setup_without_manual_config(self):
         from agentnik.code_settings import configure_code
         from agentnik.code_terminal import load_run_settings
