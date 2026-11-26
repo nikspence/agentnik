@@ -681,7 +681,6 @@ def terminal_session(options, root, lease, images):
         elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume")
               or command.startswith("/open ") or command in ("/plan", "/goal")):
             from .code_history import CodeHistory, Store, activity_preview
-            from .sessions import coding_model_binding
             from .code_terminal import terminal_text
 
             action = command.split(" ", 1)[0]
@@ -771,8 +770,6 @@ def terminal_session(options, root, lease, images):
                 write_activity(terminal_text(line))
             record = snapshot.record
             last_goal_turn = snapshot.latest_goal_turn
-            if last_goal_turn and coding_model_binding(last_goal_turn).get("connection") != snapshot.connection:
-                last_goal_turn = None
             skill_pins = snapshot.skill_pins
             context = snapshot.project_context
             connection_name, model = snapshot.connection, snapshot.model
@@ -807,7 +804,6 @@ def terminal_session(options, root, lease, images):
                 connection_name = name
                 model = ""
                 context = None
-                last_goal_turn = None
                 vision_enabled = False
                 memory_enabled = False
             print(f"Selected connection {name!r}.")
@@ -855,6 +851,13 @@ def terminal_session(options, root, lease, images):
             if continuing:
                 if resume is None:
                     print("No stopped goal is available to continue in this session.")
+                    continue
+                from .sessions import coding_model_binding
+
+                saved_connection = coding_model_binding(last_goal_turn).get("connection")
+                if saved_connection != connection_name:
+                    print(terminal_text(f"That goal used connection {saved_connection!r}. "
+                                        "Select it with /connection before continuing."))
                     continue
                 saved_scope = last_goal_turn.get("coding_file_scope", "project")
                 if saved_scope != ("machine" if machine_scope else "project"):

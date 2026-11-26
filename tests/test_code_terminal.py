@@ -136,6 +136,8 @@ class TerminalRunTests(unittest.TestCase):
             session = str(uuid4())
             store = Store(data)
             try:
+                store.save_connection("Other", {"url": "https://example.org/v1", "model": "other"})
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
                 history = CodeHistory(store, root)
                 record, task = history.start("Fixture", {"model": "fixture"}, "Review machine logs", session,
                                              goal=True, machine_scope=True)
@@ -148,7 +150,8 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
 
             composer = Mock()
-            composer.prompt.side_effect = ["/sessions", "/continue", "/scope machine", "/continue", "/exit"]
+            composer.prompt.side_effect = ["/sessions", "/continue", "/scope machine", "/connection Other",
+                                           "/continue", "/connection Fixture", "/continue", "/exit"]
             argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", session]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
@@ -160,6 +163,7 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("[Saved turn used machine scope]", output.getvalue())
             self.assertIn(f"{session}  completed [current] [goal: cancelled]", output.getvalue())
             self.assertIn("Review machine logs", output.getvalue())
+            self.assertIn("That goal used connection 'Fixture'.", output.getvalue())
             confirmation.assert_called_once_with("Continue this goal with fresh limits? [y/N] ")
             request.assert_not_called()
 
