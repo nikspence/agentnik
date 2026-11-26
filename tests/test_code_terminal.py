@@ -11,6 +11,26 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_decision_settings_require_a_binding_and_make_no_requests(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory, patch("agentnik.core.open_request") as request:
+            store = Store(directory)
+            try:
+                with self.assertRaises(ValueError):
+                    configure_code(store, ["decision", "on"])
+                store.save_connection("Fixture", {"url": "http://localhost:11434/v1"})
+                with patch("builtins.input", side_effect=["Fixture", "decision-model"]):
+                    configure_code(store, ["decision", "set"])
+                configure_code(store, ["decision", "on"])
+                settings = load_config(store.config_path)["settings"]
+                self.assertTrue(settings["decision_advice_enabled"])
+                self.assertEqual(settings["decision_model"], {"connection": "Fixture", "model": "decision-model"})
+                request.assert_not_called()
+            finally:
+                store.db.close()
+
     def test_headless_image_codec_preserves_transparency_without_qt(self):
         import builtins
         from importlib.util import find_spec

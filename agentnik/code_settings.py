@@ -10,6 +10,38 @@ from .image_settings import image_endpoint, validate_image_settings
 from .search_providers import SEARCH_PROVIDERS
 
 
+def configure_decision(store, arguments):
+    from .core import base_url, environment_connections
+
+    settings = store.config["settings"]
+    binding = dict(settings.get("decision_model", {"connection": "", "model": ""}))
+    enabled = settings.get("decision_advice_enabled", False)
+    if not arguments:
+        return (f"Desktop shell advice: {'on' if enabled else 'off'}\n"
+                f"Connection: {binding['connection']!r} · Model: {binding['model']!r}\n"
+                "Use /settings decision set to configure, or /settings decision on|off.")
+    if arguments not in (["set"], ["on"], ["off"]):
+        raise ValueError("Use /settings decision set, on, or off.")
+    if arguments == ["set"]:
+        try:
+            name = input(f"Decision connection [{binding['connection']!r}]: ").strip()
+            model = input(f"Decision model [{binding['model']!r}]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return "Decision setup cancelled."
+        binding = {"connection": name or binding["connection"], "model": model or binding["model"]}
+    else:
+        enabled = arguments == ["on"]
+    if arguments != ["off"]:
+        connections = {**environment_connections(), **store.config["connections"]}
+        connection = connections.get(binding["connection"])
+        if not connection or not binding["model"] or any(len(value) > 512 for value in binding.values()):
+            raise ValueError("Choose an available connection and a Decision model of at most 512 characters.")
+        base_url(connection.get("url", ""))
+    settings.update(decision_model=binding, decision_advice_enabled=enabled)
+    store.flush()
+    return "Saved desktop shell advice settings. No model was contacted."
+
+
 def configure_image(store, arguments):
     from .core import environment_connections
 
@@ -154,6 +186,7 @@ def configure_code(store, arguments):
             "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
             "Use /settings web providers to manage search provider credentials.",
             "Use /settings image to configure the image model.",
+            "Use /settings decision to configure desktop System One shell advice.",
         ))
         return "\n".join(lines)
 
@@ -167,6 +200,8 @@ def configure_code(store, arguments):
         return web_providers(store, arguments[2:])
     if arguments[0] == "image":
         return configure_image(store, arguments[1:])
+    if arguments[0] == "decision":
+        return configure_decision(store, arguments[1:])
     if len(arguments) == 3 and arguments[0] in ("limits", "goal"):
         section, key, value = arguments
         fields, validator, setting = (
