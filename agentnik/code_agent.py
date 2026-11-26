@@ -1256,6 +1256,8 @@ class CodingRun:
                                     if any(secret and (secret in json.dumps(variables,ensure_ascii=False) or secret in uri) for secret in secrets):raise ValueError()
                                 except (ValueError,UnicodeError,RecursionError):raise ProjectToolError('Invalid resource template variables.') from None
                                 proposal.update(template=template,variables=variables,uri=uri)
+                            if getattr(mcp_bridge,'review_required',False) is True and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                raise ProjectToolError('MCP template request declined by the user')
                             response=mcp_bridge.request('templates_list' if call.name=='mcp_list_resource_templates' else 'templates_read',{} if call.name=='mcp_list_resource_templates' else {'template':template,'arguments':variables,'uri':uri},runtime)
                             if 'error' in response:
                                 if call.name=='mcp_list_resource_templates':mcp_templates=None
@@ -1284,6 +1286,8 @@ class CodingRun:
                                     if any(secret and secret in json.dumps(arguments,ensure_ascii=False) for secret in secrets):raise ValueError()
                                 except (ValueError,UnicodeError,RecursionError):raise ProjectToolError('Prompt arguments are invalid or do not match its definition.') from None
                                 proposal.update(prompt=prompt,arguments=arguments)
+                            if getattr(mcp_bridge,'review_required',False) is True and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                raise ProjectToolError('MCP prompt request declined by the user')
                             response=mcp_bridge.request('prompts_list' if call.name=='mcp_list_prompts' else 'prompts_get',{} if call.name=='mcp_list_prompts' else {'prompt':prompt,'arguments':arguments},runtime)
                             if 'error' in response:
                                 mcp_prompts=None;raise ProjectToolError(response['error'])

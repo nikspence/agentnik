@@ -27,7 +27,7 @@ class TerminalRunTests(unittest.TestCase):
                 message = json.loads(line)
                 method = message["method"]
                 if method == "initialize":
-                    result = {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}, "resources": {}},
+                    result = {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
                               "serverInfo": {"name": "fixture", "version": "1"}}
                 elif method == "tools/list":
                     result = {"tools": [{"name": "hello", "description": "Return a greeting",
@@ -37,7 +37,14 @@ class TerminalRunTests(unittest.TestCase):
                 elif method == "resources/list":
                     result = {"resources": [{"uri": "fixture://notes", "name": "Notes"}]}
                 elif method == "resources/read":
-                    result = {"contents": [{"uri": "fixture://notes", "text": "Fixture resource content"}]}
+                    uri = message["params"]["uri"]
+                    result = {"contents": [{"uri": uri, "text": "Fixture resource content for " + uri}]}
+                elif method == "resources/templates/list":
+                    result = {"resourceTemplates": [{"uriTemplate": "fixture://items/{id}", "name": "Item"}]}
+                elif method == "prompts/list":
+                    result = {"prompts": [{"name": "greeting"}]}
+                elif method == "prompts/get":
+                    result = {"messages": [{"role": "user", "content": {"type": "text", "text": "Fixture prompt content"}}]}
                 else:
                     continue
                 print(json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}), flush=True)
@@ -59,7 +66,7 @@ class TerminalRunTests(unittest.TestCase):
             with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(root / "data")]), \
                     patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
-                    patch("builtins.input", side_effect=["y", "y", "y", "y"]) as approval, \
+                    patch("builtins.input", side_effect=["y"] * 8) as approval, \
                     patch.object(core, "open_request", side_effect=[
                         Wire(chat(calls=[call("mcp_discover", {})], finish="tool_calls"), False),
                         Wire(chat(calls=[call("mcp_call", {"tool": "hello", "arguments": "{}"})],
@@ -67,13 +74,22 @@ class TerminalRunTests(unittest.TestCase):
                         Wire(chat(calls=[call("mcp_list_resources", {})], finish="tool_calls"), False),
                         Wire(chat(calls=[call("mcp_read_resource", {"uri": "fixture://notes"})],
                                   finish="tool_calls"), False),
+                        Wire(chat(calls=[call("mcp_list_resource_templates", {})], finish="tool_calls"), False),
+                        Wire(chat(calls=[call("mcp_read_resource_template", {
+                            "template": "fixture://items/{id}", "variables": '{"id":"17"}',
+                        })], finish="tool_calls"), False),
+                        Wire(chat(calls=[call("mcp_list_prompts", {})], finish="tool_calls"), False),
+                        Wire(chat(calls=[call("mcp_get_prompt", {"name": "greeting", "arguments": "{}"})],
+                                  finish="tool_calls"), False),
                         Wire(chat("Done"), False),
                     ]) as transport, contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(), 0)
-            self.assertEqual(approval.call_count, 4, output.getvalue())
-            self.assertEqual(transport.call_count, 5, output.getvalue())
+            self.assertEqual(approval.call_count, 8, output.getvalue())
+            self.assertEqual(transport.call_count, 9, output.getvalue())
             self.assertIn("Hello from the local fixture", str(transport.call_args_list[2].args[2]))
             self.assertIn("Fixture resource content", str(transport.call_args_list[4].args[2]))
+            self.assertIn("Fixture resource content for fixture://items/17", str(transport.call_args_list[6].args[2]))
+            self.assertIn("Fixture prompt content", str(transport.call_args_list[8].args[2]))
 
     def test_only_lease_owner_can_recover_an_interrupted_goal(self):
         from agentnik.code_history import CodeHistory, goal_continuation

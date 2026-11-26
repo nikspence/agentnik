@@ -242,6 +242,10 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     fields = ("operation", "server", "tool", "description", "arguments")
                 elif proposal.get("operation") in ("mcp_list_resources", "mcp_read_resource"):
                     fields = ("operation", "server", "command", "server_arguments", "resource")
+                elif proposal.get("operation") in ("mcp_list_resource_templates", "mcp_read_resource_template"):
+                    fields = ("operation", "server", "command", "server_arguments", "template", "variables", "uri")
+                elif proposal.get("operation") in ("mcp_list_prompts", "mcp_get_prompt"):
+                    fields = ("operation", "server", "command", "server_arguments", "prompt", "arguments")
                 else:
                     write("This operation cannot be reviewed in the terminal preview. Rejected.")
                     run.decide(event["fingerprint"], False)

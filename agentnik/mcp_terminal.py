@@ -7,7 +7,8 @@ import subprocess
 from threading import Lock
 
 from .mcp_content import normalize_tool_result
-from .mcp_resources import ResourcePages, parse_resource_contents
+from .mcp_prompts import PromptPages, parse_prompt_messages
+from .mcp_resources import ResourcePages, TemplatePages, expand_template, parse_resource_contents
 from .mcp_support import initialize_request, parse_initialize, resolve_environment_references, response_limit, rpc_error, server_timeout
 from .mcp_tool_preview import MAX_DETAILS, MAX_PAGES, MAX_TOOLS, contains_secret, preview_tool
 from .research import scrub
@@ -29,8 +30,9 @@ class TerminalMCPBridge:
     def request(self, action, payload, runtime):
         if self.closed:
             return {"error": "MCP session is closed. An interrupted call is not retried."}
-        if action not in ("discover", "verify", "call", "resources_list", "resources_read"):
-            return {"error": "This terminal MCP transport supports tools and resources only."}
+        if action not in ("discover", "verify", "call", "resources_list", "resources_read",
+                          "templates_list", "templates_read", "prompts_list", "prompts_get"):
+            return {"error": "This operation is not supported by the terminal MCP transport."}
         try:
             if action == "discover":
                 runtime.check()
@@ -170,30 +172,46 @@ class TerminalMCPBridge:
             self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
             self.details, more = self._catalog() if "tools" in info["capabilities"] else ([], False)
             return {**scrub(info, secrets), "tool_details": self.details, "more_tools": more,
-                    "capabilities": [name for name in info["capabilities"] if name in ("tools", "resources")],
+                    "capabilities": [name for name in info["capabilities"] if name in ("tools", "resources", "prompts")],
                     "task_capabilities": {}}
         if self.details is None:
             return {"error": "Discover the MCP server before requesting tools or resources."}
-        if action == "resources_list":
-            pages = ResourcePages()
-            cursor = None
-            while True:
-                reply = self._rpc("resources/list", {"cursor": cursor} if cursor else {}, "resource_list")
-                if "error" in reply:
-                    return {"error": scrub(rpc_error(reply), secrets)}
-                cursor, outcome = pages.accept(reply.get("result"))
-                if any(contains_secret(outcome, secret) for secret in secrets):
-                    return {"error": "MCP resource listing reflected a mapped credential and was blocked."}
-                if not cursor:
-                    return outcome
-        if action == "resources_read":
+        if action in ("resources_list", "templates_list", "prompts_list"):
+            method, pages = {
+                "resources_list": ("resources/list", ResourcePages),
+                "templates_list": ("resources/templates/list", TemplatePages),
+                "prompts_list": ("prompts/list", PromptPages),
+            }[action]
+            return self._pages(method, pages(), secrets)
+        if action in ("resources_read", "templates_read"):
             uri = payload["uri"]
+            if action == "templates_read":
+                listing = self._pages("resources/templates/list", TemplatePages(), secrets)
+                if "error" in listing:
+                    return listing
+                template = payload["template"]
+                if template not in listing["templates"] or expand_template(template["uriTemplate"], payload["arguments"]) != uri:
+                    return {"error": "The MCP resource template changed. List it again before reading."}
             reply = self._rpc("resources/read", {"uri": uri}, "resource_read")
             if "error" in reply:
                 return {"error": scrub(rpc_error(reply), secrets)}
             outcome = parse_resource_contents(reply.get("result"), uri)
             if any(contains_secret(outcome, secret) for secret in secrets):
                 return {"error": "MCP resource reflected a mapped credential and was blocked."}
+            return outcome
+        if action == "prompts_get":
+            listing = self._pages("prompts/list", PromptPages(), secrets)
+            if "error" in listing:
+                return listing
+            prompt = payload["prompt"]
+            if prompt not in listing["prompts"]:
+                return {"error": "The MCP prompt changed. List it again before retrieval."}
+            reply = self._rpc("prompts/get", {"name": prompt["name"], "arguments": payload["arguments"]}, "prompt_get")
+            if "error" in reply:
+                return {"error": scrub(rpc_error(reply), secrets)}
+            outcome = parse_prompt_messages(reply.get("result"))
+            if any(contains_secret(outcome, secret) for secret in secrets):
+                return {"error": "MCP prompt reflected a mapped credential and was blocked."}
             return outcome
         expected = payload["tool"]
         current, _ = self._catalog()
@@ -205,3 +223,18 @@ class TerminalMCPBridge:
         if "error" in reply:
             return {"error": scrub(rpc_error(reply), secrets)}
         return {"call_result": scrub(normalize_tool_result(reply.get("result")), secrets)}
+
+    def _pages(self, method, pages, secrets):
+        cursor = None
+        while True:
+            reply = self._rpc(method, {"cursor": cursor} if cursor else {}, "listing")
+            if "error" in reply:
+                return {"error": scrub(rpc_error(reply), secrets)}
+            result = reply.get("result")
+            if not isinstance(result, dict):
+                raise ValueError("Invalid MCP listing")
+            cursor, outcome = pages.accept(result)
+            if any(contains_secret(outcome, secret) for secret in secrets):
+                return {"error": "MCP listing reflected a mapped credential and was blocked."}
+            if not cursor:
+                return outcome
