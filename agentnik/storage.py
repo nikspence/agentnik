@@ -214,17 +214,21 @@ class Store:
         self.db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)', (data['id'], time.time(), json.dumps(data)))
         self.db.commit()
 
-    def list_sessions(self, *, mode=None):
+    def list_sessions(self, *, mode=None, terminal_session=None):
         result=[]
         query='SELECT id, updated, payload FROM sessions'
-        params=()
+        predicates=[];params=[]
         if mode is not None:
-            query+=" WHERE CASE WHEN json_valid(payload) THEN json_extract(payload, '$.mode') END = ?"
-            params=(mode,)
+            predicates.append("CASE WHEN json_valid(payload) THEN json_extract(payload, '$.mode') END = ?")
+            params.append(mode)
+        if terminal_session is not None:
+            predicates.append("CASE WHEN json_valid(payload) THEN COALESCE(json_extract(payload, '$.coding_terminal_session'), id) END = ?")
+            params.append(terminal_session)
+        if predicates:query+=' WHERE '+' AND '.join(predicates)
         try:
             rows=self.db.execute(query+' ORDER BY updated DESC',params)
         except sqlite3.OperationalError as exc:
-            if mode is None or 'no such function: json_' not in str(exc):raise
+            if not predicates or 'no such function: json_' not in str(exc):raise
             rows=self.db.execute('SELECT id, updated, payload FROM sessions ORDER BY updated DESC')
         for ident,updated,payload in rows:
             try:
@@ -233,6 +237,8 @@ class Store:
                 session={'id':ident,'title':'Unavailable saved session','connection_name':'Stored data preserved; repair or use a compatible Agentnik version',
                          'mode':'chat','_unavailable':True}
             if mode is not None and (session.get('mode')!=mode or session.get('_unavailable')):continue
+            if terminal_session is not None and (session.get('_unavailable') or
+                    session.get('coding_terminal_session',ident)!=terminal_session):continue
             result.append(dict(session,updated=updated))
         return result
 

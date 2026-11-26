@@ -1005,7 +1005,10 @@ class TerminalRunTests(unittest.TestCase):
                         self.assertEqual(set(history.sessions()), {first, second})
                         for session, task, state in ((first, "Review slides", "cancelled"),
                                                      (second, "Update documentation", "completed")):
-                            saved, = history.list(session)
+                            from agentnik.sessions import validate_session
+                            with patch("agentnik.storage.validate_session", wraps=validate_session) as validate:
+                                saved, = history.list(session)
+                            validate.assert_called_once()
                             self.assertEqual(saved["coding_goal"]["objective"], task)
                             self.assertEqual(saved["code_state"], state)
                             self.assertEqual([item["text"] for item in saved["code_activity"]

@@ -81,9 +81,8 @@ class CodeHistory:
         self.root = root
 
     def list(self, session_id=None):
-        return [item for item in self.store.list_sessions(mode="code")
-                if same_project(item["path_snapshot"], self.root)
-                and (session_id is None or self.session_id(item) == session_id)]
+        return [item for item in self.store.list_sessions(mode="code", terminal_session=session_id)
+                if same_project(item["path_snapshot"], self.root)]
 
     @staticmethod
     def session_id(record):
