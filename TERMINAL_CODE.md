@@ -32,6 +32,8 @@ At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T
 
 Use `/sessions 2`, `/sessions 3`, and so on to find older sessions. Listing a page does not reopen any session. Both `/resume` and `agentnik code --resume` accept a unique ID prefix, so you only need to type enough characters to identify one session in the current project.
 
+Two terminals can work in the same project using separate sessions. If another terminal already has a session open, trying to resume it leaves your current session and prompt history intact.
+
 `/goal OBJECTIVE` starts an ongoing goal. To continue a stopped goal, use `/continue` and review the saved objective before starting a fresh run. The model receives saved evidence and is directed to inspect current state before acting.
 
 ## Settings and tools

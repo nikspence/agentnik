@@ -397,6 +397,44 @@ class TerminalRunTests(unittest.TestCase):
             right.select(first)
             self.assertEqual(right.session_id, first)
 
+    def test_busy_resume_preserves_the_current_terminal_session(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.code_lease import SessionLease
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            current, busy = str(uuid4()), str(uuid4())
+            store = Store(data)
+            try:
+                history = CodeHistory(store, root)
+                connection = {"url": "https://example.org/v1", "model": "fixture"}
+                for ident, prompt in ((current, "Current task"), (busy, "Other terminal task")):
+                    record, _ = history.start("Fixture", connection, prompt, ident)
+                    history.finish(record, prompt, {"status": "completed", "text": "Done"})
+                composer = Mock()
+                composer.prompt.side_effect = [f"/resume {busy}", "/status", "/exit"]
+                argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", current]
+                with SessionLease(data) as other, patch("sys.argv", argv), \
+                        patch("sys.stdin.isatty", return_value=True), \
+                        patch("agentnik.code_composer.create_composer", return_value=composer), \
+                        patch.object(core, "open_request") as transport, \
+                        contextlib.redirect_stdout(io.StringIO()) as output, \
+                        contextlib.redirect_stderr(io.StringIO()) as errors:
+                    other.select(busy)
+                    self.assertEqual(cli.main(), 0)
+                transport.assert_not_called()
+                self.assertIn("already open in another terminal", errors.getvalue())
+                self.assertIn(f"Session: {current}", output.getvalue())
+                self.assertNotIn("Other terminal task", output.getvalue())
+                composer.history.append_string.assert_called_once_with("Current task")
+            finally:
+                store.db.close()
+
     def test_model_picker_filters_catalog_and_does_not_echo_reflected_credentials(self):
         from agentnik.code_terminal import choose_catalog_model, load_run_settings
 
