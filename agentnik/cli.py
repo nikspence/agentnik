@@ -222,7 +222,7 @@ def terminal_session(options, root, lease, images):
                   "/connections add|edit|options|key|remove [NAME]\n"
                   "/connections discover  Look for supported services on this machine\n"
                   "/connection NAME  Select a connection for this session\n"
-                  "/model NAME       Override the connection model\n"
+                  "/model [NAME]     Override the model, or reset to the connection default\n"
                   "/models [FILTER]  Fetch the selected connection's catalog and choose a model\n"
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/continue         Continue the last stopped goal with fresh limits\n"
@@ -592,11 +592,13 @@ def terminal_session(options, root, lease, images):
             if not available:
                 print("No connection with that name. Use /connections to list available connections.")
                 continue
-            connection_name = name
-            model = ""
-            context = None
-            last_record = None
-            vision_enabled = False
+            if name != connection_name:
+                connection_name = name
+                model = ""
+                context = None
+                last_record = None
+                vision_enabled = False
+            print(f"Selected connection {name!r}.")
         elif command == "/models" or command.startswith("/models "):
             from .code_terminal import choose_catalog_model, terminal_text
 
@@ -614,8 +616,11 @@ def terminal_session(options, root, lease, images):
                 vision_enabled = False
                 print(f"Selected model {model!r}. Catalog entries do not establish tool or vision support.")
         elif command == "/model" or command.startswith("/model "):
-            model = command[6:].strip()
-            vision_enabled = False
+            selected = command[6:].strip()
+            if selected != model:
+                model = selected
+                vision_enabled = False
+            print(f"Selected model {model!r}." if model else "Using the connection's default model.")
         elif command == "/goal":
             print("Enter /goal followed by an objective.")
         elif command.startswith("/") and not command.startswith(("//", "/goal ")) and command != "/continue":

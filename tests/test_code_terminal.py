@@ -861,7 +861,8 @@ class TerminalRunTests(unittest.TestCase):
             first = Mock()
             first.prompt.side_effect = ["/connection Fixture", "/connection Fxture", "/skills add notes",
                                         f'/attach "{base / "outside.txt"}"', f'/attach "{brief}"',
-                                        "/vision on", "/attach visual.png", "/attach discard.png",
+                                        "/model fixture-override", "/model", "/vision on", "/connection Fixture",
+                                        "/attach visual.png", "/attach discard.png",
                                         "/attachments", "/attachments remove 3", *pdf_commands,
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
@@ -885,6 +886,9 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 4, output.getvalue())
             self.assertIn("No connection with that name.", output.getvalue())
+            self.assertIn("Selected model 'fixture-override'.", output.getvalue())
+            self.assertIn("Using the connection's default model.", output.getvalue())
+            self.assertEqual(transport.call_args_list[0].args[2]["model"], "test")
             self.assertIn("Unknown command.", output.getvalue())
             self.assertIn("/notes is an example path. Create a note.", str(transport.call_args_list[0].args[2]))
             self.assertNotIn("/settngs", str(transport.call_args_list[0].args[2]))
