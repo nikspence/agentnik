@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- The downloadable `0.12.0rc1` build-only artifact at source revision `056895d` installed on Windows in a fresh virtual environment without Qt. From outside the checkout, the installed launcher showed `agentnik code --help` and passed all 31 terminal tests, including session paging and unique-prefix resume. The [artifact build](https://github.com/nikspence/agentnik/actions/runs/45864776589) skipped the PyPI publish job.
+
 - On Windows, a live terminal Code smoke test used OpenRouter GPT-6.1 Terra over streaming Chat Completions. With scripted prompt input in a temporary non-Git folder, the model proposed one file edit, waited for approval, wrote the expected bytes, and returned a final answer after two provider requests. The saved session reopened without replay. This qualifies that coding path, not native keyboard behavior, SSH, or LiteLLM.
 - A separate Windows terminal Code smoke test used GPT-6.1 Terra through the G-Chat LiteLLM connection configured for Responses. Its catalog was reachable, the model proposed and completed one approved file write with the expected bytes, and it returned a final answer after two requests. Reopening the same session sent no provider request. Prompts were scripted and data was temporary, so this does not qualify native keyboard or SSH behavior.
 
