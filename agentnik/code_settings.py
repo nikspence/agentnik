@@ -1,7 +1,59 @@
 """Terminal access to shared Code settings."""
 
+from getpass import GetPassWarning, getpass
+import os
+import warnings
+
 from .code_limits import FIELDS, GOAL_FIELDS, UNLIMITED_FIELDS, coding_limits, goal_limits
 from .localization import choices
+from .search_providers import SEARCH_PROVIDERS
+
+
+def web_providers(store, arguments):
+    profiles = store.config.get("web_backends", [])
+    if not arguments:
+        lines = [f"{item['id']!r}: {item.get('kind', 'ollama')!r} (saved)" for item in profiles]
+        ids = {item["id"] for item in profiles}
+        lines.extend(f"{ident}: {kind} (environment)" for kind, (_, variable, ident) in SEARCH_PROVIDERS.items()
+                     if ident not in ids and variable and os.getenv(variable))
+        return "\n".join([
+            *(lines or ["No saved or environment search providers."]),
+            "Provider kinds: " + ", ".join(SEARCH_PROVIDERS) + ".",
+            "Use /settings web providers set KIND to add a provider or rotate its key.",
+            "Use /settings web providers remove ID to remove a saved provider.",
+        ])
+    if len(arguments) != 2:
+        raise ValueError("Use /settings web providers to list available operations.")
+    action, name = arguments
+    try:
+        if action == "remove":
+            if not any(item["id"] == name for item in profiles):
+                raise ValueError("No saved search provider with that ID.")
+            if input(f"Remove saved search provider {name!r}? [y/N] ").strip().lower() != "y":
+                return "Search provider unchanged."
+            store.save_web_key(remove=True, ident=name)
+            return "Removed saved search provider. Environment credentials can still be detected."
+        if action != "set" or name not in SEARCH_PROVIDERS:
+            raise ValueError("Choose a provider kind listed by /settings web providers.")
+        label, _, ident = SEARCH_PROVIDERS[name]
+        key = ""
+        plaintext = False
+        if name != "firecrawl-keyless":
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", GetPassWarning)
+                key = getpass(f"{label} API key: ")
+            if not key:
+                return "Search provider unchanged."
+            plaintext = input("Store key as plaintext on this machine? [y/N] ").strip().lower() == "y"
+        try:
+            store.save_web_key(key, plaintext=plaintext, ident=ident, name=label, kind=name)
+        except ValueError:
+            raise
+        except Exception:
+            return "Could not save search provider. Check storage and credential store availability."
+        return f"Saved search provider {ident}."
+    except (EOFError, KeyboardInterrupt, GetPassWarning):
+        return "Search provider setup cancelled."
 
 
 APPEARANCE = {
@@ -67,6 +119,7 @@ def configure_code(store, arguments):
             "Use /settings tls strict or /settings tls relaxed.",
             "Use /settings appearance to manage desktop appearance and layout.",
             "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
+            "Use /settings web providers to manage search provider credentials.",
         ))
         return "\n".join(lines)
 
@@ -76,6 +129,8 @@ def configure_code(store, arguments):
             return lines
         store.flush()
         return "Saved desktop appearance setting. It applies when the desktop app next starts."
+    if arguments[:2] == ["web", "providers"]:
+        return web_providers(store, arguments[2:])
     if len(arguments) == 3 and arguments[0] in ("limits", "goal"):
         section, key, value = arguments
         fields, validator, setting = (

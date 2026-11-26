@@ -11,6 +11,28 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_search_credentials_are_saved_in_keyring_and_not_listed(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory:
+            store = Store(directory)
+            try:
+                prefix = ["web", "providers"]
+                with patch("agentnik.code_settings.getpass", return_value="fixture-key"), \
+                        patch("builtins.input", return_value=""), patch("keyring.set_password") as save:
+                    configure_code(store, [*prefix, "set", "brave"])
+                profile = load_config(store.config_path)["web_backends"][0]
+                save.assert_called_once_with("Agentnik Web", profile["credential_id"], "fixture-key")
+                self.assertNotIn("api_key", profile)
+                self.assertNotIn("fixture-key", configure_code(store, prefix))
+                with patch("builtins.input", return_value="y"), patch("keyring.delete_password") as delete:
+                    configure_code(store, [*prefix, "remove", "brave-search"])
+                delete.assert_called_once_with("Agentnik Web", profile["credential_id"])
+                self.assertEqual(load_config(store.config_path)["web_backends"], [])
+            finally:
+                store.db.close()
+
     def test_web_opt_in_honors_strict_navigation_without_loading_search_keys(self):
         from unittest.mock import Mock
         from agentnik.code_research import code_research_options
