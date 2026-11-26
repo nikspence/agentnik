@@ -454,19 +454,31 @@ def configure_git_author(store, root, arguments):
 def configure_code(store, arguments, root=None):
     """Apply a single validated setting change or describe current values."""
     settings = store.config["settings"]
-    limits = coding_limits(settings.get("coding_limits"))
+    if not arguments or arguments == ["limits"]:
+        limits = coding_limits(settings.get("coding_limits"))
+        run_lines = [
+            f"{key}: {limits[key] or 'unlimited'} (range {low}–{high}, default {default}"
+            + (", 0 means unlimited" if key in UNLIMITED_FIELDS else "") + ")"
+            for key, (default, low, high) in FIELDS.items()
+        ]
+    if not arguments or arguments == ["goal"]:
+        goals = goal_limits(settings.get("coding_goal_limits"))
+        goal_lines = [
+            f"goal {key}: {goals[key] or 'unlimited'} (range {low}–{high}, 0 means unlimited)"
+            for key, (_, low, high) in GOAL_FIELDS.items()
+        ]
+    run_help = "Use /settings limits NAME VALUE (or default, or unlimited where listed)."
+    goal_help = "Use /settings goal steps|seconds VALUE (or default or unlimited)."
+    if arguments == ["limits"]:
+        return "\n".join([*run_lines, run_help])
+    if arguments == ["goal"]:
+        return "\n".join([*goal_lines, goal_help])
     if not arguments:
         tls = "relaxed" if settings.get("relaxed_tls") else "strict"
-        lines = [f"TLS verification: {tls}"]
-        for key, (default, low, high) in FIELDS.items():
-            optional = ", 0 means unlimited" if key in UNLIMITED_FIELDS else ""
-            lines.append(f"{key}: {limits[key]} (range {low}–{high}, default {default}{optional})")
-        goals = goal_limits(settings.get("coding_goal_limits"))
-        for key, (_, low, high) in GOAL_FIELDS.items():
-            lines.append(f"goal {key}: {goals[key]} (range {low}–{high}, 0 means unlimited)")
+        lines = [f"TLS verification: {tls}", *run_lines, *goal_lines]
         lines.extend((
-            "Use /settings limits NAME VALUE (or default, or unlimited where listed).",
-            "Use /settings goal steps|seconds VALUE (or default or unlimited).",
+            run_help,
+            goal_help,
             "Use /settings chat-limits to manage desktop Chat research budgets.",
             "Use /settings tls strict or /settings tls relaxed.",
             "Use /settings appearance to manage desktop appearance and layout.",
