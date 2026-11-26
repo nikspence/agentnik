@@ -859,6 +859,16 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(settings, {
                     "enabled": True, "connection": "Fixture", "model": "image-model", "endpoint": "",
                 })
+                custom = "https://gateway.example/v1/custom/images"
+                with patch("builtins.input", side_effect=["", "", custom]):
+                    configure_code(store, ["image", "set"])
+                with patch("builtins.input", side_effect=["", "new-image-model", ""]):
+                    configure_code(store, ["image", "set"])
+                self.assertEqual(load_config(store.config_path)["settings"]["image_generation"]["endpoint"], custom)
+                self.assertIn("Endpoint: custom override", configure_code(store, ["image"]))
+                with patch("builtins.input", side_effect=["", "", "default"]):
+                    configure_code(store, ["image", "set"])
+                self.assertIn("Endpoint: connection default", configure_code(store, ["image"]))
             finally:
                 store.db.close()
 

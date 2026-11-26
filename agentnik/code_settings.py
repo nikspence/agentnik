@@ -318,6 +318,7 @@ def configure_image(store, arguments):
     if not arguments:
         return (f"Image tool: {'on' if image['enabled'] else 'off'}\n"
                 f"Connection: {image['connection']!r} · Model: {image['model']!r}\n"
+                f"Endpoint: {'custom override' if image['endpoint'] else 'connection default'}\n"
                 "Use /settings image set to configure, or /settings image on|off.")
     if arguments not in (["set"], ["on"], ["off"]):
         raise ValueError("Use /settings image set, on, or off.")
@@ -325,9 +326,13 @@ def configure_image(store, arguments):
         try:
             name = input(f"Image connection [{image['connection']!r}]: ").strip() or image["connection"]
             model = input(f"Image model [{image['model']!r}]: ").strip() or image["model"]
-            endpoint = input("Image endpoint override (blank for connection default): ").strip()
+            endpoint = input("Image endpoint override (blank to keep for this connection, default to reset): ").strip()
         except (EOFError, KeyboardInterrupt):
             return "Image setup cancelled."
+        if endpoint == "default":
+            endpoint = ""
+        elif not endpoint and name == image["connection"]:
+            endpoint = image["endpoint"]
         image.update(connection=name, model=model, endpoint=endpoint)
     else:
         image["enabled"] = arguments == ["on"]
