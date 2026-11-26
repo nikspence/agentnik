@@ -187,7 +187,13 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertIn("Stopped diagnostic.", messages)
                 self.assertIn("do not repeat uncertain actions", messages)
                 self.assertNotIn("Check project status", messages)
-                self.assertIn("machine_read_file", {tool["function"]["name"] for tool in body["tools"]})
+                tools = {tool["function"]["name"]: tool["function"] for tool in body["tools"]}
+                self.assertIn("machine_read_file", tools)
+                for name, tool in tools.items():
+                    if name.startswith("machine_"):
+                        description = tool["parameters"]["properties"]["path"]["description"]
+                        self.assertTrue(description.startswith("Explicit absolute path"), (name, description))
+                self.assertIn("Project-relative", tools["read_file"]["parameters"]["properties"]["path"]["description"])
             else:
                 request.assert_not_called()
 

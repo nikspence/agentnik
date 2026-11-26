@@ -148,9 +148,13 @@ FIELD_OVERRIDES={
 class CodeTool:
     def __init__(self,name,description,fields):
         self.name=name;self.description=description+(' All arguments are required strings; encode arrays and objects as JSON strings.' if fields else '') ;self.fields=fields
+    def field_help(self,field):
+        if self.name.startswith('machine_') and field=='path':
+            return 'Explicit absolute path on the current machine. Do not use a project-relative path.'
+        return FIELD_OVERRIDES.get((self.name,field),FIELD_HELP.get(field))
     def wire(self):
         return {'type':'function','function':{'name':self.name,'description':self.description,'parameters':{
-            'type':'object','properties':{field:dict(type='string',**({'description':help_text} if (help_text:=FIELD_OVERRIDES.get((self.name,field),FIELD_HELP.get(field))) else {})) for field in self.fields},'required':list(self.fields),'additionalProperties':False}}}
+            'type':'object','properties':{field:dict(type='string',**({'description':help_text} if (help_text:=self.field_help(field)) else {})) for field in self.fields},'required':list(self.fields),'additionalProperties':False}}}
 
 
 TOOLS=[CodeTool('list_skill_resources','List bounded relative resource paths for a user-selected skill; listing does not run scripts.',('name',)),
