@@ -2845,6 +2845,39 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Automatic context is off.", out.getvalue())
             request.assert_not_called()
 
+    def test_mcp_priority_override_is_session_scoped_and_does_not_change_shared_settings(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "data"
+            store = Store(data)
+            try:
+                store.config["settings"]["mcp_priority"] = "first"
+                store.save_connection("Fixture", {"url": "https://fixture.invalid/v1", "model": "fixture"})
+            finally:
+                store.db.close()
+            first, second = Mock(), Mock()
+            first.prompt.side_effect = ["/connection Fixture", "/mcp priority last", "/check", "/new"]
+            second.prompt.side_effect = ["/mcp priority", "/check", "/exit"]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", side_effect=[first, second]), \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            before, after = out.getvalue().split("Started session", 1)
+            self.assertIn("MCP priority: last", before)
+            self.assertIn("Session MCP priority: shared default.", after)
+            self.assertIn("MCP priority: first", after)
+            request.assert_not_called()
+            store = Store(data)
+            try:
+                self.assertEqual(store.config["settings"]["mcp_priority"], "first")
+            finally:
+                store.db.close()
+
     def test_terminal_check_summary_only_exposes_selected_local_fields(self):
         from agentnik.code_terminal import run_settings_summary
 

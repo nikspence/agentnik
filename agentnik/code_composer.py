@@ -8,6 +8,7 @@ COMMANDS = (
     "/connections remove", "/connections import", "/connections export", "/connections discover", "/connection",
     "/model", "/models", "/goal", "/continue", "/continue preview", "/web on", "/web off", "/vision", "/vision on", "/vision off",
     "/thinking on", "/thinking off", "/mcp", "/mcp use", "/mcp add", "/mcp remove", "/mcp off",
+    "/mcp priority", "/mcp priority first", "/mcp priority last", "/mcp priority default",
     "/permissions", "/permissions require",
     "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove", "/skills resources", "/skills read",
     "/scope", "/scope project", "/scope machine",

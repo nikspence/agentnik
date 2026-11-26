@@ -207,7 +207,7 @@ def selected_terminal_connection(store, name, model, discovered=None):
 
 
 def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None, mcp_selection=(), root=None,
-                      memory_enabled=False):
+                      memory_enabled=False, mcp_priority=None):
     from importlib.util import find_spec
     from . import tls
     from .code_setup import shared_run_options
@@ -224,7 +224,7 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
             capability_connection.pop("_capability_scope", None)
         options = shared_run_options(
             store, name, connection, web_enabled=web_enabled, has_mcp=bool(mcp_selection),
-            capability_connection=capability_connection,
+            capability_connection=capability_connection, mcp_priority=mcp_priority,
         )
         if mcp_selection:
             options["mcp_bridges"] = terminal_mcp_bridges(store.config, mcp_selection)
@@ -268,7 +268,8 @@ def run_settings_summary(connection, options, *, vision, image_count, document_c
         f"Web: {'on' if options.get('web_enabled') else 'off'} · "
         f"Image inspection: {'on' if vision else 'off'} · "
         f"Image generation: {'configured' if options.get('image_config') else 'off'} · "
-        f"MCP profiles: {len(options.get('mcp_bridges', ()))}\n"
+        f"MCP profiles: {len(options.get('mcp_bridges', ()))} · "
+        f"MCP priority: {options.get('mcp_priority', 'first')}\n"
         f"Queued attachments: {image_count} image(s), {document_count} document(s)."
     )
 

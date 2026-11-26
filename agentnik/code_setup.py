@@ -41,10 +41,13 @@ def resolve_mcp_profiles(config, refs):
     return selected
 
 
-def shared_run_options(store, name, connection, *, web_enabled, has_mcp, capability_connection):
+def shared_run_options(store, name, connection, *, web_enabled, has_mcp, capability_connection, mcp_priority=None):
     """Resolve policy and budgets without opening a model request or MCP connection."""
     settings = store.config["settings"]
-    mcp_priority = settings.get("mcp_priority", "first")
+    if mcp_priority is None:
+        mcp_priority = settings.get("mcp_priority", "first")
+    if mcp_priority not in ("first", "last"):
+        raise ValueError("MCP priority must be first or last.")
     options = code_research_options(
         store, name, connection, web_enabled, mcp_first=has_mcp and mcp_priority == "first",
     )

@@ -359,6 +359,7 @@ def terminal_session(options, root, lease, images):
     connection_name = model = ""
     discovered = {}
     mcp_selection = []
+    mcp_priority = None
     context = None
     context_model = ""
     context_route = None
@@ -390,7 +391,7 @@ def terminal_session(options, root, lease, images):
                 raise ValueError(f"{exc} Use /skills show ID and /skills add ID, or /skills remove ID.") from None
         return load_run_settings(
             options.data_dir, connection_name, model, web_enabled, discovered=discovered,
-            mcp_selection=mcp_selection, root=root, memory_enabled=memory_enabled,
+            mcp_selection=mcp_selection, root=root, memory_enabled=memory_enabled, mcp_priority=mcp_priority,
         )
 
     def change_model(selected):
@@ -406,7 +407,7 @@ def terminal_session(options, root, lease, images):
 
     def reset_session_state():
         nonlocal context, context_model, context_route, use_context, last_goal_turn, web_enabled, vision_enabled, memory_enabled
-        nonlocal mcp_selection, show_thinking, skill_pins, require_approval, machine_scope, composer
+        nonlocal mcp_selection, mcp_priority, show_thinking, skill_pins, require_approval, machine_scope, composer
         nonlocal rejected_draft, draft_to_edit
         rejected_draft = draft_to_edit = ""
         context = last_goal_turn = None
@@ -415,6 +416,7 @@ def terminal_session(options, root, lease, images):
         use_context = require_approval = True
         web_enabled = vision_enabled = memory_enabled = show_thinking = machine_scope = False
         mcp_selection = []
+        mcp_priority = None
         skill_pins = {}
         documents.clear()
         images.clear()
@@ -491,6 +493,7 @@ def terminal_session(options, root, lease, images):
                   "/thinking on|off  Show model-provided thinking when available\n"
                   "/skills           List, preview or select project and user skills\n"
                   "/mcp              List or select MCP servers for this session\n"
+                  "/mcp priority [first|last|default]  Choose tool priority for this session\n"
                   "/permissions      Set project and shell approval for this session\n"
                   "/scope [MODE]     Show or set file scope for the next run (project or machine)\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
@@ -501,6 +504,15 @@ def terminal_session(options, root, lease, images):
                   "/sessions [PAGE]  List saved sessions for the current project\n"
                   "/resume [ID]      List sessions or resume by ID, unique prefix, or latest\n"
                   "/exit             Close Agentnik Code")
+        elif command == "/mcp priority" or command.startswith("/mcp priority "):
+            selection = command.removeprefix("/mcp priority").strip()
+            if selection and selection not in ("first", "last", "default"):
+                print("Use /mcp priority first, last, or default.")
+                continue
+            if selection:
+                mcp_priority = None if selection == "default" else selection
+            print(f"Session MCP priority: {mcp_priority or 'shared default'}. "
+                  "Use /check to see the effective priority.")
         elif command == "/mcp off":
             mcp_selection.clear()
             print("MCP disabled in this session.")
