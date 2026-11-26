@@ -1477,7 +1477,7 @@ class TerminalRunTests(unittest.TestCase):
                 configure_code(store, ["limits", "model_seconds", "180"])
                 configure_code(store, ["limits", "context_bytes", "5000"])
                 for mode in ("unlimited", "default"):
-                    configure_code(store, ["limits", "all", mode])
+                    message = configure_code(store, ["limits", "all", mode])
                     reopened = Store(directory)
                     try:
                         actual = reopened.config["settings"]["coding_limits"]
@@ -1487,6 +1487,9 @@ class TerminalRunTests(unittest.TestCase):
                     if mode == "unlimited":
                         expected.update(dict.fromkeys(UNLIMITED_FIELDS, 0))
                     self.assertEqual(actual, expected)
+                    for key in UNLIMITED_FIELDS:
+                        self.assertIn(f"{key}={expected[key] or 'unlimited'}", message)
+                    self.assertIn("Model request timeout (180 s) and context limit (5000 bytes) are unchanged.", message)
             finally:
                 store.db.close()
 

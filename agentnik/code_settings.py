@@ -592,6 +592,11 @@ def configure_code(store, arguments, root=None):
         for key in UNLIMITED_FIELDS:
             values[key] = 0 if arguments[-1] == "unlimited" else FIELDS[key][0]
         settings["coding_limits"] = coding_limits(values)
+        store.flush()
+        budgets = ", ".join(f"{key}={values[key] or 'unlimited'}" for key in FIELDS if key in UNLIMITED_FIELDS)
+        return (f"Saved run budgets for the next terminal run: {budgets}. "
+                f"Model request timeout ({values['model_seconds']} s) and context limit "
+                f"({values['context_bytes']} bytes) are unchanged.")
     elif len(arguments) in (2, 3) and arguments[0] in ("limits", "goal"):
         section, key = arguments[:2]
         fields, validator, setting = (
