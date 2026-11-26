@@ -3701,6 +3701,46 @@ class TerminalRunTests(unittest.TestCase):
         self.assertIn("[y/N/r]", prompt.call_args_list[0].args[0])
         self.assertEqual(prompt.call_args_list[1].args[0], "Approve once? [y/N] ")
 
+    def test_terminal_mcp_priority_discovery_waits_for_approval(self):
+        from unittest.mock import Mock
+        from agentnik import core
+        from agentnik.code_agent import CodingRun
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        for approved in (False, True):
+            with self.subTest(approved=approved), TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                bridge = Mock()
+                bridge.server = {"name": "Fixture", "transport": "http", "url": "https://fixture.invalid/mcp"}
+                bridge.review_required = True
+                bridge.request.return_value = {"tool_details": []}
+                run = CodingRun({"url": "https://model.invalid/v1", "model": "fixture", "stream": False},
+                                root, "Read a file.", mcp_bridges=[bridge], mcp_priority="first")
+                (root / "note.txt").write_text("Reviewed fixture contents.", encoding="utf-8")
+                turns = [
+                    Wire(chat(calls=[call("read_file", {"path": "note.txt"})], finish="tool_calls"), False),
+                    Wire(chat("Done."), False),
+                ]
+
+                def consent(_):
+                    bridge.request.assert_not_called()
+                    return "y" if approved else "n"
+
+                with patch.object(core, "open_request", side_effect=turns) as model, \
+                        patch("builtins.input", side_effect=consent) as prompt:
+                    result = drive_run(run, write=lambda *a, **k: None)
+                self.assertEqual(result["status"], "completed")
+                prompt.assert_called_once()
+                self.assertEqual(bridge.request.call_count, int(approved))
+                messages = str(model.call_args.args[2]["messages"])
+                if approved:
+                    self.assertIn("Reviewed fixture contents.", messages)
+                else:
+                    self.assertIn("MCP server discovery declined", messages)
+                    self.assertNotIn("Reviewed fixture contents.", messages)
+
     def test_terminal_mcp_run_approval_is_scoped_and_expires_in_the_engine(self):
         from unittest.mock import Mock
         from agentnik import core

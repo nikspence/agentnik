@@ -1018,6 +1018,13 @@ class CodingRun:
                 if protocol=='responses':body['instructions']=combined
                 elif protocol=='messages':body['system']=combined
                 else:body['messages'][0]['content']=combined
+            def mcp_discovery_proposal(server):
+                if server.get('transport')=='http':
+                    return {'operation':'mcp_connect','server':server['name'],'url':server['url']}
+                return {'operation':'mcp_start','server':server['name'],'command':server['command'],
+                        'arguments':server['args'],'environment':server.get('env',{}),
+                        'working_directory':server.get('working_directory','')}
+
             def discover_arguments(args):
                 guidance.discover('.')
                 def discover_target(path):
@@ -1209,8 +1216,13 @@ class CodingRun:
                         if steered:raise ProjectToolError('User steering is pending; reconsider this batch after reading it.')
                         for name,selected in mcp_states.items():
                             if selected['tools'] is None:
+                                bridge=selected['bridge']
+                                if getattr(bridge,'review_required',False) is True:
+                                    proposal=mcp_discovery_proposal(bridge.server)
+                                    if not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                        raise ProjectToolError('MCP server discovery declined by the user')
                                 runtime.charge('calls',1,runtime.limits.calls)
-                                response=selected['bridge'].request('discover',{},runtime)
+                                response=bridge.request('discover',{},runtime)
                                 if 'error' in response:raise ProjectToolError('MCP discovery failed for '+name+': '+response['error'])
                                 selected['tools']=response.get('tool_details',[]);selected['task_capabilities']=response.get('task_capabilities',{});selected['more_tools']=bool(response.get('more_tools',False))
                                 if response.get('instructions'):
@@ -1218,7 +1230,7 @@ class CodingRun:
                                 event('output',text='MCP server connected: '+name)
                             if selected.get('more_tools'):raise ProjectToolError('MCP tool list is incomplete for '+name+'; cannot safely check tool precedence.')
                         server_guidance=[{'server':name,**selected['instructions']} for name,selected in mcp_states.items() if selected.get('guidance_pending') and selected.get('instructions')]
-                    except ProjectToolError as exc:preflight_error=str(exc)
+                    except (ProjectToolError,GuidanceError) as exc:preflight_error=str(exc)
                 for call,args,validation_error in validated:
                     runtime.check();check_skill_versions()
                     image_mark=len(viewed_images)
@@ -1266,7 +1278,7 @@ class CodingRun:
                                 if mcp_state['instructions']:result.update(mcp_state['instructions']);mcp_state['guidance_pending']=False
                             else:
                                 server=mcp_bridge.server
-                                proposal=({'operation':'mcp_connect','server':server['name'],'url':server['url']} if server.get('transport')=='http' else {'operation':'mcp_start','server':server['name'],'command':server['command'],'arguments':server['args'],'environment':server.get('env',{}),'working_directory':server.get('working_directory','')})
+                                proposal=mcp_discovery_proposal(server)
                                 if getattr(mcp_bridge,'review_required',False) is True and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
                                     raise ProjectToolError('MCP server start declined by the user')
                                 response=mcp_bridge.request('discover',{},runtime)
