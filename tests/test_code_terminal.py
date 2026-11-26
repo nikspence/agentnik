@@ -796,6 +796,11 @@ class TerminalRunTests(unittest.TestCase):
                 session_id, record = next(iter(CodeHistory(store, root).sessions().items()))
                 self.assertEqual(record["coding_context"]["answer"], "Created another note.")
                 self.assertIn("notes", record["coding_skill_pins"])
+                from agentnik.sessions import append_code_activity
+
+                for index in range(21):
+                    append_code_activity(record, "tool", f"Activity {index}")
+                store.save(record)
             finally:
                 store.db.close()
             reopened = Mock()
@@ -807,6 +812,7 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             transport.assert_not_called()
             self.assertIn(f"Resumed session {session_id}", output.getvalue())
+            reopened.history.append_string.assert_any_call("Create another note")
 
     def test_connection_keyring_fallback_requires_explicit_consent(self):
         from keyring.errors import NoKeyringError

@@ -515,14 +515,17 @@ def terminal_session(options, root, lease, images):
                 if composer:
                     composer = open_composer()
             for saved in reversed(records[:20]):
-                for entry in saved.get("code_activity", [])[-20:]:
+                activity = saved.get("code_activity", [])
+                if command != "/history" and composer:
+                    for entry in activity:
+                        if entry["kind"] == "prompt":
+                            composer.history.append_string(terminal_text(entry["text"]))
+                for entry in activity[-20:]:
                     line = terminal_text(entry["text"])
                     if command == "/history":
                         print(line)
                     else:
                         write_activity(line)
-                        if composer and entry["kind"] == "prompt":
-                            composer.history.append_string(line)
             if command == "/history":
                 continue
             record = records[0]
