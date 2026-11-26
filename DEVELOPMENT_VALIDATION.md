@@ -14,7 +14,7 @@ From the checkout, set `PREVIEW_DIR` to the absolute directory containing the ex
 docker run --rm \
   --mount "type=bind,src=$PREVIEW_DIR,dst=/preview,readonly" \
   --mount "type=bind,src=$PWD/tools,dst=/tools,readonly" \
-  python:3.12-slim sh -c 'tr -d "\015" </tools/ssh_terminal_smoke.sh | sh -s -- /preview/agentnik-0.12.0rc1-py3-none-any.whl'
+  python:3.12-slim sh -c 'tr -d "\015" </tools/ssh_terminal_smoke.sh | sh -s -- /preview/agentnik-0.12.0rc2-py3-none-any.whl'
 ```
 
 The fixture installs dependencies in the disposable container, then uses a fresh non-root account and a throwaway key over loopback OpenSSH. It checks the installed launcher without Qt, connection setup, a reviewed file edit, Ctrl+C cancellation while waiting on a response, and session resume without replay. It uses a synthetic API key, checks that entry does not echo, and explicitly opts into plaintext storage only inside the disposable test profile. Model responses are served by a loopback fixture. No live inference is used.
