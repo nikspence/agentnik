@@ -1,6 +1,6 @@
 # Publishing Agentnik to PyPI
 
-The first candidate is `0.12.0rc1`. The desktop ZIP release series is separate. Keep the candidate version in `pyproject.toml` and `agentnik/__init__.py` in sync before building.
+Version 0.13.0 is the first public PyPI release with terminal coding. Keep the package and Windows release versions in sync with `pyproject.toml`, `agentnik/__init__.py`, and the release tag.
 
 ## GitHub Trusted Publishing
 

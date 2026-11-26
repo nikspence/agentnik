@@ -5,7 +5,7 @@ Agentnik is a desktop client for chat and research and a terminal coding assista
 For terminal coding without Qt:
 
 ```sh
-python -m pip install --pre "agentnik[terminal]"
+python -m pip install "agentnik[terminal]"
 agentnik code
 ```
 
@@ -14,7 +14,7 @@ Run from your project directory. Use `/connections add` to configure a connectio
 For the desktop app:
 
 ```sh
-python -m pip install --pre "agentnik[desktop]"
+python -m pip install "agentnik[desktop]"
 agentnik-desktop
 ```
 

@@ -1,20 +1,13 @@
 # Agentnik Code in the terminal
 
-Agentnik Code is available as a terminal preview. It uses Agentnik's own coding engine and works on machines without a display or Qt. Install from the checkout:
+Agentnik Code is available as a terminal preview. It uses Agentnik's own coding engine and works on machines without a display or Qt. Install it from PyPI with Python 3.11 or newer:
 
 ```sh
-python -m pip install ".[terminal]"
-```
-
-To test without using PyPI for Agentnik itself, download and extract the `python-distributions` artifact from the [verified 0.12.0rc8 preview build](https://github.com/nikspence/agentnik/actions/runs/45899455231). It includes an offline keyboard check and improved manual Git review, plus the saved-session Tab completion from rc7. Open a terminal in the extracted folder, create and activate a fresh virtual environment, then install the wheel with the terminal extra. Pip may fetch dependencies from PyPI.
-
-```sh
-python -m pip install "./agentnik-0.12.0rc8-py3-none-any.whl[terminal]"
-agentnik code --help
+python -m pip install "agentnik[terminal]>=0.13.0"
 agentnik code --version
 ```
 
-Use the wheel filename from the artifact if its version differs. Build-only artifacts include `SOURCE-COMMIT.txt` and `SHA256SUMS`, so you can distinguish builds with the same preview version. To request a fresh build, run the [build workflow](https://github.com/nikspence/agentnik/actions/workflows/publish-to-pypi.yml) with both `publish` and `legacy_0_11_1` unchecked.
+For development, install from a checkout with `python -m pip install ".[terminal]"`. For a build-only wheel, dispatch the [distribution workflow](https://github.com/nikspence/agentnik/actions/workflows/publish-to-pypi.yml) with both options unchecked and use the wheel and checksums from its artifact.
 
 From the folder you want to work in, run `agentnik code`. A Git repository is optional. To work somewhere else, pass the folder as an argument. On a machine where you also use the desktop app, install `".[desktop,terminal]"` to use both. The clients share saved connections and application data. Use `--data-dir PATH` or `AGENTNIK_HOME` if you want a separate data store.
 
