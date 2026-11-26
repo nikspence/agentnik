@@ -50,6 +50,8 @@ def create_composer(transcript=lambda: "", *, message="code> ", **options):
     from prompt_toolkit.completion import WordCompleter
     from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
+    from prompt_toolkit.keys import Keys
     from .code_settings import APPEARANCE, CHAT_LIMIT_FIELDS, FIELDS, GOAL_FIELDS, UNLIMITED_FIELDS
 
     setting_names = tuple(
@@ -65,11 +67,20 @@ def create_composer(transcript=lambda: "", *, message="code> ", **options):
         for name in fields if name in allowed
     )
 
+    # prompt_toolkit already maps xterm's modified Enter to ControlM.
+    # Add CSI-u, then distinguish modified Enter from plain CR by its raw data.
+    modified_enter = ("\x1b[13;5u", "\x1b[27;5;13~")
+    for sequence in modified_enter:
+        ANSI_SEQUENCES.setdefault(sequence, Keys.ControlM)
+
     bindings = KeyBindings()
 
     @bindings.add("enter")
     def submit(event):
-        event.current_buffer.validate_and_handle()
+        if event.data in modified_enter:
+            event.current_buffer.newline()
+        else:
+            event.current_buffer.validate_and_handle()
 
     @bindings.add("c-j")
     @bindings.add("escape", "c-j")

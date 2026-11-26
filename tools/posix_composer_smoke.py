@@ -34,8 +34,8 @@ def main():
         terminal.expect_exact("DRAFT-CANCELLED")
         terminal.expect_exact("READY-0")
         terminal.expect_exact("code>")
-        terminal.send("first line\nsecond line\r")
-        draft = b"first line\nsecond line".hex()
+        terminal.send("first line\nsecond line\x1b[13;5uthird line\x1b[27;5;13~fourth line\r")
+        draft = b"first line\nsecond line\nthird line\nfourth line".hex()
         terminal.expect_exact(f"SUBMITTED-0:{draft}:END")
         terminal.expect_exact("READY-1")
         terminal.expect_exact("code>")
@@ -56,7 +56,7 @@ def main():
         terminal.close()
         if terminal.exitstatus != 0:
             raise SystemExit(f"Composer exited unexpectedly (status {terminal.exitstatus}).")
-    print("POSIX PTY verified Ctrl+C draft cancellation, Ctrl+J, Enter, Up history recall, and draft recovery after transcript scrollback.")
+    print("POSIX PTY verified Ctrl+C draft cancellation, Ctrl+J, distinct Ctrl+Enter sequences, Enter, Up history recall, and draft recovery after transcript scrollback.")
 
 
 if __name__ == "__main__":
