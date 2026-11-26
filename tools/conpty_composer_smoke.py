@@ -4,7 +4,7 @@ from pathlib import Path
 from queue import Empty, Queue
 import sys
 from threading import Thread
-from time import monotonic
+from time import monotonic, sleep
 
 
 CHILD = """
@@ -12,8 +12,21 @@ from agentnik.code_composer import create_composer
 
 composer = create_composer()
 for index in range(3):
+    changes = []
+    observe = lambda buffer: changes.append(buffer.text)
+    composer.default_buffer.on_text_changed += observe
     print(f"READY-{index}", flush=True)
-    draft = composer.prompt()
+    try:
+        draft = composer.prompt()
+    finally:
+        composer.default_buffer.on_text_changed -= observe
+    if index == 2:
+        expected = ["current draft", "first line" + chr(10) + "second line", "current draft"]
+        for value in changes:
+            if expected and value == expected[0]:
+                expected.pop(0)
+        if expected:
+            raise AssertionError("Draft did not enter and leave history in order")
     print(f"SUBMITTED-{index}:{draft.encode().hex()}:END", flush=True)
 """
 
@@ -69,7 +82,12 @@ def main():
         expect("READY-2\r\n")
         seen = seen.split("READY-2\r\n", 1)[1]
         expect("code> ")
-        terminal.write("current draft\x1b[A\x1b[B\r")
+        # Space out the history keys as separate gestures on the console.
+        terminal.write("current draft")
+        sleep(0.15)
+        terminal.write("\x1b[A")
+        sleep(0.15)
+        terminal.write("\x1b[B\r")
         expect(f"SUBMITTED-2:{b'current draft'.hex()}:END")
     finally:
         terminal.close()
