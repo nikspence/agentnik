@@ -120,11 +120,23 @@ def configure_mcp(store, arguments):
     settings = store.config["settings"]
     servers = store.config.get("mcp_servers", [])
     if not arguments:
+        def profile_summary(item):
+            remote = item.get("transport") == "http"
+            auth = ""
+            if remote:
+                if item.get("auth_type") == "oauth":
+                    auth = " · OAuth configured"
+                elif item.get("credential_id"):
+                    auth = " · bearer token configured"
+                else:
+                    auth = " · no saved credential"
+            return (f"{item['name']!r} · {'HTTPS' if remote else 'local'}"
+                    f" · {'enabled' if item['enabled'] else 'disabled'} · {server_timeout(item)}s timeout{auth}")
+
         return "\n".join([
-            f"Desktop MCP access: {'on' if settings.get('mcp_access_enabled', True) else 'off'}",
+            f"Shared MCP access: {'on' if settings.get('mcp_access_enabled', True) else 'off'}",
             f"Conflicting tools: MCP {settings.get('mcp_priority', 'first')}",
-            *(f"{item['name']!r} · {'HTTPS' if item.get('transport') == 'http' else 'local'}"
-              f" · {'enabled' if item['enabled'] else 'disabled'} · {server_timeout(item)}s timeout" for item in servers),
+            *(profile_summary(item) for item in servers),
             "Use /settings mcp on|off, priority first|last, or enable|disable NAME.",
             "Use /settings mcp add-https to save an HTTPS server without credentials.",
             "Use /settings mcp edit-https NAME to rename an HTTPS profile or change its URL.",

@@ -543,6 +543,7 @@ class TerminalRunTests(unittest.TestCase):
                     configure_code(store, ["mcp", "signin", "Fixture", "Server"])
                 profile = load_config(store.config_path)["mcp_servers"][0]
                 self.assertEqual(profile["auth_type"], "oauth")
+                self.assertIn("OAuth configured", configure_code(store, ["mcp"]))
                 self.assertFalse(profile["enabled"])
                 save.assert_called_once_with(profile["credential_id"], record)
                 self.assertEqual(signin.call_args.args[:3], ("https://example.org/mcp", "fixture-client", "read"))
@@ -566,6 +567,11 @@ class TerminalRunTests(unittest.TestCase):
                 credential = load_config(store.config_path)["mcp_servers"][0]["credential_id"]
                 save.assert_called_once_with("Agentnik", credential, "fixture-token")
                 self.assertNotIn("fixture-token", store.config_path.read_text())
+                with patch("keyring.get_password") as read_secret:
+                    summary = configure_code(store, ["mcp"])
+                    read_secret.assert_not_called()
+                self.assertIn("bearer token configured", summary)
+                self.assertNotIn(credential, summary)
                 with patch("builtins.input", side_effect=["", "https://other.example.org/mcp"]):
                     with self.assertRaisesRegex(ValueError, "Clear the saved credential"):
                         configure_code(store, ["mcp", "edit-https", "Fixture", "Server"])
@@ -579,6 +585,7 @@ class TerminalRunTests(unittest.TestCase):
                     configure_code(store, ["mcp", "token", "Fixture", "Server"])
                 remove.assert_called_once_with("Agentnik", credential)
                 self.assertEqual(load_config(store.config_path)["mcp_servers"][0]["credential_id"], "")
+                self.assertIn("no saved credential", configure_code(store, ["mcp"]))
                 with patch("builtins.input", side_effect=["", "https://other.example.org/mcp"]):
                     configure_code(store, ["mcp", "edit-https", "Fixture", "Server"])
                 self.assertEqual(load_config(store.config_path)["mcp_servers"][0]["url"],
