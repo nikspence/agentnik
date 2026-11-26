@@ -163,7 +163,7 @@ def main():
                   "/connections add|edit|key|remove [NAME]\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
-                  "/settings         Show or change coding limits and TLS\n"
+                  "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
                   "/sessions         List saved sessions for the current project\n"
                   "/resume ID        Resume a saved session (or use latest)\n"

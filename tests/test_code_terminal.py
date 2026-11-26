@@ -45,11 +45,19 @@ class TerminalRunTests(unittest.TestCase):
             try:
                 configure_code(store, ["limits", "rounds", "12"])
                 configure_code(store, ["tls", "strict"])
+                configure_code(store, ["appearance", "theme", "dark"])
+                configure_code(store, ["appearance", "language", "en"])
+                configure_code(store, ["appearance", "history", "hide"])
+                with self.assertRaises(ValueError):
+                    configure_code(store, ["appearance", "font", "100"])
                 with self.assertRaises(ValueError):
                     configure_code(store, ["limits", "rounds", "0"])
                 saved = load_config(store.config_path)["settings"]
                 self.assertEqual(saved["coding_limits"]["rounds"], 12)
                 self.assertFalse(saved["relaxed_tls"])
+                self.assertEqual(saved["theme"], "Dark")
+                self.assertEqual(saved["language"], "en")
+                self.assertFalse(saved["history_visible"])
                 configure_code(store, ["limits", "rounds", "default"])
                 self.assertNotEqual(load_config(store.config_path)["settings"]["coding_limits"]["rounds"], 12)
             finally:

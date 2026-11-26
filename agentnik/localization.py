@@ -1,6 +1,5 @@
 """Load packaged Qt translations at startup, with English as the fallback."""
 from pathlib import Path
-from PySide6.QtCore import QLocale, QTranslator
 
 CATALOGS = {'ko':'한국어 (미리보기)', 'es-MX':'Español (vista previa)',
             'fr-CA':'Français (aperçu)', 'zh-Hans':'简体中文（预览）',
@@ -25,6 +24,8 @@ def locale_candidates(tag):
 
 def install(app,selection='system',directory=CATALOG_DIR,system_languages=None):
     """Return an installed translator, or None when no usable catalog exists."""
+    from PySide6.QtCore import QLocale, QTranslator
+
     tags=(system_languages if system_languages is not None else QLocale.system().uiLanguages()) if selection=='system' else [selection]
     visited=set()
     for tag in tags:
