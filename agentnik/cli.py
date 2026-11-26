@@ -289,13 +289,12 @@ def terminal_session(options, root, lease, images):
         elif command.startswith("/attach "):
             from xml.etree.ElementTree import ParseError
             from zipfile import BadZipFile
-            from .code_agent import ProjectFiles
-            from .code_attachments import IMAGE_SUFFIXES
+            from .code_attachments import IMAGE_SUFFIXES, project_attachment_path
             from .code_terminal import terminal_text
             from .document_reader import read_document, validate_documents
 
             try:
-                path = ProjectFiles(root).path(command.partition(" ")[2].strip())
+                path = project_attachment_path(root, command.partition(" ")[2].strip())
                 if path.suffix.lower() in IMAGE_SUFFIXES:
                     if not vision_enabled:
                         raise ValueError("Use /vision on with a vision-capable model before attaching images.")

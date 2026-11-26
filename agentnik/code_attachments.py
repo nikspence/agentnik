@@ -10,6 +10,25 @@ IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp"}
 MAX_QUEUED_IMAGE_BYTES = 8 * 1024 * 1024
 
 
+def project_attachment_path(root, value):
+    """Accept pasted local paths without relaxing the project file boundary."""
+    from .code_agent import ProjectFiles
+
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1]
+    files = ProjectFiles(root)
+    path = Path(value)
+    if path.is_absolute():
+        try:
+            value = str(path.relative_to(files.root))
+        except ValueError:
+            raise ValueError("Choose an attachment inside the current project.") from None
+    target = files.path(value)
+    if not target.is_file():
+        raise ValueError("Choose a regular file inside the current project.")
+    return target
+
+
 class ImageQueue:
     def __init__(self):
         self.directory = None

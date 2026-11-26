@@ -796,7 +796,9 @@ class TerminalRunTests(unittest.TestCase):
             (root / "visual.png").write_bytes(asset.read_bytes())
             from zipfile import ZipFile
 
-            with ZipFile(root / "brief.pptx", "w") as archive:
+            brief = root / "slide brief.pptx"
+            (base / "outside.txt").write_text("Outside project fixture")
+            with ZipFile(brief, "w") as archive:
                 archive.writestr("ppt/slides/slide1.xml",
                                  '<a:root xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
                                  '<a:t>Presentation fixture brief.</a:t></a:root>')
@@ -818,7 +820,8 @@ class TerminalRunTests(unittest.TestCase):
             auto_edit = call("write_file", {"path": "auto.txt", "content": "automatic\n"})
             shell = call("run_shell", {"path": ".", "command": "echo fixture"}, ident="call-shell")
             first = Mock()
-            first.prompt.side_effect = ["/connection Fixture", "/connection Fxture", "/skills add notes", "/attach brief.pptx",
+            first.prompt.side_effect = ["/connection Fixture", "/connection Fxture", "/skills add notes",
+                                        f'/attach "{base / "outside.txt"}"', f'/attach "{brief}"',
                                         "/vision on", "/attach visual.png",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
@@ -837,7 +840,8 @@ class TerminalRunTests(unittest.TestCase):
                         Wire(chat("Created the note."), False),
                         Wire(chat(calls=[auto_edit, shell], finish="tool_calls"), False),
                         Wire(chat("Created another note."), False),
-                    ]) as transport, contextlib.redirect_stdout(output):
+                    ]) as transport, contextlib.redirect_stdout(output), \
+                    contextlib.redirect_stderr(io.StringIO()) as errors:
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 4, output.getvalue())
             self.assertIn("No connection with that name.", output.getvalue())
@@ -846,6 +850,8 @@ class TerminalRunTests(unittest.TestCase):
             self.assertNotIn("/settngs", str(transport.call_args_list[0].args[2]))
             self.assertIn("Fixture note style.", str(transport.call_args_list[0].args[2]))
             self.assertIn("Presentation fixture brief.", str(transport.call_args_list[0].args[2]))
+            self.assertIn("Choose an attachment inside the current project.", errors.getvalue())
+            self.assertNotIn("Outside project fixture", str(transport.call_args_list[0].args[2]))
             self.assertNotIn("Presentation fixture brief.", str(transport.call_args_list[2].args[2]))
             self.assertIn("data:image/png;base64,", str(transport.call_args_list[0].args[2]))
             self.assertNotIn("data:image/png;base64,", str(transport.call_args_list[2].args[2]))
