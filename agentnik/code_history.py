@@ -343,7 +343,7 @@ class CodeHistory:
             self.checkpoint_goal(record, event)
 
     def start(self, name, connection, task, session_id=None, *, goal=False, extra_secrets=(), skill_pins=None,
-              machine_scope=False):
+              machine_scope=False, mcp_selection=()):
         registry = RepositoryRegistry(self.store)
         project = next((row["id"] for row in registry.list() if same_project(row["path"], self.root)), None)
         if project is None:
@@ -361,6 +361,10 @@ class CodeHistory:
             record["coding_run_route"] = route
         if skill_pins:
             record.update(coding_skills=list(skill_pins), coding_skill_pins=dict(skill_pins))
+        if mcp_selection:
+            record["coding_mcp_selection"] = {
+                "primary": dict(mcp_selection[0]), "extra": [dict(ref) for ref in mcp_selection[1:]],
+            }
         if session_id:
             record["coding_terminal_session"] = session_id
             if machine_scope:

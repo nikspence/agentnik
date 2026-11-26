@@ -152,15 +152,13 @@ def terminal_mcp_profiles(data_dir):
 
 def terminal_mcp_bridges(config, selection):
     from .code_setup import resolve_mcp_profiles
-    from .mcp_support import server_fingerprint
     from .mcp_terminal import TerminalMCPBridge
     from .mcp_terminal_http import TerminalHTTPMCPBridge
 
     if not config["settings"].get("mcp_access_enabled", True):
         raise ValueError("Shared MCP access is off. Use /settings mcp on or /mcp off.")
-    refs = [{"name": profile["name"], "sha256": server_fingerprint(profile)} for profile in selection]
     bridges = []
-    for profile in resolve_mcp_profiles(config, refs):
+    for profile in resolve_mcp_profiles(config, selection):
         if profile.get("transport") != "http":
             bridges.append(TerminalMCPBridge(profile))
             continue

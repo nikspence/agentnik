@@ -897,6 +897,7 @@ class TerminalRunTests(unittest.TestCase):
 
     def test_terminal_mcp_reuses_only_ready_oauth_records_for_the_selected_server(self):
         import json
+        from agentnik.code_setup import mcp_profile_ref
         from agentnik.code_terminal import terminal_mcp_bridges
 
         profile = {"name": "OAuth", "transport": "http", "url": "https://example.org/mcp",
@@ -907,30 +908,31 @@ class TerminalRunTests(unittest.TestCase):
                   "access_token": "access-fixture", "refresh_token": "refresh-fixture",
                   "expires_at": None, "refresh_pending": False}
         with patch("keyring.get_password", return_value=json.dumps(record)) as get:
-            bridge, = terminal_mcp_bridges(config, [profile])
+            bridge, = terminal_mcp_bridges(config, [mcp_profile_ref(profile)])
             self.assertEqual(bridge.token, "access-fixture")
             get.assert_called_once_with("Agentnik", "fixture")
         with patch("keyring.get_password", return_value=json.dumps(dict(record, refresh_pending=True))):
             with self.assertRaisesRegex(ValueError, "needs renewal"):
-                terminal_mcp_bridges(config, [profile])
+                terminal_mcp_bridges(config, [mcp_profile_ref(profile)])
         with patch("keyring.get_password", return_value=json.dumps(dict(record, resource_url="https://other.example.org/mcp"))):
             with self.assertRaisesRegex(ValueError, "sign-in is unavailable"):
-                terminal_mcp_bridges(config, [profile])
+                terminal_mcp_bridges(config, [mcp_profile_ref(profile)])
 
     def test_terminal_mcp_keeps_selection_order_and_rejects_stale_profiles(self):
+        from agentnik.code_setup import mcp_profile_ref
         from agentnik.code_terminal import terminal_mcp_bridges
 
         local = {"name": "Local", "command": "fixture", "args": [], "enabled": True}
         https = {"name": "HTTPS", "transport": "http", "url": "https://example.org/mcp",
                  "credential_id": "", "enabled": True}
         config = {"settings": {}, "mcp_servers": [local, https]}
-        bridges = terminal_mcp_bridges(config, [https, local])
+        bridges = terminal_mcp_bridges(config, [mcp_profile_ref(https), mcp_profile_ref(local)])
         self.assertEqual([bridge.server["name"] for bridge in bridges], ["HTTPS", "Local"])
         for bridge in bridges:
             bridge.close_from_worker()
         config["mcp_servers"] = [local, dict(https, enabled=False)]
         with self.assertRaisesRegex(ValueError, "changed or is unavailable"):
-            terminal_mcp_bridges(config, [https, local])
+            terminal_mcp_bridges(config, [mcp_profile_ref(https), mcp_profile_ref(local)])
 
     def test_stdio_probe_handles_silent_modern_and_delayed_legacy_servers(self):
         import sys
@@ -3733,6 +3735,44 @@ class TerminalRunTests(unittest.TestCase):
         self.assertIn("including writes and data access", "\n".join(lines))
         self.assertIn("[y/N/r]", prompt.call_args_list[0].args[0])
         self.assertEqual(prompt.call_args_list[1].args[0], "Approve once? [y/N] ")
+
+    def test_resume_restores_mcp_references_without_connecting_or_granting_approval(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.code_setup import mcp_profile_ref
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            data = root / "data"
+            ident = str(uuid4())
+            profile = {"name": "Fixture MCP", "command": "before-change", "args": [], "enabled": True}
+            ref = mcp_profile_ref(profile)
+            store = Store(data)
+            try:
+                store.config["mcp_servers"] = [dict(profile, command="after-change")]
+                store.flush()
+                history = CodeHistory(store, root)
+                record, task = history.start("Fixture", {"model": "fixture"}, "Saved task", ident,
+                                             mcp_selection=[ref])
+                history.finish(record, task, {"status": "completed", "text": "Done."})
+                saved, = history.list(ident)
+                self.assertEqual(saved["coding_mcp_selection"], {"primary": ref, "extra": []})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ["/mcp", "/exit"]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", ident]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("agentnik.code_terminal.terminal_mcp_bridges") as bridges, \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("No approvals were restored.", out.getvalue())
+            self.assertIn("Fixture MCP [changed or unavailable", out.getvalue())
+            bridges.assert_not_called()
+            request.assert_not_called()
 
     def test_terminal_mcp_priority_discovery_waits_for_approval(self):
         from unittest.mock import Mock

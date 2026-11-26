@@ -524,10 +524,11 @@ def terminal_session(options, root, lease, images):
             print("Updated the session’s MCP selection.")
         elif command == "/mcp" or command.startswith(("/mcp use ", "/mcp add ")):
             from .code_settings import mcp_profile_name
+            from .code_setup import mcp_profile_ref
             from .code_terminal import terminal_mcp_profiles, terminal_text
 
             try:
-                profiles = terminal_mcp_profiles(options.data_dir)
+                profiles = [mcp_profile_ref(profile) for profile in terminal_mcp_profiles(options.data_dir)]
                 if command == "/mcp":
                     for index, profile in enumerate(mcp_selection, 1):
                         stale = " [changed or unavailable; reselect or remove]" if profile not in profiles else ""
@@ -1003,6 +1004,11 @@ def terminal_session(options, root, lease, images):
             record = snapshot.record
             last_goal_turn = snapshot.latest_goal_turn
             skill_pins = snapshot.skill_pins
+            saved_mcp = record.get("coding_mcp_selection", {})
+            primary_mcp = saved_mcp.get("primary")
+            mcp_selection = ([primary_mcp] if primary_mcp else []) + saved_mcp.get("extra", [])
+            if mcp_selection:
+                print("Restored MCP profile choices. Use /mcp to review them. No approvals were restored.")
             context = snapshot.project_context
             connection_name, model = snapshot.connection, snapshot.model
             context_model = model if context else ""
@@ -1186,7 +1192,7 @@ def terminal_session(options, root, lease, images):
                     history = CodeHistory(store, root)
                     record, task = history.start(
                         connection_name, connection, resume["task"] if resume else command, session_id, goal=goal,
-                        skill_pins=skill_pins, machine_scope=machine_scope,
+                        skill_pins=skill_pins, machine_scope=machine_scope, mcp_selection=mcp_selection,
                         extra_secrets=[
                             *(item.get("key") for item in research_options["web_backends"]),
                             research_options.get("image_config", {}).get("connection", {}).get("api_key"),

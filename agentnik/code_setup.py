@@ -27,6 +27,10 @@ def resolve_run_connection(connection, model=None):
     return resolved
 
 
+def mcp_profile_ref(profile):
+    return {"name": profile["name"], "sha256": server_fingerprint(profile)}
+
+
 def resolve_mcp_profiles(config, refs):
     """Resolve ordered, enabled profiles only if their saved revisions still match."""
     if len(refs) > 5 or len({ref["name"] for ref in refs}) != len(refs):
