@@ -2691,7 +2691,8 @@ class TerminalRunTests(unittest.TestCase):
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.storage.load_config", side_effect=AssertionError("no settings needed")), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
-                    patch("agentnik.code_history.CodeHistory.list", return_value=records) as read, \
+                    patch("agentnik.code_history.CodeHistory.turn_window",
+                          side_effect=lambda ident, offset, count: records[offset:offset + count]) as read, \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             first, second = output.getvalue().split("More saved turns are available under /history 2.")
@@ -2705,10 +2706,28 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Saved turn 1 (newest is 1).\n[Saved turn used machine scope]\nTurn 00\nEntry 00", second)
             self.assertIn("No saved turn with that number.", second)
             self.assertIn("positive whole turn number", second)
-            self.assertEqual(read.call_count, 5)
+            self.assertEqual([call.args[1:] for call in read.call_args_list],
+                             [(0, 21), (20, 21), (40, 21), (0, 1), (21, 1)])
             self.assertEqual(len({args.args[0] for args in read.call_args_list}), 1)
             self.assertTrue(read.call_args.args[0])
             composer.history.append_string.assert_not_called()
+
+    def test_history_window_stops_validating_after_requested_turns(self):
+        from unittest.mock import Mock
+        from agentnik.code_history import CodeHistory
+
+        store = Mock()
+        def turns():
+            yield {"path_snapshot": "elsewhere"}
+            yield {"path_snapshot": "project", "id": "first"}
+            yield {"path_snapshot": "project", "id": "second"}
+            self.fail("The rest of the transcript should not be consumed")
+
+        store.iter_sessions.return_value = turns()
+        with patch("agentnik.code_history.same_project", side_effect=lambda path, root: path == "project"):
+            result = CodeHistory(store, Path("project")).turn_window("session", 1, 1)
+        self.assertEqual([turn["id"] for turn in result], ["second"])
+        store.iter_sessions.assert_called_once_with(mode="code", terminal_session="session")
 
     def test_list_sessions_json_without_terminal_does_not_resume(self):
         import json

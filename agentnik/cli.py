@@ -751,6 +751,9 @@ def terminal_session(options, root, lease, images):
                 print("Use /history turn N with a positive whole turn number." if detail else
                       f"Use {action} PAGE with a positive whole page number.")
                 continue
+            if action == "/history":
+                page = int(argument or 1)
+                offset = page - 1 if detail else (page - 1) * 20
             try:
                 read_only = listing or current_only
                 if not (options.data_dir / "history.sqlite3").exists():
@@ -761,6 +764,8 @@ def terminal_session(options, root, lease, images):
                         history = CodeHistory(store, root)
                         if listing:
                             sessions = history.session_summaries()
+                        elif action == "/history":
+                            records = history.turn_window(session_id, offset, 1 if detail else 21)
                         elif current_only:
                             records = history.list(session_id)
                         else:
@@ -806,30 +811,25 @@ def terminal_session(options, root, lease, images):
                       else "No saved plan for this session.")
                 continue
             if action == "/history":
-                page = int(argument or 1)
-                offset = (page - 1) * 20
                 if detail:
-                    if page > len(records):
+                    if not records:
                         print("No saved turn with that number.")
                     else:
-                        saved = records[page - 1]
+                        saved = records[0]
                         print(f"Saved turn {page} (newest is 1).")
                         if saved.get("coding_file_scope") == "machine":
                             print("[Saved turn used machine scope]")
                         for entry in saved.get("code_activity", []):
                             print(terminal_text(entry["text"]))
-                    continue
-                if not records:
-                    print("No saved history for this session.")
-                elif offset >= len(records):
-                    print("No saved turns on that page.")
+                elif not records:
+                    print("No saved history for this session." if page == 1 else "No saved turns on that page.")
                 else:
-                    end = min(offset + 20, len(records))
-                    for index in range(end - 1, offset - 1, -1):
-                        print(f"Saved turn {index + 1} (details: /history turn {index + 1})")
+                    for index in range(min(20, len(records)) - 1, -1, -1):
+                        number = offset + index + 1
+                        print(f"Saved turn {number} (details: /history turn {number})")
                         for line in activity_preview(records[index]):
                             print(terminal_text(line))
-                    if len(records) > offset + 20:
+                    if len(records) > 20:
                         print(f"More saved turns are available under /history {page + 1}.")
                 continue
             if snapshot is None:

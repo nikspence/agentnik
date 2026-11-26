@@ -2,6 +2,7 @@
 
 from contextlib import closing
 from dataclasses import dataclass
+from itertools import islice
 import os
 from pathlib import Path
 from uuid import UUID
@@ -175,6 +176,18 @@ class CodeHistory:
             if matches[path]:
                 result.append(item)
         return result
+
+    def turn_window(self, session_id, offset, count):
+        """Read a bounded window of valid turns belonging to this project."""
+        matches = {}
+        with closing(self.store.iter_sessions(mode="code", terminal_session=session_id)) as records:
+            def belongs(record):
+                path = record["path_snapshot"]
+                if path not in matches:
+                    matches[path] = same_project(path, self.root)
+                return matches[path]
+
+            return list(islice(filter(belongs, records), offset, offset + count))
 
     @staticmethod
     def session_id(record):
