@@ -127,6 +127,7 @@ def configure_mcp(store, arguments):
               f" · {'enabled' if item['enabled'] else 'disabled'} · {server_timeout(item)}s timeout" for item in servers),
             "Use /settings mcp on|off, priority first|last, or enable|disable NAME.",
             "Use /settings mcp add-https to save an HTTPS server without credentials.",
+            "Use /settings mcp edit-https NAME to rename an HTTPS profile or change its URL.",
             "Use /settings mcp add-local to save a local executable or remove NAME to remove a server.",
             "Use /settings mcp token NAME to set, rotate, or clear an HTTPS bearer token.",
             "Use /settings mcp renew NAME to renew an existing OAuth sign-in.",
@@ -137,6 +138,25 @@ def configure_mcp(store, arguments):
         return configure_mcp_token(store, servers, " ".join(arguments[1:]))
     if len(arguments) >= 2 and arguments[0] == "signin":
         return configure_mcp_signin(store, " ".join(arguments[1:]))
+    if len(arguments) >= 2 and arguments[0] == "edit-https":
+        from .code_terminal import terminal_text
+
+        name = " ".join(arguments[1:])
+        selected = next((item for item in servers if item["name"] == name and item.get("transport") == "http"), None)
+        if selected is None:
+            raise ValueError("Choose a saved HTTPS MCP profile.")
+        try:
+            new_name = input(f"Server name [{terminal_text(name)!r}]: ").strip() or name
+            old_url = selected["url"]
+            url = input(f"Server HTTPS URL [{terminal_text(old_url)!r}]: ").strip() or old_url
+        except (EOFError, KeyboardInterrupt):
+            return "MCP setup cancelled."
+        if url != old_url and selected.get("credential_id"):
+            raise ValueError("Clear the saved credential before changing the HTTPS URL.")
+        replacement = dict(selected, name=new_name, url=url)
+        store.config["mcp_servers"] = validate_servers([replacement if item is selected else item for item in servers])
+        store.flush()
+        return "Updated HTTPS MCP profile. No server was contacted."
     if len(arguments) >= 2 and arguments[0] == "renew":
         from . import tls
         from .code_terminal import terminal_text

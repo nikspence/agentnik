@@ -509,11 +509,23 @@ class TerminalRunTests(unittest.TestCase):
                 credential = load_config(store.config_path)["mcp_servers"][0]["credential_id"]
                 save.assert_called_once_with("Agentnik", credential, "fixture-token")
                 self.assertNotIn("fixture-token", store.config_path.read_text())
+                with patch("builtins.input", side_effect=["", "https://other.example.org/mcp"]):
+                    with self.assertRaisesRegex(ValueError, "Clear the saved credential"):
+                        configure_code(store, ["mcp", "edit-https", "Fixture", "Server"])
+                with patch("builtins.input", side_effect=["Renamed Server", ""]):
+                    configure_code(store, ["mcp", "edit-https", "Fixture", "Server"])
+                self.assertEqual(load_config(store.config_path)["mcp_servers"][0]["credential_id"], credential)
+                with patch("builtins.input", side_effect=["Fixture Server", ""]):
+                    configure_code(store, ["mcp", "edit-https", "Renamed", "Server"])
                 with patch("agentnik.code_settings.getpass", return_value=""), \
                         patch("builtins.input", return_value="y"), patch("keyring.delete_password") as remove:
                     configure_code(store, ["mcp", "token", "Fixture", "Server"])
                 remove.assert_called_once_with("Agentnik", credential)
                 self.assertEqual(load_config(store.config_path)["mcp_servers"][0]["credential_id"], "")
+                with patch("builtins.input", side_effect=["", "https://other.example.org/mcp"]):
+                    configure_code(store, ["mcp", "edit-https", "Fixture", "Server"])
+                self.assertEqual(load_config(store.config_path)["mcp_servers"][0]["url"],
+                                 "https://other.example.org/mcp")
                 configure_code(store, ["mcp", "enable", "Fixture", "Server"])
                 configure_code(store, ["mcp", "priority", "last"])
                 configure_code(store, ["mcp", "timeout", "120", "Fixture", "Server"])

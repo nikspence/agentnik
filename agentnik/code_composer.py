@@ -13,7 +13,7 @@ COMMANDS = (
     "/settings git-author", "/settings git-author set", "/settings git-author clear",
     "/settings goal", "/settings image", "/settings image set", "/settings image on",
     "/settings image off", "/settings limits", "/settings mcp", "/settings mcp add-https",
-    "/settings mcp add-local", "/settings mcp enable", "/settings mcp disable",
+    "/settings mcp add-local", "/settings mcp edit-https", "/settings mcp enable", "/settings mcp disable",
     "/settings mcp on", "/settings mcp off", "/settings mcp priority", "/settings mcp remove",
     "/settings mcp renew", "/settings mcp signin", "/settings mcp timeout", "/settings mcp token",
     "/settings tls strict", "/settings tls relaxed", "/settings web access",
