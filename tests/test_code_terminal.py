@@ -397,7 +397,8 @@ class TerminalRunTests(unittest.TestCase):
             def run(self, emit):
                 emit({"kind": "model_delta", "stream_id": "1", "text": first})
                 emit({"kind": "model_delta", "stream_id": "1", "text": second[len(first):]})
-                emit({"kind": "model_response", "stream_id": "1", "text": second})
+                emit({"kind": "model_response", "stream_id": "1", "text": second,
+                      "thinking": "Provider detail"})
 
             def stop(self):
                 pass
@@ -405,7 +406,7 @@ class TerminalRunTests(unittest.TestCase):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             drive_run(Run())
-        self.assertEqual(output.getvalue(), second + "\n")
+        self.assertEqual(output.getvalue(), second + "\nModel thinking:\nProvider detail\n")
 
     def test_review_requires_explicit_input_and_escapes_terminal_controls(self):
         class Run:

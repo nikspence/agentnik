@@ -170,6 +170,7 @@ def main():
     last_record = None
     web_enabled = False
     vision_enabled = False
+    show_thinking = False
     skill_pins = {}
     require_approval = True
     session_id = str(uuid4())
@@ -198,6 +199,7 @@ def main():
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/web on|off       Enable or disable web research for this session\n"
                   "/vision on|off    Allow the coding model to inspect project images\n"
+                  "/thinking on|off  Show model-provided thinking when available\n"
                   "/skills           List, preview or select project and user skills\n"
                   "/permissions      Set project and shell approval for this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
@@ -210,6 +212,7 @@ def main():
             print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
                   f" · Model: {model or '(connection default)'!r} · Web: {'on' if web_enabled else 'off'}"
                   f" · Vision: {'on' if vision_enabled else 'off'}"
+                  f" · Thinking: {'on' if show_thinking else 'off'}"
                   f" · Permissions: {'require' if require_approval else 'allow-all'}")
         elif command == "/permissions" or command.startswith("/permissions "):
             mode = command.partition(" ")[2].strip()
@@ -234,6 +237,10 @@ def main():
             web_enabled = command.endswith(" on")
             print("Web research enabled for next task. Queries may go to configured or fallback services."
                   if web_enabled else "Web research disabled.")
+        elif command in ("/thinking on", "/thinking off"):
+            show_thinking = command.endswith(" on")
+            print("Model-provided thinking will be shown when available." if show_thinking
+                  else "Model-provided thinking hidden.")
         elif command in ("/vision on", "/vision off"):
             if command == "/vision on":
                 from importlib.util import find_spec
@@ -281,6 +288,7 @@ def main():
             last_record = None
             web_enabled = False
             vision_enabled = False
+            show_thinking = False
             skill_pins = {}
             require_approval = True
             transcript.clear()
@@ -341,6 +349,7 @@ def main():
                 session_id = ident
                 web_enabled = False
                 vision_enabled = False
+                show_thinking = False
                 require_approval = True
                 transcript.clear()
                 if composer:
@@ -412,6 +421,7 @@ def main():
                                 skills=list(skill_pins), skill_pins=skill_pins,
                                 **research_options)
                 run.stream_activity = True
+                run.show_thinking = show_thinking
                 run.review_project_edits = require_approval
                 run.set_shell_without_approval(not require_approval)
             except (OSError, ValueError, sqlite3.Error) as exc:

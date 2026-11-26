@@ -124,7 +124,15 @@ def drive_run(run, write=print, advice=None):
                 if partial_line and prefix and response.startswith(prefix):
                     write(terminal_text(response[len(prefix):]))
                     partial_line = False
-                    continue
+                else:
+                    if partial_line:
+                        write()
+                        partial_line = False
+                    if response:
+                        write(terminal_text(response))
+                if event.get("thinking"):
+                    write("Model thinking:\n" + terminal_text(event["thinking"]))
+                continue
             if partial_line:
                 write()
                 partial_line = False
@@ -155,7 +163,7 @@ def drive_run(run, write=print, advice=None):
                     response = input("Approve once? [y/N] ").strip().lower()
                 approved = response == "y"
                 run.decide(event["fingerprint"], approved)
-            elif kind in ("output", "model_response", "finished"):
+            elif kind in ("output", "finished"):
                 if event.get("text") and not (kind == "finished" and event.get("response_shown")):
                     write(terminal_text(event["text"]))
                 if kind == "finished" and event.get("usage"):
