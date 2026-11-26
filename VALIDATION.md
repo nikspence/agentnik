@@ -2,6 +2,13 @@
 
 The automated suite uses mocked endpoints, temporary data and offscreen Qt. It does not establish live model or platform compatibility. See [development and builds](DEVELOPMENT_VALIDATION.md) for commands and optional live checks; ordinary tests do not issue inference requests.
 
+## Terminal preview acceptance
+
+- **Launch, keyboard, and SSH.** The rc8 wheel runs as `agentnik code` without Qt. Its hosted jobs cover Windows, macOS, and Ubuntu. The SSH fixture runs from the remote working directory without Git and checks no-echo credentials, model requests, approval, cancellation, and explicit resume. The user's own keyboard passed separately.
+- **Session, permissions, and Git.** The [terminal suite](tests/test_code_terminal.py) checks independent history in one workspace, interrupted-run recovery, limits, project versus machine file tools, approval reset on resume, and manual stage, commit, and push against local fixtures. The shell is not sandboxed by project scope. Native Git is required only for the manual `/git` commands, not for built-in `/diff` or structured repository tools.
+- **Settings and image tools.** The [terminal command guide](TERMINAL_CODE.md) lists the interactive configuration paths. Offline tests cover display preferences, limits, TLS, credentials, MCP setup, and image generation and inspection. The live checks below qualify only the model routes they exercised.
+- **Editor integration and release.** The TUI is available to test without PyPI. Session discovery and resume can be used by an editor launcher, but that is not a native VS Code extension. Shared run and session work remains on the roadmap. PowerPoint-specific verification is deferred.
+
 ## Scoped observations
 
 - The build-only `0.12.0rc8` distributions from `30c5406` matched their SHA-256 checksums. The downloaded wheel passed 91 terminal tests outside the checkout in a fresh Qt-free Windows environment, with two POSIX-only skips. The installed `--check-keys` command accepted a simulated two-line draft in Windows ConPTY without creating a profile. All four hosted Qt-free jobs passed. Publishing was skipped. [rc8 preview](https://github.com/nikspence/agentnik/actions/runs/45899455231) · [Hosted wheel checks](https://github.com/nikspence/agentnik/actions/runs/45899454105)
