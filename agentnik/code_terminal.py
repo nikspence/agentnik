@@ -281,12 +281,11 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
 
     events = Queue()
     done = object()
-    def interrupted():
-        events.put({"kind": "finished", "status": "interrupted",
-                    "text": "Code stopped before reporting a result. Check the project before continuing. "
-                            "Agentnik will not replay the request."})
-
-    thread = start_code_worker(run, events.put, failed=interrupted, finished=lambda: events.put(done))
+    thread = start_code_worker(
+        run, events.put, finished=lambda: events.put(done),
+        interruption_text="Code stopped before reporting a result. Check the project before continuing. "
+                          "Agentnik will not replay the request.",
+    )
     streamed = {}
     partial_line = False
     result = {}

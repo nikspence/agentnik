@@ -3,7 +3,7 @@
 from threading import Thread
 
 
-def start_code_worker(run, emit, *, failed=None, finished=None, daemon=False):
+def start_code_worker(run, emit, *, interruption_text, finished=None, daemon=False):
     """Start one runner and notify clients without forwarding raw exceptions."""
     def work():
         reported = False
@@ -15,14 +15,18 @@ def start_code_worker(run, emit, *, failed=None, finished=None, daemon=False):
                 reported = True
 
         try:
-            run.run(forward if failed is not None else emit)
+            run.run(forward)
         except Exception:
             # Raw worker errors may contain provider details.
             pass
         finally:
             try:
-                if not reported and failed is not None:
-                    failed()
+                if not reported:
+                    event = {"kind": "finished", "status": "interrupted", "text": interruption_text}
+                    run_id = getattr(run, "run_id", None)
+                    if run_id is not None:
+                        event["run_id"] = run_id
+                    emit(event)
             finally:
                 if finished is not None:
                     finished()

@@ -1332,11 +1332,10 @@ class CodeTab(QWidget):
         signals=self.events
         from .code_worker import start_code_worker
         failure_text=self.tr('Code stopped before reporting a result. Check the project before continuing.')
-        def failed():
-            try:signals.event.emit({'run_id':run.run_id,'kind':'finished','status':'interrupted',
-                                    'text':failure_text})
+        def emit(event):
+            try:signals.event.emit(event)
             except RuntimeError:pass
-        self.worker=start_code_worker(run,signals.event.emit,failed=failed,daemon=True)
+        self.worker=start_code_worker(run,emit,interruption_text=failure_text,daemon=True)
         if isinstance(run,CodingRun) and run.goal:self.goal_checkpoint_timer.start()
 
     def checkpoint_goal_progress(self):
