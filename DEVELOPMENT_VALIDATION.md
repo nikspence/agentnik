@@ -8,7 +8,7 @@ For an optional real-server interoperability check, run `python tools/mcp_sdk_sm
 
 ## Qt-free SSH smoke test
 
-From the checkout, set `PREVIEW_DIR` to the absolute directory containing the extracted preview wheel and run the following in a POSIX shell. Substitute the wheel filename if it differs.
+From the checkout, set `PREVIEW_DIR` to the absolute directory containing the extracted preview wheel and run the following in a POSIX shell. Use the fixture from the wheel's source revision, or build a wheel from the current checkout before running the current fixture. Substitute the wheel filename if it differs.
 
 ```sh
 docker run --rm \
@@ -17,7 +17,7 @@ docker run --rm \
   python:3.12-slim sh -c 'tr -d "\015" </tools/ssh_terminal_smoke.sh | sh -s -- /preview/agentnik-0.12.0rc5-py3-none-any.whl'
 ```
 
-The fixture installs dependencies in the disposable container, then uses a fresh non-root account and a throwaway key over loopback OpenSSH. It checks the installed launcher without Qt, credential-free connection transfer, a CSI-u Ctrl+Enter sequence producing one multiline request, a reviewed project edit and machine-scope directory creation, Ctrl+C cancellation, and resume without replay. Reopening a machine-scope session starts in project scope. It checks that a synthetic API key does not echo and opts into plaintext storage only inside the disposable test profile. Model responses come from a loopback fixture. No live inference is used.
+The fixture installs dependencies in the disposable container, then uses a fresh non-root account and a throwaway key over loopback OpenSSH. It checks the installed launcher without Qt, credential-free connection transfer, bulk run-budget changes, a CSI-u Ctrl+Enter sequence producing one multiline request, a reviewed project edit and machine-scope directory creation, Ctrl+C cancellation, and resume without replay. Reopening a machine-scope session starts in project scope. It checks that a synthetic API key does not echo and opts into plaintext storage only inside the disposable test profile. Model responses come from a loopback fixture. No live inference is used.
 
 ## Compatibility CLI
 

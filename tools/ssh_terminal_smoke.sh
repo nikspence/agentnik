@@ -125,6 +125,13 @@ with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.expect_exact("code [allow-all]>")
     session.send("/permissions require\r")
     session.expect_exact("code>")
+    session.send("/settings limits all unlimited\r")
+    session.expect_exact("rounds=unlimited, requests=unlimited, calls=unlimited, turn_seconds=unlimited.")
+    session.expect_exact("code>")
+    session.send("/settings limits all default\r")
+    session.expect_exact("rounds=48, requests=50, calls=96, turn_seconds=3600.")
+    session.expect_exact("code>")
+    assert not requests
     task = "Create the SSH fixture note.\nUse the reviewed content."
     session.send(task.replace("\n", "\x1b[13;5u") + "\r")
     session.expect_exact("Approve once?")
