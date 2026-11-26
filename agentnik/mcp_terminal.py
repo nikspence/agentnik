@@ -7,12 +7,23 @@ import subprocess
 from threading import Lock
 
 from .mcp_content import normalize_tool_result
+from .mcp_2026 import INPUT_REQUIRED_ERROR, LEGACY_ENVELOPE_ERRORS, PROTOCOL as MODERN_PROTOCOL, parse_discovery, prepare_request
 from .mcp_prompts import PromptPages, parse_prompt_messages
 from .mcp_resources import ResourcePages, TemplatePages, expand_template, parse_resource_contents
 from .mcp_support import initialize_request, parse_initialize, resolve_environment_references, response_limit, rpc_error, server_timeout
 from .mcp_tool_preview import MAX_DETAILS, MAX_PAGES, MAX_TOOLS, contains_secret, preview_tool
 from .research import scrub
 from .tools import LimitError
+
+
+def terminal_modern_reply(reply):
+    result = reply.get("result")
+    if not isinstance(result, dict) or result.get("resultType", "complete") == "complete":
+        return reply
+    if result.get("resultType") == "input_required":
+        return {"jsonrpc": "2.0", "id": reply["id"],
+                "error": {"code": -32000, "message": INPUT_REQUIRED_ERROR}}
+    raise ValueError("Unsupported MCP result type")
 
 
 class TerminalMCPBridge:
@@ -27,6 +38,7 @@ class TerminalMCPBridge:
         self.closed = False
         self.next_id = 1
         self.details = None
+        self.protocol = None
         self.io_lock = Lock()
 
     def request(self, action, payload, runtime):
@@ -127,8 +139,12 @@ class TerminalMCPBridge:
 
     def _rpc(self, method, params, phase):
         self.next_id += 1
-        self._send({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params})
-        return self._reply(self.next_id, phase)
+        message = {"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params}
+        if self.protocol == MODERN_PROTOCOL:
+            message, _ = prepare_request(message)
+        self._send(message)
+        reply = self._reply(self.next_id, phase)
+        return terminal_modern_reply(reply) if self.protocol == MODERN_PROTOCOL else reply
 
     def _tool_call(self, tool, arguments):
         return self._rpc("tools/call", {"name": tool["name"], "arguments": arguments}, "call")
@@ -138,7 +154,18 @@ class TerminalMCPBridge:
         message["params"]["capabilities"] = {}
         self._send(message)
         reply = self._reply(1, "initialize")
+        error = reply.get("error")
+        if isinstance(error, dict) and type(error.get("code")) is int and error["code"] in LEGACY_ENVELOPE_ERRORS:
+            rpc_error(reply)
+            if any(contains_secret(reply, secret) for secret in self.environment_values.values()):
+                raise ValueError("MCP initialization reflected a mapped credential")
+            probe, _ = prepare_request({"jsonrpc": "2.0", "id": 0, "method": "server/discover", "params": {}})
+            self._send(probe)
+            info = parse_discovery(self._reply(0, "initialize").get("result"))
+            self.protocol = MODERN_PROTOCOL
+            return info
         info = parse_initialize(json.dumps(reply), ("2025-11-25", "2025-06-18", "2025-03-26"))
+        self.protocol = info["protocol"]
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         return info
 

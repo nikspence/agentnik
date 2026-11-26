@@ -11,6 +11,41 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_local_mcp_negotiates_2026_after_legacy_envelope_rejection(self):
+        import sys
+        from textwrap import dedent
+        from agentnik.mcp_terminal import TerminalMCPBridge
+        from agentnik.tools import Runtime
+
+        fixture = dedent("""
+            import json, sys
+            for line in sys.stdin:
+                message = json.loads(line)
+                method = message["method"]
+                response = {"jsonrpc": "2.0", "id": message["id"]}
+                if method == "initialize":
+                    response["error"] = {"code": -32601, "message": "Use discovery"}
+                else:
+                    assert message["params"]["_meta"]["io.modelcontextprotocol/protocolVersion"] == "2026-07-28"
+                    if method == "server/discover":
+                        result = {"supportedVersions": ["2026-07-28"], "capabilities": {"tools": {}}}
+                    elif method == "tools/list":
+                        result = {"tools": [{"name": "fixture", "inputSchema": {"type": "object"}}]}
+                    else:
+                        result = {"resultType": "input_required", "private": "not exposed"}
+                    response["result"] = result
+                print(json.dumps(response), flush=True)
+        """)
+        bridge = TerminalMCPBridge({"name": "Modern", "command": sys.executable, "args": ["-u", "-c", fixture]})
+        try:
+            catalog = bridge.request("discover", {}, Runtime())
+            self.assertEqual(catalog["protocol"], "2026-07-28", catalog)
+            outcome = bridge.request("call", {"tool": catalog["tool_details"][0], "arguments": {}}, Runtime())
+            self.assertIn("not continued", outcome["error"])
+            self.assertNotIn("not exposed", str(outcome))
+        finally:
+            bridge.close_from_worker()
+
     def test_remote_mcp_carries_session_headers_and_handles_sse_without_qt(self):
         from email.message import Message
         import json

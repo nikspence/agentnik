@@ -7,9 +7,9 @@ from urllib.request import HTTPSHandler, Request, build_opener
 from . import tls
 from .core import NoRedirect
 from .mcp_http_response import response_message
-from .mcp_2026 import INPUT_REQUIRED_ERROR, PROTOCOL as MODERN_PROTOCOL, parse_discovery, prepare_request
+from .mcp_2026 import PROTOCOL as MODERN_PROTOCOL, parse_discovery, prepare_request
 from .mcp_support import initialize_request, parse_initialize, response_limit, server_timeout
-from .mcp_terminal import TerminalMCPBridge
+from .mcp_terminal import TerminalMCPBridge, terminal_modern_reply
 from .tools import LimitError
 
 
@@ -18,7 +18,6 @@ class TerminalHTTPMCPBridge(TerminalMCPBridge):
         super().__init__(server)
         self.environment_values = {"mcp-token": token} if token else {}
         self.token = token
-        self.protocol = None
         self.session_id = None
         self.runtime = None
 
@@ -131,13 +130,7 @@ class TerminalHTTPMCPBridge(TerminalMCPBridge):
         if self.protocol == MODERN_PROTOCOL:
             message, routing = prepare_request(message, schema)
         reply = self._post(message, phase, routing)
-        result = reply.get("result")
-        if self.protocol == MODERN_PROTOCOL and isinstance(result, dict) and result.get("resultType", "complete") != "complete":
-            if result.get("resultType") == "input_required":
-                return {"jsonrpc": "2.0", "id": self.next_id,
-                        "error": {"code": -32000, "message": INPUT_REQUIRED_ERROR}}
-            raise ValueError("Unsupported MCP result type")
-        return reply
+        return terminal_modern_reply(reply) if self.protocol == MODERN_PROTOCOL else reply
 
     def _tool_call(self, tool, arguments):
         return self._rpc("tools/call", {"name": tool["name"], "arguments": arguments}, "call", tool["schema"])
