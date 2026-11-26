@@ -11,6 +11,58 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_full_cli_turn_applies_reviewed_edit_and_resumes_without_replay(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            connection = {"url": "https://gateway.example/v1", "model": "test",
+                          "protocol": "chat", "stream": False}
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", connection)
+            finally:
+                store.db.close()
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+            edit = call("write_file", {"path": "note.txt", "content": "reviewed\n"})
+            first = Mock()
+            first.prompt.side_effect = ["/connection Fixture", "Create a note", "/exit"]
+            output = io.StringIO()
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=first), \
+                    patch("builtins.input", return_value="y") as approval, \
+                    patch.object(core, "open_request", side_effect=[
+                        Wire(chat(calls=[edit], finish="tool_calls"), False),
+                        Wire(chat("Created the note."), False),
+                    ]) as transport, contextlib.redirect_stdout(output):
+                self.assertEqual(cli.main(), 0)
+            self.assertEqual(transport.call_count, 2, output.getvalue())
+            self.assertEqual(approval.call_count, 1, output.getvalue())
+            self.assertEqual((root / "note.txt").read_text(), "reviewed\n")
+            store = Store(data)
+            try:
+                session_id, record = next(iter(CodeHistory(store, root).sessions().items()))
+                self.assertEqual(record["coding_context"]["answer"], "Created the note.")
+            finally:
+                store.db.close()
+            reopened = Mock()
+            reopened.prompt.return_value = "/exit"
+            with patch("sys.argv", [*argv, "--resume", session_id]), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=reopened), \
+                    patch.object(core, "open_request") as transport, contextlib.redirect_stdout(output):
+                self.assertEqual(cli.main(), 0)
+            transport.assert_not_called()
+            self.assertIn(f"Resumed session {session_id}", output.getvalue())
+
     def test_connection_edit_preserves_credential_and_refuses_to_move_it(self):
         from agentnik.cli import connection_menu
         from agentnik.storage import Store, load_config

@@ -293,6 +293,7 @@ def main():
                 run = CodingRun(connection, root, command, context=context, limits=limits,
                                 goal=goal, goal_budget=goal_budget)
                 run.stream_activity = True
+                run.review_text_edits = True
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 continue

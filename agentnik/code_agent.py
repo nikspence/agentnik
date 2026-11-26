@@ -640,6 +640,7 @@ class CodingRun:
         self.usage={role:self._empty_usage() for role in ('Model','Subagent')}
         self.show_thinking=False
         self.stream_activity=False
+        self.review_text_edits=False
 
     @staticmethod
     def _empty_usage():
@@ -1861,6 +1862,8 @@ class CodingRun:
                         elif call.name=='read_file_range':result=project.read_range(args['path'],args['start_line'],args['end_line'])
                         elif call.name=='apply_patch':
                             proposal=project.patch(args['path'],args['old_text'],args['new_text'])
+                            if self.review_text_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'edit_proposal'):
+                                raise ProjectToolError('File patch declined by the user')
                             event('output',text='Applying project patch: '+args['path']);check_project_mutation()
                             files.apply(proposal,check_project_mutation);applied_event('patch',args['path'],proposal['diff'])
                             result={'applied':True,'path':args['path']}
@@ -1940,6 +1943,8 @@ class CodingRun:
                             else:result={'approved':False,'operation':'run_shell'}
                         else:
                             proposal=files.proposal(args['path'],args['content'])
+                            if self.review_text_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'edit_proposal'):
+                                raise ProjectToolError('File edit declined by the user')
                             event('output',text='Applying project edit: '+args['path']);check_project_mutation()
                             files.apply(proposal,check_project_mutation);applied_event('edit',args['path'],proposal['diff'])
                             result={'applied':True,'path':args['path']}
