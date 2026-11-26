@@ -11,7 +11,7 @@ COMMANDS = (
     "/permissions", "/permissions require",
     "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove", "/skills resources", "/skills read",
     "/scope", "/scope project", "/scope machine",
-    "/context", "/context on", "/context off", "/context clear", "/attach", "/attachments", "/attachments clear",
+    "/context", "/context on", "/context off", "/context clear", "/context restore", "/attach", "/attachments", "/attachments clear",
     "/attachments remove",
     "/settings", "/settings appearance", "/settings desktop-code",
     "/settings desktop-code auto-compact on", "/settings desktop-code auto-compact off",

@@ -191,23 +191,32 @@ def terminal_mcp_bridges(config, selection):
     return bridges
 
 
+def selected_terminal_connection(store, name, model, discovered=None):
+    """Resolve the active connection without preparing tools or starting a request."""
+    from . import core
+    from .code_setup import CodeSelectionError, resolve_run_connection
+
+    connections = {**(discovered or {}), **core.environment_connections(), **store.connections()}
+    try:
+        connection = resolve_run_connection(connections.get(name), model or None)
+    except CodeSelectionError as exc:
+        if exc.field == "connection":
+            raise ValueError("Unknown connection. Use /connections to list names.") from None
+        raise ValueError("No model selected. Use /model to specify one.") from None
+    return connection, connections
+
+
 def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None, mcp_selection=(), root=None,
                       memory_enabled=False):
     from importlib.util import find_spec
-    from . import core, tls
-    from .code_setup import CodeSelectionError, resolve_run_connection, shared_run_options
+    from . import tls
+    from .code_setup import shared_run_options
     from .image_settings import image_tool_config
     from .storage import Store
 
     store = Store(data_dir)
     try:
-        connections = {**(discovered or {}), **core.environment_connections(), **store.connections()}
-        try:
-            connection = resolve_run_connection(connections.get(name), model or None)
-        except CodeSelectionError as exc:
-            if exc.field == "connection":
-                raise ValueError("Unknown connection. Use /connections to list names.") from None
-            raise ValueError("No model selected. Use /model to specify one.") from None
+        connection, connections = selected_terminal_connection(store, name, model, discovered)
         settings = store.config["settings"]
         tls.configure(settings.get("relaxed_tls", False))
         capability_connection = dict(connection)

@@ -595,8 +595,52 @@ def terminal_session(options, root, lease, images):
 
             action = command.partition(" ")[2].strip()
             if action == "clear":
-                context = None
+                context = context_route = None
+                context_model = ""
                 print("Cleared context for the next turn. Saved history remains available.")
+            elif action == "restore":
+                from .code_history import CodeHistory, Store, coding_route_digest
+                from .code_terminal import selected_terminal_connection
+                from .sessions import coding_model_binding
+
+                if machine_scope:
+                    print("Use /scope project before restoring project context.")
+                    continue
+                if not (options.data_dir / "history.sqlite3").exists():
+                    print("No previous project turn is available in this session.")
+                    continue
+                try:
+                    store = Store.open_history(options.data_dir)
+                    try:
+                        saved = CodeHistory(store, root).latest_project_turn(session_id)
+                    finally:
+                        store.db.close()
+                except (OSError, ValueError, sqlite3.Error) as exc:
+                    print(terminal_text(exc), file=sys.stderr)
+                    continue
+                if not saved or saved.get("code_state") != "completed" or not saved.get("coding_context"):
+                    print("No completed previous project context is available in this session.")
+                    continue
+                try:
+                    store = Store(options.data_dir)
+                    try:
+                        connection, _ = selected_terminal_connection(store, connection_name, model, discovered)
+                    finally:
+                        store.db.close()
+                except (OSError, ValueError, sqlite3.Error) as exc:
+                    print(terminal_text(exc), file=sys.stderr)
+                    continue
+                binding = coding_model_binding(saved)
+                route = saved.get("coding_run_route") or saved.get("coding_goal_route")
+                if (binding != {"connection": connection_name, "model": connection["model"]}
+                        or route and route != coding_route_digest(connection)):
+                    print("Saved project context used a different connection, model, or destination. It was not restored.")
+                    continue
+                context = saved["coding_context"]
+                context_model, context_route = connection["model"], route
+                print("Previous project context restored. Use /context to inspect it.")
+                if not use_context:
+                    print("Automatic context is off. Use /context on to include it in a follow-up.")
             elif action in ("on", "off"):
                 use_context = action == "on"
                 print(f"Previous-turn context {'enabled' if use_context else 'disabled'} for this session.")
@@ -608,7 +652,7 @@ def terminal_session(options, root, lease, images):
                     print(terminal_text(f"Task:\n{context['task']}\n\nAnswer:\n{context['answer']}"))
                 else:
                     print("No previous-turn context is available.")
-                print("Use /context on, /context off, or /context clear.")
+                print("Use /context on, /context off, /context clear, or /context restore.")
             else:
                 print("Use /context to see available actions.")
         elif command in ("/memory on", "/memory off"):

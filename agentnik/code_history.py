@@ -226,6 +226,11 @@ class CodeHistory:
     def session_id(record):
         return record.get("coding_terminal_session", record["id"])
 
+    def latest_project_turn(self, session_id):
+        """Find the latest project-scoped turn without loading the entire history."""
+        with closing(self.iter_project_turns(session_id)) as turns:
+            return next((turn for turn in turns if turn.get("coding_file_scope") != "machine"), None)
+
     def sessions(self):
         latest = {}
         with closing(self.iter_project_turns()) as records:

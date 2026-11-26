@@ -2746,7 +2746,7 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
             composer = Mock()
-            composer.prompt.side_effect = ["New task", "/exit"]
+            composer.prompt.side_effect = ["/context restore", "New task", "/exit"]
             argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", ident]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
@@ -2755,6 +2755,7 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             request.assert_called_once()
             self.assertNotIn("Prior private", str(request.call_args.args[2]))
+            self.assertIn("It was not restored.", out.getvalue())
             self.assertIn("effective model or destination changed", out.getvalue())
 
     def test_terminal_model_change_clears_automatic_context_without_changing_history(self):
@@ -2769,13 +2770,16 @@ class TerminalRunTests(unittest.TestCase):
             ident = str(uuid4())
             store = Store(data)
             try:
+                connection = {"url": "https://fixture.invalid/v1", "model": "old"}
+                store.save_connection("Fixture", connection)
                 history = CodeHistory(store, root)
-                record, task = history.start("Fixture", {"model": "old"}, "Saved task", ident)
+                record, task = history.start("Fixture", connection, "Saved task", ident)
                 history.finish(record, task, {"status": "completed", "text": "Saved answer", "response_shown": True})
             finally:
                 store.db.close()
             composer = Mock()
-            composer.prompt.side_effect = ["/model new", "/context", "/history", "/exit"]
+            composer.prompt.side_effect = ["/model new", "/context restore", "/context", "/history",
+                                           "/model old", "/context off", "/context restore", "/context", "/exit"]
             argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", ident]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
@@ -2785,6 +2789,9 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Previous-turn context cleared for the new model.", out.getvalue())
             self.assertIn("No previous-turn context is available.", out.getvalue())
             self.assertIn("Saved answer", out.getvalue().split("No previous-turn context is available.", 1)[1])
+            self.assertIn("It was not restored.", out.getvalue())
+            self.assertEqual(out.getvalue().count("Previous project context restored."), 2)
+            self.assertIn("Automatic context is off.", out.getvalue())
             request.assert_not_called()
 
     def test_terminal_check_summary_only_exposes_selected_local_fields(self):
