@@ -28,7 +28,10 @@ def main():
         session = str(uuid4())
         store = Store(profile)
         try:
-            history = CodeHistory(store, project)
+            # Match macOS temporary paths reached through a filesystem alias.
+            alias = project / "workspace alias" / ".."
+            alias.parent.mkdir()
+            history = CodeHistory(store, alias)
             with SessionLease(profile) as owner:
                 owner.select(session)
                 history.start("Fixture", {"model": "fixture"}, "Synthetic prompt", session, goal=True)

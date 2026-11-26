@@ -12,7 +12,7 @@ from .storage import Store
 
 
 def same_project(path, root):
-    return os.path.normcase(str(Path(path).resolve())) == os.path.normcase(str(root))
+    return os.path.normcase(str(Path(path).resolve())) == os.path.normcase(str(Path(root).resolve()))
 
 
 def resolve_session_id(sessions, selector):
