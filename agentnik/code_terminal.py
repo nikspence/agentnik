@@ -2,7 +2,6 @@
 
 from queue import Empty, Queue
 import sqlite3
-from threading import Thread
 import unicodedata
 
 from .task_plan import validate_plan
@@ -278,20 +277,11 @@ def remember_terminal_subagent_rejection(data_dir, name, connection):
 
 
 def drive_run(run, write=print, advice=None, checkpoint=None):
+    from .code_worker import start_code_worker
+
     events = Queue()
     done = object()
-
-    def worker():
-        try:
-            run.run(events.put)
-        except Exception:
-            # Never display raw worker exceptions, which can contain provider details.
-            pass
-        finally:
-            events.put(done)
-
-    thread = Thread(target=worker)
-    thread.start()
+    thread = start_code_worker(run, events.put, finished=lambda: events.put(done))
     streamed = {}
     partial_line = False
     result = {}

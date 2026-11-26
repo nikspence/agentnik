@@ -14,6 +14,31 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_unexpected_worker_failure_returns_control_without_leaking_details(self):
+        os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
+        from PySide6.QtWidgets import QApplication
+        from agentnik.code_agent import CodingRun
+        from agentnik.ui import Window
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project);session=window.repositories.session(ident)
+                store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
+                run=CodingRun(C,project,'Fixture')
+                with patch.object(run,'run',side_effect=RuntimeError('private worker detail')):
+                    tab.launch(run,'Started')
+                    tab.worker.join(5)
+                    app.processEvents()
+                self.assertIsNone(tab.job)
+                self.assertEqual(tab.session['code_state'],'interrupted')
+                activity=str(tab.session['code_activity'])
+                self.assertIn('Code stopped before reporting a result',activity)
+                self.assertNotIn('private worker detail',activity)
+            finally:
+                with patch('agentnik.ui.confirm',return_value=True):window.close()
+                app.processEvents();store.db.close()
+
     def test_mcp_task_cleanup_activity_is_persisted_and_redacted(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

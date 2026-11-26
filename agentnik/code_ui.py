@@ -5,7 +5,6 @@ import os
 import copy
 import re
 import sqlite3
-import threading
 import uuid
 import time
 from datetime import datetime
@@ -1331,10 +1330,13 @@ class CodeTab(QWidget):
         self.diff.clear();self.approval.clear();self.record('started',notice)
         self._run_started_at=time.monotonic();self.record('timing',self.tr('Started: {time}').format(time=datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')))
         signals=self.events
-        def work():
-            try:run.run(signals.event.emit)
+        from .code_worker import start_code_worker
+        failure_text=self.tr('Code stopped before reporting a result. Check the project before continuing.')
+        def failed():
+            try:signals.event.emit({'run_id':run.run_id,'kind':'finished','status':'interrupted',
+                                    'text':failure_text})
             except RuntimeError:pass
-        self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
+        self.worker=start_code_worker(run,signals.event.emit,failed=failed,daemon=True)
         if isinstance(run,CodingRun) and run.goal:self.goal_checkpoint_timer.start()
 
     def checkpoint_goal_progress(self):
