@@ -25,13 +25,14 @@ class CodingWorkspace(unittest.TestCase):
             try:
                 ident=window.repositories.put(project);session=window.repositories.session(ident)
                 store.save(session);window.open_session(session);tab=window.tabs.currentWidget()
-                run=CodingRun(C,project,'Fixture')
-                with patch.object(run,'run',side_effect=RuntimeError('private worker detail')):
-                    tab.launch(run,'Started')
-                    tab.worker.join(5)
-                    app.processEvents()
-                self.assertIsNone(tab.job)
-                self.assertEqual(tab.session['code_state'],'interrupted')
+                for error in (RuntimeError('private worker detail'), None):
+                    run=CodingRun(C,project,'Fixture')
+                    with patch.object(run,'run',side_effect=error,return_value=None):
+                        tab.launch(run,'Started')
+                        tab.worker.join(5)
+                        app.processEvents()
+                    self.assertIsNone(tab.job)
+                    self.assertEqual(tab.session['code_state'],'interrupted')
                 activity=str(tab.session['code_activity'])
                 self.assertIn('Code stopped before reporting a result',activity)
                 self.assertNotIn('private worker detail',activity)
