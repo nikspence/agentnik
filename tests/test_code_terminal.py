@@ -11,6 +11,60 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_remote_mcp_carries_session_headers_and_handles_sse_without_qt(self):
+        from email.message import Message
+        import json
+        from unittest.mock import Mock
+        from agentnik.mcp_terminal_http import TerminalHTTPMCPBridge
+        from agentnik.tools import Runtime
+
+        class Reply(io.BytesIO):
+            def __init__(self, payload=b"", status=200, content_type="application/json", session=None):
+                super().__init__(payload)
+                self.status = status
+                self.headers = Message()
+                self.headers["Content-Type"] = content_type
+                if session:
+                    self.headers["MCP-Session-Id"] = session
+
+        requests = []
+
+        def open_request(request, timeout):
+            headers = {key.lower(): value for key, value in request.header_items()}
+            self.assertEqual(headers["authorization"], "Bearer fixture-key")
+            body = json.loads(request.data) if request.data else None
+            requests.append((request.get_method(), body, headers))
+            if body is None:
+                return Reply(status=204)
+            method = body["method"]
+            if method == "notifications/initialized":
+                return Reply(status=202)
+            if method == "initialize":
+                result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+                          "serverInfo": {"name": "fixture", "version": "1"}}
+            elif method == "tools/list":
+                result = {"tools": [{"name": "hello", "inputSchema": {"type": "object"}}]}
+            else:
+                result = {"content": [{"type": "text", "text": "Hello over HTTPS"}]}
+            envelope = json.dumps({"jsonrpc": "2.0", "id": body["id"], "result": result}).encode()
+            if method == "tools/call":
+                return Reply(b"data: " + envelope + b"\n\n", content_type="text/event-stream")
+            return Reply(envelope, session="fixture-session" if method == "initialize" else None)
+
+        bridge = TerminalHTTPMCPBridge({"name": "Remote", "url": "https://example.org/mcp"}, "fixture-key")
+        with patch("agentnik.mcp_terminal_http.build_opener", return_value=Mock(open=open_request)):
+            try:
+                catalog = bridge.request("discover", {}, Runtime())
+                answer = bridge.request("call", {"tool": catalog["tool_details"][0], "arguments": {}}, Runtime())
+                self.assertEqual(answer["call_result"]["content"][0]["text"], "Hello over HTTPS")
+            finally:
+                bridge.close_from_worker()
+        self.assertEqual(requests[-1][0], "DELETE")
+        self.assertNotIn("mcp-session-id", requests[0][2])
+        for _, _, headers in requests[1:]:
+            self.assertEqual(headers["mcp-session-id"], "fixture-session")
+            self.assertEqual(headers["mcp-protocol-version"], "2025-06-18")
+
     def test_headless_local_mcp_checks_approvals_for_tools_and_resources(self):
         import sys
         from textwrap import dedent

@@ -219,7 +219,7 @@ def terminal_session(options, root, lease, images):
                   "/vision on|off    Allow the coding model to inspect project images\n"
                   "/thinking on|off  Show model-provided thinking when available\n"
                   "/skills           List, preview or select project and user skills\n"
-                  "/mcp              List local MCP servers or select one for this session\n"
+                  "/mcp              List MCP servers or select one for this session\n"
                   "/permissions      Set project and shell approval for this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
@@ -243,9 +243,9 @@ def terminal_session(options, root, lease, images):
                     name = command.removeprefix("/mcp use ").strip()
                     selected = next((profile for profile in profiles if profile["name"] == name), None)
                     if selected is None:
-                        raise ValueError("Choose an enabled local MCP server.")
+                        raise ValueError("Choose an enabled local or HTTPS MCP server without OAuth.")
                     mcp_selection = selected
-                    print("Selected MCP server. Terminal Code will ask before starting it or calling a tool.")
+                    print("Selected MCP server. Terminal Code will ask before connecting or calling a tool.")
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
         elif command == "/attachments" or command == "/attachments clear":

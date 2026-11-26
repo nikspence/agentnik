@@ -80,7 +80,7 @@ def terminal_mcp_profiles(data_dir):
     store = Store(data_dir)
     try:
         return [item for item in store.config.get("mcp_servers", [])
-                if item["enabled"] and item.get("transport") != "http"]
+                if item["enabled"] and item.get("auth_type") != "oauth"]
     finally:
         store.db.close()
 
@@ -115,7 +115,23 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
                 raise ValueError("Shared MCP access is off. Use /settings mcp on or /mcp off.")
             if mcp_selection not in store.config.get("mcp_servers", []):
                 raise ValueError("Selected MCP server changed. Select it again with /mcp use NAME.")
-            options.update(mcp_bridges=[TerminalMCPBridge(mcp_selection)],
+            if mcp_selection.get("transport") == "http":
+                from .mcp_terminal_http import TerminalHTTPMCPBridge
+
+                token = ""
+                if mcp_selection.get("credential_id"):
+                    import keyring
+
+                    try:
+                        token = keyring.get_password("Agentnik", mcp_selection["credential_id"]) or ""
+                    except Exception:
+                        token = ""
+                    if not token or len(token) > 4096 or any(not 33 <= ord(ch) <= 126 for ch in token):
+                        raise ValueError("The selected MCP bearer token is unavailable or invalid.")
+                bridge = TerminalHTTPMCPBridge(mcp_selection, token)
+            else:
+                bridge = TerminalMCPBridge(mcp_selection)
+            options.update(mcp_bridges=[bridge],
                            mcp_priority=settings.get("mcp_priority", "first"))
         image = validate_image_settings(settings.get("image_generation"))
         if image["enabled"]:
@@ -238,14 +254,17 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 elif proposal.get("operation") == "mcp_start":
                     fields = ("operation", "server", "command", "arguments", "working_directory", "environment")
                     write("The local server runs as your user and inherits the terminal environment.")
-                elif proposal.get("operation") == "mcp_call":
-                    fields = ("operation", "server", "tool", "description", "arguments")
+                elif proposal.get("operation") == "mcp_connect":
+                    fields = ("operation", "server", "url")
+                    write("The server receives an initialization request and any configured bearer token.")
+                elif proposal.get("operation") in ("mcp_call", "mcp_call_remote"):
+                    fields = ("operation", "server", "url", "tool", "description", "arguments")
                 elif proposal.get("operation") in ("mcp_list_resources", "mcp_read_resource"):
-                    fields = ("operation", "server", "command", "server_arguments", "resource")
+                    fields = ("operation", "server", "url", "command", "server_arguments", "resource")
                 elif proposal.get("operation") in ("mcp_list_resource_templates", "mcp_read_resource_template"):
-                    fields = ("operation", "server", "command", "server_arguments", "template", "variables", "uri")
+                    fields = ("operation", "server", "url", "command", "server_arguments", "template", "variables", "uri")
                 elif proposal.get("operation") in ("mcp_list_prompts", "mcp_get_prompt"):
-                    fields = ("operation", "server", "command", "server_arguments", "prompt", "arguments")
+                    fields = ("operation", "server", "url", "command", "server_arguments", "prompt", "arguments")
                 else:
                     write("This operation cannot be reviewed in the terminal preview. Rejected.")
                     run.decide(event["fingerprint"], False)

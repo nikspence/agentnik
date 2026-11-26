@@ -17,6 +17,8 @@ from .tools import LimitError
 
 class TerminalMCPBridge:
     review_required = True
+    supported_actions = frozenset(("discover", "verify", "call", "resources_list", "resources_read",
+                                   "templates_list", "templates_read", "prompts_list", "prompts_get"))
 
     def __init__(self, server):
         self.server = copy.deepcopy(server)
@@ -30,8 +32,7 @@ class TerminalMCPBridge:
     def request(self, action, payload, runtime):
         if self.closed:
             return {"error": "MCP session is closed. An interrupted call is not retried."}
-        if action not in ("discover", "verify", "call", "resources_list", "resources_read",
-                          "templates_list", "templates_read", "prompts_list", "prompts_get"):
+        if action not in self.supported_actions:
             return {"error": "This operation is not supported by the terminal MCP transport."}
         try:
             if action == "discover":
@@ -129,6 +130,15 @@ class TerminalMCPBridge:
         self._send({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params})
         return self._reply(self.next_id, phase)
 
+    def _initialize(self):
+        message = initialize_request()
+        message["params"]["capabilities"] = {}
+        self._send(message)
+        reply = self._reply(1, "initialize")
+        info = parse_initialize(json.dumps(reply), ("2025-11-25", "2025-06-18", "2025-03-26"))
+        self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        return info
+
     def _catalog(self):
         cursor = None
         details = []
@@ -164,12 +174,8 @@ class TerminalMCPBridge:
     def _request(self, action, payload):
         secrets = list(self.environment_values.values())
         if action == "discover":
-            message = initialize_request()
-            message["params"]["capabilities"] = {}
-            self._send(message)
-            reply = self._reply(1, "initialize")
-            info = parse_initialize(json.dumps(reply), ("2025-11-25", "2025-06-18", "2025-03-26"))
-            self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            info = self._initialize()
+            secrets = list(self.environment_values.values())
             self.details, more = self._catalog() if "tools" in info["capabilities"] else ([], False)
             return {**scrub(info, secrets), "tool_details": self.details, "more_tools": more,
                     "capabilities": [name for name in info["capabilities"] if name in ("tools", "resources", "prompts")],
