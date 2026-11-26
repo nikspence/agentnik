@@ -164,8 +164,16 @@ class CodeHistory:
         self.root = root
 
     def list(self, session_id=None):
-        return [item for item in self.store.list_sessions(mode="code", terminal_session=session_id)
-                if same_project(item["path_snapshot"], self.root)]
+        records = self.store.list_sessions(mode="code", terminal_session=session_id)
+        matches = {}
+        result = []
+        for item in records:
+            path = item["path_snapshot"]
+            if path not in matches:
+                matches[path] = same_project(path, self.root)
+            if matches[path]:
+                result.append(item)
+        return result
 
     @staticmethod
     def session_id(record):

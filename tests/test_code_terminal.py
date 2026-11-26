@@ -2564,6 +2564,19 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_session_history_resolves_each_saved_project_path_once_per_lookup(self):
+        from unittest.mock import Mock
+        from agentnik.code_history import CodeHistory
+
+        store = Mock()
+        local, other = {"path_snapshot": "local"}, {"path_snapshot": "other"}
+        store.list_sessions.return_value = [local, other, local, other, local]
+        history = CodeHistory(store, Path("local"))
+        with patch("agentnik.code_history.same_project", side_effect=[True, False, False, True]) as match:
+            self.assertEqual(history.list(), [local, local, local])
+            self.assertEqual(history.list(), [other, other])
+        self.assertEqual(match.call_count, 4)
+
     def test_composer_session_lookup_is_read_only_and_project_scoped(self):
         from unittest.mock import Mock
         from agentnik import cli, core
