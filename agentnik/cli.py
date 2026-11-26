@@ -556,8 +556,27 @@ def terminal_session(options, root, lease, images):
             connection_name = binding.get("connection", "")
             model = binding.get("model", "")
             print(f"Resumed session {session_id}. Enter a new task when ready. Nothing was restarted.")
-        elif command.startswith("/connection "):
-            connection_name = command.removeprefix("/connection ").strip()
+        elif command == "/connection" or command.startswith("/connection "):
+            from .core import environment_connections
+            from .storage import ConfigurationError, Store
+
+            name = command.partition(" ")[2].strip()
+            if not name:
+                print("Use /connection NAME to select a connection, or /connections to list them.")
+                continue
+            try:
+                store = Store(options.data_dir)
+                try:
+                    available = name in store.config["connections"] or name in discovered or name in environment_connections()
+                finally:
+                    store.db.close()
+            except (ConfigurationError, OSError, sqlite3.Error):
+                print("Could not read available connections.", file=sys.stderr)
+                continue
+            if not available:
+                print("No connection with that name. Use /connections to list available connections.")
+                continue
+            connection_name = name
             model = ""
             context = None
             last_record = None

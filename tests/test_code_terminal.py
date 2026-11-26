@@ -818,7 +818,7 @@ class TerminalRunTests(unittest.TestCase):
             auto_edit = call("write_file", {"path": "auto.txt", "content": "automatic\n"})
             shell = call("run_shell", {"path": ".", "command": "echo fixture"}, ident="call-shell")
             first = Mock()
-            first.prompt.side_effect = ["/connection Fixture", "/skills add notes", "/attach brief.pptx",
+            first.prompt.side_effect = ["/connection Fixture", "/connection Fxture", "/skills add notes", "/attach brief.pptx",
                                         "/vision on", "/attach visual.png",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
@@ -840,6 +840,7 @@ class TerminalRunTests(unittest.TestCase):
                     ]) as transport, contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 4, output.getvalue())
+            self.assertIn("No connection with that name.", output.getvalue())
             self.assertIn("Fixture note style.", str(transport.call_args_list[0].args[2]))
             self.assertIn("Presentation fixture brief.", str(transport.call_args_list[0].args[2]))
             self.assertNotIn("Presentation fixture brief.", str(transport.call_args_list[2].args[2]))
