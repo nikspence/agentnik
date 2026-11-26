@@ -1443,6 +1443,23 @@ class TerminalRunTests(unittest.TestCase):
             drive_run(Run())
         self.assertEqual(output.getvalue(), second + "\nModel thinking:\nProvider detail\n")
 
+    def test_terminal_shows_valid_model_plan_updates_without_requesting_approval(self):
+        from unittest.mock import Mock
+
+        run = Mock()
+        def work(emit):
+            emit({"kind": "plan", "plan": {"explanation": "invalid", "steps": []}})
+            emit({"kind": "plan", "plan": {"explanation": "Review visual content.", "steps": [
+                {"step": "Render the slide", "status": "completed"},
+                {"step": "Inspect the slide", "status": "in_progress"},
+            ]}})
+        run.run.side_effect = work
+        lines = []
+        drive_run(run, write=lines.append)
+        self.assertEqual(lines, ["Plan update (model reported):", "Review visual content.",
+                                 "  [completed] Render the slide", "  [in progress] Inspect the slide"])
+        run.decide.assert_not_called()
+
     def test_review_requires_explicit_input_and_escapes_terminal_controls(self):
         class Run:
             decisions = []

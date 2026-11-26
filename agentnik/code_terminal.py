@@ -5,6 +5,8 @@ import sqlite3
 from threading import Thread
 import unicodedata
 
+from .task_plan import validate_plan
+
 
 def terminal_text(text):
     return "".join(
@@ -324,6 +326,16 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     write(terminal_text(event["text"]))
                 if kind == "finished" and event.get("usage"):
                     write(terminal_text(event["usage"]))
+            elif kind == "plan":
+                try:
+                    plan = validate_plan(event.get("plan"))
+                except ValueError:
+                    continue
+                write("Plan update (model reported):")
+                if plan["explanation"]:
+                    write(terminal_text(plan["explanation"]))
+                for step in plan["steps"]:
+                    write(terminal_text(f"  [{step['status'].replace('_', ' ')}] {step['step']}"))
             elif kind == "goal_status":
                 goal_detail = event["detail"]
                 write(terminal_text(f"Goal {event['status']} (model reported): {event['detail']}"))
