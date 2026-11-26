@@ -205,9 +205,9 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
             if find_spec("PySide6") is None and find_spec("PIL") is None:
                 raise ValueError("Install the Agentnik terminal extra for headless image generation.")
             options["image_config"] = image
-        binding = settings.get("decision_model", {})
-        advisor = connections.get(binding.get("connection")) if settings.get("decision_advice_enabled") else None
-        advice = dict(advisor, model=binding["model"]) if advisor and binding.get("model") else None
+        from .decision_advice import configured_advisor
+
+        _, advice = configured_advisor(settings, connections)
         if root is not None:
             from .code_history import same_project
             from .repositories import RepositoryRegistry

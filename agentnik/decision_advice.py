@@ -14,6 +14,19 @@ CRITERIA={
 }
 
 
+def configured_advisor(settings, connections):
+    """Resolve the optional advisor without contacting its endpoint."""
+    if not settings.get("decision_advice_enabled"):
+        return "", None
+    binding = settings.get("decision_model", {})
+    name = binding.get("connection", "")
+    selected = connections.get(name)
+    model = binding.get("model", "").strip()
+    if not selected or not selected.get("url") or not model:
+        return name, None
+    return name, dict(selected, model=model)
+
+
 def request(connection,proposal,cancel):
     """Send only the disclosed shell proposal to the selected System One endpoint."""
     state={key:proposal[key] for key in ('command','cwd','shell','environment_keys')}

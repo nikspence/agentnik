@@ -1325,10 +1325,11 @@ class Window(QMainWindow):
         return image_tool_config(self.store.config['settings'].get('image_generation'), self.connections)
 
     def decision_connection(self):
-        settings=self.store.config['settings'];binding=settings.get('decision_model',{})
+        from .decision_advice import configured_advisor
+        settings=self.store.config['settings']
         if not settings.get('decision_advice_enabled',False):return None,''
-        name=binding.get('connection','');connection=dict(self.connections.get(name,{}));connection['model']=binding.get('model','').strip()
-        if not connection.get('url') or not connection['model']:raise ValueError(self.tr('Choose an available Decision connection and model in Settings.'))
+        name,connection=configured_advisor(settings,self.connections)
+        if connection is None:raise ValueError(self.tr('Choose an available Decision connection and model in Settings.'))
         return connection,name+' / '+connection['model']+' / '+core.endpoint(connection,'decision')
     def apply_theme(self,*_):
         value = self.store.config['settings'].get('theme','System'); self.store.flush()
