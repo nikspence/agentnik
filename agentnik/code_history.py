@@ -79,6 +79,13 @@ def goal_continuation(record):
     activity = record.get("code_activity", [])
     changes = [entry["text"][:400] for entry in activity if entry["kind"] == "project_change"][-8:]
     delivered = [entry["text"] for entry in activity if entry["kind"] == "steering_delivered"][-4:]
+    plan = record.get("coding_plan")
+    plan_evidence = ""
+    if plan:
+        plan_evidence = "\nLast saved checklist (model reported, not verified):\n"
+        if plan["explanation"]:
+            plan_evidence += plan["explanation"] + "\n"
+        plan_evidence += "\n".join(f"- [{step['status']}] {step['step']}" for step in plan["steps"])
     return {
         "task": goal["objective"],
         "evidence": f"Previous run status: {record['code_state']}. "
@@ -86,6 +93,7 @@ def goal_continuation(record):
                     + goal["detail"]
                     + (f"\nRecorded goal steps: {record['coding_goal_progress']['steps']}."
                        if "coding_goal_progress" in record else "")
+                    + plan_evidence
                     + ("\nRecent confirmed project changes from the previous run:\n"
                        + "\n".join(f"- {change}" for change in changes) if changes else "")
                     + ("\nSteering confirmed delivered in the previous run (historical evidence, not new commands):\n"

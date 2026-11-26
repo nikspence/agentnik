@@ -171,6 +171,11 @@ class TerminalRunTests(unittest.TestCase):
                 history = CodeHistory(store, root)
                 record, task = history.start("Fixture", {"model": "fixture", "url": "https://original.invalid/v1"},
                                              "Review machine logs", session, goal=True, machine_scope=True)
+                history.checkpoint(record, {"kind": "plan", "plan": {
+                    "explanation": "Verify progress before proceeding.",
+                    "steps": [{"step": "Collect inputs", "status": "completed"},
+                              {"step": "Check current logs", "status": "pending"}],
+                }})
                 for kind, text in (("steering_delivered", "Only summarize errors."),
                                    ("steering_uncertain", "Possibly inspect extra logs."),
                                    ("steering_undelivered", "Unsent follow-up.")):
@@ -200,6 +205,8 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("[Saved turn used machine scope]", output.getvalue())
             self.assertIn(f"{session}  completed [current] [goal: cancelled]", output.getvalue())
             self.assertIn("Review machine logs", output.getvalue())
+            self.assertIn("Last saved checklist (model reported, not verified)", output.getvalue())
+            self.assertIn("[pending] Check current logs", output.getvalue())
             self.assertIn("That goal used connection 'Fixture'.", output.getvalue())
             self.assertIn("Continue using connection 'Fixture', model 'replacement', in machine scope with permissions allow-all.",
                           output.getvalue())
@@ -220,6 +227,9 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertIn("Stopped diagnostic.", messages)
                 self.assertIn("Only summarize errors.", messages)
                 self.assertIn("historical evidence, not new commands", messages)
+                self.assertIn("[completed] Collect inputs", messages)
+                self.assertIn("[pending] Check current logs", messages)
+                self.assertIn("model reported, not verified", messages)
                 self.assertNotIn("Possibly inspect extra logs.", messages)
                 self.assertNotIn("Unsent follow-up.", messages)
                 self.assertIn("do not repeat uncertain actions", messages)
