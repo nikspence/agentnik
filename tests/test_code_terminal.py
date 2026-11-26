@@ -1351,7 +1351,9 @@ class TerminalRunTests(unittest.TestCase):
         self.assertNotIn("\x1b", output.getvalue())
 
     def test_project_diff_distinguishes_worktree_from_index(self):
+        from unittest.mock import Mock
         from dulwich import porcelain
+        from agentnik import cli, core
         from agentnik.code_terminal import project_diff
 
         with TemporaryDirectory() as directory:
@@ -1365,9 +1367,21 @@ class TerminalRunTests(unittest.TestCase):
                 path.write_text("staged\n")
                 porcelain.add(repo, [path.name])
                 path.write_text("working\n")
-                self.assertIn("+working", project_diff(root, path.name))
-                self.assertIn("+staged", project_diff(root, "--staged " + path.name))
-                self.assertIn("Unstaged", project_diff(root, ""))
+                with patch("subprocess.Popen", side_effect=AssertionError("Native Git must not run")):
+                    self.assertIn("+working", project_diff(root, path.name))
+                    self.assertIn("+staged", project_diff(root, "--staged " + path.name))
+                    self.assertIn("Unstaged", project_diff(root, ""))
+
+                    composer = Mock()
+                    composer.prompt.side_effect = ["/diff", f"/diff {path.name}", "/exit"]
+                    argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
+                    with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                            patch("agentnik.code_composer.create_composer", return_value=composer), \
+                            patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                        self.assertEqual(cli.main(), 0)
+                    request.assert_not_called()
+                    self.assertIn("Unstaged", out.getvalue())
+                    self.assertIn("+working", out.getvalue())
 
     def test_mcp_signin_persists_only_the_credential_reference(self):
         from agentnik.code_settings import configure_code
