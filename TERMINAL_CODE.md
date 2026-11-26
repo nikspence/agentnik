@@ -68,6 +68,7 @@ Run `/skills` to find installed skills. A user-installed skill at `~/.agents/ski
 
 | Command | What it does |
 | --- | --- |
+| `/connections show NAME` | Inspect a saved connection's protocol, model, and request options without editing. The endpoint URL and credentials are not shown. |
 | `/connections edit NAME` | Change a saved connection's endpoint, protocol, or model. |
 | `/connections options NAME` | Change reasoning effort, service tier, context limit, or streaming. |
 | `/connections discover` | Check known loopback ports for local model services. Discovered connections last until the terminal exits. |
