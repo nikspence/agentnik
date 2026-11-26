@@ -1122,6 +1122,10 @@ class TerminalRunTests(unittest.TestCase):
                     contextlib.redirect_stderr(io.StringIO()) as errors:
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 4, output.getvalue())
+            self.assertIn("Project file edits, deletions, and generated images require user approval",
+                          transport.call_args_list[0].args[2]["messages"][0]["content"])
+            self.assertIn("Project file edits and deletions apply without per-file approval",
+                          transport.call_args_list[2].args[2]["messages"][0]["content"])
             self.assertIn("No connection with that name.", output.getvalue())
             self.assertIn("Selected model 'fixture-override'.", output.getvalue())
             self.assertIn("Using the connection's default model.", output.getvalue())
