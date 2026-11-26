@@ -161,7 +161,8 @@ class TerminalRunTests(unittest.TestCase):
 
             composer = Mock()
             composer.prompt.side_effect = ["/sessions", "/continue", "/scope machine", "/connection Other",
-                                           "/continue", "/connection Fixture", "/permissions allow-all", "/continue", "/exit"]
+                                           "/continue", "/connection Fixture", "/permissions allow-all",
+                                           "/settings limits all unlimited", "/continue", "/exit"]
             done = call("set_goal_status", {"status": "completed", "detail": "Current state reviewed."})
             argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", session]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
@@ -178,6 +179,9 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("That goal used connection 'Fixture'.", output.getvalue())
             self.assertIn("Continue using connection 'Fixture', model 'fixture', in machine scope with permissions allow-all.",
                           output.getvalue())
+            self.assertIn("Run budgets · rounds: unlimited · requests: unlimited · tool calls: unlimited · seconds: unlimited",
+                          output.getvalue())
+            self.assertIn("Goal budgets · steps: unlimited · seconds: unlimited", output.getvalue())
             confirmation.assert_called_once_with("Continue this goal with fresh limits? [y/N] ")
             if confirm:
                 self.assertEqual(request.call_count, 2)
