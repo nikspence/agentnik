@@ -781,6 +781,66 @@ class TerminalRunTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_terminal_generates_a_slide_then_sends_it_for_visual_review(self):
+        import base64
+        import json
+        from importlib.util import find_spec
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.storage import Store
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        if find_spec("PIL") is None:
+            self.skipTest("Terminal image extra is not installed")
+        from PIL import Image
+
+        pixels = io.BytesIO()
+        Image.new("RGB", (160, 90), "blue").save(pixels, format="PNG")
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "vision", "stream": False})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ["/connection Fixture", "/settings image set", "/settings image on",
+                                           "/vision on", "Generate and inspect a slide.", "/exit"]
+            generate = call("image_gen", {"prompt": "Blue slide", "path": "slide.png", "reference_paths": "[]",
+                                          "aspect_ratio": "16:9", "background": "opaque"})
+            inspect = call("view_image", {"path": "slide.png"}, ident="call-2")
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+            out = io.StringIO()
+            replies = iter([
+                Wire(chat(calls=[generate], finish="tool_calls"), False),
+                Wire(chat(calls=[inspect], finish="tool_calls"), False),
+                Wire(chat("Review complete."), False),
+            ])
+            requests = []
+
+            def send(connection, url, body, timeout):
+                requests.append(json.dumps(body))
+                return next(replies)
+
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("builtins.input", side_effect=["Fixture", "image-model", "", "y"]) as approval, \
+                    patch("agentnik.image_generation.generate", return_value={
+                        "data": pixels.getvalue(), "mime": "image/png", "suffix": ".png", "cost": None,
+                    }) as image_api, \
+                    patch.object(core, "open_request", side_effect=send) as model_api, contextlib.redirect_stdout(out):
+                self.assertEqual(cli.main(), 0)
+            image_api.assert_called_once()
+            self.assertIn("Approve once?", approval.call_args.args[0])
+            self.assertEqual(model_api.call_count, 3, out.getvalue())
+            encoded = base64.b64encode((root / "slide.png").read_bytes()).decode()
+            self.assertNotIn(encoded, requests[1])
+            self.assertIn("data:image/png;base64," + encoded, requests[2])
+
     def test_image_settings_reject_an_override_on_another_host(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store, load_config
