@@ -42,7 +42,7 @@ class Fixture(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         requests.append((self.path, self.headers.get("Authorization"), body))
-        if len(requests) == 5:
+        if len(requests) == 6:
             waiting.set()
             release.wait(timeout=15)
             return
@@ -53,12 +53,17 @@ class Fixture(BaseHTTPRequestHandler):
                 "name": "write_file", "arguments": json.dumps({"path": "note.txt", "content": "reviewed\n"}),
             }}])
             finish = "tool_calls"
-        elif len(requests) == 3:
+        elif len(requests) == 2:
+            message.update(content="", tool_calls=[{"id": "fixture-edited-note", "type": "function", "function": {
+                "name": "write_file", "arguments": json.dumps({"path": "note.txt", "content": "reviewed\n"}),
+            }}])
+            finish = "tool_calls"
+        elif len(requests) == 4:
             message.update(content="", tool_calls=[{"id": "fixture-directory", "type": "function", "function": {
                 "name": "machine_create_directory", "arguments": json.dumps({"path": str(machine_folder)}),
             }}])
             finish = "tool_calls"
-        elif len(requests) == 4:
+        elif len(requests) == 5:
             message["content"] = "SSH fixture completed the directory."
         data = json.dumps({"choices": [{"message": message, "finish_reason": finish}]}).encode()
         self.send_response(200)
@@ -148,6 +153,13 @@ with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     assert any(message.get("role") == "user" and message.get("content") == task
                for message in requests[0][2]["messages"])
     assert not (project / "note.txt").exists()
+    session.send("/steer Reconsider before writing.\r")
+    session.expect_exact("Steering queued. The pending proposal was not approved.")
+    session.expect_exact("Steering delivered: Reconsider before writing.")
+    session.expect_exact("Approve once?")
+    assert len(requests) == 2
+    assert not (project / "note.txt").exists(), "Steering approved the first edit"
+    assert "Reconsider before writing." in json.dumps(requests[1][2]["messages"])
     session.send("y\r")
     session.expect_exact("SSH fixture completed the edit.")
     session.expect_exact("code>")
@@ -166,12 +178,13 @@ with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     assert session.exitstatus == 0, session.exitstatus
 assert (project / "note.txt").read_bytes() == b"reviewed\n"
 assert machine_folder.is_dir()
-assert len(requests) == 4
+assert len(requests) == 5
 assert all(path == "/v1/chat/completions" and key == "Bearer synthetic-ssh-key"
            and body["model"] == "fixture-model" for path, key, body in requests)
 assert any(item.get("role") == "tool" and item.get("tool_call_id") == "fixture-edit"
            for item in requests[1][2]["messages"])
 with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding="utf-8", timeout=12) as session:
+    session.expect_exact("Steering delivered: Reconsider before writing.")
     session.expect_exact("SSH fixture completed the directory.")
     session.expect_exact("New tasks start in project scope.")
     session.expect_exact("code>")
@@ -179,7 +192,7 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding=
     session.expect(r"Session: ([a-f0-9-]{36})")
     original_session = session.match.group(1)
     session.expect_exact("code>")
-    assert len(requests) == 4, "Resuming sent an unexpected request"
+    assert len(requests) == 5, "Resuming sent an unexpected request"
     session.send("Wait for a response that will be cancelled.\r")
     assert waiting.wait(timeout=8), "The fixture did not receive the cancellation test request"
     session.sendcontrol("c")
@@ -204,7 +217,7 @@ listed = json.loads(discovery.stdout)
 assert [(row["id"], row["status"]) for row in listed] == [
     (newer_session, "completed"), (original_session, "cancelled"),
 ]
-assert len(requests) == 6, "Session discovery sent an unexpected request"
+assert len(requests) == 7, "Session discovery sent an unexpected request"
 with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume " + original_session],
                    encoding="utf-8", timeout=12) as session:
     session.expect_exact("Cancelled locally.")
@@ -214,7 +227,7 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume " + original_sessio
     session.expect(pexpect.EOF)
     session.close()
     assert session.exitstatus == 0, session.exitstatus
-assert len(requests) == 6, "Reopening the cancelled session sent an unexpected request"
+assert len(requests) == 7, "Reopening the cancelled session sent an unexpected request"
 assert (project / "note.txt").read_bytes() == b"reviewed\n"
 portable = json.loads((project / "portable settings.json").read_text(encoding="utf-8"))
 assert "api_key" not in portable["connections"]["SSH Fixture"]
@@ -238,7 +251,7 @@ with pexpect.spawn("ssh", import_args, encoding="utf-8", timeout=12) as session:
 imported = json.loads((project.parent / "imported-data/connections.json").read_text(encoding="utf-8"))
 assert "api_key" not in imported["connections"]["SSH Fixture"]
 assert "credential_id" not in imported["connections"]["SSH Fixture"]
-assert len(requests) == 6, "Connection transfer sent an unexpected model request"
-assert "machine_create_directory" not in {tool["function"]["name"] for tool in requests[4][2]["tools"]}
-print("Qt-free preview passed SSH setup, reviewed project and machine changes, cancellation, and no-replay resume.")
+assert len(requests) == 7, "Connection transfer sent an unexpected model request"
+assert "machine_create_directory" not in {tool["function"]["name"] for tool in requests[5][2]["tools"]}
+print("Qt-free preview passed SSH setup, steering, reviewed project and machine changes, cancellation, and no-replay resume.")
 PY
