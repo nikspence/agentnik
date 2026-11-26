@@ -53,7 +53,10 @@ class TerminalRunTests(unittest.TestCase):
                                            "/scope project", "Continue project work", "/exit"]
             reads = [call("machine_list_directory", {"path": str(base)}, ident="list"),
                      call("machine_read_file", {"path": str(outside)})]
+            edit = call("machine_patch_file", {"path": str(outside), "old_text": "fixture", "new_text": "reviewed"},
+                        ident="change")
             replies = iter([Wire(chat(calls=reads, finish="tool_calls"), False),
+                            Wire(chat(calls=[edit], finish="tool_calls"), False),
                             Wire(chat("Outside fixture evidence"), False),
                             Wire(chat("Project response"), False)])
             bodies = []
@@ -65,14 +68,18 @@ class TerminalRunTests(unittest.TestCase):
             argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("builtins.input", return_value="y") as approval, \
                     patch.object(core, "open_request", side_effect=send), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
-            self.assertEqual(len(bodies), 3, output.getvalue())
+            self.assertEqual(len(bodies), 4, output.getvalue())
+            self.assertEqual(approval.call_count, 1, output.getvalue())
+            self.assertIn("operation: machine_patch_file", output.getvalue())
+            self.assertEqual(outside.read_text(encoding="utf-8"), "Outside reviewed evidence")
             self.assertIn("Permissions: require", output.getvalue())
             self.assertIn("Scope: machine", output.getvalue())
             self.assertIn("machine_read_file", {t["function"]["name"] for t in bodies[0]["tools"]})
-            self.assertNotIn("machine_read_file", {t["function"]["name"] for t in bodies[2]["tools"]})
+            self.assertNotIn("machine_read_file", {t["function"]["name"] for t in bodies[3]["tools"]})
             self.assertIn("Outside fixture evidence", json.dumps(bodies[1]["messages"]))
             listing = next(m for m in bodies[1]["messages"] if m.get("tool_call_id") == "list")
             self.assertIn({"name": "diagnostic.txt", "kind": "file"}, json.loads(listing["content"])["entries"])
@@ -80,7 +87,22 @@ class TerminalRunTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "project-relative path"):
                 ProjectFiles(root).path(str(outside))
-            self.assertNotIn("Outside fixture evidence", json.dumps(bodies[2]["messages"]))
+            self.assertNotIn("Outside fixture evidence", json.dumps(bodies[3]["messages"]))
+
+    def test_machine_patch_rejects_a_change_after_preview(self):
+        from agentnik.machine_files import apply_machine_patch, machine_patch_preview, open_machine_text
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / "diagnostic.txt"
+            path.write_bytes(b"one\r\ntwo\r\n")
+            with open_machine_text(str(path)) as (_, _, observed):
+                pass
+            replacement, _ = machine_patch_preview(str(path), observed, "two", "three")
+            self.assertEqual(replacement, "one\r\nthree\r\n")
+            path.write_bytes(b"concurrent edit")
+            with self.assertRaisesRegex(ValueError, "changed after it was read"):
+                apply_machine_patch(str(path), observed, replacement, lambda: None)
+            self.assertEqual(path.read_bytes(), b"concurrent edit")
 
     def test_machine_directory_listing_is_bounded_and_rejects_relative_paths(self):
         from agentnik.machine_files import list_machine_directory
