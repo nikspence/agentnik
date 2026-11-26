@@ -11,6 +11,41 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_stdio_probe_handles_silent_modern_and_delayed_legacy_servers(self):
+        import sys
+        from textwrap import dedent
+        from agentnik.mcp_terminal import TerminalMCPBridge
+        from agentnik.tools import Runtime
+
+        fixture = dedent("""
+            import json, sys
+            legacy = sys.argv[1] == "legacy"
+            def send(ident, **payload):
+                print(json.dumps(dict(jsonrpc="2.0", id=ident, **payload)), flush=True)
+            for line in sys.stdin:
+                message = json.loads(line)
+                method = message["method"]
+                if method == "server/discover":
+                    if legacy:
+                        send(1, result={"protocolVersion": "2025-11-25", "capabilities": {"tools": {}},
+                                        "serverInfo": {"name": "fixture", "version": "1"}})
+                        send(0, error={"code": -32601, "message": "Method not found"})
+                    else:
+                        send(0, result={"supportedVersions": ["2026-07-28"], "capabilities": {"tools": {}}})
+                elif method == "tools/list":
+                    send(message["id"], result={"tools": [{"name": "fixture", "inputSchema": {"type": "object"}}]})
+        """)
+        for mode, protocol in (("modern", "2026-07-28"), ("legacy", "2025-11-25")):
+            with self.subTest(mode=mode), patch("agentnik.mcp_terminal.STARTUP_PROBE_SECONDS", 0.05):
+                bridge = TerminalMCPBridge({"name": "Fixture", "command": sys.executable,
+                                            "args": ["-u", "-c", fixture, mode]})
+                try:
+                    catalog = bridge.request("discover", {}, Runtime())
+                    self.assertEqual(catalog.get("protocol"), protocol, catalog)
+                    self.assertEqual(catalog["tool_details"][0]["name"], "fixture")
+                finally:
+                    bridge.close_from_worker()
+
     def test_local_mcp_negotiates_2026_after_legacy_envelope_rejection(self):
         import sys
         from textwrap import dedent

@@ -3,8 +3,9 @@
 import copy
 import json
 import os
+from queue import Empty, Queue
 import subprocess
-from threading import Lock
+from threading import Lock, Thread
 
 from .mcp_content import normalize_tool_result
 from .mcp_2026 import INPUT_REQUIRED_ERROR, LEGACY_ENVELOPE_ERRORS, PROTOCOL as MODERN_PROTOCOL, parse_discovery, prepare_request
@@ -14,6 +15,8 @@ from .mcp_support import initialize_request, parse_initialize, resolve_environme
 from .mcp_tool_preview import MAX_DETAILS, MAX_PAGES, MAX_TOOLS, contains_secret, preview_tool
 from .research import scrub
 from .tools import LimitError
+
+STARTUP_PROBE_SECONDS = 1.0
 
 
 def terminal_modern_reply(reply):
@@ -39,6 +42,7 @@ class TerminalMCPBridge:
         self.next_id = 1
         self.details = None
         self.protocol = None
+        self.ignored_initial_id = None
         self.io_lock = Lock()
 
     def request(self, action, payload, runtime):
@@ -121,6 +125,7 @@ class TerminalMCPBridge:
 
     def _reply(self, ident, phase):
         limit = response_limit(phase)
+        expected = ident if isinstance(ident, tuple) else (ident,)
         for _ in range(40):
             line = self.process.stdout.readline(limit + 1)
             if not line or len(line) > limit or not line.endswith(b"\n"):
@@ -132,7 +137,10 @@ class TerminalMCPBridge:
                 if message["method"] == "notifications/tools/list_changed":
                     raise ValueError("The MCP tool catalog changed")
                 continue
-            if type(message.get("id")) is not int or message["id"] != ident or "method" in message:
+            if type(message.get("id")) is int and "method" not in message and message["id"] == self.ignored_initial_id:
+                self.ignored_initial_id = None
+                continue
+            if type(message.get("id")) is not int or message["id"] not in expected or "method" in message:
                 raise ValueError("Unexpected MCP reply")
             return message
         raise ValueError("Too many MCP notifications")
@@ -153,21 +161,65 @@ class TerminalMCPBridge:
         message = initialize_request()
         message["params"]["capabilities"] = {}
         self._send(message)
-        reply = self._reply(1, "initialize")
+        reply, probe_pending, probe_rejected = self._first_initialization_reply()
+        if "modern_info" in reply:
+            return reply["modern_info"]
         error = reply.get("error")
         if isinstance(error, dict) and type(error.get("code")) is int and error["code"] in LEGACY_ENVELOPE_ERRORS:
             rpc_error(reply)
             if any(contains_secret(reply, secret) for secret in self.environment_values.values()):
                 raise ValueError("MCP initialization reflected a mapped credential")
-            probe, _ = prepare_request({"jsonrpc": "2.0", "id": 0, "method": "server/discover", "params": {}})
-            self._send(probe)
+            if probe_rejected:
+                raise ValueError("The MCP server rejected both initialization protocols")
+            if not probe_pending:
+                self._send_discovery()
             info = parse_discovery(self._reply(0, "initialize").get("result"))
             self.protocol = MODERN_PROTOCOL
             return info
         info = parse_initialize(json.dumps(reply), ("2025-11-25", "2025-06-18", "2025-03-26"))
         self.protocol = info["protocol"]
+        if probe_pending:
+            self.ignored_initial_id = 0
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         return info
+
+    def _send_discovery(self):
+        probe, _ = prepare_request({"jsonrpc": "2.0", "id": 0, "method": "server/discover", "params": {}})
+        self._send(probe)
+
+    def _first_initialization_reply(self):
+        ready = Queue(maxsize=1)
+
+        def read():
+            try:
+                ready.put(self._reply((0, 1), "initialize"))
+            except Exception as exc:
+                ready.put(exc)
+
+        Thread(target=read, daemon=True, name="AgentnikMCPStartupReader").start()
+        probe_pending = False
+        try:
+            reply = ready.get(timeout=min(STARTUP_PROBE_SECONDS, server_timeout(self.server) / 3))
+        except Empty:
+            self._send_discovery()
+            probe_pending = True
+            reply = ready.get()
+        if isinstance(reply, Exception):
+            raise reply
+        if reply["id"] == 1:
+            return reply, probe_pending, False
+        if not probe_pending:
+            raise ValueError("Unexpected MCP discovery response")
+        if "error" in reply:
+            rpc_error(reply)
+            return self._reply(1, "initialize"), False, True
+        try:
+            info = parse_discovery(reply.get("result"))
+        except ValueError:
+            return self._reply(1, "initialize"), False, True
+        self.protocol = MODERN_PROTOCOL
+        self.ignored_initial_id = 1
+        return {"modern_info": info}, False, False
 
     def _catalog(self):
         cursor = None
