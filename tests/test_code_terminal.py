@@ -286,7 +286,7 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
 
     def test_history_persists_only_completed_context_for_current_project(self):
-        from agentnik.code_history import CodeHistory
+        from agentnik.code_history import CodeHistory, goal_continuation
         from agentnik.storage import Store
 
         with TemporaryDirectory() as directory:
@@ -302,6 +302,7 @@ class TerminalRunTests(unittest.TestCase):
             history.finish(record, task, {"status": "completed", "response_shown": True, "text": "Done"})
             goal, task = history.start("example", connection, "Different task", second, goal=True)
             history.finish(goal, task, {"status": "failed", "limited": True,
+                                        "last_goal_detail": "Project state changed before limit.",
                                         "goal_progress": {"steps": 3, "seconds": 2}})
             store.db.close()
             store = Store(base / "settings")
@@ -313,6 +314,10 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertNotIn("coding_context", history.list(second)[0])
                 self.assertEqual(history.list(second)[0]["coding_goal"]["status"], "limited")
                 self.assertEqual(history.list(second)[0]["coding_goal_progress"]["steps"], 3)
+                continuation = goal_continuation(history.list(second)[0])
+                self.assertEqual(continuation["task"], "Different task")
+                self.assertIn("Project state changed before limit.", continuation["evidence"])
+                self.assertIsNone(goal_continuation(restored))
                 self.assertEqual(CodeHistory(store, base).list(), [])
             finally:
                 store.db.close()

@@ -167,6 +167,7 @@ def main():
         print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
     context = None
+    last_record = None
     web_enabled = False
     vision_enabled = False
     skill_pins = {}
@@ -194,6 +195,7 @@ def main():
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
+                  "/continue         Continue the last stopped goal with fresh limits\n"
                   "/web on|off       Enable or disable web research for this session\n"
                   "/vision on|off    Allow the coding model to inspect project images\n"
                   "/skills           List, preview or select project and user skills\n"
@@ -276,6 +278,7 @@ def main():
         elif command == "/new":
             session_id = str(uuid4())
             context = None
+            last_record = None
             web_enabled = False
             vision_enabled = False
             skill_pins = {}
@@ -354,6 +357,7 @@ def main():
             if command == "/history":
                 continue
             record = records[0]
+            last_record = record
             skill_pins = dict(record.get("coding_skill_pins", {}))
             context = record.get("coding_context") if record.get("code_state") == "completed" else None
             binding = record.get("coding_models", {}).get("model", {})
@@ -364,24 +368,39 @@ def main():
             connection_name = command.removeprefix("/connection ").strip()
             model = ""
             context = None
+            last_record = None
             vision_enabled = False
         elif command == "/model" or command.startswith("/model "):
             model = command[6:].strip()
             vision_enabled = False
         elif command == "/goal":
             print("Enter /goal followed by an objective.")
-        elif command.startswith("/") and not command.startswith("/goal "):
+        elif command.startswith("/") and command != "/continue" and not command.startswith("/goal "):
             print("Unknown command. Type /help.")
         elif command:
             if not connection_name:
                 print("Select a connection with /connection NAME first.")
                 continue
             from .code_agent import CodingRun
-            from .code_history import CodeHistory, Store
+            from .code_history import CodeHistory, Store, goal_continuation
             from .code_terminal import drive_run, load_run_settings, terminal_text
 
-            goal = command.startswith("/goal ")
-            if goal:
+            continuing = command == "/continue"
+            goal = continuing or command.startswith("/goal ")
+            resume = goal_continuation(last_record) if continuing else None
+            if continuing:
+                if resume is None:
+                    print("No stopped goal is available to continue in this session.")
+                    continue
+                print(terminal_text(resume["task"]))
+                try:
+                    if input("Continue this goal with fresh limits? [y/N] ").strip().lower() != "y":
+                        continue
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    continue
+                command = "Continue the saved objective. Inspect current state first and do not repeat uncertain actions."
+            elif goal:
                 command = command.removeprefix("/goal ").strip()
             try:
                 connection, limits, goal_budget, research_options, advice = load_run_settings(
@@ -389,6 +408,7 @@ def main():
                 )
                 run = CodingRun(connection, root, command, context=context, limits=limits,
                                 goal=goal, goal_budget=goal_budget, vision_enabled=vision_enabled,
+                                resume_context=resume,
                                 skills=list(skill_pins), skill_pins=skill_pins,
                                 **research_options)
                 run.stream_activity = True
@@ -402,7 +422,7 @@ def main():
                 try:
                     history = CodeHistory(store, root)
                     record, task = history.start(
-                        connection_name, connection, command, session_id, goal=goal,
+                        connection_name, connection, resume["task"] if resume else command, session_id, goal=goal,
                         skill_pins=skill_pins,
                         extra_secrets=[
                             *(item.get("key") for item in research_options["web_backends"]),
@@ -413,6 +433,7 @@ def main():
                     transcript.append("Task: " + terminal_text(task) + "\n")
                     result = drive_run(run, write_activity, advice=advice)
                     history.finish(record, task, result)
+                    last_record = record
                     context = record.get("coding_context")
                 finally:
                     store.db.close()

@@ -13,6 +13,20 @@ def same_project(path, root):
     return os.path.normcase(str(Path(path).resolve())) == os.path.normcase(str(root))
 
 
+def goal_continuation(record):
+    if not record or record.get("code_state") not in ("limited", "blocked", "cancelled", "interrupted", "failed"):
+        return None
+    goal = record.get("coding_goal")
+    if not goal:
+        return None
+    return {
+        "task": goal["objective"],
+        "evidence": f"Previous run status: {record['code_state']}. "
+                    "Inspect the project before taking action. Some actions may already have happened.\n"
+                    + goal["detail"],
+    }
+
+
 class CodeHistory:
     def __init__(self, store, root):
         self.store = store
@@ -61,7 +75,8 @@ class CodeHistory:
         answer = result.get("text", "")[:2048]
         record["code_state"] = state
         if record.get("coding_last_run_goal"):
-            record["coding_goal"].update(status=state, detail=answer)
+            detail = "\n".join(dict.fromkeys(text for text in (answer, result.get("last_goal_detail", "")) if text))
+            record["coding_goal"].update(status=state, detail=detail[:4000])
             if "goal_progress" in result:
                 record["coding_goal_progress"] = result["goal_progress"]
         if answer:

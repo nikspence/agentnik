@@ -98,6 +98,7 @@ def drive_run(run, write=print, advice=None):
     streamed = {}
     partial_line = False
     result = {}
+    goal_detail = ""
     try:
         while True:
             try:
@@ -107,7 +108,7 @@ def drive_run(run, write=print, advice=None):
             if event is done:
                 if partial_line:
                     write()
-                return result
+                return dict(result, last_goal_detail=goal_detail) if goal_detail else result
             kind = event["kind"]
             if kind == "finished":
                 result = event
@@ -160,13 +161,14 @@ def drive_run(run, write=print, advice=None):
                 if kind == "finished" and event.get("usage"):
                     write(terminal_text(event["usage"]))
             elif kind == "goal_status":
+                goal_detail = event["detail"]
                 write(terminal_text(f"Goal {event['status']} (model reported): {event['detail']}"))
             elif kind == "goal_progress":
                 write(f"Goal progress: {event['steps']} steps · {event['seconds']:.0f}s")
     except (KeyboardInterrupt, EOFError):
         run.stop()
         write("\nStopping Code run…")
-        return {"status": "cancelled"}
+        return {"status": "cancelled", "last_goal_detail": goal_detail}
     finally:
         run.stop()
         thread.join()
