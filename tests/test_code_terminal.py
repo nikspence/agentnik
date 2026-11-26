@@ -1471,7 +1471,7 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
 
     def test_bulk_run_limits_preserve_request_timeout_and_context(self):
-        from agentnik.code_limits import coding_limits, UNLIMITED_FIELDS
+        from agentnik.code_limits import coding_limits, UNLIMITED_FIELDS, single_request_timeout
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store
 
@@ -1491,6 +1491,8 @@ class TerminalRunTests(unittest.TestCase):
                     if mode == "unlimited":
                         expected.update(dict.fromkeys(UNLIMITED_FIELDS, 0))
                     self.assertEqual(actual, expected)
+                    self.assertEqual(single_request_timeout(actual), 180)
+                    self.assertEqual(single_request_timeout(dict(actual, turn_seconds=60)), 60)
                     for key in UNLIMITED_FIELDS:
                         self.assertIn(f"{key}={expected[key] or 'unlimited'}", message)
                     self.assertIn("Model request timeout (180 s) and context limit (5000 bytes) are unchanged.", message)

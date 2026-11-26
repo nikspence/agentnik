@@ -41,3 +41,10 @@ def coding_limits(value=None):
         if type(value[key]) is not int or not minimum <= value[key] <= maximum:
             raise ValueError('Invalid coding limit: '+key)
     return dict(value)
+
+
+def single_request_timeout(value=None):
+    """Bound a standalone Code request without treating an unlimited turn as zero seconds."""
+    limits = coding_limits(value)
+    model_seconds = limits['model_seconds']
+    return min(model_seconds, limits['turn_seconds'] or model_seconds)

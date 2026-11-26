@@ -20,7 +20,7 @@ from .decision_advice import parse_advice
 from .task_plan import validate_plan
 from .subagent_status import validate_record
 from .sessions import append_code_activity, coding_model_binding
-from .code_limits import FIELDS,UNLIMITED_FIELDS,coding_limits,GOAL_FIELDS,goal_limits
+from .code_limits import FIELDS,UNLIMITED_FIELDS,coding_limits,GOAL_FIELDS,goal_limits,single_request_timeout
 from .selection_scroll import SelectionScroll
 from .web import public_url
 from . import core,routing
@@ -956,7 +956,7 @@ class CodeTab(QWidget):
                 if pending['job'] is not None or self.job:return
                 user_text=question.toPlainText().strip()
                 try:
-                    body=prepare(connection,initial,history,user_text,secrets);seconds=min(coding_limits(self.store.config['settings'].get('coding_limits'))['model_seconds'],coding_limits(self.store.config['settings'].get('coding_limits'))['turn_seconds'])
+                    body=prepare(connection,initial,history,user_text,secrets);seconds=single_request_timeout(self.store.config['settings'].get('coding_limits'))
                 except (ValueError,TypeError,OSError) as exc:status.setText(str(exc));return
                 token=uuid.uuid4().hex;pending['token']=token;pending['draft']=None;busy(True);status.setText(self.tr('Waiting for model…'))
                 def done(value):
