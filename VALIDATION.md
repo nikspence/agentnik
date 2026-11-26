@@ -4,7 +4,7 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
-- The build-only `0.12.0rc4` distributions from `a911ac3` matched their SHA-256 checksums. In a fresh Qt-free Windows environment outside the checkout, the downloaded wheel passed the installed session-discovery smoke test and 84 terminal tests, with two POSIX-only skips. The downloaded wheel also passed the authenticated Linux OpenSSH fixture for setup, reviewed project and machine changes, cancellation, and resume without replay. No PyPI publication was requested. [rc4 preview](https://github.com/nikspence/agentnik/actions/runs/45894457758)
+- The build-only `0.12.0rc4` distributions from `a911ac3` matched their SHA-256 checksums. In a fresh Qt-free Windows environment outside the checkout, the downloaded wheel passed installed session discovery, the Windows ConPTY composer and transcript smoke test, and 84 terminal tests, with two POSIX-only skips. The downloaded wheel also passed the authenticated Linux OpenSSH fixture for setup, reviewed project and machine changes, cancellation, and resume without replay. No PyPI publication was requested. [rc4 preview](https://github.com/nikspence/agentnik/actions/runs/45894457758)
 
 - Installed session discovery (`agentnik code --list-sessions`) passed on Windows, macOS, and Ubuntu at `4edea20`. The checks ran without a terminal and covered an empty profile, a workspace path with spaces and an equivalent path spelling, plus listing a saved session held open by another client without changing its state. This is launcher coverage, not a native VS Code extension test. [Hosted wheel checks](https://github.com/nikspence/agentnik/actions/runs/45894221367)
 
