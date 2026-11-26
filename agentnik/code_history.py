@@ -128,7 +128,8 @@ class CodeHistory:
         else:
             self.checkpoint_goal(record, event)
 
-    def start(self, name, connection, task, session_id=None, *, goal=False, extra_secrets=(), skill_pins=None):
+    def start(self, name, connection, task, session_id=None, *, goal=False, extra_secrets=(), skill_pins=None,
+              machine_scope=False):
         registry = RepositoryRegistry(self.store)
         project = next((row["id"] for row in registry.list() if same_project(row["path"], self.root)), None)
         if project is None:
@@ -145,6 +146,8 @@ class CodeHistory:
             record.update(coding_skills=list(skill_pins), coding_skill_pins=dict(skill_pins))
         if session_id:
             record["coding_terminal_session"] = session_id
+            if machine_scope:
+                record["coding_file_scope"] = "machine"
         append_code_activity(record, "prompt", task)
         self.store.save(record)
         return record, task

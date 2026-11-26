@@ -80,6 +80,8 @@ def validate_session(value, ident=None):
         try: chat_limits(options['limits'])
         except ValueError: require(False)
     if data['mode']=='code':
+        if 'coding_file_scope' in data:
+            require(data['coding_file_scope'] in ('project','machine') and 'coding_terminal_session' in data)
         if 'coding_terminal_session' in data:
             from uuid import UUID
             session_id=data['coding_terminal_session']

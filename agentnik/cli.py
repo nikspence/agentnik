@@ -867,6 +867,10 @@ def terminal_session(options, root, lease, images):
                 if resume is None:
                     print("No stopped goal is available to continue in this session.")
                     continue
+                saved_scope = last_record.get("coding_file_scope", "project")
+                if saved_scope != ("machine" if machine_scope else "project"):
+                    print(f"That goal ran in {saved_scope} scope. Use /scope {saved_scope} before continuing.")
+                    continue
                 print(terminal_text(resume["task"]))
                 print(terminal_text(resume["evidence"]))
                 try:
@@ -909,7 +913,7 @@ def terminal_session(options, root, lease, images):
                     history = CodeHistory(store, root)
                     record, task = history.start(
                         connection_name, connection, resume["task"] if resume else command, session_id, goal=goal,
-                        skill_pins=skill_pins,
+                        skill_pins=skill_pins, machine_scope=machine_scope,
                         extra_secrets=[
                             *(item.get("key") for item in research_options["web_backends"]),
                             research_options.get("image_config", {}).get("connection", {}).get("api_key"),

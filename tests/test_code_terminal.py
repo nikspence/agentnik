@@ -29,6 +29,41 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_resumed_machine_goal_requires_machine_scope_before_continuing(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            session = str(uuid4())
+            store = Store(data)
+            try:
+                history = CodeHistory(store, root)
+                record, task = history.start("Fixture", {"model": "fixture"}, "Review machine logs", session,
+                                             goal=True, machine_scope=True)
+                history.finish(record, task, {"status": "cancelled", "text": "Stopped diagnostic."},
+                               save_context=False)
+                self.assertEqual(history.list(session)[0]["coding_file_scope"], "machine")
+            finally:
+                store.db.close()
+
+            composer = Mock()
+            composer.prompt.side_effect = ["/continue", "/scope machine", "/continue", "/exit"]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", session]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("builtins.input", return_value="") as confirmation, \
+                    patch.object(core, "open_request") as request, \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("That goal ran in machine scope. Use /scope machine before continuing.", output.getvalue())
+            confirmation.assert_called_once_with("Continue this goal with fresh limits? [y/N] ")
+            request.assert_not_called()
+
     def test_switching_scope_pauses_and_restores_project_context(self):
         import json
         from unittest.mock import Mock
