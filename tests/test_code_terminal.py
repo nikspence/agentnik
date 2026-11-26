@@ -1,5 +1,7 @@
 import contextlib
 import io
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -8,6 +10,29 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_history_persists_only_completed_context_for_current_project(self):
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root = base / "project"
+            root.mkdir()
+            store = Store(base / "settings")
+            history = CodeHistory(store, root)
+            connection = {"model": "model", "api_key": "synthetic-secret"}
+            record, task = history.start("example", connection, "Find synthetic-secret")
+            self.assertNotIn("coding_context", history.list()[0])
+            history.finish(record, task, {"status": "completed", "response_shown": True, "text": "Done"})
+            store.db.close()
+            store = Store(base / "settings")
+            try:
+                restored = CodeHistory(store, root).list()[0]
+                self.assertEqual(restored["coding_context"], {"task": "Find [redacted]", "answer": "Done"})
+                self.assertEqual(CodeHistory(store, base).list(), [])
+            finally:
+                store.db.close()
+
     def test_stream_holds_partial_credentials_and_renders_once(self):
         key = "test-credential"
         first = visible_prefix("Hello test-cre", [key])

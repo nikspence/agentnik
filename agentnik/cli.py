@@ -4,6 +4,7 @@ import argparse
 from collections import deque
 from getpass import GetPassWarning, getpass
 from pathlib import Path
+import sqlite3
 import sys
 import warnings
 
@@ -92,6 +93,7 @@ def main():
         print("Enter adds a line. Alt+Enter submits. Use Up/Down to recall input and Tab for commands.")
         print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
+    context = None
     while True:
         try:
             command = (composer.prompt() if composer else input("code> ")).strip()
@@ -109,15 +111,49 @@ def main():
                   "/connections add  Configure a new connection\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
+                  "/history          List saved turns for the current project\n"
+                  "/open ID          Open a saved turn and select its context\n"
                   "/exit             Close Agentnik Code")
         elif command == "/status":
             print(f"Project: {str(root)!r} · Connection: {connection_name or '(none)'!r}"
                   f" · Model: {model or '(connection default)'!r}")
         elif command in ("/connections", "/connections add"):
             connection_menu(options.data_dir, command.endswith(" add"))
+        elif command == "/history" or command.startswith("/open "):
+            from .code_history import CodeHistory, Store
+            from .code_terminal import terminal_text
+
+            try:
+                store = Store(options.data_dir)
+                try:
+                    records = CodeHistory(store, root).list()
+                finally:
+                    store.db.close()
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                print(terminal_text(exc), file=sys.stderr)
+                continue
+            if command == "/history":
+                for record in records[:20]:
+                    print(terminal_text(f"{record['id']}  {record.get('code_state', 'idle')}  {record['title']}"))
+                if not records:
+                    print("No saved turns for this project.")
+                continue
+            ident = command.removeprefix("/open ").strip()
+            record = next((item for item in records if item["id"] == ident), None)
+            if record is None:
+                print("No saved turn with that ID in this project.")
+                continue
+            for entry in record.get("code_activity", [])[-20:]:
+                write_activity(terminal_text(entry["text"]))
+            context = record.get("coding_context") if record.get("code_state") == "completed" else None
+            binding = record.get("coding_models", {}).get("model", {})
+            connection_name = binding.get("connection", "")
+            model = binding.get("model", "")
+            print("Opened saved turn. Enter a new task when ready. Nothing was restarted.")
         elif command.startswith("/connection "):
             connection_name = command.removeprefix("/connection ").strip()
             model = ""
+            context = None
         elif command == "/model" or command.startswith("/model "):
             model = command[6:].strip()
         elif command.startswith("/"):
@@ -127,19 +163,31 @@ def main():
                 print("Select a connection with /connection NAME first.")
                 continue
             from .code_agent import CodingRun
+            from .code_history import CodeHistory, Store
             from .code_terminal import drive_run, load_run_settings, terminal_text
 
             try:
                 connection, limits = load_run_settings(options.data_dir, connection_name, model)
-                run = CodingRun(connection, root, command, limits=limits)
+                run = CodingRun(connection, root, command, context=context, limits=limits)
                 run.stream_activity = True
-            except (OSError, ValueError) as exc:
+            except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 continue
             transcript.append("Task: " + terminal_text(
                 command.replace(connection.get("api_key") or "\0", "[redacted]")
             ) + "\n")
-            drive_run(run, write_activity)
+            try:
+                store = Store(options.data_dir)
+                try:
+                    history = CodeHistory(store, root)
+                    record, task = history.start(connection_name, connection, command)
+                    result = drive_run(run, write_activity)
+                    history.finish(record, task, result)
+                    context = record.get("coding_context")
+                finally:
+                    store.db.close()
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                print(terminal_text(exc), file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,7 @@ def drive_run(run, write=print):
     thread.start()
     streamed = {}
     partial_line = False
+    result = {}
     try:
         while True:
             try:
@@ -61,8 +62,10 @@ def drive_run(run, write=print):
             if event is done:
                 if partial_line:
                     write()
-                return
+                return result
             kind = event["kind"]
+            if kind == "finished":
+                result = event
             if kind == "model_delta":
                 key = event["stream_id"]
                 streamed[key] = streamed.get(key, "") + event["text"]
@@ -101,6 +104,7 @@ def drive_run(run, write=print):
     except (KeyboardInterrupt, EOFError):
         run.stop()
         write("\nStopping Code run…")
+        return {"status": "cancelled"}
     finally:
         run.stop()
         thread.join()
