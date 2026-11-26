@@ -1373,6 +1373,27 @@ class TerminalRunTests(unittest.TestCase):
         self.assertNotIn("b-model", output.getvalue())
         self.assertNotIn("\x1b", output.getvalue())
 
+    def test_project_diff_can_review_first_commit_without_native_git(self):
+        from dulwich import porcelain
+        from agentnik.code_terminal import project_diff
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            note = root / "note.txt"
+            with porcelain.init(root) as repo:
+                note.write_text("staged first draft\n", encoding="utf-8")
+                porcelain.add(repo, [note.name])
+                note.write_text("current first draft\n", encoding="utf-8")
+                with patch("subprocess.Popen", side_effect=AssertionError("Native Git must not run")):
+                    status = project_diff(root, "")
+                    self.assertIn("No commits yet.", status)
+                    self.assertIn("Staged: 'note.txt'", status)
+                    self.assertIn("Unstaged: 'note.txt'", status)
+                    self.assertIn("+current first draft", project_diff(root, note.name))
+                    staged = project_diff(root, "--staged note.txt")
+                    self.assertIn("+staged first draft", staged)
+                    self.assertNotIn("current first draft", staged)
+
     def test_project_diff_distinguishes_worktree_from_index(self):
         from unittest.mock import Mock
         from dulwich import porcelain

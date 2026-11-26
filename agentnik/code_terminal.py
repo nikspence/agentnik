@@ -63,6 +63,7 @@ def project_diff(root, argument):
         return "\n".join([
             *(f"Staged: {path!r}" for path in status["staged"]),
             *(f"Unstaged: {path!r}" for path in status["unstaged"]),
+            *([] if status["head"] else ["No commits yet. Diffs compare with an empty tree."]),
             status["scope"],
             "Use /diff PATH to compare with HEAD or /diff --staged PATH to review the index.",
         ])

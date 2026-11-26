@@ -328,7 +328,12 @@ class GitService:
                         return kinds
                     remotes.append({'name':name,'fetch_transports':transports(b'url'),'push_transports':transports(b'pushurl')})
                 return {'remotes':remotes,'omitted':omitted,'scope':'Local repository config only; URLs and rewrite rules are not shown. Empty push transports use Git defaults; no network request was made.'}
-            head = repo.head()
+            try:
+                head = repo.head()
+            except KeyError:
+                if action not in ('git_status', 'git_diff', 'git_diff_staged'):
+                    raise
+                head = None
             if action == 'git_diff_staged':
                 key=self.key(path);index=repo.open_index()
                 return {'path':path,'diff':self.diff(self.base(repo,path),self.index_text(repo,index,key),path)}
@@ -339,7 +344,7 @@ class GitService:
             if action == 'git_status':
                 index=repo.open_index()
                 from dulwich.object_store import iter_tree_contents
-                base={e.path:e.sha for e in iter_tree_contents(repo.object_store,repo[head].tree)}
+                base={e.path:e.sha for e in iter_tree_contents(repo.object_store,repo[head].tree)} if head is not None else {}
                 staged=[p for p in set(base)|set(index) if base.get(p)!=(index[p].sha if p in index else None)]
                 unstaged=[]
                 for key in list(index)[:128]:
@@ -347,7 +352,7 @@ class GitService:
                         target=self.files.path(key.decode('utf-8'))
                         if not target.exists() or Blob.from_string(self.files.read(key.decode('utf-8'),remember=False).encode()).id!=index[key].sha:unstaged.append(key.decode('utf-8'))
                     except (ValueError,UnicodeError):continue
-                return {'head':head.decode(),'staged':[p.decode('utf-8','replace') for p in staged[:128]],'unstaged':unstaged,'scope':'First 128 tracked paths; untracked files not enumerated'}
+                return {'head':head.decode() if head is not None else None,'staged':[p.decode('utf-8','replace') for p in staged[:128]],'unstaged':unstaged,'scope':'First 128 tracked paths; untracked files not enumerated'}
             self.files.path(path)
             before = self.base(repo, path)
             after = self.files.read(path, remember=False) if self.files.path(path).exists() else ''
