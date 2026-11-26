@@ -57,3 +57,15 @@ Packaging also requires the native `regex` module used for time-limited Code sea
 `--smoke` uses `tools/frozen_smoke.py` (Windows API calls through Python, without changing PowerShell execution policy) to wait for the real process-owned Qt window and temporary SQLite database, request a graceful close and require exit code 0. This is a startup smoke check on the build host, not clean-machine, full native workflow, credential-store, TLS/provider, or macOS/Linux validation. It does not issue inference; normal startup may perform read-only local endpoint discovery.
 
 Top-level build versions are pinned to the tested Windows environment. Transitive versions are recorded in each manifest rather than fully locked. Collected notices are not a completed license audit of every bundled library; that audit and per-platform signing/distribution requirements remain release gates.
+
+
+## Native terminal keyboard check
+
+Use a preview wheel in a disposable profile and open a nonempty saved session in the terminal emulator you want to qualify. No provider request is needed. Note the OS, emulator and version, whether the session is local or over SSH, and whether the keys came from a physical keyboard or a macro.
+
+1. Type a two-line draft. Verify that Ctrl+Enter inserts a newline if the emulator sends it distinctly. If it does not, verify Ctrl+J. Enter should submit and Alt+Enter should not be needed.
+2. With a draft still in the composer, press Up to recall a prior prompt and Down to restore the draft.
+3. Press Ctrl+T to open the transcript. Verify Ctrl+U and Ctrl+D move by half a page and PageUp and PageDown move by a page. Use enough existing output to see the difference.
+4. Press Q to return. Confirm that the draft is unmodified, then press Ctrl+C to discard it without starting a request.
+
+To test Enter without sending a request, submit a multiline draft whose first line is an unknown slash command. The terminal should report the unknown command and return to the prompt. Use a saved session that already has past prompts for the Up and Down check.
