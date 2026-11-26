@@ -39,7 +39,15 @@ class CodeWorkerTests(unittest.TestCase):
         worker = start_code_worker(run, lambda event: None, interruption_text="Stopped")
         try:
             self.assertIs(worker.run, run)
+            self.assertTrue(worker.approval_pending("proposal"))
+            worker.decide("proposal", False)
+            worker.steer("Review first", approval_fingerprint="proposal")
             self.assertEqual(worker.stop(), snapshot)
+            self.assertFalse(worker.approval_pending("proposal"))
+            self.assertFalse(worker.decide("proposal", True))
+            self.assertFalse(worker.steer("Too late"))
+            run.decide.assert_called_once_with("proposal", False)
+            run.steer.assert_called_once_with("Review first", approval_fingerprint="proposal")
             self.assertIsNone(worker.stop())
             run.stop.assert_called_once()
         finally:

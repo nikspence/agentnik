@@ -558,7 +558,7 @@ class CodeTab(QWidget):
         if not isinstance(job,CodingRun) or not text.strip():return
         secrets=self.draft_secrets()
         message=scrub(text.strip(),secrets)
-        if not job.steer(message):
+        if not self.code_controls(job).steer(message):
             self.record('output',self.tr('Steering was not queued; the run may have ended or the message may exceed the limit.'));return
         self.composer.clear();self.record_steering(self.tr('Steering queued: '),message)
         if self.pending_fingerprint:
@@ -1533,7 +1533,7 @@ class CodeTab(QWidget):
         if kind in ('edit_proposal','operation_proposal'):
             from .code_worker import approval_event_is_live
 
-            if not approval_event_is_live(self.job,event):return
+            if not approval_event_is_live(self.code_controls(self.job),event):return
             self.approve_mcp_run.hide()
         if kind=='subagent':
             try:
@@ -1721,7 +1721,8 @@ class CodeTab(QWidget):
         from .code_worker import approval_event_is_live
 
         proposal_event={'fingerprint':self.pending_fingerprint}
-        if not approval_event_is_live(self.job,proposal_event):
+        controls=self.code_controls(self.job)
+        if not approval_event_is_live(controls,proposal_event):
             self.close_approval_review()
             self.record('decision',self.tr('This approval is no longer active. Your answer was not applied.'))
             return
@@ -1740,17 +1741,20 @@ class CodeTab(QWidget):
                     save_token(self._git_auth_url,username,token)
                 except Exception:
                     QMessageBox.warning(self,self.tr('Git credentials'),self.tr('Could not save the Git token in the OS credential store. Nothing was submitted.'));return
-        accepted=self.job and self.pending_fingerprint and (self.job.decide(self.pending_fingerprint,allowed,git_credentials=credentials) if credentials else self.job.decide(self.pending_fingerprint,allowed,scope) if scope!='once' else self.job.decide(self.pending_fingerprint,allowed))
+        accepted=self.job and self.pending_fingerprint and (controls.decide(self.pending_fingerprint,allowed,git_credentials=credentials) if credentials else controls.decide(self.pending_fingerprint,allowed,scope) if scope!='once' else controls.decide(self.pending_fingerprint,allowed))
         if accepted:
             decision=self.pending_fingerprint;self.close_approval_review()
             self.record('decision',('Allowed MCP server for this run' if scope=='mcp_server_run' else 'Approved' if allowed else 'Rejected')+' proposal '+decision)
-        elif not approval_event_is_live(self.job,proposal_event):
+        elif not approval_event_is_live(controls,proposal_event):
             self.close_approval_review()
             self.record('decision',self.tr('This approval is no longer active. Your answer was not applied.'))
 
-    def stop_code_worker(self,job):
+    def code_controls(self,job):
         worker=getattr(self,'worker',None)
-        return (worker.stop() if worker is not None and worker.run is job else job.stop()) or {
+        return worker if worker is not None and worker.run is job else job
+
+    def stop_code_worker(self,job):
+        return self.code_controls(job).stop() or {
             'undelivered':[], 'uncertain':[], 'delivered':[],
         }
 

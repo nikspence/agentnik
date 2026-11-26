@@ -321,7 +321,7 @@ def remember_terminal_subagent_rejection(data_dir, name, connection):
 
 
 def drive_run(run, write=print, advice=None, checkpoint=None):
-    from .code_worker import STEERING_OUTCOMES, approval_event_is_live, start_code_worker
+    from .code_worker import STEERING_OUTCOMES, start_code_worker
 
     events = Queue()
     done = object()
@@ -402,7 +402,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 write()
                 partial_line = False
             if kind in ("edit_proposal", "operation_proposal"):
-                if not approval_event_is_live(run, event):
+                if not worker.approval_pending(event["fingerprint"]):
                     write("Skipped an approval prompt that is no longer active.")
                     continue
                 proposal = event["proposal"]
@@ -448,7 +448,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     fields = ("operation", "server", "url", "kind", "target", "argument", "value", "context")
                 else:
                     write("This operation cannot be reviewed in the terminal preview. Rejected.")
-                    run.decide(event["fingerprint"], False)
+                    worker.decide(event["fingerprint"], False)
                     continue
                 for field in fields:
                     if field in proposal:
@@ -459,7 +459,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     response = input("Approve once? [y/N/a for System One advice] ").strip()
                     if response.lower() == "a":
                         def still_pending():
-                            return approval_event_is_live(run, event)
+                            return worker.approval_pending(event["fingerprint"])
 
                         if still_pending():
                             show_shell_advice(advice, proposal, run.cancel, write, is_pending=still_pending)
@@ -471,11 +471,11 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     response = input("Approve once? [y/N] ").strip()
                 while response == "/steer" or response.startswith("/steer "):
                     message = response.removeprefix("/steer").strip()
-                    if message and run.steer(message, approval_fingerprint=event["fingerprint"]):
+                    if message and worker.steer(message, approval_fingerprint=event["fingerprint"]):
                         write("Steering queued. The pending proposal was not approved.")
                         response = None
                         break
-                    if not approval_event_is_live(run, event):
+                    if not worker.approval_pending(event["fingerprint"]):
                         write("This approval prompt is no longer active. Your steering was not queued.")
                         response = None
                         break
@@ -483,7 +483,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     response = input("Approve once? [y/N] ").strip()
                 if response is None:
                     continue
-                if run.decide(event["fingerprint"], response.lower() == "y") is False:
+                if worker.decide(event["fingerprint"], response.lower() == "y") is False:
                     write("This approval prompt is no longer active. Your answer was not applied.")
             elif kind in STEERING_OUTCOMES:
                 record_steering(event)

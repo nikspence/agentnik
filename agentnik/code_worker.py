@@ -40,6 +40,28 @@ class CodeWorker:
             self._stopped = True
             return result
 
+    def approval_pending(self, fingerprint):
+        run = self.run
+        return not self._stopped and run is not None and approval_event_is_live(run, {"fingerprint": fingerprint})
+
+    def decide(self, fingerprint, approved, scope="once", git_credentials=None):
+        run = self.run
+        if self._stopped or run is None:
+            return False
+        if git_credentials is not None:
+            return run.decide(fingerprint, approved, scope, git_credentials=git_credentials)
+        if scope != "once":
+            return run.decide(fingerprint, approved, scope)
+        return run.decide(fingerprint, approved)
+
+    def steer(self, message, *, approval_fingerprint=None):
+        run = self.run
+        if self._stopped or run is None:
+            return False
+        if approval_fingerprint is None:
+            return run.steer(message)
+        return run.steer(message, approval_fingerprint=approval_fingerprint)
+
     def join(self, timeout=None):
         self._thread.join(timeout)
 
