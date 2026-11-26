@@ -197,22 +197,19 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
                       memory_enabled=False):
     from importlib.util import find_spec
     from . import core, tls
-    from .code_setup import shared_run_options
+    from .code_setup import CodeSelectionError, resolve_run_connection, shared_run_options
     from .image_settings import image_tool_config
     from .storage import Store
 
     store = Store(data_dir)
     try:
         connections = {**(discovered or {}), **core.environment_connections(), **store.connections()}
-        connection = connections.get(name)
-        if connection is None:
-            raise ValueError("Unknown connection. Use /connections to list names.")
-        connection = dict(connection)
-        core.base_url(connection.get("url", ""))
-        if model:
-            connection["model"] = model
-        if not connection.get("model"):
-            raise ValueError("No model selected. Use /model to specify one.")
+        try:
+            connection = resolve_run_connection(connections.get(name), model or None)
+        except CodeSelectionError as exc:
+            if exc.field == "connection":
+                raise ValueError("Unknown connection. Use /connections to list names.") from None
+            raise ValueError("No model selected. Use /model to specify one.") from None
         settings = store.config["settings"]
         tls.configure(settings.get("relaxed_tls", False))
         capability_connection = dict(connection)

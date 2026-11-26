@@ -4,10 +4,22 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from agentnik.code_setup import shared_run_options
+from agentnik.code_setup import CodeSelectionError, resolve_run_connection, shared_run_options
 
 
 class CodeSetupTests(unittest.TestCase):
+    def test_model_default_override_and_endpoint_are_validated_without_mutation(self):
+        connection = {"url": "https://fixture.invalid/v1", "model": "default", "api_key": "fixture"}
+        self.assertEqual(resolve_run_connection(connection), connection)
+        self.assertEqual(resolve_run_connection(connection, "override")["model"], "override")
+        self.assertEqual(connection["model"], "default")
+        with self.assertRaisesRegex(CodeSelectionError, "No model selected"):
+            resolve_run_connection(connection, "")
+        with self.assertRaisesRegex(CodeSelectionError, "No connection selected"):
+            resolve_run_connection(None, "override")
+        with self.assertRaisesRegex(ValueError, "without credentials"):
+            resolve_run_connection(dict(connection, url="https://user:secret@fixture.invalid"))
+
     def test_mcp_priority_budgets_and_capability_binding_share_one_policy(self):
         settings = {"coding_limits": {"calls": 0}, "coding_goal_limits": {"steps": 0}}
         store = SimpleNamespace(config={"settings": settings})

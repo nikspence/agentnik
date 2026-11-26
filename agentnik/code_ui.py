@@ -673,10 +673,12 @@ class CodeTab(QWidget):
     def role_connection(self,role):
         name=self.roles[role][0].currentData()
         if not name:return None
-        c=dict(self.window.connections.get(name,{}));c['model']=self.roles[role][1].text().strip()
-        if not c.get('url') or not c.get('model'):
-            raise ValueError({'heavy':self.tr('Choose a connection and model alias.'),'decision':self.tr('Choose a connection and model alias for Decision.')}[role])
-        return c
+        from .code_setup import CodeSelectionError, resolve_run_connection
+
+        try:
+            return resolve_run_connection(self.window.connections.get(name),self.roles[role][1].text().strip())
+        except CodeSelectionError:
+            raise ValueError({'heavy':self.tr('Choose a connection and model alias.'),'decision':self.tr('Choose a connection and model alias for Decision.')}[role]) from None
 
     def refresh_skills_button(self):
         names=self.session.get('coding_skills',[])
