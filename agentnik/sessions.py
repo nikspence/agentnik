@@ -81,6 +81,9 @@ def validate_session(value, ident=None):
         try: chat_limits(options['limits'])
         except ValueError: require(False)
     if data['mode']=='code':
+        if 'coding_run_route' in data:
+            route = data['coding_run_route']
+            require(isinstance(route, str) and bool(re.fullmatch('[0-9a-f]{64}', route)))
         if 'coding_goal_route' in data:
             route = data['coding_goal_route']
             require('coding_goal' in data and isinstance(route, str) and bool(re.fullmatch('[0-9a-f]{64}', route)))

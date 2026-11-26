@@ -121,7 +121,7 @@ def prepare_goal_continuation(record, connection, scope):
     if saved_scope != scope:
         return GoalContinuation("scope_mismatch", scope=saved_scope)
     return GoalContinuation("ready", connection=saved_connection, scope=saved_scope, context=context,
-                            model=binding.get("model"), route=record.get("coding_goal_route"))
+                            model=binding.get("model"), route=record.get("coding_run_route") or record.get("coding_goal_route"))
 
 
 def project_context_for_resume(records):
@@ -148,6 +148,7 @@ class ResumeSnapshot:
     prompt_history: tuple[str, ...]
     activity: tuple[str, ...]
     latest_goal_turn: dict | None
+    project_context_route: str | None = None
 
 
 def resume_snapshot(records):
@@ -158,7 +159,7 @@ def resume_snapshot(records):
         raise ValueError("Choose a saved session before preparing resume state.")
     binding = coding_model_binding(record)
     prompts, preview = [], []
-    latest_goal = context = None
+    latest_goal = context = context_route = None
     project_turn_seen = False
     for index, saved in enumerate(chain((record,), records)):
         if index < 20:
@@ -175,12 +176,13 @@ def resume_snapshot(records):
             project_turn_seen = True
             if saved.get("code_state") == "completed" and coding_model_binding(saved) == binding:
                 context = saved.get("coding_context")
+                context_route = saved.get("coding_run_route") or saved.get("coding_goal_route")
         if index >= 19 and len(prompts) == 100 and latest_goal is not None and project_turn_seen:
             break
     return ResumeSnapshot(
         record, binding.get("connection", ""), binding.get("model", ""),
         context, dict(record.get("coding_skill_pins", {})), tuple(reversed(prompts)),
-        tuple(line for turn in reversed(preview) for line in turn), latest_goal,
+        tuple(line for turn in reversed(preview) for line in turn), latest_goal, context_route,
     )
 
 
@@ -336,9 +338,9 @@ class CodeHistory:
                       coding_models={"model": {"connection": name, "model": connection["model"]}})
         if goal:
             record["coding_goal"] = {"objective": objective, "status": "active", "detail": ""}
-            route = coding_route_digest(connection)
-            if route is not None:
-                record["coding_goal_route"] = route
+        route = coding_route_digest(connection)
+        if route is not None:
+            record["coding_run_route"] = route
         if skill_pins:
             record.update(coding_skills=list(skill_pins), coding_skill_pins=dict(skill_pins))
         if session_id:

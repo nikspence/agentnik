@@ -2705,6 +2705,40 @@ class TerminalRunTests(unittest.TestCase):
                 finally:
                     store.db.close()
 
+    def test_resume_does_not_send_automatic_context_to_changed_destination(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "data"
+            ident = str(uuid4())
+            store = Store(data)
+            try:
+                new = {"url": "https://changed.invalid/v1", "model": "fixture", "stream": False, "protocol": "chat"}
+                store.save_connection("Fixture", new)
+                history = CodeHistory(store, root)
+                record, task = history.start("Fixture", dict(new, url="https://original.invalid/v1"),
+                                             "Prior private task", ident)
+                history.finish(record, task, {"status": "completed", "text": "Prior private answer", "response_shown": True})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ["New task", "/exit"]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", ident]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request", return_value=Wire(chat("New answer"), False)) as request, \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            request.assert_called_once()
+            self.assertNotIn("Prior private", str(request.call_args.args[2]))
+            self.assertIn("effective model or destination changed", out.getvalue())
+
     def test_terminal_model_change_clears_automatic_context_without_changing_history(self):
         from unittest.mock import Mock
         from agentnik import cli, core
