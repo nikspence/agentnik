@@ -79,6 +79,12 @@ args = ["-tt", "-p", "2222", "-i", "/tmp/agentnik-smoke-key", "-o", "BatchMode=y
         "exec /opt/agentnik-smoke/bin/agentnik code --data-dir ../test-data"]
 with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.expect_exact("code>")
+    task = "Create the SSH fixture note.\nUse the reviewed content."
+    session.send(task.replace("\n", "\x1b[13;5u") + "\r")
+    session.expect_exact("Select a connection with /connection NAME first.")
+    session.expect_exact("Use /draft to edit the unsent task.")
+    session.expect_exact("code>")
+    assert not requests
     session.send("/connections add SSH Fixture\r")
     for prompt, value in (("Endpoint URL", f"http://127.0.0.1:{server.server_port}/v1"),
                           ("Protocol (", "chat"), ("Model [", "fixture-model")):
@@ -133,8 +139,10 @@ with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.expect_exact("rounds=48, requests=50, calls=96, turn_seconds=3600.")
     session.expect_exact("code>")
     assert not requests
-    task = "Create the SSH fixture note.\nUse the reviewed content."
-    session.send(task.replace("\n", "\x1b[13;5u") + "\r")
+    session.send("/draft\r")
+    session.expect_exact("code>")
+    assert not requests, "Opening the recovered draft submitted it"
+    session.send("\r")
     session.expect_exact("Approve once?")
     assert len(requests) == 1
     assert any(message.get("role") == "user" and message.get("content") == task
