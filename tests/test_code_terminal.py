@@ -432,6 +432,29 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertIn("+staged", project_diff(root, "--staged " + path.name))
                 self.assertIn("Unstaged", project_diff(root, ""))
 
+    def test_mcp_signin_persists_only_the_credential_reference(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory:
+            store = Store(directory)
+            try:
+                with patch("builtins.input", side_effect=["Fixture Server", "https://example.org/mcp"]):
+                    configure_code(store, ["mcp", "add-https"])
+                record = {"access_token": "fixture-secret-token"}
+                with patch("builtins.input", side_effect=["fixture-client", "read"]), \
+                        patch("agentnik.mcp_oauth_signin.sign_in", return_value=record) as signin, \
+                        patch("agentnik.mcp_oauth_record.write_record") as save:
+                    configure_code(store, ["mcp", "signin", "Fixture", "Server"])
+                profile = load_config(store.config_path)["mcp_servers"][0]
+                self.assertEqual(profile["auth_type"], "oauth")
+                self.assertFalse(profile["enabled"])
+                save.assert_called_once_with(profile["credential_id"], record)
+                self.assertEqual(signin.call_args.args[:3], ("https://example.org/mcp", "fixture-client", "read"))
+                self.assertNotIn("fixture-secret-token", store.config_path.read_text())
+            finally:
+                store.db.close()
+
     def test_mcp_preferences_and_disabled_https_server_are_saved_without_contact(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store, load_config
