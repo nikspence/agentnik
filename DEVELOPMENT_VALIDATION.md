@@ -6,6 +6,19 @@ Run `python tools/run_offline_tests.py` with the project dependencies installed.
 
 For an optional real-server interoperability check, run `python tools/mcp_sdk_smoke.py` in an environment with MCP Python SDK 2.x installed separately. It starts a disposable SDK stdio server with synthetic in-memory data and checks discovery, a structured tool call, standalone and request-scoped server pings, a resource, a resource template, and a prompt. Add `--https` to exercise a loopback Streamable HTTP server over TLS 1.2 or newer with a temporary certificate trusted only by the test process, `--https-cancel` to check a stopped call's cancellation notification and server-side termination, `--https-resume` to verify response resumption after SDK-initiated stream closure without repeating the call, or `--https-standalone-resume` to verify standalone stream reconnection and notification replay. Use --https-oauth-discovery for metadata, --https-oauth-flow for the internal PKCE exchange, --https-oauth-refresh for token rotation, and --https-oauth-ui for the settings-to-MCP path, and --https-oauth-dynamic for dynamic registration, using a simulated browser callback and mocked credential store over verified loopback HTTPS. HTTPS also requires `cryptography` and `uvicorn`. These modes make no inference or Internet requests, and these packages are not Agentnik runtime dependencies. The check is separate from the hermetic test suite and does not qualify arbitrary servers or Internet deployments.
 
+## Qt-free SSH smoke test
+
+From the checkout, set `PREVIEW_DIR` to the absolute directory containing the extracted preview wheel and run the following in a POSIX shell. Substitute the wheel filename if it differs.
+
+```sh
+docker run --rm \
+  --mount "type=bind,src=$PREVIEW_DIR,dst=/preview,readonly" \
+  --mount "type=bind,src=$PWD/tools,dst=/tools,readonly" \
+  python:3.12-slim sh -c 'tr -d "\015" </tools/ssh_terminal_smoke.sh | sh -s -- /preview/agentnik-0.12.0rc1-py3-none-any.whl'
+```
+
+The fixture installs dependencies in the disposable container, then uses a fresh non-root account and a throwaway key over loopback OpenSSH. It checks the installed launcher without Qt, prompt modes and basic slash commands. It does not send inference requests.
+
 ## Compatibility CLI
 
 `tools/live_compat.py` prints a plan by default. It does not read key files or make requests until you add `--execute`. Always select the exact URL, alias, protocol, and route. Use `chat`, `managed`, or `hosted`; managed currently requires `--backend ollama` and a separate Ollama search key. Hosted accepts only the official OpenAI Responses endpoint. There is no automatic model selection, retry, or route fallback. System One remains a separate test.
