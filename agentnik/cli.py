@@ -79,7 +79,7 @@ def import_connection_settings(store, filename):
     print(f"Imported {len(new)} connection(s). Use /connections key NAME to add credentials.")
 
 
-def connection_menu(data_dir, action="", selected_name=""):
+def connection_menu(data_dir, action="", selected_name="", *, discovered=None):
     from .core import PROTOCOLS, environment_connections, validate_connections
     from .storage import ConfigurationError, Store
 
@@ -103,6 +103,11 @@ def connection_menu(data_dir, action="", selected_name=""):
             return
         name = selected_name or input("Connection name: ").strip()
         old = store.config["connections"].get(name)
+        if action == "copy" and old is None:
+            old = environment_connections().get(name) or (discovered or {}).get(name)
+            if old is None:
+                print("Choose a saved, environment, or discovered connection.")
+                return
         if action == "add":
             if not name or old is not None:
                 print("Choose a new, nonempty connection name.")
@@ -651,7 +656,7 @@ def terminal_session(options, root, lease, images):
             if action not in ("", "show", "add", "edit", "copy", "options", "key", "remove", "import", "export"):
                 print("Use /connections, /connections import|export PATH, or /connections show|add|edit|copy|options|key|remove [NAME].")
                 continue
-            connection_menu(options.data_dir, action, name.strip())
+            connection_menu(options.data_dir, action, name.strip(), discovered=discovered)
             if not action:
                 for label, entry in discovered.items():
                     print(f"Discovered: {label!r} · {entry.get('model', '')!r}")

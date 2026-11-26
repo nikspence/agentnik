@@ -239,6 +239,30 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_copy_environment_or_discovered_connection_omits_source_key(self):
+        from agentnik.cli import connection_menu
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory:
+            data = Path(directory)
+            store = Store(data)
+            try:
+                source = {"url": "http://127.0.0.1:11434/v1", "model": "test", "api_key": "synthetic"}
+                with patch("agentnik.core.environment_connections", return_value={"env:Fixture": source}), \
+                        patch("builtins.input", side_effect=["Environment copy", "Discovered copy"]), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    connection_menu(data, "copy", "env:Fixture")
+                    connection_menu(data, "copy", "local:Fixture", discovered={"local:Fixture": source})
+                saved = load_config(store.config_path)["connections"]
+                self.assertEqual(set(saved), {"Environment copy", "Discovered copy"})
+                for entry in saved.values():
+                    self.assertEqual(entry["model"], "test")
+                    self.assertNotIn("api_key", entry)
+                    self.assertNotIn("credential_id", entry)
+                self.assertEqual(source["api_key"], "synthetic")
+            finally:
+                store.db.close()
+
     def test_manual_git_help_remains_available_without_native_git(self):
         from agentnik.code_git_commands import manual_git
 
