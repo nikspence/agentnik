@@ -101,7 +101,8 @@ class TerminalRunTests(unittest.TestCase):
             session = uuid4()
             commands = iter(["/connection Fixture", "/scope machine", "/status", "Read diagnostics",
                              "/scope project", "Continue project work",
-                             "/scope machine", f"/resume {session}", "/status", "Resumed task", "/exit"])
+                             "/permissions allow-all", "/scope machine", f"/resume {session}",
+                             "/status", "Resumed task", "/exit"])
             labels = {}
 
             def open_composer(*, transcript, message):
@@ -163,7 +164,8 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Scope: project", output.getvalue())
             self.assertEqual(labels["Read diagnostics"], "code [machine]> ")
             self.assertEqual(labels["Continue project work"], "code> ")
-            self.assertEqual(labels[f"/resume {session}"], "code [machine]> ")
+            self.assertEqual(labels["/scope machine"], "code [allow-all]> ")
+            self.assertEqual(labels[f"/resume {session}"], "code [machine, allow-all]> ")
             self.assertEqual(labels["Resumed task"], "code> ")
             self.assertFalse(any(t["function"]["name"].startswith("machine_") for t in bodies[4]["tools"]))
             self.assertIn("Unknown or unavailable tool", json.dumps(bodies[5]["messages"]))

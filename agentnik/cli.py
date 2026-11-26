@@ -197,9 +197,12 @@ def terminal_session(options, root, lease, images):
         print(text, end=end, flush=flush)
 
     machine_scope = False
+    require_approval = True
 
     def prompt_label():
-        return "code [machine]> " if machine_scope else "code> "
+        modes = [name for name, enabled in (("machine", machine_scope), ("allow-all", not require_approval))
+                 if enabled]
+        return f"code [{', '.join(modes)}]> " if modes else "code> "
 
     def open_composer():
         return create_composer(transcript=lambda: "".join(transcript), message=prompt_label)
@@ -227,7 +230,6 @@ def terminal_session(options, root, lease, images):
     show_thinking = False
     skill_pins = {}
     documents = []
-    require_approval = True
     session_id = str(uuid4())
     pending_command = f"/resume {options.resume}" if options.resume else None
     while True:
