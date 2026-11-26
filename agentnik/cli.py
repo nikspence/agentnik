@@ -670,7 +670,7 @@ def terminal_session(options, root, lease, images):
                 print(terminal_text(exc), file=sys.stderr)
         elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume")
               or command.startswith("/open ") or command in ("/plan", "/goal")):
-            from .code_history import CodeHistory, Store, activity_preview, resolve_session_id
+            from .code_history import CodeHistory, Store, activity_preview
             from .code_terminal import terminal_text
 
             action = command.split(" ", 1)[0]
@@ -685,14 +685,12 @@ def terminal_session(options, root, lease, images):
                 store = Store(options.data_dir)
                 try:
                     history = CodeHistory(store, root)
-                    sessions = history.sessions() if not current_only else {}
-                    if not listing:
-                        ident = resolve_session_id(sessions, argument)
-                        if ident in sessions:
-                            lease.select(ident)
-                        records = history.list(session_id if current_only else ident)
-                        if records and not current_only:
-                            history.recover_interrupted(records[0], lease)
+                    if listing:
+                        sessions = history.sessions()
+                    elif current_only:
+                        records = history.list(session_id)
+                    else:
+                        ident, records = history.select_for_resume(argument, lease)
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:

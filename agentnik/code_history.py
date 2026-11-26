@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from uuid import UUID
 
 from .repositories import RepositoryRegistry
 from .research import scrub
@@ -93,6 +94,24 @@ class CodeHistory:
         for record in self.list():
             latest.setdefault(self.session_id(record), record)
         return latest
+
+    def select_for_resume(self, selector, lease):
+        """Attach to one saved session before recovering interrupted work."""
+        try:
+            full_id = str(UUID(selector)) == selector
+        except ValueError:
+            full_id = False
+        if full_id:
+            ident = selector if self.list(selector) else ""
+        else:
+            ident = resolve_session_id(self.sessions(), selector)
+        if not ident:
+            return "", []
+        lease.select(ident)
+        records = self.list(ident)
+        if records:
+            self.recover_interrupted(records[0], lease)
+        return ident, records
 
     def recover_interrupted(self, record, lease):
         """Reconcile a terminal run only after exclusively reopening its session."""

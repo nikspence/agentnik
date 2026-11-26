@@ -1039,6 +1039,7 @@ class TerminalRunTests(unittest.TestCase):
             argv = ["agentnik", "code", str(second), "--data-dir", str(data), "--resume", session]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer"), \
+                    patch.object(CodeHistory, "sessions", side_effect=AssertionError("unexpected session scan")), \
                     patch.object(core, "open_request") as request, \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 1)
