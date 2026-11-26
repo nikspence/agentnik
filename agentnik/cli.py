@@ -228,7 +228,7 @@ def terminal_session(options, root, lease, images):
                   "/connection NAME  Select a connection for this session\n"
                   "/model [NAME]     Override the model, or reset to the connection default\n"
                   "/models [FILTER]  Fetch the selected connection's catalog and choose a model\n"
-                  "/goal OBJECTIVE   Start an ongoing goal in this session\n"
+                  "/goal [OBJECTIVE] Show the saved goal or start an ongoing goal\n"
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/context          Inspect, clear, or toggle previous-turn context\n"
                   "/plan             Show the latest saved plan for this session\n"
@@ -500,12 +500,12 @@ def terminal_session(options, root, lease, images):
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
-        elif command in ("/history", "/plan", "/sessions", "/resume") or command.startswith(("/open ", "/resume ", "/sessions ")):
+        elif command in ("/history", "/plan", "/goal", "/sessions", "/resume") or command.startswith(("/open ", "/resume ", "/sessions ")):
             from .code_history import CodeHistory, Store, resolve_session_id
             from .code_terminal import terminal_text
 
             listing = command == "/resume" or command.split(" ", 1)[0] == "/sessions"
-            current_only = command in ("/history", "/plan")
+            current_only = command in ("/history", "/plan", "/goal")
             argument = command.partition(" ")[2].strip()
             if listing and argument and (not argument.isascii() or not argument.isdecimal()
                                          or len(argument) > 9 or int(argument) < 1):
@@ -543,6 +543,15 @@ def terminal_session(options, root, lease, images):
                     print("No saved sessions on that page.")
                 elif len(sessions) > offset + 20:
                     print(f"More saved sessions are available under /sessions {page + 1}.")
+                continue
+            if command == "/goal":
+                saved = next((record["coding_goal"] for record in records if "coding_goal" in record), None)
+                if saved:
+                    print(terminal_text(f"Most recent saved goal ({saved['status']}):\n{saved['objective']}"))
+                    if saved.get("detail"):
+                        print(terminal_text(saved["detail"]))
+                else:
+                    print("No saved goal for this session. Use /goal OBJECTIVE to start one.")
                 continue
             if command == "/plan":
                 from .code_terminal import terminal_plan
@@ -656,8 +665,6 @@ def terminal_session(options, root, lease, images):
                 model = selected
                 vision_enabled = False
             print(f"Selected model {model!r}." if model else "Using the connection's default model.")
-        elif command == "/goal":
-            print("Enter /goal followed by an objective.")
         elif command.startswith("/") and not command.startswith(("//", "/goal ")) and command != "/continue":
             print("Unknown command. Type /help, or start with // to send a prompt that begins with /.")
         elif command:

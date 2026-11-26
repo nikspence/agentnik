@@ -49,7 +49,7 @@ Connect with a terminal attached. If you launch Agentnik as part of the SSH comm
 
 The [validation notes](VALIDATION.md) distinguish what was tested over OpenSSH from the separate live model checks.
 
-`/goal OBJECTIVE` starts an ongoing goal. To continue a stopped goal, use `/continue` and review the saved objective before starting a fresh run. The model receives saved evidence and is directed to inspect current state before acting.
+`/goal OBJECTIVE` starts an ongoing goal. Use `/goal` with no argument to see the most recent saved objective and outcome in this session without sending a request. To continue a stopped goal, use `/continue` and review the saved objective before starting a fresh run. The model receives saved evidence and is directed to inspect current state before acting.
 
 ## Generate and inspect a slide
 

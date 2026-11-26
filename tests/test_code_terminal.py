@@ -467,7 +467,7 @@ class TerminalRunTests(unittest.TestCase):
                 history = CodeHistory(store, root)
                 connection = {"url": "https://example.org/v1", "model": "fixture"}
                 for ident, prompt in ((current, "Current task"), (busy, "Other terminal task")):
-                    record, _ = history.start("Fixture", connection, prompt, ident)
+                    record, _ = history.start("Fixture", connection, prompt, ident, goal=True)
                     history.finish(record, prompt, {"status": "completed", "text": "Done"})
                     if ident == current:
                         record["coding_models"] = {"heavy": record["coding_models"]["model"]}
@@ -476,7 +476,7 @@ class TerminalRunTests(unittest.TestCase):
                             {"step": "Current checklist", "status": "pending"},
                         ]}})
                 composer = Mock()
-                composer.prompt.side_effect = [f"/resume {busy}", "/status", "/plan", "/new", "/plan", "/exit"]
+                composer.prompt.side_effect = [f"/resume {busy}", "/status", "/plan", "/goal", "/new", "/plan", "/goal", "/exit"]
                 argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", current]
                 with SessionLease(data) as other, patch("sys.argv", argv), \
                         patch("sys.stdin.isatty", return_value=True), \
@@ -492,6 +492,8 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertIn("Connection: 'Fixture' · Model: 'fixture'", output.getvalue())
                 self.assertEqual(output.getvalue().count("[pending] Current checklist"), 2)
                 self.assertIn("No saved plan for this session.", output.getvalue())
+                self.assertIn("Most recent saved goal (completed):\nCurrent task", output.getvalue())
+                self.assertIn("No saved goal for this session.", output.getvalue())
                 self.assertNotIn("Other terminal task", output.getvalue())
                 composer.history.append_string.assert_called_once_with("Current task")
             finally:
