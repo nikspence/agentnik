@@ -683,6 +683,7 @@ class TerminalRunTests(unittest.TestCase):
             self.skipTest("Terminal composer extra is not installed")
         script = dedent(r"""
             from threading import Timer
+            from unittest.mock import patch
             from prompt_toolkit.input import create_pipe_input
             from prompt_toolkit.output import DummyOutput
             from agentnik.code_composer import create_composer, transcript_pager
@@ -702,6 +703,30 @@ class TerminalRunTests(unittest.TestCase):
                     assert actual == expected, repr(actual)
 
             transcript = "\n".join(f"line {i}" for i in range(100))
+            with create_pipe_input() as pipe:
+                from contextlib import asynccontextmanager
+                from prompt_toolkit.application import in_terminal
+
+                opened = []
+                def open_pager(*args, **kwargs):
+                    pager = transcript_pager(*args, **kwargs)
+                    opened.append(pager)
+                    pager.pre_run_callables.append(lambda: pipe.send_text("q"))
+                    return pager
+
+                @asynccontextmanager
+                async def resume_prompt():
+                    async with in_terminal():
+                        yield
+                    pipe.send_text("\r")
+
+                with patch("agentnik.code_composer.transcript_pager", side_effect=open_pager), \
+                        patch("prompt_toolkit.application.in_terminal", resume_prompt):
+                    composer = create_composer(transcript=lambda: transcript, input=pipe, output=DummyOutput())
+                    pipe.send_text("draft line\nsecond draft line\x14")
+                    assert composer.prompt() == "draft line\nsecond draft line"
+                assert len(opened) == 1
+
             for keys, at_end in (("\x1b[5~q", False), ("\x1b[5~\x1b[6~q", True),
                                  ("\x02\x06\x14", True)):
                 with create_pipe_input() as pipe:
