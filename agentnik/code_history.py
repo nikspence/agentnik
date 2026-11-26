@@ -2,7 +2,7 @@
 
 from contextlib import closing
 from dataclasses import dataclass
-from itertools import islice
+from itertools import chain, islice
 import os
 from pathlib import Path
 from uuid import UUID
@@ -138,25 +138,35 @@ class ResumeSnapshot:
 
 def resume_snapshot(records):
     """Prepare saved state without starting a run or applying UI formatting."""
-    if not records:
+    records = iter(records)
+    record = next(records, None)
+    if record is None:
         raise ValueError("Choose a saved session before preparing resume state.")
-    record = records[0]
     binding = coding_model_binding(record)
-    prompts = []
-    for saved in records:
-        for entry in reversed(saved.get("code_activity", [])):
-            if entry["kind"] == "prompt":
-                prompts.append(entry["text"])
-                if len(prompts) == 100:
-                    break
-        if len(prompts) == 100:
+    prompts, preview = [], []
+    latest_goal = context = None
+    project_turn_seen = False
+    for index, saved in enumerate(chain((record,), records)):
+        if index < 20:
+            preview.append(activity_preview(saved))
+        if len(prompts) < 100:
+            for entry in reversed(saved.get("code_activity", [])):
+                if entry["kind"] == "prompt":
+                    prompts.append(entry["text"])
+                    if len(prompts) == 100:
+                        break
+        if latest_goal is None and "coding_goal" in saved:
+            latest_goal = saved
+        if not project_turn_seen and saved.get("coding_file_scope") != "machine":
+            project_turn_seen = True
+            if saved.get("code_state") == "completed" and coding_model_binding(saved) == binding:
+                context = saved.get("coding_context")
+        if index >= 19 and len(prompts) == 100 and latest_goal is not None and project_turn_seen:
             break
     return ResumeSnapshot(
         record, binding.get("connection", ""), binding.get("model", ""),
-        project_context_for_resume(records), dict(record.get("coding_skill_pins", {})),
-        tuple(reversed(prompts)),
-        tuple(line for saved in reversed(records[:20]) for line in activity_preview(saved)),
-        next((saved for saved in records if "coding_goal" in saved), None),
+        context, dict(record.get("coding_skill_pins", {})), tuple(reversed(prompts)),
+        tuple(line for turn in reversed(preview) for line in turn), latest_goal,
     )
 
 
@@ -177,17 +187,20 @@ class CodeHistory:
                 result.append(item)
         return result
 
-    def turn_window(self, session_id, offset, count):
-        """Read a bounded window of valid turns belonging to this project."""
+    def iter_project_turns(self, session_id):
         matches = {}
         with closing(self.store.iter_sessions(mode="code", terminal_session=session_id)) as records:
-            def belongs(record):
+            for record in records:
                 path = record["path_snapshot"]
                 if path not in matches:
                     matches[path] = same_project(path, self.root)
-                return matches[path]
+                if matches[path]:
+                    yield record
 
-            return list(islice(filter(belongs, records), offset, offset + count))
+    def turn_window(self, session_id, offset, count):
+        """Read a bounded window of valid turns belonging to this project."""
+        with closing(self.iter_project_turns(session_id)) as records:
+            return list(islice(records, offset, offset + count))
 
     @staticmethod
     def session_id(record):
@@ -209,8 +222,8 @@ class CodeHistory:
                 goals.setdefault(ident, record["coding_goal"]["status"])
         return {ident: (record, goals.get(ident)) for ident, record in latest.items()}
 
-    def select_for_resume(self, selector, lease):
-        """Attach to one saved session before recovering interrupted work."""
+    def lease_for_resume(self, selector, lease):
+        """Resolve the session and acquire its lease before reading resume state."""
         selector = selector.lower()
         try:
             full_id = str(UUID(selector)) == selector
@@ -224,18 +237,22 @@ class CodeHistory:
             ident = selector if found else ""
         else:
             ident = resolve_session_id(self.sessions(), selector)
-        if not ident:
-            return "", []
-        lease.select(ident)
-        records = self.list(ident)
-        if records:
-            self.recover_interrupted(records[0], lease)
-        return ident, records
+        if ident:
+            lease.select(ident)
+        return ident
 
     def prepare_resume(self, selector, lease):
         """Acquire the saved session and return its client-neutral resume state."""
-        ident, records = self.select_for_resume(selector, lease)
-        return ident, resume_snapshot(records) if records else None
+        ident = self.lease_for_resume(selector, lease)
+        if not ident:
+            return "", None
+        latest = self.turn_window(ident, 0, 1)
+        if not latest:
+            return ident, None
+        # Keep the recovery write separate from an open SQLite read cursor.
+        self.recover_interrupted(latest[0], lease)
+        with closing(self.iter_project_turns(ident)) as records:
+            return ident, resume_snapshot(records)
 
     def recover_interrupted(self, record, lease):
         """Reconcile a terminal run only after exclusively reopening its session."""

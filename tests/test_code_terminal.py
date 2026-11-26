@@ -37,12 +37,32 @@ class TerminalRunTests(unittest.TestCase):
              "code_activity": [{"kind": "prompt", "text": f"/task {index}"}]}
             for index in reversed(range(110))
         ]
-        snapshot = resume_snapshot(records)
+        snapshot = resume_snapshot(iter(records))
         self.assertEqual(snapshot.prompt_history, tuple(f"/task {i}" for i in range(10, 110)))
         self.assertEqual(snapshot.activity, tuple(f"/task {i}" for i in range(90, 110)))
         self.assertEqual((snapshot.connection, snapshot.model), ("Fixture", "fixture"))
         with self.assertRaisesRegex(ValueError, "Choose a saved session"):
             resume_snapshot([])
+
+    def test_resume_snapshot_stops_reading_once_all_saved_state_is_found(self):
+        from agentnik.code_history import resume_snapshot
+
+        def turns():
+            for index in range(100):
+                saved = {
+                    "code_activity": [{"kind": "prompt", "text": str(index)}],
+                    "code_state": "completed", "coding_context": {"task": "task", "answer": "answer"},
+                }
+                if index == 42:
+                    saved["coding_goal"] = {"status": "completed"}
+                yield saved
+            self.fail("Resume should not consume more history after finding all saved state")
+
+        snapshot = resume_snapshot(turns())
+        self.assertEqual(snapshot.prompt_history, tuple(str(i) for i in range(99, -1, -1)))
+        self.assertEqual(snapshot.activity, tuple(str(i) for i in range(19, -1, -1)))
+        self.assertEqual(snapshot.latest_goal_turn["coding_goal"]["status"], "completed")
+        self.assertEqual(snapshot.project_context, {"task": "task", "answer": "answer"})
 
     def test_terminal_can_recover_from_stale_image_setup_without_manual_config(self):
         from agentnik.code_settings import configure_code
@@ -2558,14 +2578,9 @@ class TerminalRunTests(unittest.TestCase):
 
         store.iter_sessions.return_value = lookup()
 
-        def load(*, mode, terminal_session):
-            lease.select.assert_called_once_with(ident)
-            self.assertEqual((mode, terminal_session), ("code", ident))
-            return [local]
-
-        store.list_sessions.side_effect = load
         with patch("agentnik.code_history.same_project", side_effect=lambda path, root: path == "local"):
-            self.assertEqual(CodeHistory(store, Path("local")).select_for_resume(ident, lease), (ident, [local]))
+            self.assertEqual(CodeHistory(store, Path("local")).lease_for_resume(ident, lease), ident)
+        lease.select.assert_called_once_with(ident)
         store.iter_sessions.assert_called_once_with(mode="code", terminal_session=ident)
 
     def test_resume_rejects_ambiguous_session_prefix(self):
