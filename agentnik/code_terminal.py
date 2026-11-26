@@ -240,6 +240,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     write("The local server runs as your user and inherits the terminal environment.")
                 elif proposal.get("operation") == "mcp_call":
                     fields = ("operation", "server", "tool", "description", "arguments")
+                elif proposal.get("operation") in ("mcp_list_resources", "mcp_read_resource"):
+                    fields = ("operation", "server", "command", "server_arguments", "resource")
                 else:
                     write("This operation cannot be reviewed in the terminal preview. Rejected.")
                     run.decide(event["fingerprint"], False)

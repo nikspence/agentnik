@@ -11,7 +11,7 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
-    def test_headless_local_mcp_checks_approvals_and_executes_a_fixture_tool(self):
+    def test_headless_local_mcp_checks_approvals_for_tools_and_resources(self):
         import sys
         from textwrap import dedent
         from unittest.mock import Mock
@@ -27,13 +27,17 @@ class TerminalRunTests(unittest.TestCase):
                 message = json.loads(line)
                 method = message["method"]
                 if method == "initialize":
-                    result = {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}},
+                    result = {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}, "resources": {}},
                               "serverInfo": {"name": "fixture", "version": "1"}}
                 elif method == "tools/list":
                     result = {"tools": [{"name": "hello", "description": "Return a greeting",
                                          "inputSchema": {"type": "object"}}]}
                 elif method == "tools/call":
                     result = {"content": [{"type": "text", "text": "Hello from the local fixture"}]}
+                elif method == "resources/list":
+                    result = {"resources": [{"uri": "fixture://notes", "name": "Notes"}]}
+                elif method == "resources/read":
+                    result = {"contents": [{"uri": "fixture://notes", "text": "Fixture resource content"}]}
                 else:
                     continue
                 print(json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}), flush=True)
@@ -55,17 +59,21 @@ class TerminalRunTests(unittest.TestCase):
             with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(root / "data")]), \
                     patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
-                    patch("builtins.input", side_effect=["y", "y"]) as approval, \
+                    patch("builtins.input", side_effect=["y", "y", "y", "y"]) as approval, \
                     patch.object(core, "open_request", side_effect=[
                         Wire(chat(calls=[call("mcp_discover", {})], finish="tool_calls"), False),
                         Wire(chat(calls=[call("mcp_call", {"tool": "hello", "arguments": "{}"})],
                                   finish="tool_calls"), False),
+                        Wire(chat(calls=[call("mcp_list_resources", {})], finish="tool_calls"), False),
+                        Wire(chat(calls=[call("mcp_read_resource", {"uri": "fixture://notes"})],
+                                  finish="tool_calls"), False),
                         Wire(chat("Done"), False),
                     ]) as transport, contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(), 0)
-            self.assertEqual(approval.call_count, 2, output.getvalue())
-            self.assertEqual(transport.call_count, 3, output.getvalue())
+            self.assertEqual(approval.call_count, 4, output.getvalue())
+            self.assertEqual(transport.call_count, 5, output.getvalue())
             self.assertIn("Hello from the local fixture", str(transport.call_args_list[2].args[2]))
+            self.assertIn("Fixture resource content", str(transport.call_args_list[4].args[2]))
 
     def test_only_lease_owner_can_recover_an_interrupted_goal(self):
         from agentnik.code_history import CodeHistory, goal_continuation

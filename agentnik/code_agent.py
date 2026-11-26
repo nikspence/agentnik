@@ -1225,6 +1225,8 @@ class CodingRun:
                                 resource=next((item for item in (mcp_resources or [])+mcp_state['links'] if item['uri']==args['uri']),None)
                                 if not resource:raise ProjectToolError('Choose an exact URI from this server’s resource listing or returned resource links.')
                                 proposal['resource']=resource
+                            if getattr(mcp_bridge,'review_required',False) is True and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                raise ProjectToolError('MCP resource request declined by the user')
                             response=mcp_bridge.request('resources_list' if call.name=='mcp_list_resources' else 'resources_read',{} if call.name=='mcp_list_resources' else {'uri':resource['uri']},runtime)
                             if 'error' in response:
                                 if call.name=='mcp_list_resources':mcp_resources=None
