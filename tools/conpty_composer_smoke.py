@@ -11,6 +11,13 @@ CHILD = """
 from agentnik.code_composer import create_composer
 
 composer = create_composer()
+print("CANCEL-READY", flush=True)
+try:
+    composer.prompt()
+except KeyboardInterrupt:
+    print("DRAFT-CANCELLED", flush=True)
+else:
+    raise AssertionError("Ctrl+C did not cancel the draft")
 for index in range(3):
     changes = []
     observe = lambda buffer: changes.append(buffer.text)
@@ -68,6 +75,13 @@ def main():
 
     Thread(target=read, daemon=True).start()
     try:
+        expect("CANCEL-READY\r\n")
+        seen = seen.split("CANCEL-READY\r\n", 1)[1]
+        expect("code>")
+        terminal.write("discard this draft")
+        sleep(0.15)
+        terminal.write("\x03")
+        expect("DRAFT-CANCELLED")
         expect("READY-0\r\n")
         seen = seen.split("READY-0\r\n", 1)[1]
         # VT output may reset formatting between the label and its trailing space.
@@ -92,7 +106,7 @@ def main():
         expect(f"SUBMITTED-2:{b'current draft'.hex()}:END")
     finally:
         terminal.close()
-    print("ConPTY verified Ctrl+J, Enter, Up history recall, and Down draft restoration.")
+    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Enter, and Up/Down history.")
 
 
 if __name__ == "__main__":
