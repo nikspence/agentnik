@@ -276,6 +276,9 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     fields = ("cwd", "shell", "command", "max_seconds")
                 elif proposal.get("operation") in ("delete_file", "create_directory", "move_file", "move_directory"):
                     fields = ("operation", "cwd", "path", "destination", "entries")
+                elif proposal.get("operation") in ("git_stage", "git_unstage", "git_create_branch",
+                                                   "git_commit", "git_commit_staged"):
+                    fields = ("operation", "cwd", "reference", "head", "paths", "name", "identity", "message", "diff")
                 elif proposal.get("operation") == "image_gen":
                     fields = ("operation", "endpoint", "model", "prompt", "references",
                               "aspect_ratio", "background", "cwd", "path")

@@ -1253,6 +1253,10 @@ class TerminalRunTests(unittest.TestCase):
                       "proposal": {"cwd": "project", "path": "file", "diff": "+\x1b[2J"}})
                 emit({"kind": "operation_proposal", "fingerprint": "push",
                       "proposal": {"operation": "git_push_connect"}})
+                emit({"kind": "operation_proposal", "fingerprint": "commit",
+                      "proposal": {"operation": "git_commit_staged", "paths": ["note.txt"],
+                                   "identity": "Fixture <fixture@example.org>", "message": "Save note",
+                                   "diff": "+Reviewed note"}})
 
             def decide(self, fingerprint, approved):
                 self.decisions.append((fingerprint, approved))
@@ -1264,7 +1268,9 @@ class TerminalRunTests(unittest.TestCase):
         run = Run()
         with contextlib.redirect_stdout(output), patch("builtins.input", return_value="y") as prompt:
             drive_run(run)
-        self.assertEqual(run.decisions, [("edit", True), ("push", False)])
-        prompt.assert_called_once()
+        self.assertEqual(run.decisions, [("edit", True), ("push", False), ("commit", True)])
+        self.assertEqual(prompt.call_count, 2)
+        self.assertIn("identity: Fixture <fixture@example.org>", output.getvalue())
+        self.assertIn("diff: +Reviewed note", output.getvalue())
         self.assertIn(r"+\x1b[2J", output.getvalue())
         self.assertNotIn("\x1b", output.getvalue())
