@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- A live terminal Code run with scripted input on Windows used GPT-6.1 Terra through OpenRouter Chat Completions to call `view_image` on a synthetic 16:9 PNG. The first request contained no image. The continuation carried the PNG and correctly identified both shapes and their positions. This qualifies inspection for that model and route, not live image generation or the full presentation-skill workflow.
+
 - Over an authenticated OpenSSH PTY in a disposable Linux container, Ctrl+C returned Agentnik to the prompt while a loopback model endpoint was withholding its response. Reconnecting and reopening the saved session showed the local cancellation and did not replay the request. This does not establish server-side cancellation or live-provider behavior over SSH.
 
 - A disposable Linux container with Python 3.12 and OpenSSH ran the Qt-free terminal install through an authenticated loopback SSH connection with a real remote PTY. Plain Enter submitted `/status`, `/permissions allow-all`, and `/exit`. Agentnik reported the current non-Git directory, the same session ID across commands, and the permission change. A second fresh container exercised interactive connection setup with an intentionally unavailable keyring. After explicit consent to the local plaintext fallback, a loopback Chat Completions fixture received the expected bearer credential, proposed a file edit, and saw the expected result after approval. A new SSH login resumed the same session without sending another request. This does not qualify a real provider or Ctrl+C over SSH.
