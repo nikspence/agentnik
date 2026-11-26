@@ -1633,6 +1633,8 @@ class CodingRun:
                                                 check_project_mutation();item['files_written']=staged.publish(check_project_mutation)
                                                 if item['files_written']:
                                                     if self.latest_test_report is not None:self.test_report_may_be_stale=True
+                                                    for path in item['files_written']:
+                                                        event('project_change',label='subagent output',path=path)
                                                     event('output',text='Subagent '+str(item['index'])+' wrote: '+', '.join(item['files_written']))
                                             except (OSError,ValueError,RuntimeError,GuidanceError,ProjectToolError) as exc:
                                                 item.update(status='failed',error=str(exc)[:500]);item.pop('analysis',None)

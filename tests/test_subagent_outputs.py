@@ -63,6 +63,10 @@ class SubagentWrites(unittest.TestCase):
                 self.assertEqual(json.loads((folder/'text-layer.json').read_text())['slide'],word)
                 self.assertEqual((folder/'qa'/'qa.md').read_text(),'Checked')
             self.assertTrue(any('wrote:' in e.get('text','') for e in events))
+            self.assertEqual(
+                {e['path'] for e in events if e['kind'] == 'project_change' and e['label'] == 'subagent output'},
+                {f'editable/slide-{num}/{path}' for num in ('01','02') for path in ('text-layer.json','qa/qa.md')},
+            )
 
     def test_failed_child_does_not_publish_staged_files(self):
         with tempfile.TemporaryDirectory() as root:
