@@ -200,7 +200,11 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
         if mcp_selection:
             options.update(mcp_bridges=terminal_mcp_bridges(store.config, mcp_selection),
                            mcp_priority=settings.get("mcp_priority", "first"))
-        image = image_tool_config(settings.get("image_generation"), connections)
+        try:
+            image = image_tool_config(settings.get("image_generation"), connections)
+        except ValueError as exc:
+            raise ValueError(f"{str(exc).rstrip('.')}. Use /settings image set to repair it "
+                             "or /settings image off to run without generation.") from None
         if image is not None:
             if find_spec("PySide6") is None and find_spec("PIL") is None:
                 raise ValueError("Install the Agentnik terminal extra for headless image generation.")

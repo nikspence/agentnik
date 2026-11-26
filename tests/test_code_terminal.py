@@ -29,6 +29,28 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_terminal_can_recover_from_stale_image_setup_without_manual_config(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.code_terminal import load_run_settings
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            store = Store(Path(directory))
+            try:
+                store.save_connection("Code", {"url": "https://example.org/v1", "model": "code"})
+                store.config["settings"]["image_generation"] = {
+                    "enabled": True, "connection": "Missing", "model": "image", "endpoint": "",
+                }
+                store.flush()
+                with self.assertRaisesRegex(ValueError, "/settings image off to run without generation"):
+                    load_run_settings(directory, "Code", "")
+                configure_code(store, ["image", "off"])
+                connection, _, _, options, _ = load_run_settings(directory, "Code", "")
+                self.assertEqual(connection["model"], "code")
+                self.assertNotIn("image_config", options)
+            finally:
+                store.db.close()
+
     def test_terminal_image_status_flags_stale_or_invalid_setup_without_contacting_provider(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store
