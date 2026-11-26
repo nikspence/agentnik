@@ -393,8 +393,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                         response = input("Approve once? [y/N] ").strip().lower()
                 else:
                     response = input("Approve once? [y/N] ").strip().lower()
-                approved = response == "y"
-                run.decide(event["fingerprint"], approved)
+                if run.decide(event["fingerprint"], response == "y") is False:
+                    write("This approval prompt is no longer active. Your answer was not applied.")
             elif kind in ("output", "finished"):
                 if event.get("text") and not (kind == "finished" and event.get("response_shown")):
                     write(terminal_text(event["text"]))
