@@ -55,11 +55,15 @@ def main():
 
     Thread(target=read, daemon=True).start()
     try:
-        expect("READY-0")
+        expect("READY-0\r\n")
+        seen = seen.split("READY-0\r\n", 1)[1]
+        expect("code> ")
         terminal.write("first line\nsecond line\r")
         draft = b"first line\nsecond line".hex()
         expect(f"SUBMITTED-0:{draft}:END")
-        expect("READY-1")
+        expect("READY-1\r\n")
+        seen = seen.split("READY-1\r\n", 1)[1]
+        expect("code> ")
         terminal.write("\x1b[A\r")
         expect(f"SUBMITTED-1:{draft}:END")
     finally:
