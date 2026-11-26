@@ -832,6 +832,56 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(options["search_provider"], "managed")
         self.assertEqual(options["web_backends"], [{"kind": "brave"}])
 
+    def test_terminal_reviews_real_local_git_commit_even_in_allow_all(self):
+        from unittest.mock import Mock
+        from dulwich import porcelain
+        from dulwich.repo import Repo
+        from agentnik import cli, core
+        from agentnik.storage import Store
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            note = root / "note.txt"
+            note.write_bytes(b"before\n")
+            author = b"Fixture <fixture@example.org>"
+            with porcelain.init(root) as repo:
+                porcelain.add(repo, [note.name])
+                parent = porcelain.commit(repo, message=b"Base", author=author, committer=author,
+                                          no_verify=True, sign=False)
+            note.write_bytes(b"reviewed\n")
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture", "stream": False})
+            finally:
+                store.db.close()
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+            composer = Mock()
+            composer.prompt.side_effect = ["/connection Fixture", "/permissions allow-all",
+                                           "/settings git-author set", "Commit the note", "/exit"]
+            proposal = call("git_commit", {"paths": '["note.txt"]', "message": "Save reviewed note"})
+            output = io.StringIO()
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("builtins.input", side_effect=["Terminal Author", "terminal@example.org", "y"]) as prompt, \
+                    patch.object(core, "open_request", side_effect=[
+                        Wire(chat(calls=[proposal], finish="tool_calls"), False),
+                        Wire(chat("Committed."), False),
+                    ]), contextlib.redirect_stdout(output):
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("Approve once?", prompt.call_args.args[0])
+            self.assertIn("diff: ", output.getvalue())
+            self.assertIn("+reviewed", output.getvalue())
+            with Repo(root) as repo:
+                commit = repo[repo.head()]
+                self.assertEqual(commit.parents, [parent], output.getvalue())
+                self.assertEqual(commit.author, b"Terminal Author <terminal@example.org>")
+                self.assertEqual(commit.message.strip(), b"Save reviewed note")
+
     def test_full_cli_turn_applies_reviewed_edit_and_resumes_without_replay(self):
         from importlib.util import find_spec
         from unittest.mock import Mock
