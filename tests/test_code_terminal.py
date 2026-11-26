@@ -2489,6 +2489,41 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_composer_session_lookup_is_read_only_and_project_scoped(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            project, other, data = base / "project", base / "other", base / "profile"
+            project.mkdir()
+            other.mkdir()
+            store = Store(data)
+            ident, other_ident = str(uuid4()), str(uuid4())
+            try:
+                CodeHistory(store, project).start("Fixture", {"model": "test"}, "Local task", ident)
+                CodeHistory(store, other).start("Fixture", {"model": "test"}, "Other task", other_ident)
+            finally:
+                store.db.close()
+
+            def create(*, transcript, message, session_ids):
+                self.assertEqual(session_ids(), (ident,))
+                composer = Mock()
+                composer.prompt.return_value = "/exit"
+                return composer
+
+            with patch("sys.argv", ["agentnik", "code", str(project), "--data-dir", str(data)]), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.storage.load_config", side_effect=AssertionError("no settings needed")), \
+                    patch("agentnik.code_composer.create_composer", side_effect=create) as composer, \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(), 0)
+            composer.assert_called_once()
+            request.assert_not_called()
+            self.assertFalse((data / "terminal-locks").exists())
+
     def test_unsaved_session_has_status_but_does_not_appear_in_saved_sessions(self):
         from unittest.mock import Mock
         from agentnik import cli, core
