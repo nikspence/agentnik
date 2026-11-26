@@ -575,21 +575,25 @@ def configure_code(store, arguments, root=None):
         if key not in fields:
             raise ValueError("Unknown limit. Use /settings to list limits.")
         values = validator(settings.get(setting))
+        default, low, high = fields[key]
+        allow_unlimited = section == "goal" or key in UNLIMITED_FIELDS
         if len(arguments) == 2:
-            default, low, high = fields[key]
-            allow_unlimited = section == "goal" or key in UNLIMITED_FIELDS
             return (f"{key}: {values[key] or 'unlimited'} (range {low}–{high}, "
                     f"default {default or 'unlimited'}"
                     + (", 0 means unlimited" if allow_unlimited else "") + ")")
         value = arguments[2]
         if value == "unlimited":
-            if section != "goal" and key not in UNLIMITED_FIELDS:
+            if not allow_unlimited:
                 raise ValueError(f"{key} cannot be unlimited. Use /settings to see its range.")
             value = "0"
         try:
-            values[key] = fields[key][0] if value == "default" else int(value)
+            selected = default if value == "default" else int(value)
         except ValueError:
             raise ValueError("Use a whole number or default.") from None
+        if not (low <= selected <= high or (allow_unlimited and selected == 0)):
+            suffix = ", or 0 for unlimited" if allow_unlimited and low > 0 else ""
+            raise ValueError(f"{key} must be between {low} and {high}{suffix}.")
+        values[key] = selected
         settings[setting] = validator(values)
     elif arguments in (["tls", "strict"], ["tls", "relaxed"]):
         settings["relaxed_tls"] = arguments[1] == "relaxed"

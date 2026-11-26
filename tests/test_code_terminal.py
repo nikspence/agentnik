@@ -268,6 +268,9 @@ class TerminalRunTests(unittest.TestCase):
                     flush.assert_not_called()
                 self.assertIn("requests: unlimited", configure_code(store, ["limits", "requests"]))
                 self.assertIn("default unlimited", configure_code(store, ["goal", "steps"]))
+                with self.assertRaisesRegex(ValueError, "between 1 and 256, or 0 for unlimited"):
+                    configure_code(store, ["limits", "requests", "257"])
+                self.assertIn("requests: unlimited", configure_code(store, ["limits", "requests"]))
                 with self.assertRaisesRegex(ValueError, "cannot be unlimited"):
                     configure_code(store, ["limits", "model_seconds", "unlimited"])
             finally:
@@ -881,6 +884,7 @@ class TerminalRunTests(unittest.TestCase):
                 ("/settings image s", "/settings image set"),
                 ("/settings appearance th", "/settings appearance theme"),
                 ("/settings goal steps u", "/settings goal steps unlimited"),
+                ("/settings limits requests d", "/settings limits requests default"),
                 ("/settings web access str", "/settings web access strict_public"),
             ):
                 with self.subTest(partial=partial):
