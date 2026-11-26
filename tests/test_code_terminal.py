@@ -150,6 +150,10 @@ class TerminalRunTests(unittest.TestCase):
             self.assertFalse(declined.exists())
             self.assertIn("Machine file creation declined by the user", json.dumps(bodies[2]["messages"]))
             self.assertIn("Permissions: require", output.getvalue())
+            self.assertIn("File edits in the current scope and ordinary shell commands normally skip approval",
+                          output.getvalue())
+            self.assertIn("structured Git changes, and subagent file transfers still require review",
+                          output.getvalue())
             self.assertIn("Scope: machine", output.getvalue())
             self.assertIn("machine_read_file", {t["function"]["name"] for t in bodies[0]["tools"]})
             self.assertNotIn("machine_read_file", {t["function"]["name"] for t in bodies[3]["tools"]})
@@ -1532,7 +1536,7 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("No saved history for this session.", output.getvalue())
             self.assertIn("Permissions: require", output.getvalue())
             self.assertEqual(approval.call_count, 2, output.getvalue())
-            self.assertIn("MCP requests and shell commands that need separate review still prompt.", output.getvalue())
+            self.assertIn("Shell commands that need separate review still prompt.", output.getvalue())
             self.assertEqual((root / "note.txt").read_text(), "reviewed\n")
             self.assertEqual((root / "auto.txt").read_text(), "automatic\n")
             self.assertEqual(preserved.read_text(), "Keep me")
