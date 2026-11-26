@@ -3643,6 +3643,48 @@ class TerminalRunTests(unittest.TestCase):
         self.assertIn("[y/N/r]", prompt.call_args_list[0].args[0])
         self.assertEqual(prompt.call_args_list[1].args[0], "Approve once? [y/N] ")
 
+    def test_terminal_mcp_run_approval_is_scoped_and_expires_in_the_engine(self):
+        from unittest.mock import Mock
+        from agentnik import core
+        from agentnik.code_agent import CodingRun
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        def bridge(name):
+            item = Mock()
+            item.server = {"name": name, "command": "fixture", "args": [], "enabled": True}
+            item.review_required = True
+            item.request.side_effect = [{"tool_details": []}, {"resources": []}]
+            return item
+
+        connection = {"url": "https://fixture.invalid/v1", "model": "fixture", "stream": False}
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            first, second = bridge("First"), bridge("Second")
+            first_run = CodingRun(connection, root, "Inspect the fixture.", mcp_bridges=[first, second])
+            fresh_run = CodingRun(connection, root, "Inspect again.", mcp_bridges=[first, second])
+            turns = [
+                Wire(chat(calls=[call("mcp_discover", {"server": "First"}),
+                                 call("mcp_discover", {"server": "Second"}, ident="second")],
+                          finish="tool_calls"), False),
+                Wire(chat(calls=[call("mcp_list_resources", {"server": "First"})],
+                          finish="tool_calls"), False),
+                Wire(chat("Done."), False),
+                Wire(chat(calls=[call("mcp_discover", {"server": "First"})], finish="tool_calls"), False),
+                Wire(chat("Done again."), False),
+            ]
+            lines = []
+            with patch.object(core, "open_request", side_effect=turns), \
+                    patch("builtins.input", side_effect=["r", "n", "n"]) as prompt:
+                self.assertEqual(drive_run(first_run, write=lines.append)["status"], "completed")
+                self.assertEqual(first_run.mcp_run_allowed, set())
+                self.assertEqual(drive_run(fresh_run, write=lines.append)["status"], "completed")
+            self.assertEqual(prompt.call_count, 3)
+            self.assertEqual([item.args[0] for item in first.request.call_args_list], ["discover", "resources_list"])
+            second.request.assert_not_called()
+            self.assertIn("MCP server allowed for this run: First", "\n".join(lines))
+
     def test_terminal_steering_declines_pending_edit_and_reaches_the_next_request(self):
         from agentnik import core
         from agentnik.code_agent import CodingRun
