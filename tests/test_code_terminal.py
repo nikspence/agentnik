@@ -1501,25 +1501,31 @@ class TerminalRunTests(unittest.TestCase):
             data = root / "profile"
             store = Store(data)
             try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
                 with patch("builtins.input", side_effect=["Fixture Server", "https://example.org/mcp"]):
                     configure_code(store, ["mcp", "add-https"])
                 configure_code(store, ["mcp", "enable", "Fixture Server"])
             finally:
                 store.db.close()
             composer = Mock()
-            composer.prompt.side_effect = ["/mcp use Fixture Server", "/settings mcp timeout 42 Fixture Server",
-                                           "/mcp", "/mcp use Fixture Server", "/mcp", "/exit"]
+            composer.prompt.side_effect = ["/connection Fixture", "/mcp use Fixture Server",
+                                           "/settings mcp timeout 42 Fixture Server",
+                                           "Try a stale selection", "/mcp", "/mcp use Fixture Server", "/mcp", "/exit"]
             with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(data)]), \
                     patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
-                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                    patch.object(core, "open_request") as request, \
+                    patch("agentnik.mcp_terminal_http.TerminalHTTPMCPBridge") as bridge, \
+                    contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as errors:
                 self.assertEqual(cli.main(), 0)
             selected = [line for line in out.getvalue().splitlines() if line.startswith("Selected 1:")]
             self.assertEqual(selected, [
                 "Selected 1: Fixture Server [changed or unavailable; reselect or remove]",
                 "Selected 1: Fixture Server",
             ])
+            self.assertIn("A selected MCP server changed or is unavailable.", errors.getvalue())
             request.assert_not_called()
+            bridge.assert_not_called()
 
     def test_mcp_settings_keep_significant_spaces_in_profile_names(self):
         from agentnik.cli import terminal_settings_arguments
