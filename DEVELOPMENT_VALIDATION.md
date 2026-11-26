@@ -49,7 +49,7 @@ Unit tests mock endpoints and do not issue live requests. Separately check nativ
 
 ## Dedicated Windows build environment
 
-`tools/build_release.py` targets Windows x64 onedir ZIPs. It plans by default and never tags, pushes, publishes, signs, or replaces an existing build directory/archive. The label identifies a development artifact; it does not change the package version. A release needs an explicitly selected version synchronized across metadata, notes and tag.
+`tools/build_release.py` targets Windows x64 onedir ZIPs. New builds include the windowed `Agentnik.exe` and a separate console launcher that shares the same `_internal` directory. From a project terminal, run `& "C:\path\to\Agentnik\Agentnik-Terminal.exe" code`. The original v0.13.0 ZIP predates the console launcher. The builder plans by default and never tags, pushes, publishes, signs, or replaces an existing build directory/archive. The label identifies a development artifact; it does not change the package version. A release needs an explicitly selected version synchronized across metadata, notes and tag.
 
 ```powershell
 python -m venv .venv-build
@@ -66,9 +66,11 @@ Packaging also checks that each compiled `.qm` translation catalog in the source
 
 Packaging also requires the native `regex` module used for time-limited Code searches and the Tree-sitter core, JavaScript, TypeScript, Go, Rust, C#, and Java grammar modules used for code outlines. Their versions are pinned in the build environment; release assembly checks that all native modules are present.
 
-`--smoke` uses `tools/frozen_smoke.py` (Windows API calls through Python, without changing PowerShell execution policy) to wait for the real process-owned Qt window and temporary SQLite database, request a graceful close and require exit code 0. This is a startup smoke check on the build host, not clean-machine, full native workflow, credential-store, TLS/provider, or macOS/Linux validation. It does not issue inference; normal startup may perform read-only local endpoint discovery.
+`--smoke` uses `tools/frozen_smoke.py` (Windows API calls through Python, without changing PowerShell execution policy) to wait for the real process-owned Qt window and temporary SQLite database, request a graceful close and require exit code 0. It also runs the frozen console launcher with `code --list-sessions` from a temporary project and checks its JSON output. These are startup smoke checks on the build host, not clean-machine, full native workflow, credential-store, TLS/provider, or macOS/Linux validation. They do not issue inference; normal desktop startup may perform read-only local endpoint discovery.
 
 Top-level build versions are pinned to the tested Windows environment. Transitive versions are recorded in each manifest rather than fully locked. Collected notices are not a completed license audit of every bundled library; that audit and per-platform signing/distribution requirements remain release gates.
+
+Use Python 3.11 for the dual-launcher build. On the tested Python 3.15 build, the frozen console could list sessions but failed when the interactive composer initialized its executor. In a Windows test environment with `pywinpty`, verify interactive input separately with `python tools/conpty_composer_smoke.py --exe PATH_TO_AGENTNIK_TERMINAL_EXE`.
 
 
 ## Native terminal keyboard check

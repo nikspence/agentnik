@@ -1,10 +1,12 @@
 """Exercise the Windows composer through ConPTY. Requires optional pywinpty."""
 
+import argparse
 from pathlib import Path
 from queue import Empty, Queue
 import sys
 from threading import Thread
 from time import monotonic, sleep
+from tempfile import TemporaryDirectory
 
 
 CHILD = """
@@ -80,6 +82,9 @@ print("SCOPE-INPUT-RESTORED", flush=True)
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--exe", type=Path, help="Check the frozen console executable instead of the installed Python package")
+    args = parser.parse_args()
     if sys.platform != "win32":
         raise SystemExit("This smoke test requires Windows ConPTY.")
     try:
@@ -88,7 +93,14 @@ def main():
         raise SystemExit("Install pywinpty in the smoke-test environment first.") from None
 
     session_id = "abcd1234-0000-4000-a000-123456789abc"
-    terminal = PtyProcess.spawn([sys.executable, "-u", "-c", CHILD, session_id], cwd=str(Path.cwd()), backend=Backend.ConPTY)
+    if args.exe:
+        executable = args.exe.resolve(strict=True)
+        project = TemporaryDirectory(prefix="agentnik-frozen-keys-")
+        command = [str(executable), "code", "--check-keys"]
+    else:
+        project = None
+        command = [sys.executable, "-u", "-c", CHILD, session_id]
+    terminal = PtyProcess.spawn(command, cwd=project.name if project else str(Path.cwd()), backend=Backend.ConPTY)
     output = Queue()
     seen = ""
 
@@ -117,6 +129,18 @@ def main():
 
     Thread(target=read, daemon=True).start()
     try:
+        if project:
+            expect("keys>")
+            sleep(0.15)
+            terminal.write("first")
+            sleep(0.15)
+            terminal.write("\n")
+            sleep(0.15)
+            terminal.write("second\r")
+            expect("Enter submitted 2 line(s). No model request was sent.")
+            assert not any(Path(project.name).iterdir()), "The keyboard check created files"
+            print("Frozen Windows console accepted a two-line draft outside the checkout.")
+            return
         expect("CANCEL-READY\r\n")
         seen = seen.split("CANCEL-READY\r\n", 1)[1]
         expect("code>")
@@ -180,6 +204,8 @@ def main():
         expect("SCOPE-INPUT-RESTORED")
     finally:
         terminal.close()
+        if project:
+            project.cleanup()
     print("ConPTY verified composer keys, session ID completion, draft recovery, and F6 run cancellation with restored scope prompt input.")
 
 

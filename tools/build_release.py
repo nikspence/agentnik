@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -20,6 +21,9 @@ from tools.live_compat import revision
 from tools.frozen_smoke import smoke
 
 PINNED={'PyYAML':'6.0.3','PySide6':'6.12.0','keyring':'25.7.0','dulwich':'0.25.2','regex':'2026.9.29','tree-sitter':'0.26.1','tree-sitter-javascript':'0.25.0','tree-sitter-typescript':'0.23.2','tree-sitter-go':'0.25.0','tree-sitter-rust':'0.24.2','tree-sitter-c-sharp':'0.23.5','tree-sitter-java':'0.23.5','pyinstaller':'6.22.3','pyinstaller-hooks-contrib':'2026.9'}
+
+
+PINNED.update({'prompt-toolkit':'3.0.53','Pillow':'13.0.0','pypdf':'7.2.0'})
 
 
 def clean_environment():
@@ -36,7 +40,7 @@ def clean_environment():
 
 def package_bundle(bundle, archive, metadata):
     """Package only the explicit onedir tree; validate archive integrity/contents."""
-    required=['Agentnik.exe','LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','DISCLAIMER.md','BUILD-MANIFEST.json','THIRD_PARTY_LICENSES']
+    required=['Agentnik.exe','Agentnik-Terminal.exe','LICENSE','README.md','VALIDATION.md','RELEASE_NOTES.md','DISCLAIMER.md','BUILD-MANIFEST.json','THIRD_PARTY_LICENSES']
     for name in required:
         if not (bundle/name).exists(): raise ValueError('Missing bundle component: '+name)
     if archive.exists() or archive.with_suffix(archive.suffix+'.sha256').exists(): raise ValueError('Archive/checksum already exists')
@@ -129,7 +133,14 @@ def main(argv=None):
                   'smoke':'not run','clean_machine_validation':'not performed'}
         if args.smoke:
             smoke(bundle/'Agentnik.exe')
-            manifest['smoke']='Qt window, isolated SQLite and graceful exit passed'
+            with tempfile.TemporaryDirectory(prefix='agentnik-frozen-terminal-') as directory:
+                output=subprocess.run(
+                    [str(bundle/'Agentnik-Terminal.exe'),'code','--data-dir',str(Path(directory)/'data'),'--list-sessions'],
+                    cwd=directory,check=True,capture_output=True,text=True,timeout=30,
+                )
+                if json.loads(output.stdout)!=[]:
+                    raise ValueError('Frozen terminal did not return an empty session list')
+            manifest['smoke']='Qt window, isolated SQLite, graceful exit and frozen terminal session listing passed'
         (bundle/'BUILD-MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
         archive=run/('Agentnik-'+args.label+'-windows-x64.zip')
         digest=package_bundle(bundle,archive,manifest)

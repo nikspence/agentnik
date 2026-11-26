@@ -40,8 +40,18 @@ exe = EXE(
     entitlements_file=None,
     icon=['agentnik/assets/agentnik-icon.ico'],
 )
+terminal_exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='Agentnik-Terminal',
+    console=True,
+    icon=['agentnik/assets/agentnik-icon.ico'],
+)
 coll = COLLECT(
     exe,
+    terminal_exe,
     a.binaries,
     a.datas,
     strip=False,

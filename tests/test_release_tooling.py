@@ -32,7 +32,7 @@ class ReleaseTooling(unittest.TestCase):
 
     def bundle(self,root):
         bundle=Path(root)/'Agentnik';bundle.mkdir()
-        for name in ('Agentnik.exe','LICENSE','README.md','DISCLAIMER.md','VALIDATION.md','RELEASE_NOTES.md'): (bundle/name).write_text('fixture')
+        for name in ('Agentnik.exe','Agentnik-Terminal.exe','LICENSE','README.md','DISCLAIMER.md','VALIDATION.md','RELEASE_NOTES.md'): (bundle/name).write_text('fixture')
         (bundle/'BUILD-MANIFEST.json').write_text('{}');(bundle/'THIRD_PARTY_LICENSES').mkdir()
         assets=bundle/'_internal'/'agentnik'/'assets';assets.mkdir(parents=True)
         for item in (build_release.ROOT/'agentnik'/'assets').iterdir():
@@ -53,6 +53,7 @@ class ReleaseTooling(unittest.TestCase):
             self.assertIn(digest,archive.with_suffix('.zip.sha256').read_text())
             with zipfile.ZipFile(archive) as z:
                 self.assertIsNone(z.testzip());self.assertIn('Agentnik/LICENSE',z.namelist())
+                self.assertIn('Agentnik/Agentnik-Terminal.exe',z.namelist())
                 self.assertEqual(z.read('Agentnik/_internal/agentnik/translations/agentnik_ko.qm'),(build_release.ROOT/'agentnik'/'translations'/'agentnik_ko.qm').read_bytes())
             original=archive.read_bytes()
             with self.assertRaises(ValueError):build_release.package_bundle(bundle,archive,{})
