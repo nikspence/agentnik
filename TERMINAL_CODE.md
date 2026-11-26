@@ -79,7 +79,7 @@ Run `/skills` to find installed skills. A user-installed skill at `~/.agents/ski
 | `/web on` | Enable research for this session. Manage access policy, routing priority, and provider credentials under `/settings web`. |
 | `/settings chat-limits` / `/settings web desktop on\|off` | Manage desktop Chat research limits and the default desktop Web switch. |
 | `/settings image set` / `/settings image on` | Configure and enable generation or editing of PNG, JPEG, and WebP assets. Pillow handles raster files when Qt is absent. |
-| `/vision on` | Let the selected vision-capable model inspect supported project images. |
+| `/vision` / `/vision on` | Check the current session's inspection setting or let the selected vision-capable model inspect supported project images. Generation is configured separately. |
 | `/thinking on` | Show thinking returned by the provider, when available. |
 | `/settings decision set` / `/settings decision on` | Configure optional System One advice. At a shell approval prompt, press `a` to review and send the proposal for advice. You still approve or decline the command. |
 | `/settings git-author set` / `/settings git-author clear` | Set or clear this project's Agentnik Git author override without changing Git configuration files. |

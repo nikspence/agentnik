@@ -238,7 +238,7 @@ def terminal_session(options, root, lease, images):
                   "/attach PATH      Include a project image or document in the next task\n"
                   "/attachments      List queued files; remove NUMBER or clear\n"
                   "/web on|off       Enable or disable web research for this session\n"
-                  "/vision on|off    Allow the coding model to inspect project images\n"
+                  "/vision [on|off]  Show or change model image inspection for this session\n"
                   "/thinking on|off  Show model-provided thinking when available\n"
                   "/skills           List, preview or select project and user skills\n"
                   "/mcp              List or select MCP servers for this session\n"
@@ -407,6 +407,9 @@ def terminal_session(options, root, lease, images):
             show_thinking = command.endswith(" on")
             print("Model-provided thinking will be shown when available." if show_thinking
                   else "Model-provided thinking hidden.")
+        elif command == "/vision":
+            print(f"Image inspection is {'on' if vision_enabled else 'off'} for this session.")
+            print("Use /vision on|off for the coding model. Use /settings image for the separate generation tool.")
         elif command in ("/vision on", "/vision off"):
             if command == "/vision on":
                 from importlib.util import find_spec

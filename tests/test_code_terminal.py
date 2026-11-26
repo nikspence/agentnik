@@ -863,7 +863,7 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
             composer = Mock()
             composer.prompt.side_effect = ["/connection Fixture", "/settings image set", "/settings image on",
-                                           "/vision on", "Generate and inspect a slide.", "/exit"]
+                                           "/vision", "/vision on", "/vision", "Generate and inspect a slide.", "/exit"]
             generate = call("image_gen", {"prompt": "Blue slide", "path": "slide.png", "reference_paths": "[]",
                                           "aspect_ratio": "16:9", "background": "opaque"})
             inspect = call("view_image", {"path": "slide.png"}, ident="call-2")
@@ -889,6 +889,8 @@ class TerminalRunTests(unittest.TestCase):
                     patch.object(core, "open_request", side_effect=send) as model_api, contextlib.redirect_stdout(out):
                 self.assertEqual(cli.main(), 0)
             image_api.assert_called_once()
+            self.assertIn("Image inspection is off for this session.", out.getvalue())
+            self.assertIn("Image inspection is on for this session.", out.getvalue())
             self.assertIn("Approve once?", approval.call_args.args[0])
             self.assertIn("Approval sends the prompt and any listed reference images", out.getvalue())
             self.assertLess(out.getvalue().index("Approval sends the prompt"),
