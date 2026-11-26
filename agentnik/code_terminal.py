@@ -36,7 +36,7 @@ def load_run_settings(data_dir, name, model):
         store.db.close()
 
 
-def drive_run(run):
+def drive_run(run, write=print):
     events = Queue()
     done = object()
 
@@ -60,24 +60,24 @@ def drive_run(run):
                 continue
             if event is done:
                 if partial_line:
-                    print()
+                    write()
                 return
             kind = event["kind"]
             if kind == "model_delta":
                 key = event["stream_id"]
                 streamed[key] = streamed.get(key, "") + event["text"]
-                print(terminal_text(event["text"]), end="", flush=True)
+                write(terminal_text(event["text"]), end="", flush=True)
                 partial_line = True
                 continue
             if kind == "model_response":
                 prefix = streamed.pop(event.get("stream_id"), "")
                 response = event.get("text", "")
                 if partial_line and prefix and response.startswith(prefix):
-                    print(terminal_text(response[len(prefix):]))
+                    write(terminal_text(response[len(prefix):]))
                     partial_line = False
                     continue
             if partial_line:
-                print()
+                write()
                 partial_line = False
             if kind in ("edit_proposal", "operation_proposal"):
                 proposal = event["proposal"]
@@ -86,21 +86,21 @@ def drive_run(run):
                 elif proposal.get("operation") == "run_shell":
                     fields = ("cwd", "shell", "command", "max_seconds")
                 else:
-                    print("This operation cannot be reviewed in the terminal preview. Rejected.")
+                    write("This operation cannot be reviewed in the terminal preview. Rejected.")
                     run.decide(event["fingerprint"], False)
                     continue
                 for field in fields:
-                    print(f"{field}: {terminal_text(proposal[field])}")
+                    write(f"{field}: {terminal_text(proposal[field])}")
                 approved = input("Approve once? [y/N] ").strip().lower() == "y"
                 run.decide(event["fingerprint"], approved)
             elif kind in ("output", "model_response", "finished"):
                 if event.get("text") and not (kind == "finished" and event.get("response_shown")):
-                    print(terminal_text(event["text"]))
+                    write(terminal_text(event["text"]))
                 if kind == "finished" and event.get("usage"):
-                    print(terminal_text(event["usage"]))
+                    write(terminal_text(event["usage"]))
     except (KeyboardInterrupt, EOFError):
         run.stop()
-        print("\nStopping Code run…")
+        write("\nStopping Code run…")
     finally:
         run.stop()
         thread.join()

@@ -1,6 +1,7 @@
 """Dispatch desktop and terminal entry points without importing Qt for Code."""
 
 import argparse
+from collections import deque
 from getpass import GetPassWarning, getpass
 from pathlib import Path
 import sys
@@ -74,8 +75,14 @@ def main():
     print("Select a connection with /connection NAME, then enter a task. Type /help.")
     from .code_composer import create_composer
 
+    transcript = deque(maxlen=2048)
+
+    def write_activity(text="", *, end="\n", flush=False):
+        transcript.append(text + end)
+        print(text, end=end, flush=flush)
+
     try:
-        composer = create_composer()
+        composer = create_composer(transcript=lambda: "".join(transcript))
     except ModuleNotFoundError as exc:
         if exc.name != "prompt_toolkit":
             raise
@@ -83,6 +90,7 @@ def main():
         print("Install agentnik[terminal] for multiline editing and prompt recall.")
     else:
         print("Enter adds a line. Alt+Enter submits. Use Up/Down to recall input and Tab for commands.")
+        print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
     while True:
         try:
@@ -128,7 +136,10 @@ def main():
             except (OSError, ValueError) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 continue
-            drive_run(run)
+            transcript.append("Task: " + terminal_text(
+                command.replace(connection.get("api_key") or "\0", "[redacted]")
+            ) + "\n")
+            drive_run(run, write_activity)
 
 
 if __name__ == "__main__":
