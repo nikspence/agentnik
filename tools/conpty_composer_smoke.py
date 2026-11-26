@@ -8,6 +8,7 @@ from time import monotonic, sleep
 
 
 CHILD = """
+import sys
 from agentnik.code_composer import create_composer
 import agentnik.code_composer as impl
 original_pager = impl.transcript_pager
@@ -23,7 +24,8 @@ def observe_pager(*args, **kwargs):
     pager.after_render += rendered
     return pager
 impl.transcript_pager = observe_pager
-composer = create_composer(transcript=lambda: chr(10).join(f"Transcript row {i:03}" for i in range(100)))
+composer = create_composer(transcript=lambda: chr(10).join(f"Transcript row {i:03}" for i in range(100)),
+                           session_ids=lambda: (sys.argv[1],))
 print("CANCEL-READY", flush=True)
 try:
     composer.prompt()
@@ -31,9 +33,12 @@ except KeyboardInterrupt:
     print("DRAFT-CANCELLED", flush=True)
 else:
     raise AssertionError("Ctrl+C did not cancel the draft")
-for index in range(4):
+for index in range(5):
     changes = []
-    observe = lambda buffer: changes.append(buffer.text)
+    def observe(buffer):
+        changes.append(buffer.text)
+        if index == 4 and buffer.text == "/resume " + sys.argv[1]:
+            print("SESSION-ID-COMPLETED", flush=True)
     composer.default_buffer.on_text_changed += observe
     print(f"READY-{index}", flush=True)
     try:
@@ -59,7 +64,8 @@ def main():
     except ImportError:
         raise SystemExit("Install pywinpty in the smoke-test environment first.") from None
 
-    terminal = PtyProcess.spawn([sys.executable, "-u", "-c", CHILD], cwd=str(Path.cwd()), backend=Backend.ConPTY)
+    session_id = "abcd1234-0000-4000-a000-123456789abc"
+    terminal = PtyProcess.spawn([sys.executable, "-u", "-c", CHILD, session_id], cwd=str(Path.cwd()), backend=Backend.ConPTY)
     output = Queue()
     seen = ""
 
@@ -130,9 +136,17 @@ def main():
         sleep(0.25)
         terminal.write("\r")
         expect(f"SUBMITTED-3:{b'draft kept across scrollback'.hex()}:END")
+        expect("READY-4\r\n")
+        seen = seen.split("READY-4\r\n", 1)[1]
+        expect("code>")
+        terminal.write("/resume abcd\t")
+        expect("SESSION-ID-COMPLETED")
+        terminal.write("\r")
+        completed = ("/resume " + session_id).encode().hex()
+        expect(f"SUBMITTED-4:{completed}:END")
     finally:
         terminal.close()
-    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Esc-LF modified Enter, Enter, Up/Down history, and draft recovery after transcript scrollback.")
+    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Esc-LF modified Enter, Enter, Up/Down history, draft recovery after transcript scrollback, and session ID completion.")
 
 
 if __name__ == "__main__":
