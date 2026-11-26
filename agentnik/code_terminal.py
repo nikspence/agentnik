@@ -322,7 +322,7 @@ def remember_terminal_subagent_rejection(data_dir, name, connection):
 
 
 def drive_run(run, write=print, advice=None, checkpoint=None):
-    from .code_agent import MCP_APPROVAL_OPERATIONS
+    from .code_agent import LOCAL_GIT_APPROVAL_OPERATIONS, MCP_APPROVAL_OPERATIONS
     from .code_worker import STEERING_OUTCOMES, start_code_worker
 
     events = Queue()
@@ -458,11 +458,15 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                         write(f"{label}: {terminal_text(proposal[field])}")
                 write("Type /steer MESSAGE to redirect the run instead of deciding this proposal.")
                 mcp_scope = proposal.get("operation") in MCP_APPROVAL_OPERATIONS
+                git_scope = proposal.get("operation") in LOCAL_GIT_APPROVAL_OPERATIONS
                 approval_prompt = "Approve once? [y/N] "
                 if mcp_scope:
                     server = terminal_text(repr(proposal.get("server", "")))
                     write(f"Choose r to allow later operations on {server} for this run, including writes and data access.")
                     approval_prompt = "Approve once or allow this server for the run? [y/N/r] "
+                elif git_scope:
+                    write("Choose g to allow later local Git changes in this repository for this run. This does not allow a push or fetch.")
+                    approval_prompt = "Approve once? [y/N/g for local Git for this run] "
                 if advice and proposal.get("operation") == "run_shell":
                     response = input("Approve once? [y/N/a for System One advice] ").strip()
                     if response.lower() == "a":
@@ -492,9 +496,9 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 if response is None:
                     continue
                 answer = response.lower()
-                allow_server = mcp_scope and answer == "r"
-                if worker.decide(event["fingerprint"], answer == "y" or allow_server,
-                                 "mcp_server_run" if allow_server else "once") is False:
+                scope = ("mcp_server_run" if mcp_scope and answer == "r" else
+                         "local_git_run" if git_scope and answer == "g" else "once")
+                if worker.decide(event["fingerprint"], answer == "y" or scope != "once", scope) is False:
                     write("This approval prompt is no longer active. Your answer was not applied.")
             elif kind in STEERING_OUTCOMES:
                 record_steering(event)

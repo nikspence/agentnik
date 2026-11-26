@@ -578,6 +578,7 @@ class ProjectFiles:
         else:self.observed[str(path)]=hashlib.sha256(proposal['content'].encode()).hexdigest()
 
 
+LOCAL_GIT_APPROVAL_OPERATIONS=frozenset(('git_commit','git_stage','git_unstage','git_create_branch','git_commit_staged'))
 MCP_APPROVAL_OPERATIONS=frozenset(('mcp_start','mcp_connect','mcp_call','mcp_call_remote','mcp_list_resources','mcp_read_resource','mcp_list_resource_templates','mcp_read_resource_template','mcp_list_prompts','mcp_get_prompt','mcp_complete_argument'))
 
 
@@ -641,7 +642,7 @@ class CodingRun:
         self.limits=coding_limits(limits);self.plan=None
         self.unsupported_subagent_roles=set(unsupported_subagent_roles or ())
         if self.unsupported_subagent_roles-{'model'}:raise ValueError('Invalid subagent capability roles')
-        self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self._git_credentials=None;self.denied=set();self.mcp_run_allowed=set();self.child_cancellations={};self.cancelled_subagent_tasks=set()
+        self.cancel=threading.Event();self.decision=threading.Event();self.lock=threading.Lock();self.pending=None;self.answer=None;self._git_credentials=None;self.denied=set();self.mcp_run_allowed=set();self.local_git_run_allowed=False;self.child_cancellations={};self.cancelled_subagent_tasks=set()
         self.shell_without_approval=False;self.shell_automatic_last=False;self.answer_steered=False
         self.steering=[];self.steering_inflight=[];self.steering_confirmed=[];self.steering_submitted=False;self.accepting_steering=True
         self.usage={role:self._empty_usage() for role in ('Model','Subagent')}
@@ -678,7 +679,7 @@ class CodingRun:
 
     def stop(self):
         with self.lock:
-            self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
+            self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.local_git_run_allowed=False;self.decision.set()
             undelivered=scrub(self.steering,self.known_run_secrets());self.steering.clear()
             inflight=self.steering_inflight[:];self.steering_inflight.clear()
             delivered=self.steering_confirmed[:];self.steering_confirmed.clear()
@@ -701,6 +702,7 @@ class CodingRun:
             if self.cancel.is_set() or not self.accepting_steering or len(self.steering)>=32:return False
             if approval_fingerprint is not None and not self._approval_pending(approval_fingerprint):return False
             self.steering.append(message.strip())
+            self.local_git_run_allowed=False
             if self.pending:
                 proposal=self.pending[1];self.answer=False;self.answer_steered=True;self._git_credentials=None
                 if proposal.get('operation') in MCP_APPROVAL_OPERATIONS:self.mcp_run_allowed.discard(proposal.get('server'))
@@ -737,9 +739,9 @@ class CodingRun:
 
     def decide(self,fingerprint,approved,scope='once',git_credentials=None):
         with self.lock:
-            if not self._approval_pending(fingerprint) or type(approved) is not bool or scope not in ('once','mcp_server_run'):return False
+            if not self._approval_pending(fingerprint) or type(approved) is not bool or scope not in ('once','mcp_server_run','local_git_run'):return False
             if git_credentials is not None:
-                if not approved or self.pending[1].get('operation') not in ('git_fetch_connect','git_push_connect') or not isinstance(git_credentials,tuple) or len(git_credentials)!=2:return False
+                if scope!='once' or not approved or self.pending[1].get('operation') not in ('git_fetch_connect','git_push_connect') or not isinstance(git_credentials,tuple) or len(git_credentials)!=2:return False
                 username,token=git_credentials
                 if not isinstance(username,str) or not isinstance(token,str) or not 1<=len(username)<=256 or not 1<=len(token)<=4096 or ':' in username or any(not 33<=ord(ch)<=126 for ch in username+token):return False
                 self._git_credentials=git_credentials
@@ -747,6 +749,9 @@ class CodingRun:
                 proposal=self.pending[1]
                 if not approved or proposal.get('operation') not in MCP_APPROVAL_OPERATIONS or proposal.get('server') not in {bridge.server['name'] for bridge in self.mcp_bridges}:return False
                 self.mcp_run_allowed.add(proposal['server'])
+            if scope=='local_git_run':
+                if not approved or self.pending[1].get('operation') not in LOCAL_GIT_APPROVAL_OPERATIONS:return False
+                self.local_git_run_allowed=True
             self.answer=approved;self.decision.set();return True
 
     def take_git_credentials(self):
@@ -758,11 +763,16 @@ class CodingRun:
         if fingerprint in self.denied:return False
         with self.lock:
             if self.steering:return False
-            automatic=(kind=='operation_proposal' and proposal.get('operation') in MCP_APPROVAL_OPERATIONS and proposal.get('server') in self.mcp_run_allowed)
+            operation=proposal.get('operation')
+            automatic_mcp=(kind=='operation_proposal' and operation in MCP_APPROVAL_OPERATIONS and proposal.get('server') in self.mcp_run_allowed)
+            automatic_git=(kind=='operation_proposal' and operation in LOCAL_GIT_APPROVAL_OPERATIONS and self.local_git_run_allowed)
+            automatic=automatic_mcp or automatic_git
             if not automatic:self.pending=(fingerprint,proposal);self.answer=None;self.answer_steered=False;self.decision.clear()
         if automatic:
             runtime.check()
-            emit({'kind':'output','text':'MCP server allowed for this run: '+proposal['server']+' · '+proposal['operation']+(' · '+proposal['tool'] if proposal.get('tool') else '')})
+            text=('Local Git allowed for this run: '+operation if automatic_git else
+                  'MCP server allowed for this run: '+proposal['server']+' · '+operation+(' · '+proposal['tool'] if proposal.get('tool') else ''))
+            emit({'kind':'output','text':text})
             return True
         emit({'kind':kind,'fingerprint':fingerprint,'proposal':proposal})
         try:
@@ -2221,4 +2231,4 @@ class CodingRun:
         finally:
             for bridge in self.mcp_bridges:bridge.close_from_worker()
             runtime.closed=True
-            with self.lock:self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear()
+            with self.lock:self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.local_git_run_allowed=False

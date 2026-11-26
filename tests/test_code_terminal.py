@@ -2532,6 +2532,50 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(commit.author, b"Terminal Author <terminal@example.org>")
                 self.assertEqual(commit.message.strip(), b"Save reviewed note")
 
+    def test_terminal_local_git_grant_covers_next_commit_but_expires(self):
+        from dulwich import porcelain
+        from dulwich.repo import Repo
+        from agentnik import core
+        from agentnik.code_agent import CodingRun
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            note = root / "note.txt"
+            note.write_bytes(b"before\n")
+            identity = b"Fixture <fixture@example.invalid>"
+            with porcelain.init(root) as repo:
+                porcelain.add(repo, ["note.txt"])
+                parent = porcelain.commit(repo, message=b"Base", author=identity, committer=identity,
+                                          no_verify=True, sign=False)
+            note.write_bytes(b"after\n")
+            connection = {"url": "https://fixture.invalid/v1", "model": "fixture", "stream": False}
+            author = {"name": "Fixture", "email": "fixture@example.invalid"}
+            run = CodingRun(connection, root, "Commit the staged changes.", git_author=author)
+            next_run = CodingRun(connection, root, "Create another branch.", git_author=author)
+            turns = [
+                Wire(chat(calls=[call("git_stage", {"paths": '["note.txt"]'})], finish="tool_calls"), False),
+                Wire(chat(calls=[call("git_commit_staged", {"paths": '["note.txt"]', "message": "Update note"}, ident="commit")],
+                          finish="tool_calls"), False),
+                Wire(chat("Committed."), False),
+                Wire(chat(calls=[call("git_create_branch", {"name": "reviewed-branch"})], finish="tool_calls"), False),
+                Wire(chat("Branch declined."), False),
+            ]
+            lines = []
+            with patch.object(core, "open_request", side_effect=turns), \
+                    patch("builtins.input", side_effect=["g", "n"]) as prompt:
+                self.assertEqual(drive_run(run, write=lines.append)["status"], "completed")
+                self.assertFalse(run.local_git_run_allowed)
+                self.assertEqual(drive_run(next_run, write=lines.append)["status"], "completed")
+            self.assertEqual(prompt.call_count, 2)
+            self.assertIn("Local Git allowed for this run: git_commit_staged", "\n".join(lines))
+            with Repo(root) as repo:
+                self.assertEqual(repo[repo.head()].parents, [parent])
+                self.assertEqual(repo[repo.head()].message.strip(), b"Update note")
+                self.assertNotIn(b"refs/heads/reviewed-branch", repo.refs)
+
     def test_full_cli_turn_applies_reviewed_edit_and_resumes_without_replay(self):
         from importlib.util import find_spec
         from unittest.mock import Mock

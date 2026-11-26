@@ -165,7 +165,7 @@ To continue a goal recorded in machine scope, reselect `/scope machine` before r
 
 To change scope during a running task, press Ctrl+C to return to the prompt, check for changes that already took effect, then set the scope and submit a new task. Scope changes do not alter a request already sent to the model or undo an applied edit.
 
-Structured local Git operations such as staging, creating a branch, and committing always require review. The terminal shows the branch or files, diff, and commit identity and message where applicable. Structured remote Git operations are not available in this preview.
+Structured local Git operations such as staging, creating a branch, and committing require an initial review, even in `allow-all`. At a local Git approval prompt, choose `g` to allow later structured local Git changes in this repository for the current run. This does not allow fetch or push, and the grant expires on steering or when the run ends. The terminal shows the branch or files, diff, and commit identity and message where applicable. Structured remote Git operations are not available in this preview.
 
 When a subagent needs a project file, the terminal shows the destination model and endpoint, the task, and the text snapshot or image summary. Each transfer needs explicit approval, even in `allow-all` mode.
 
