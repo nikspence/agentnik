@@ -3583,6 +3583,30 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(result["status"], "limited")
         self.assertIn("This approval prompt is no longer active. Your answer was not applied.", lines)
 
+    def test_terminal_does_not_send_advice_or_reprompt_if_approval_expires_at_consent(self):
+        from unittest.mock import Mock
+        from agentnik import decision_advice
+
+        run = Mock()
+        run.approval_pending.side_effect = [True, True, False, False]
+        proposal = {"operation": "run_shell", "cwd": "fixture", "command": "echo fixture",
+                    "shell": "fixture-shell", "environment_keys": []}
+
+        def work(emit):
+            emit({"kind": "operation_proposal", "fingerprint": "fixture", "proposal": proposal})
+            emit({"kind": "finished", "status": "limited"})
+
+        run.run.side_effect = work
+        lines = []
+        advice = {"url": "https://example.invalid/v1", "model": "fixture"}
+        with patch.object(decision_advice, "request") as request, \
+                patch("builtins.input", side_effect=["a", "y"]) as prompt:
+            drive_run(run, write=lines.append, advice=advice)
+        request.assert_not_called()
+        run.decide.assert_not_called()
+        self.assertEqual(prompt.call_count, 2)
+        self.assertIn("Skipped an approval prompt that is no longer active.", lines)
+
     def test_skips_approval_that_expired_before_display(self):
         from unittest.mock import Mock
 

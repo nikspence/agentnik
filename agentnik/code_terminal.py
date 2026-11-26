@@ -271,7 +271,7 @@ def run_settings_summary(connection, options, *, vision, image_count, document_c
     )
 
 
-def show_shell_advice(connection, proposal, cancel, write):
+def show_shell_advice(connection, proposal, cancel, write, *, is_pending=None):
     from . import core, decision_advice
 
     fields = [str(proposal.get(key, "")) for key in ("command", "cwd", "shell", "environment_keys")]
@@ -287,6 +287,8 @@ def show_shell_advice(connection, proposal, cancel, write):
     write("Advice sends the command, directory, shell, and environment variable names to "
           + terminal_text(destination) + ".")
     if input("Send this proposal for advice? [y/N] ").strip().lower() != "y":
+        return
+    if is_pending is not None and not is_pending():
         return
     try:
         result = decision_advice.parse_advice(decision_advice.request(connection, proposal, cancel))
@@ -447,7 +449,14 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 if advice and proposal.get("operation") == "run_shell":
                     response = input("Approve once? [y/N/a for System One advice] ").strip().lower()
                     if response == "a":
-                        show_shell_advice(advice, proposal, run.cancel, write)
+                        def still_pending():
+                            return approval_event_is_live(run, event)
+
+                        if still_pending():
+                            show_shell_advice(advice, proposal, run.cancel, write, is_pending=still_pending)
+                        if not still_pending():
+                            write("Skipped an approval prompt that is no longer active.")
+                            continue
                         response = input("Approve once? [y/N] ").strip().lower()
                 else:
                     response = input("Approve once? [y/N] ").strip().lower()
