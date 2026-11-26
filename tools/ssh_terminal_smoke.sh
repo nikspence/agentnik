@@ -26,11 +26,13 @@ from importlib.util import find_spec
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 import pexpect
 
 assert find_spec("PySide6") is None
 requests = []
+waiting = Event()
+release = Event()
 project = Path("/home/agentnik-smoke/project")
 
 
@@ -38,6 +40,10 @@ class Fixture(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         requests.append((self.path, self.headers.get("Authorization"), body))
+        if len(requests) == 3:
+            waiting.set()
+            release.wait(timeout=15)
+            return
         message = {"role": "assistant", "content": "SSH fixture completed the edit."}
         finish = "stop"
         if len(requests) == 1:
@@ -60,7 +66,7 @@ server = ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
 Thread(target=server.serve_forever, daemon=True).start()
 args = ["-tt", "-p", "2222", "-i", "/tmp/agentnik-smoke-key", "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=accept-new", "agentnik-smoke@127.0.0.1",
-        "cd project && TERM=xterm /opt/agentnik-smoke/bin/agentnik code --data-dir ../test-data"]
+        "cd project && export TERM=xterm && exec /opt/agentnik-smoke/bin/agentnik code --data-dir ../test-data"]
 with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.expect_exact("code>")
     session.send("/connections add SSH Fixture\r")
@@ -123,10 +129,25 @@ assert any(item.get("role") == "tool" and item.get("tool_call_id") == "fixture-e
 with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding="utf-8", timeout=12) as session:
     session.expect_exact("SSH fixture completed the edit.")
     session.expect_exact("code>")
+    assert len(requests) == 2, "Resuming sent an unexpected request"
+    session.send("Wait for a response that will be cancelled.\r")
+    assert waiting.wait(timeout=8), "The fixture did not receive the cancellation test request"
+    session.sendcontrol("c")
+    session.expect_exact("Cancelled locally.")
+    session.expect_exact("code>")
+    release.set()
     session.send("/exit\r")
     session.expect(pexpect.EOF)
     session.close()
     assert session.exitstatus == 0, session.exitstatus
-assert len(requests) == 2, "Resuming sent an unexpected request"
-print("Qt-free preview passed SSH connection setup, reviewed edit, and resume without replay.")
+with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding="utf-8", timeout=12) as session:
+    session.expect_exact("Cancelled locally.")
+    session.expect_exact("code>")
+    session.send("/exit\r")
+    session.expect(pexpect.EOF)
+    session.close()
+    assert session.exitstatus == 0, session.exitstatus
+assert len(requests) == 3, "Reopening the cancelled session sent an unexpected request"
+assert (project / "note.txt").read_bytes() == b"reviewed\n"
+print("Qt-free preview passed SSH connection setup, reviewed edit, cancellation, and resume without replay.")
 PY
