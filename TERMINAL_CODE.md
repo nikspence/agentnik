@@ -83,7 +83,7 @@ Use `/connections` for saved endpoints and credentials, `/connection` and `/mode
 
 Use `/connections add` for a new connection, `/connections copy NAME` to start from saved settings, or `/connections import PATH` to bring in settings from a desktop or terminal JSON export. Use `/connections export PATH` to write saved settings to a new file. Copies, imports, and exports do not include API keys. Use `/connections key NAME` to set credentials.
 
-`/goal OBJECTIVE` starts an ongoing goal. Use `/goal` with no argument to see the most recent saved objective and outcome in this session without sending a request. To continue a stopped goal, use `/continue` and review the saved objective before starting a fresh run. The model receives saved evidence and is directed to inspect current state before acting.
+`/goal OBJECTIVE` starts an ongoing goal. Use `/goal` with no argument to see the most recent saved objective and outcome in this session without sending a request. To continue a stopped goal, use `/continue` and review the saved objective, connection, model, file scope, and approval mode before starting a fresh run. The model receives saved evidence and is directed to inspect current state before acting.
 
 ## Generate and inspect project images
 

@@ -877,8 +877,9 @@ def terminal_session(options, root, lease, images):
                 )
                 if continuing:
                     target_model = connection.get("model", "")
+                    approval_mode = "require" if require_approval else "allow-all"
                     print(terminal_text(f"Continue using connection {connection_name!r}, model {target_model!r}, "
-                                        f"in {saved_scope} scope."))
+                                        f"in {saved_scope} scope with permissions {approval_mode}."))
                     print(terminal_text(resume["task"]))
                     print(terminal_text(resume["evidence"]))
                     try:

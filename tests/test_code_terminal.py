@@ -151,7 +151,7 @@ class TerminalRunTests(unittest.TestCase):
 
             composer = Mock()
             composer.prompt.side_effect = ["/sessions", "/continue", "/scope machine", "/connection Other",
-                                           "/continue", "/connection Fixture", "/continue", "/exit"]
+                                           "/continue", "/connection Fixture", "/permissions allow-all", "/continue", "/exit"]
             argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", session]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
@@ -164,7 +164,7 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn(f"{session}  completed [current] [goal: cancelled]", output.getvalue())
             self.assertIn("Review machine logs", output.getvalue())
             self.assertIn("That goal used connection 'Fixture'.", output.getvalue())
-            self.assertIn("Continue using connection 'Fixture', model 'fixture', in machine scope.",
+            self.assertIn("Continue using connection 'Fixture', model 'fixture', in machine scope with permissions allow-all.",
                           output.getvalue())
             confirmation.assert_called_once_with("Continue this goal with fresh limits? [y/N] ")
             request.assert_not_called()
