@@ -36,6 +36,17 @@ Use `/sessions 2`, `/sessions 3`, and so on to find older sessions. Listing a pa
 
 Two terminals can work in the same project using separate sessions. If another terminal already has a session open, trying to resume it leaves your current session and prompt history intact.
 
+## Testing over SSH
+
+Connect with a terminal attached. If you launch Agentnik as part of the SSH command, use `ssh -t HOST` so the remote process gets a terminal. For a clean preview test, use a disposable project folder and a separate Agentnik data directory with `agentnik code --data-dir PATH`.
+
+1. Confirm that `/status` shows the directory you launched from. Add or select a connection and choose a model as above. If the machine has no keyring, use an environment connection or explicitly choose the local plaintext fallback for a saved model credential.
+2. Ask for a small new file with known contents. In `require` mode, inspect the proposed edit, then approve it and verify the file on disk.
+3. Start another task and press Ctrl+C while it is running. Check the project for already-applied changes before continuing.
+4. Note the session ID from `/status`, exit, and reconnect. Run `agentnik code --data-dir PATH --resume ID` from the same project. Confirm the ID and that reopening does not send a request.
+
+The [validation notes](VALIDATION.md) distinguish what was tested over OpenSSH from the separate live model checks.
+
 `/goal OBJECTIVE` starts an ongoing goal. To continue a stopped goal, use `/continue` and review the saved objective before starting a fresh run. The model receives saved evidence and is directed to inspect current state before acting.
 
 ## Settings and tools
