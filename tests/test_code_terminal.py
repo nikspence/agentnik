@@ -1460,7 +1460,8 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
             composer = Mock()
             composer.prompt.side_effect = ["/connection Fixture", "/settings image set", "/settings image on",
-                                           "/vision", "/vision on", "/vision", "Generate and inspect a slide.", "/exit"]
+                                           "/vision", "/vision on", "/vision", "Generate and inspect a slide.",
+                                           "/vision off", "Continue without image inspection.", "/exit"]
             generate = call("image_gen", {"prompt": "Blue slide", "path": "slide.png", "reference_paths": "[]",
                                           "aspect_ratio": "16:9", "background": "opaque"})
             inspect = call("view_image", {"path": "slide.png"}, ident="call-2")
@@ -1470,6 +1471,8 @@ class TerminalRunTests(unittest.TestCase):
                 Wire(chat(calls=[generate], finish="tool_calls"), False),
                 Wire(chat(calls=[inspect], finish="tool_calls"), False),
                 Wire(chat("Review complete."), False),
+                Wire(chat(calls=[inspect], finish="tool_calls"), False),
+                Wire(chat("Image inspection is unavailable."), False),
             ])
             requests = []
 
@@ -1492,15 +1495,19 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Approval sends the prompt and any listed reference images", out.getvalue())
             self.assertLess(out.getvalue().index("Approval sends the prompt"),
                             out.getvalue().index("Generating image with the configured image model"))
-            self.assertEqual(model_api.call_count, 3, out.getvalue())
+            self.assertEqual(model_api.call_count, 5, out.getvalue())
             encoded = base64.b64encode((root / "slide.png").read_bytes()).decode()
             self.assertNotIn(encoded, requests[1])
             self.assertIn("data:image/png;base64," + encoded, requests[2])
+            tools = json.loads(requests[3])["tools"]
+            self.assertNotIn("view_image", {tool["function"]["name"] for tool in tools})
+            self.assertIn("Unknown or unavailable tool", requests[4])
+            self.assertTrue(all(encoded not in request for request in requests[3:]))
             from agentnik.code_history import CodeHistory
 
             store = Store(data)
             try:
-                saved = CodeHistory(store, root).list()[0]["code_activity"]
+                saved = [event for record in CodeHistory(store, root).list() for event in record["code_activity"]]
                 self.assertIn({"kind": "project_change", "text": "Generated image: slide.png"}, saved)
                 self.assertNotIn(encoded, json.dumps(saved))
             finally:
