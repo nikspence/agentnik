@@ -1719,6 +1719,8 @@ class TerminalRunTests(unittest.TestCase):
             base = Path(directory).resolve()
             root, data = base / "project", base / "data"
             root.mkdir()
+            bad_data = b"not a valid slide render"
+            (root / "broken.png").write_bytes(bad_data)
             slide = root / "render.png"
             Image.new("RGB", (160, 90), "blue").save(slide)
             encoded = base64.b64encode(slide.read_bytes()).decode()
@@ -1733,10 +1735,12 @@ class TerminalRunTests(unittest.TestCase):
             composer.prompt.side_effect = ["/connection Fixture", "/vision on", "Review the rendered slide.", "/exit"]
             if protocol == "responses":
                 call = dict(function_call("inspect", '{"path":"render.png"}'), name="view_image")
-                proposal, answer = response([call]), response([message("Slide reviewed.")])
+                invalid = dict(function_call("invalid", '{"path":"broken.png"}'), name="view_image")
+                proposal, answer = response([invalid, call]), response([message("Slide reviewed.")])
             else:
                 call = {"type": "tool_use", "id": "inspect", "name": "view_image", "input": {"path": "render.png"}}
-                proposal, answer = msg([call], "tool_use"), msg([{"type": "text", "text": "Slide reviewed."}])
+                invalid = dict(call, id="invalid", input={"path": "broken.png"})
+                proposal, answer = msg([invalid, call], "tool_use"), msg([{"type": "text", "text": "Slide reviewed."}])
             replies = iter([Wire(proposal, False), Wire(answer, False)])
             bodies = []
             def send(connection, endpoint, body, timeout):
@@ -1751,7 +1755,11 @@ class TerminalRunTests(unittest.TestCase):
             initial, continuation = bodies
             self.assertNotIn(encoded, json.dumps(initial))
             self.assertIn("view_image", {tool.get("name") for tool in initial["tools"]})
+            self.assertNotIn(base64.b64encode(bad_data).decode(), json.dumps(continuation))
             if protocol == "responses":
+                failure = next(item["output"] for item in continuation["input"]
+                               if item.get("type") == "function_call_output" and item.get("call_id") == "invalid")
+                self.assertIn("valid PNG, JPEG, and WebP", failure)
                 self.assertTrue(any(item.get("type") == "function_call_output" and item.get("call_id") == "inspect"
                                     for item in continuation["input"]))
                 self.assertEqual([block["image_url"] for item in continuation["input"]
@@ -1760,6 +1768,9 @@ class TerminalRunTests(unittest.TestCase):
             else:
                 blocks = [block for item in continuation["messages"] if item.get("role") == "user"
                           and isinstance(item.get("content"), list) for block in item["content"]]
+                failure = next(block for block in blocks if block.get("type") == "tool_result"
+                               and block.get("tool_use_id") == "invalid")
+                self.assertIn("valid PNG, JPEG, and WebP", str(failure["content"]))
                 result_index = next(index for index, block in enumerate(blocks)
                                     if block.get("type") == "tool_result" and block.get("tool_use_id") == "inspect")
                 image_index, = [index for index, block in enumerate(blocks) if block.get("type") == "image"]
