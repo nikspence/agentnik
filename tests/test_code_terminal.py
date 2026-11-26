@@ -702,6 +702,21 @@ class TerminalRunTests(unittest.TestCase):
                     timer.join()
                     assert actual == expected, repr(actual)
 
+            with create_pipe_input() as pipe:
+                composer = create_composer(input=pipe, output=DummyOutput())
+                brief = "Slide brief\n- Main point\n- Supporting facts"
+                observed = []
+
+                def on_draft_changed(buffer):
+                    if buffer.text == brief:
+                        observed.append(buffer.text)
+                        pipe.send_text("\r")
+
+                composer.default_buffer.on_text_changed += on_draft_changed
+                pipe.send_text("\x1b[200~" + brief.replace("\n", "\r\n") + "\x1b[201~")
+                assert composer.prompt() == brief
+                assert observed == [brief]
+
             transcript = "\n".join(f"line {i}" for i in range(100))
             with create_pipe_input() as pipe:
                 from contextlib import asynccontextmanager
