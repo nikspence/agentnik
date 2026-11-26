@@ -2376,6 +2376,7 @@ class TerminalRunTests(unittest.TestCase):
         import json
         from agentnik import cli, core
         from agentnik.code_history import CodeHistory
+        from agentnik.code_lease import SessionLease
         from agentnik.storage import Store
 
         with TemporaryDirectory() as directory:
@@ -2403,8 +2404,12 @@ class TerminalRunTests(unittest.TestCase):
                 history.start("Fixture", {"model": "test"}, "Private fixture prompt", ident, goal=True)
                 CodeHistory(store, other).start("Fixture", {"model": "test"}, "Other project", str(uuid4()))
                 (data / "attachments").rmdir()
-                with patch("agentnik.storage.load_config", side_effect=AssertionError("configuration not needed")):
-                    listed = discover()
+                with SessionLease(data) as owner:
+                    owner.select(ident)
+                    with patch("agentnik.storage.load_config", side_effect=AssertionError("configuration not needed")), \
+                            patch.object(SessionLease, "select", side_effect=AssertionError("listing must not lease")):
+                        listed = discover()
+                    self.assertEqual(owner.session_id, ident)
                 self.assertFalse((data / "attachments").exists())
                 self.assertEqual(listed, [{"id": ident, "status": "running", "scope": "project",
                                                "goal_status": "active"}])
