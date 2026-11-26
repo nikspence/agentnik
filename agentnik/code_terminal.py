@@ -224,6 +224,26 @@ def show_shell_advice(connection, proposal, cancel, write):
     write(f"System One advice: {result['category'].upper()}{suffix}. You still decide.")
 
 
+def remember_terminal_subagent_rejection(data_dir, name, connection):
+    """Persist an observed rejection only for the unchanged saved connection."""
+    from .storage import Store
+    from .subagent_capabilities import remember, unsupported
+
+    store = Store(data_dir)
+    try:
+        saved = store.config["connections"].get(name)
+        scope = connection.get("_capability_scope")
+        if not saved or not scope or saved.get("_capability_scope") != scope:
+            return
+        if any(saved.get(key) != connection.get(key) for key in ("url", "protocol", "reasoning", "stream", "context_limit")):
+            return
+        if not unsupported(store.config, connection):
+            remember(store.config, connection)
+            store.flush()
+    finally:
+        store.db.close()
+
+
 def drive_run(run, write=print, advice=None, checkpoint=None):
     events = Queue()
     done = object()
@@ -265,11 +285,11 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 except (OSError, ValueError, sqlite3.Error):
                     write("Could not save goal progress. The active run will continue.")
                     checkpoint = None
-            if checkpoint and kind in ("project_change", "image_generated"):
+            if checkpoint and kind in ("project_change", "image_generated", "subagent_tools_unsupported"):
                 try:
                     checkpoint(event)
                 except (OSError, ValueError, sqlite3.Error):
-                    write("Could not save project activity. The active run will continue.")
+                    write("Could not save run activity. The active run will continue.")
             if kind == "finished":
                 result = event
             if kind == "model_delta":

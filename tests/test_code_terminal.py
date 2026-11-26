@@ -1380,18 +1380,20 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("positive whole page number", second)
 
     def test_terminal_honors_saved_model_scoped_subagent_capability(self):
-        from agentnik.code_terminal import load_run_settings
+        from agentnik.code_terminal import load_run_settings, remember_terminal_subagent_rejection
         from agentnik.storage import Store
-        from agentnik.subagent_capabilities import remember
 
         with TemporaryDirectory() as directory:
             store = Store(directory)
             try:
                 store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
-                remember(store.config, store.connections()["Fixture"])
-                store.flush()
+                connection = load_run_settings(directory, "Fixture", "")[0]
+                remember_terminal_subagent_rejection(directory, "Fixture", connection)
                 self.assertEqual(load_run_settings(directory, "Fixture", "")[3]["unsupported_subagent_roles"], {"model"})
                 self.assertNotIn("unsupported_subagent_roles", load_run_settings(directory, "Fixture", "other")[3])
+                store.update_connection_settings("Fixture", dict(connection, model="replacement"))
+                remember_terminal_subagent_rejection(directory, "Fixture", connection)
+                self.assertNotIn("unsupported_subagent_roles", load_run_settings(directory, "Fixture", "fixture")[3])
             finally:
                 store.db.close()
 

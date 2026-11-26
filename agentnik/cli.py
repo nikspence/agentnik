@@ -690,7 +690,7 @@ def terminal_session(options, root, lease, images):
                 continue
             from .code_agent import CodingRun
             from .code_history import CodeHistory, Store, goal_continuation
-            from .code_terminal import drive_run, load_run_settings, terminal_text
+            from .code_terminal import drive_run, load_run_settings, remember_terminal_subagent_rejection, terminal_text
 
             continuing = command == "/continue"
             goal = continuing or command.startswith("/goal ")
@@ -752,9 +752,15 @@ def terminal_session(options, root, lease, images):
                     )
                     transcript.append("Task: " + terminal_text(task) + "\n")
                     documents.clear()
+                    def checkpoint(event):
+                        if event["kind"] == "subagent_tools_unsupported":
+                            if event.get("role") == "model":
+                                remember_terminal_subagent_rejection(options.data_dir, connection_name, connection)
+                        else:
+                            history.checkpoint(record, event)
+
                     try:
-                        result = drive_run(run, write_activity, advice=advice,
-                                           checkpoint=lambda event: history.checkpoint(record, event))
+                        result = drive_run(run, write_activity, advice=advice, checkpoint=checkpoint)
                     finally:
                         images.clear()
                     history.finish(record, task, result)
