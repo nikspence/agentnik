@@ -371,6 +371,18 @@ def terminal_session(options, root, lease, images):
     session_id = str(uuid4())
     rejected_draft = draft_to_edit = ""
 
+    def current_run_settings():
+        from .code_terminal import load_run_settings
+
+        if not connection_name:
+            raise ValueError("Select a connection with /connection NAME first.")
+        if images.paths() and not vision_enabled:
+            raise ValueError("Enable /vision on or clear the queued image attachments first.")
+        return load_run_settings(
+            options.data_dir, connection_name, model, web_enabled, discovered=discovered,
+            mcp_selection=mcp_selection, root=root, memory_enabled=memory_enabled,
+        )
+
     def reset_session_state():
         nonlocal context, use_context, last_goal_turn, web_enabled, vision_enabled, memory_enabled
         nonlocal mcp_selection, show_thinking, skill_pins, require_approval, machine_scope, composer
@@ -432,6 +444,7 @@ def terminal_session(options, root, lease, images):
             print("/keys             Show keyboard shortcuts\n"
                   "/transcript       Open the current session transcript\n"
                   "/status           Show the current session, project, model and permissions\n"
+                  "/check            Validate local run settings without contacting the model\n"
                   "/diff --staged   Preview staged changes without native Git\n"
                   "/diff [--staged] PATH  Review a file against HEAD\n"
                   "/git              Run manual Git status, log, diff, stage, unstage, commit, or push\n"
@@ -604,6 +617,16 @@ def terminal_session(options, root, lease, images):
                 print(terminal_text(exc), file=sys.stderr)
             except KeyError:
                 print("Git diff unavailable. The repository may not have an initial commit.", file=sys.stderr)
+        elif command == "/check":
+            from .code_terminal import terminal_text
+
+            try:
+                current_run_settings()
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                print(terminal_text(exc), file=sys.stderr)
+            else:
+                print("Local run settings passed. No model request was sent. "
+                      "This does not verify credentials or provider capabilities.")
         elif command == "/status":
             print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
                   f" · Model: {model or '(connection default)'!r} · Web: {'on' if web_enabled else 'off'}"
@@ -982,7 +1005,7 @@ def terminal_session(options, root, lease, images):
                 continue
             from .code_agent import CodingRun
             from .code_history import CodeHistory, Store, prepare_goal_continuation
-            from .code_terminal import drive_run, load_run_settings, remember_terminal_subagent_rejection, terminal_text
+            from .code_terminal import drive_run, remember_terminal_subagent_rejection, terminal_text
 
             continuing = command == "/continue"
             goal = continuing or command.startswith("/goal ")
@@ -1007,12 +1030,7 @@ def terminal_session(options, root, lease, images):
             elif command.startswith("//"):
                 command = command[1:]
             try:
-                if images.paths() and not vision_enabled:
-                    raise ValueError("Enable /vision on or clear the queued image attachments first.")
-                connection, limits, goal_budget, research_options, advice = load_run_settings(
-                    options.data_dir, connection_name, model, web_enabled,
-                    discovered=discovered, mcp_selection=mcp_selection, root=root, memory_enabled=memory_enabled,
-                )
+                connection, limits, goal_budget, research_options, advice = current_run_settings()
                 if continuing:
                     target_model = connection.get("model", "")
                     approval_mode = "require" if require_approval else "allow-all"

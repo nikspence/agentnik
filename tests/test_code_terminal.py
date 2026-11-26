@@ -2682,6 +2682,39 @@ class TerminalRunTests(unittest.TestCase):
                 finally:
                     store.db.close()
 
+    def test_terminal_check_validates_settings_without_sending_or_saving_a_turn(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "data"
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://fixture.invalid/v1", "protocol": "chat"})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = [
+                "/check", "/connection Fixture", "/check", "/model mock-model", "/check", "/exit",
+            ]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out, \
+                    contextlib.redirect_stderr(io.StringIO()) as errors:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("Select a connection", errors.getvalue())
+            self.assertIn("No model selected", errors.getvalue())
+            self.assertIn("Local run settings passed.", out.getvalue())
+            request.assert_not_called()
+            store = Store.open_history(data)
+            try:
+                self.assertEqual(store.list_sessions(), [])
+            finally:
+                store.db.close()
+
     def test_terminal_can_edit_an_unsent_draft_after_startup_validation_fails(self):
         from unittest.mock import Mock
         from agentnik import cli, core
