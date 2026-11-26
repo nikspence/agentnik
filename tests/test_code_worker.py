@@ -2,7 +2,7 @@
 
 import unittest
 
-from agentnik.code_worker import start_code_worker
+from agentnik.code_worker import approval_event_is_live, start_code_worker
 
 
 class CodeWorkerTests(unittest.TestCase):
@@ -21,6 +21,18 @@ class CodeWorkerTests(unittest.TestCase):
         thread.join(timeout=2)
         self.assertFalse(thread.is_alive())
         return events
+
+    def test_client_checks_a_queued_approval_against_the_current_run(self):
+        from unittest.mock import Mock
+
+        run = Mock()
+        event = {"kind": "edit_proposal", "fingerprint": "fixture"}
+        run.approval_pending.side_effect = [True, False]
+        self.assertTrue(approval_event_is_live(run, event))
+        self.assertFalse(approval_event_is_live(run, event))
+        self.assertTrue(approval_event_is_live(object(), event))
+        self.assertEqual([call.args for call in run.approval_pending.call_args_list],
+                         [("fixture",), ("fixture",)])
 
     def test_first_terminal_result_wins_and_is_last_event(self):
         output = {"kind": "output", "text": "Working"}

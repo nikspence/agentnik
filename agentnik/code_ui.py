@@ -1530,7 +1530,11 @@ class CodeTab(QWidget):
             if saved is not None and not saved.get('_capability_scope') and current.get('_capability_scope'):saved['_capability_scope']=current['_capability_scope']
             from .subagent_capabilities import remember
             remember(self.store.config,self.subagent_capability_connection(widget_role,current));self.store.flush();return
-        if kind in ('edit_proposal','operation_proposal'):self.approve_mcp_run.hide()
+        if kind in ('edit_proposal','operation_proposal'):
+            from .code_worker import approval_event_is_live
+
+            if not approval_event_is_live(self.job,event):return
+            self.approve_mcp_run.hide()
         if kind=='subagent':
             try:
                 value=validate_record(event.get('subagent'));value['text']=plain(value['text'])[:1600]

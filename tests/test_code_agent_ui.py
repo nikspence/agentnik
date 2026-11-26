@@ -160,8 +160,13 @@ class CodingWorkspace(unittest.TestCase):
                 run=CodingRun(dict(C,stream=False),str(project),'task');tab.job=run;tab.run_id=run.run_id
                 proposal={'operation':'run_shell','cwd':str(project),'path':'.','command':'echo test','shell':'shell','environment_keys':[],'max_seconds':10,'max_output_bytes':100}
                 tab.composer.setPlainText('Change direction');tab.send_steering()
-                tab.receive({'run_id':run.run_id,'kind':'operation_proposal','fingerprint':'pending','proposal':proposal});self.assertEqual(tab.pending_fingerprint,'pending')
-                tab.receive({'run_id':run.run_id,'kind':'approval_invalidated','fingerprint':'pending'});self.assertIsNone(tab.pending_fingerprint);self.assertTrue(tab.approval_panel.isHidden())
+                event={'run_id':run.run_id,'kind':'operation_proposal','fingerprint':'pending','proposal':proposal}
+                run.pending=('pending',proposal)
+                tab.receive(event);self.assertEqual(tab.pending_fingerprint,'pending')
+                run.pending=None
+                tab.receive({'run_id':run.run_id,'kind':'approval_invalidated','fingerprint':'pending'})
+                tab.receive(event)
+                self.assertIsNone(tab.pending_fingerprint);self.assertTrue(tab.approval_panel.isHidden())
             finally:
                 tab.job=None
                 with patch('agentnik.ui.confirm',return_value=True):window.close()
@@ -1214,7 +1219,9 @@ class CodingWorkspace(unittest.TestCase):
                 tab=window.tabs.currentWidget();window.stats();self.assertIn('Ready',window.statusBar().currentMessage())
                 from agentnik.code_agent import CodingRun
                 run=CodingRun({'model':'test'},str(project),'task');tab.job=run;tab.run_id=run.run_id
-                tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':{'cwd':str(project),'path':'file.py','diff':'+change'}})
+                proposal={'cwd':str(project),'path':'file.py','diff':'+change'}
+                run.pending=('one',proposal)
+                tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':proposal})
                 self.assertTrue(tab.approve.isEnabled());window.stats();self.assertIn('Running',window.statusBar().currentMessage())
                 with patch('agentnik.ui.confirm',return_value=False) as confirm:
                     event=QCloseEvent();window.closeEvent(event);self.assertFalse(event.isAccepted());confirm.assert_called_once()

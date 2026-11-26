@@ -319,7 +319,7 @@ def remember_terminal_subagent_rejection(data_dir, name, connection):
 
 
 def drive_run(run, write=print, advice=None, checkpoint=None):
-    from .code_worker import start_code_worker
+    from .code_worker import approval_event_is_live, start_code_worker
 
     events = Queue()
     done = object()
@@ -392,8 +392,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 write()
                 partial_line = False
             if kind in ("edit_proposal", "operation_proposal"):
-                approval_pending = getattr(run, "approval_pending", None)
-                if approval_pending is not None and approval_pending(event["fingerprint"]) is False:
+                if not approval_event_is_live(run, event):
                     write("Skipped an approval prompt that is no longer active.")
                     continue
                 proposal = event["proposal"]

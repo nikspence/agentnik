@@ -3,6 +3,12 @@
 from threading import Thread
 
 
+def approval_event_is_live(run, event):
+    """Check a queued proposal immediately before a client renders it."""
+    check = getattr(run, "approval_pending", None)
+    return check is None or check(event["fingerprint"]) is not False
+
+
 def start_code_worker(run, emit, *, interruption_text, finished=None, daemon=False):
     """Deliver events in order, ending with one result before notifying completion."""
     def work():
