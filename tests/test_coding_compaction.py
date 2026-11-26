@@ -44,6 +44,9 @@ class CodingCompactionTests(unittest.TestCase):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
             configure_code(store,['desktop-code','auto-compact','off'])
             configure_code(store,['desktop-code','thinking','on'])
+            self.assertIn('image inspection default: off',configure_code(store,['desktop-code','vision']))
+            configure_code(store,['desktop-code','vision','on'])
+            self.assertIn('image inspection default: on',configure_code(store,['desktop-code']))
             self.assertIn('model thinking display default: on',configure_code(store,['desktop-code']))
             self.assertIn('auto-compaction default: off',configure_code(store,['desktop-code']))
             store.db.close()
@@ -54,12 +57,15 @@ class CodingCompactionTests(unittest.TestCase):
                 store.save(first);window.open_session(first)
                 self.assertFalse(window.tabs.currentWidget().coding_auto_compact.isChecked())
                 self.assertTrue(window.tabs.currentWidget().show_thinking.isChecked())
+                self.assertTrue(window.tabs.currentWidget().vision_enabled.isChecked())
                 second=window.repositories.session(ident)
                 second['coding_auto_compact']=True
                 second['coding_show_thinking']=False
+                second['coding_vision_enabled']=False
                 store.save(second);window.open_session(second)
                 self.assertTrue(window.tabs.currentWidget().coding_auto_compact.isChecked())
                 self.assertFalse(window.tabs.currentWidget().show_thinking.isChecked())
+                self.assertFalse(window.tabs.currentWidget().vision_enabled.isChecked())
             finally:
                 window.close();self.app.processEvents();store.db.close()
 

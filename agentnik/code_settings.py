@@ -574,8 +574,9 @@ def configure_code(store, arguments, root=None):
         defaults = {
             "auto-compact": ("desktop_code_auto_compact", True, "auto-compaction"),
             "thinking": ("desktop_code_show_thinking", False, "model thinking display"),
+            "vision": ("desktop_code_vision_enabled", False, "image inspection"),
         }
-        usage = "Use /settings desktop-code auto-compact|thinking on|off."
+        usage = "Use /settings desktop-code auto-compact|thinking|vision on|off."
         if arguments == ["desktop-code"]:
             lines = [
                 f"Desktop Code {label} default: {'on' if settings.get(key, default) is True else 'off'}."
