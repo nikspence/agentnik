@@ -199,6 +199,69 @@ class ReadableText(HTMLParser):
             else: self.parts.append(data)
 
 
+class MarkdownText(HTMLParser):
+    """Render bounded HTML already downloaded by PublicTransport as readable Markdown."""
+    ignored={'script','style','noscript','template','svg','nav','footer','header'}
+    def __init__(self,base):
+        super().__init__(convert_charrefs=True)
+        self.base=base;self.parts=[];self.main=[];self.in_main=0;self.hidden=[]
+        self.title=[];self.in_title=False;self.links=[];self.pre=0;self.lists=[]
+
+    def emit(self,text):
+        self.parts.append(text)
+        if self.in_main:self.main.append(text)
+
+    def handle_starttag(self,tag,attrs):
+        if self.hidden:
+            if tag in self.ignored:self.hidden.append(tag)
+            return
+        if tag in self.ignored:self.hidden.append(tag);return
+        if tag=='title':self.in_title=True;return
+        if tag in ('main','article'):self.in_main+=1
+        if tag in ('p','div','section','main','article','blockquote'):self.emit('\n\n')
+        elif tag in ('h1','h2','h3','h4','h5','h6'):self.emit('\n\n'+'#'*int(tag[1])+' ')
+        elif tag=='br':self.emit('\n')
+        elif tag in ('ul','ol'):self.lists.append(tag);self.emit('\n')
+        elif tag=='li':self.emit('\n'+'  '*max(0,len(self.lists)-1)+('1. ' if self.lists and self.lists[-1]=='ol' else '- '))
+        elif tag=='pre':self.pre+=1;self.emit('\n\n```\n')
+        elif tag=='code' and not self.pre:self.emit('`')
+        elif tag=='tr':self.emit('\n| ')
+        elif tag in ('td','th'):self.emit(' | ')
+        elif tag=='a':
+            href=dict(attrs).get('href','')
+            try:target=public_url(urljoin(self.base,href)) if href else ''
+            except (TypeError,ValueError):target=''
+            self.links.append(target)
+            if target:self.emit('[')
+
+    def handle_startendtag(self,tag,attrs):
+        self.handle_starttag(tag,attrs)
+        if tag not in ('br','img','hr','meta','link','input'):self.handle_endtag(tag)
+
+    def handle_endtag(self,tag):
+        if self.hidden:
+            if tag==self.hidden[-1]:self.hidden.pop()
+            return
+        if tag=='title':self.in_title=False;return
+        if tag=='a' and self.links:
+            target=self.links.pop()
+            if target:self.emit(']('+target.replace(')','%29')+')')
+        elif tag=='pre' and self.pre:self.pre-=1;self.emit('\n```\n')
+        elif tag=='code' and not self.pre:self.emit('`')
+        elif tag in ('ul','ol') and self.lists:self.lists.pop();self.emit('\n')
+        elif tag in ('p','div','section','blockquote','h1','h2','h3','h4','h5','h6'):self.emit('\n\n')
+        if tag in ('main','article') and self.in_main:self.in_main-=1
+
+    def handle_data(self,data):
+        if self.hidden:return
+        if self.in_title:self.title.append(data)
+        else:self.emit(data if self.pre else re.sub(r'\s+',' ',data))
+
+    def result(self):
+        selected=''.join(self.main).strip() or ''.join(self.parts)
+        return re.sub(r'\n{3,}','\n\n',selected).strip()
+
+
 class PageLinks(HTMLParser):
     """Collect a bounded set of same-host documentation links, without fetching them."""
     def __init__(self,base):
@@ -249,12 +312,12 @@ class PublicWeb:
         if filter_page(payload):raise FilteredPageError('Direct page response is a network web-filter block page')
         text=payload.decode('utf-8','replace');title=final;links=[]
         if ctype in ('text/html','application/xhtml+xml'):
-            parser=ReadableText();parser.feed(text)
+            parser=MarkdownText(final);parser.feed(text)
             if self.include_links:
                 link_parser=PageLinks(final);link_parser.feed(text);links=link_parser.links
-            text=''.join(parser.parts);title=''.join(parser.title).strip() or final
+            text=parser.result();title=''.join(parser.title).strip() or final
         text=re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]','',text)
-        text=re.sub(r'[ \t]+',' ',text);text=re.sub(r'\n\s*\n','\n\n',text).strip()
+        text=re.sub(r'\n[ \t]*\n','\n\n',text).strip()
         text,truncated=excerpt(text,32000)
         truncated=truncated or getattr(payload,'truncated',False)
         result=[Source('',title[:300],final,text,utc_now(),ctype,truncated,'public-fetch')]

@@ -16,6 +16,20 @@ PUBLIC=[(socket.AF_INET,socket.SOCK_STREAM,6,'',('93.184.216.34',443))]
 PRIVATE=[(socket.AF_INET,socket.SOCK_STREAM,6,'',('127.0.0.1',80))]
 
 class KeylessResearch(unittest.TestCase):
+    def test_html_fetch_renders_main_content_and_preserves_structure(self):
+        transport=MagicMock();transport.request.return_value=('https://example.com/docs/','text/html',b'<title>Guide</title><nav>Menu</nav><main><h1>Guide</h1><p>See <a href="next">next</a>.</p><ul><li>First</li><li>Second</li></ul><pre><code>  x = 1\n  y = 2</code></pre><script>bad()</script></main><footer>Footer</footer>')
+        source=web.PublicWeb(transport).fetch('https://example.com/docs/',Runtime())[0]
+        self.assertEqual(source.title,'Guide')
+        for expected in ('# Guide','[next](https://example.com/docs/next)','- First','- Second','  x = 1\n  y = 2'):
+            self.assertIn(expected,source.excerpt)
+        for excluded in ('Menu','Footer','bad()'):self.assertNotIn(excluded,source.excerpt)
+
+    def test_html_fetch_falls_back_when_main_is_empty(self):
+        transport=MagicMock();transport.request.return_value=('https://example.com/','text/html',b'<main></main><p>Available evidence</p><a href="http://127.0.0.1/">unsafe</a>')
+        source=web.PublicWeb(transport).fetch('https://example.com/',Runtime())[0]
+        self.assertIn('Available evidence',source.excerpt);self.assertIn('unsafe',source.excerpt)
+        self.assertNotIn('127.0.0.1',source.excerpt)
+
     def test_google_results_are_bounded_and_use_no_search_key(self):
         transport=MagicMock();transport.request.return_value=('https://www.google.com/search','text/html',b'<a href="/url?q=https%3A%2F%2Fexample.com%2Fdocs"><h3>API docs</h3></a><a href="http://127.0.0.1/"><h3>Private</h3></a>')
         with patch.object(web,'resolve_public',side_effect=lambda url,runtime:(url,PUBLIC)):
