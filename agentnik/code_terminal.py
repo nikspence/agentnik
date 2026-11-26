@@ -359,6 +359,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     fields = ("cwd", "shell", "command", "max_seconds")
                 elif proposal.get("operation") == "machine_patch_file":
                     fields = ("operation", "path", "diff")
+                elif proposal.get("operation") == "machine_create_file":
+                    fields = ("operation", "path", "content")
                 elif proposal.get("operation") in ("delete_file", "create_directory", "move_file", "move_directory"):
                     fields = ("operation", "cwd", "path", "destination", "entries")
                 elif proposal.get("operation") in ("git_stage", "git_unstage", "git_create_branch",

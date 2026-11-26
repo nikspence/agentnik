@@ -14,6 +14,9 @@ def absolute_machine_path(value):
     path = Path(value)
     if not path.is_absolute() or ".." in path.parts or "\x00" in value:
         raise ValueError("Use an explicit absolute path without traversal.")
+    if os.name == "nt" and (path.drive.startswith(("\\\\?\\", "\\\\.\\"))
+                            or any(":" in part for part in path.parts[1:])):
+        raise ValueError("Windows device namespaces and alternate data streams are not supported.")
     return path
 
 
@@ -76,3 +79,24 @@ def apply_machine_patch(value, observed, after, check):
         if stream.write(data) != len(data):
             raise OSError("Incomplete file write")
         stream.truncate()
+
+
+def machine_create_preview(value, text):
+    path = absolute_machine_path(value)
+    if not path.name or not path.parent.is_dir():
+        raise ValueError("Choose a new file in an existing directory.")
+    if os.path.lexists(path):
+        raise ValueError("The destination already exists. No file was changed.")
+    data = text.encode("utf-8")
+    if b"\x00" in data or len(data) > FULL_TEXT_BYTES:
+        raise ValueError("The new file must be bounded UTF-8 text.")
+    return data
+
+
+def create_machine_file(value, data, check):
+    path = absolute_machine_path(value)
+    check()
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o666)
+    with os.fdopen(fd, "wb", buffering=0) as stream:
+        if stream.write(data) != len(data):
+            raise OSError("Incomplete file write")

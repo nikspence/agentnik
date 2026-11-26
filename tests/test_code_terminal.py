@@ -55,8 +55,10 @@ class TerminalRunTests(unittest.TestCase):
                      call("machine_read_file", {"path": str(outside)})]
             edit = call("machine_patch_file", {"path": str(outside), "old_text": "fixture", "new_text": "reviewed"},
                         ident="change")
+            report = base / "report.txt"
+            create = call("machine_create_file", {"path": str(report), "content": "Diagnostic report\n"}, ident="create")
             replies = iter([Wire(chat(calls=reads, finish="tool_calls"), False),
-                            Wire(chat(calls=[edit], finish="tool_calls"), False),
+                            Wire(chat(calls=[edit, create], finish="tool_calls"), False),
                             Wire(chat("Outside fixture evidence"), False),
                             Wire(chat("Project response"), False)])
             bodies = []
@@ -73,9 +75,11 @@ class TerminalRunTests(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(len(bodies), 4, output.getvalue())
-            self.assertEqual(approval.call_count, 1, output.getvalue())
+            self.assertEqual(approval.call_count, 2, output.getvalue())
             self.assertIn("operation: machine_patch_file", output.getvalue())
+            self.assertIn("operation: machine_create_file", output.getvalue())
             self.assertEqual(outside.read_text(encoding="utf-8"), "Outside reviewed evidence")
+            self.assertEqual(report.read_bytes(), b"Diagnostic report\n")
             self.assertIn("Permissions: require", output.getvalue())
             self.assertIn("Scope: machine", output.getvalue())
             self.assertIn("machine_read_file", {t["function"]["name"] for t in bodies[0]["tools"]})
@@ -88,6 +92,17 @@ class TerminalRunTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "project-relative path"):
                 ProjectFiles(root).path(str(outside))
             self.assertNotIn("Outside fixture evidence", json.dumps(bodies[3]["messages"]))
+
+    def test_machine_create_does_not_overwrite_a_file_created_after_preview(self):
+        from agentnik.machine_files import create_machine_file, machine_create_preview
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / "report.txt"
+            data = machine_create_preview(str(path), "new report")
+            path.write_bytes(b"other writer")
+            with self.assertRaises(FileExistsError):
+                create_machine_file(str(path), data, lambda: None)
+            self.assertEqual(path.read_bytes(), b"other writer")
 
     def test_machine_patch_rejects_a_change_after_preview(self):
         from agentnik.machine_files import apply_machine_patch, machine_patch_preview, open_machine_text
