@@ -26,3 +26,15 @@ def image_endpoint(connection, override=''):
     try:parsed.port
     except ValueError:raise ValueError('Invalid image endpoint port') from None
     return target.rstrip('/')
+
+
+def image_tool_config(value, connections):
+    """Resolve the saved image-model binding for any Agentnik client."""
+    settings = validate_image_settings(value)
+    if not settings["enabled"]:
+        return None
+    connection = connections.get(settings["connection"])
+    if not connection or not settings["model"]:
+        raise ValueError("The configured image connection or model is unavailable")
+    image_endpoint(connection, settings["endpoint"])
+    return {"connection": dict(connection), "model": settings["model"], "endpoint": settings["endpoint"]}

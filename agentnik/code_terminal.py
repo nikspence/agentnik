@@ -172,7 +172,7 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
     from importlib.util import find_spec
     from . import core, tls
     from .code_research import code_research_options
-    from .image_settings import image_endpoint, validate_image_settings
+    from .image_settings import image_tool_config
     from .storage import Store
     from .subagent_capabilities import unsupported
 
@@ -200,17 +200,11 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
         if mcp_selection:
             options.update(mcp_bridges=terminal_mcp_bridges(store.config, mcp_selection),
                            mcp_priority=settings.get("mcp_priority", "first"))
-        image = validate_image_settings(settings.get("image_generation"))
-        if image["enabled"]:
+        image = image_tool_config(settings.get("image_generation"), connections)
+        if image is not None:
             if find_spec("PySide6") is None and find_spec("PIL") is None:
                 raise ValueError("Install the Agentnik terminal extra for headless image generation.")
-            image_connection = connections.get(image["connection"])
-            if not image_connection or not image["model"]:
-                raise ValueError("The configured image connection or model is unavailable.")
-            image_endpoint(image_connection, image["endpoint"])
-            options["image_config"] = {
-                "connection": image_connection, "model": image["model"], "endpoint": image["endpoint"],
-            }
+            options["image_config"] = image
         binding = settings.get("decision_model", {})
         advisor = connections.get(binding.get("connection")) if settings.get("decision_advice_enabled") else None
         advice = dict(advisor, model=binding["model"]) if advisor and binding.get("model") else None

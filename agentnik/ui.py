@@ -1321,14 +1321,8 @@ class Window(QMainWindow):
     def save_global_mcp_access(self,enabled):
         self.store.config['settings']['mcp_access_enabled']=bool(enabled);self.store.flush()
     def image_tool_config(self):
-        from .image_settings import validate_image_settings
-        from .image_generation import image_endpoint
-        settings=validate_image_settings(self.store.config['settings'].get('image_generation'))
-        if not settings['enabled']:return None
-        connection=self.connections.get(settings['connection'])
-        if not connection or not settings['model']:raise ValueError('The configured image connection or model is unavailable')
-        image_endpoint(connection,settings['endpoint'])
-        return {'connection':dict(connection),'model':settings['model'],'endpoint':settings['endpoint']}
+        from .image_settings import image_tool_config
+        return image_tool_config(self.store.config['settings'].get('image_generation'), self.connections)
 
     def decision_connection(self):
         settings=self.store.config['settings'];binding=settings.get('decision_model',{})
