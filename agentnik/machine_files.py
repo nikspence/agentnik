@@ -57,13 +57,16 @@ def machine_patch_preview(value, observed, old, new):
     with open_machine_text(value) as (_, before, signature):
         if observed != signature:
             raise ValueError("Read the current file with machine_read_file before editing.")
-    if not old or before.count(old) != 1 or old == new:
+    first = before.find(old) if old else -1
+    if first < 0 or before.find(old, first + 1) >= 0 or old == new:
         raise ValueError("The exact old text must occur once and the replacement must differ.")
     after = before.replace(old, new, 1)
     if "\x00" in after or len(after.encode("utf-8")) > FULL_TEXT_BYTES:
         raise ValueError("The updated file exceeds the UTF-8 text limit.")
-    diff = "".join(unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True),
-                                fromfile="before", tofile="after"))
+    lines = unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True),
+                         fromfile="before", tofile="after")
+    diff = "".join(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n"
+                   for line in lines)
     if len(diff.encode("utf-8")) > FULL_TEXT_BYTES:
         raise ValueError("The diff exceeds the review limit.")
     return after, diff

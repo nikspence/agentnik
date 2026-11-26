@@ -126,6 +126,22 @@ class TerminalRunTests(unittest.TestCase):
                 create_machine_file(str(path), data, lambda: None)
             self.assertEqual(path.read_bytes(), b"other writer")
 
+    def test_machine_patch_reviews_unterminated_lines_and_rejects_overlapping_matches(self):
+        from agentnik.machine_files import machine_patch_preview, open_machine_text
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / "settings.txt"
+            path.write_bytes(b"aaa")
+            with open_machine_text(str(path)) as (_, _, observed):
+                pass
+            with self.assertRaisesRegex(ValueError, "must occur once"):
+                machine_patch_preview(str(path), observed, "aa", "x")
+            replacement, diff = machine_patch_preview(str(path), observed, "aaa", "x")
+            self.assertEqual(replacement, "x")
+            self.assertEqual(diff.splitlines()[-4:],
+                             ["-aaa", r"\ No newline at end of file",
+                              "+x", r"\ No newline at end of file"])
+
     def test_machine_patch_rejects_a_change_after_preview(self):
         from agentnik.machine_files import apply_machine_patch, machine_patch_preview, open_machine_text
 
