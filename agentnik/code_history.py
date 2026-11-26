@@ -1,5 +1,6 @@
 """Independent terminal sessions backed by the shared Code history store."""
 
+from contextlib import closing
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -203,7 +204,11 @@ class CodeHistory:
         except ValueError:
             full_id = False
         if full_id:
-            ident = selector if self.list(selector) else ""
+            # Check membership before taking the lease. Do not load a long
+            # transcript twice, and do not reuse a pre-lease snapshot.
+            with closing(self.store.iter_sessions(mode="code", terminal_session=selector)) as records:
+                found = any(same_project(record["path_snapshot"], self.root) for record in records)
+            ident = selector if found else ""
         else:
             ident = resolve_session_id(self.sessions(), selector)
         if not ident:

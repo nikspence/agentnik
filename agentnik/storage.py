@@ -230,7 +230,10 @@ class Store:
         self.db.commit()
 
     def list_sessions(self, *, mode=None, terminal_session=None):
-        result=[]
+        return list(self.iter_sessions(mode=mode, terminal_session=terminal_session))
+
+    def iter_sessions(self, *, mode=None, terminal_session=None):
+        """Validate records as they are consumed, newest first."""
         query='SELECT id, updated, payload FROM sessions'
         predicates=[];params=[]
         if mode is not None:
@@ -245,17 +248,19 @@ class Store:
         except sqlite3.OperationalError as exc:
             if not predicates or 'no such function: json_' not in str(exc):raise
             rows=self.db.execute('SELECT id, updated, payload FROM sessions ORDER BY updated DESC')
-        for ident,updated,payload in rows:
-            try:
-                session=validate_session(json.loads(payload),ident)
-            except (ValueError,TypeError,RecursionError):
-                session={'id':ident,'title':'Unavailable saved session','connection_name':'Stored data preserved; repair or use a compatible Agentnik version',
-                         'mode':'chat','_unavailable':True}
-            if mode is not None and (session.get('mode')!=mode or session.get('_unavailable')):continue
-            if terminal_session is not None and (session.get('_unavailable') or
-                    session.get('coding_terminal_session',ident)!=terminal_session):continue
-            result.append(dict(session,updated=updated))
-        return result
+        try:
+            for ident,updated,payload in rows:
+                try:
+                    session=validate_session(json.loads(payload),ident)
+                except (ValueError,TypeError,RecursionError):
+                    session={'id':ident,'title':'Unavailable saved session','connection_name':'Stored data preserved; repair or use a compatible Agentnik version',
+                             'mode':'chat','_unavailable':True}
+                if mode is not None and (session.get('mode')!=mode or session.get('_unavailable')):continue
+                if terminal_session is not None and (session.get('_unavailable') or
+                        session.get('coding_terminal_session',ident)!=terminal_session):continue
+                yield dict(session,updated=updated)
+        finally:
+            rows.close()
 
     @staticmethod
     def prompt_json(mode, payload):

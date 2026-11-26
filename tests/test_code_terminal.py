@@ -2543,6 +2543,31 @@ class TerminalRunTests(unittest.TestCase):
                 finally:
                     store.db.close()
 
+    def test_exact_resume_only_reads_one_matching_turn_before_taking_lease(self):
+        from unittest.mock import Mock
+        from agentnik.code_history import CodeHistory
+
+        ident = str(uuid4())
+        store, lease = Mock(), Mock()
+        local = {"path_snapshot": "local", "code_state": "completed"}
+
+        def lookup():
+            yield {"path_snapshot": "other"}
+            yield local
+            self.fail("Resume should not read more turns before taking the lease")
+
+        store.iter_sessions.return_value = lookup()
+
+        def load(*, mode, terminal_session):
+            lease.select.assert_called_once_with(ident)
+            self.assertEqual((mode, terminal_session), ("code", ident))
+            return [local]
+
+        store.list_sessions.side_effect = load
+        with patch("agentnik.code_history.same_project", side_effect=lambda path, root: path == "local"):
+            self.assertEqual(CodeHistory(store, Path("local")).select_for_resume(ident, lease), (ident, [local]))
+        store.iter_sessions.assert_called_once_with(mode="code", terminal_session=ident)
+
     def test_resume_rejects_ambiguous_session_prefix(self):
         from agentnik.code_history import resolve_session_id
 
