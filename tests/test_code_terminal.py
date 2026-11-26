@@ -822,7 +822,7 @@ class TerminalRunTests(unittest.TestCase):
                                         "/vision on", "/attach visual.png",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
-                                        "Create a note", "/context", "/context clear",
+                                        "/settngs", "//notes is an example path. Create a note.", "/context", "/context clear",
                                         "/permissions allow-all", "Create another note",
                                         "/new", "/status", "/history", "/exit"]
             output = io.StringIO()
@@ -841,6 +841,9 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 4, output.getvalue())
             self.assertIn("No connection with that name.", output.getvalue())
+            self.assertIn("Unknown command.", output.getvalue())
+            self.assertIn("/notes is an example path. Create a note.", str(transport.call_args_list[0].args[2]))
+            self.assertNotIn("/settngs", str(transport.call_args_list[0].args[2]))
             self.assertIn("Fixture note style.", str(transport.call_args_list[0].args[2]))
             self.assertIn("Presentation fixture brief.", str(transport.call_args_list[0].args[2]))
             self.assertNotIn("Presentation fixture brief.", str(transport.call_args_list[2].args[2]))
@@ -877,6 +880,7 @@ class TerminalRunTests(unittest.TestCase):
             transport.assert_not_called()
             self.assertIn(f"Resumed session {session_id}", output.getvalue())
             reopened.history.append_string.assert_any_call("Create another note")
+            reopened.history.append_string.assert_any_call("//notes is an example path. Create a note.")
 
     def test_cancel_during_provider_request_saves_session_without_replay(self):
         from queue import Queue

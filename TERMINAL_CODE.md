@@ -30,6 +30,8 @@ Each launch starts a separate session, even in the same project. `/new` starts a
 
 At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T opens the transcript, and PageUp opens it and moves back. In the transcript, PageUp/PageDown or Ctrl+B/Ctrl+F move by a page, and Ctrl+U/Ctrl+D move by half a page. Ctrl+T or Q returns to the draft.
 
+Unrecognized slash commands are not sent to the model. If your task starts with a literal slash, such as an absolute Unix path, type an extra slash at the start. Agentnik removes the first slash before submitting the task.
+
 Use `/sessions 2`, `/sessions 3`, and so on to find older sessions. Listing a page does not reopen any session. Both `/resume` and `agentnik code --resume` accept a unique ID prefix, so you only need to type enough characters to identify one session in the current project.
 
 Two terminals can work in the same project using separate sessions. If another terminal already has a session open, trying to resume it leaves your current session and prompt history intact.

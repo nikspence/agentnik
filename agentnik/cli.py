@@ -531,7 +531,8 @@ def terminal_session(options, root, lease, images):
                     for saved in records:
                         for entry in reversed(saved.get("code_activity", [])):
                             if entry["kind"] == "prompt":
-                                prompts.append(terminal_text(entry["text"]))
+                                prompt = terminal_text(entry["text"])
+                                prompts.append("/" + prompt if prompt.startswith("/") else prompt)
                             if len(prompts) == 100:
                                 break
                         if len(prompts) == 100:
@@ -602,9 +603,12 @@ def terminal_session(options, root, lease, images):
             vision_enabled = False
         elif command == "/goal":
             print("Enter /goal followed by an objective.")
-        elif command.startswith("/") and command != "/continue" and not command.startswith("/goal "):
-            print("Unknown command. Type /help.")
+        elif command.startswith("/") and not command.startswith(("//", "/goal ")) and command != "/continue":
+            print("Unknown command. Type /help, or start with // to send a prompt that begins with /.")
         elif command:
+            if command == "//":
+                print("Enter a prompt after the escape slash.")
+                continue
             if not connection_name:
                 print("Select a connection with /connection NAME first.")
                 continue
@@ -629,6 +633,8 @@ def terminal_session(options, root, lease, images):
                 command = "Continue the saved objective. Inspect current state first and do not repeat uncertain actions."
             elif goal:
                 command = command.removeprefix("/goal ").strip()
+            elif command.startswith("//"):
+                command = command[1:]
             try:
                 if images.paths() and not vision_enabled:
                     raise ValueError("Enable /vision on or clear the queued image attachments first.")
