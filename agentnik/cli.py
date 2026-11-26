@@ -169,6 +169,7 @@ def main():
     context = None
     web_enabled = False
     vision_enabled = False
+    skill_pins = {}
     require_approval = True
     session_id = str(uuid4())
     pending_command = f"/resume {options.resume}" if options.resume else None
@@ -195,6 +196,7 @@ def main():
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/web on|off       Enable or disable web research for this session\n"
                   "/vision on|off    Allow the coding model to inspect project images\n"
+                  "/skills           List, preview or select project and user skills\n"
                   "/permissions      Set project and shell approval for this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
@@ -240,11 +242,43 @@ def main():
             vision_enabled = command == "/vision on"
             print("Image inspection enabled. Requested project images may be sent to the selected model."
                   if vision_enabled else "Image inspection disabled.")
+        elif command == "/skills" or command.startswith("/skills "):
+            from .code_agent import ProjectFiles
+            from .code_terminal import terminal_text
+            from .project_skills import list_skills, read_skill
+
+            action, _, ident = command.partition(" ")[2].partition(" ")
+            ident = ident.strip()
+            try:
+                files = ProjectFiles(root)
+                if not action:
+                    for skill in list_skills(files):
+                        name = skill["id"]
+                        marker = "*" if name in skill_pins else " "
+                        print(terminal_text(f"{marker} {name} — {skill['description']}"))
+                    print("Use /skills show ID, /skills add ID, or /skills remove ID.")
+                elif action in ("show", "add") and ident:
+                    skill = read_skill(files, ident)
+                    if action == "show":
+                        print(terminal_text(skill["instructions"]))
+                    elif len(skill_pins) >= 5 and ident not in skill_pins:
+                        print("Select at most five skills.")
+                    else:
+                        skill_pins[ident] = skill["sha256"]
+                        print("Selected this revision. Its instructions will be sent to the coding model.")
+                elif action == "remove" and ident:
+                    skill_pins.pop(ident, None)
+                    print("Skill removed from this session.")
+                else:
+                    print("Use /skills to see available actions.")
+            except (OSError, ValueError) as exc:
+                print(terminal_text(exc), file=sys.stderr)
         elif command == "/new":
             session_id = str(uuid4())
             context = None
             web_enabled = False
             vision_enabled = False
+            skill_pins = {}
             require_approval = True
             transcript.clear()
             if composer:
@@ -320,6 +354,7 @@ def main():
             if command == "/history":
                 continue
             record = records[0]
+            skill_pins = dict(record.get("coding_skill_pins", {}))
             context = record.get("coding_context") if record.get("code_state") == "completed" else None
             binding = record.get("coding_models", {}).get("model", {})
             connection_name = binding.get("connection", "")
@@ -354,6 +389,7 @@ def main():
                 )
                 run = CodingRun(connection, root, command, context=context, limits=limits,
                                 goal=goal, goal_budget=goal_budget, vision_enabled=vision_enabled,
+                                skills=list(skill_pins), skill_pins=skill_pins,
                                 **research_options)
                 run.stream_activity = True
                 run.review_project_edits = require_approval
@@ -367,6 +403,7 @@ def main():
                     history = CodeHistory(store, root)
                     record, task = history.start(
                         connection_name, connection, command, session_id, goal=goal,
+                        skill_pins=skill_pins,
                         extra_secrets=[
                             *(item.get("key") for item in research_options["web_backends"]),
                             research_options.get("image_config", {}).get("connection", {}).get("api_key"),

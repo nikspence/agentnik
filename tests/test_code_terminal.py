@@ -121,6 +121,9 @@ class TerminalRunTests(unittest.TestCase):
             base = Path(directory).resolve()
             root, data = base / "project", base / "data"
             root.mkdir()
+            skill = root / ".agents" / "skills" / "notes" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("---\nname: notes\ndescription: Note formatting\n---\nFixture note style.\n")
             preserved = root / "keep.txt"
             preserved.write_text("Keep me")
             connection = {"url": "https://gateway.example/v1", "model": "test",
@@ -136,7 +139,7 @@ class TerminalRunTests(unittest.TestCase):
             auto_edit = call("write_file", {"path": "auto.txt", "content": "automatic\n"})
             shell = call("run_shell", {"path": ".", "command": "echo fixture"}, ident="call-shell")
             first = Mock()
-            first.prompt.side_effect = ["/connection Fixture",
+            first.prompt.side_effect = ["/connection Fixture", "/skills add notes",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
                                         "Create a note", "/permissions allow-all", "Create another note",
@@ -156,6 +159,7 @@ class TerminalRunTests(unittest.TestCase):
                     ]) as transport, contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 4, output.getvalue())
+            self.assertIn("Fixture note style.", str(transport.call_args_list[0].args[2]))
             execute.assert_called_once()
             self.assertIn("No saved history for this session.", output.getvalue())
             self.assertIn("Permissions: require", output.getvalue())
@@ -167,6 +171,7 @@ class TerminalRunTests(unittest.TestCase):
             try:
                 session_id, record = next(iter(CodeHistory(store, root).sessions().items()))
                 self.assertEqual(record["coding_context"]["answer"], "Created another note.")
+                self.assertIn("notes", record["coding_skill_pins"])
             finally:
                 store.db.close()
             reopened = Mock()

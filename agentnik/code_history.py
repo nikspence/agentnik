@@ -33,7 +33,7 @@ class CodeHistory:
             latest.setdefault(self.session_id(record), record)
         return latest
 
-    def start(self, name, connection, task, session_id=None, *, goal=False, extra_secrets=()):
+    def start(self, name, connection, task, session_id=None, *, goal=False, extra_secrets=(), skill_pins=None):
         registry = RepositoryRegistry(self.store)
         project = next((row["id"] for row in registry.list() if same_project(row["path"], self.root)), None)
         if project is None:
@@ -46,6 +46,8 @@ class CodeHistory:
                       coding_models={"model": {"connection": name, "model": connection["model"]}})
         if goal:
             record["coding_goal"] = {"objective": objective, "status": "active", "detail": ""}
+        if skill_pins:
+            record.update(coding_skills=list(skill_pins), coding_skill_pins=dict(skill_pins))
         if session_id:
             record["coding_terminal_session"] = session_id
         append_code_activity(record, "prompt", task)
