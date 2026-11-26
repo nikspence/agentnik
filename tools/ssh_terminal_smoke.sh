@@ -34,13 +34,14 @@ requests = []
 waiting = Event()
 release = Event()
 project = Path("/home/agentnik-smoke/project")
+machine_folder = project.parent / "diagnostics"
 
 
 class Fixture(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         requests.append((self.path, self.headers.get("Authorization"), body))
-        if len(requests) == 3:
+        if len(requests) == 5:
             waiting.set()
             release.wait(timeout=15)
             return
@@ -51,6 +52,13 @@ class Fixture(BaseHTTPRequestHandler):
                 "name": "write_file", "arguments": json.dumps({"path": "note.txt", "content": "reviewed\n"}),
             }}])
             finish = "tool_calls"
+        elif len(requests) == 3:
+            message.update(content="", tool_calls=[{"id": "fixture-directory", "type": "function", "function": {
+                "name": "machine_create_directory", "arguments": json.dumps({"path": str(machine_folder)}),
+            }}])
+            finish = "tool_calls"
+        elif len(requests) == 4:
+            message["content"] = "SSH fixture completed the directory."
         data = json.dumps({"choices": [{"message": message, "finish_reason": finish}]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -119,20 +127,31 @@ with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.send("y\r")
     session.expect_exact("SSH fixture completed the edit.")
     session.expect_exact("code>")
+    session.send("/scope machine\r")
+    session.expect_exact("code [machine]>")
+    session.send("Create the diagnostics directory outside the project.\r")
+    session.expect_exact("operation: machine_create_directory")
+    session.expect_exact("Approve once?")
+    assert not machine_folder.exists()
+    session.send("y\r")
+    session.expect_exact("SSH fixture completed the directory.")
+    session.expect_exact("code [machine]>")
     session.send("/exit\r")
     session.expect(pexpect.EOF)
     session.close()
     assert session.exitstatus == 0, session.exitstatus
 assert (project / "note.txt").read_bytes() == b"reviewed\n"
-assert len(requests) == 2
+assert machine_folder.is_dir()
+assert len(requests) == 4
 assert all(path == "/v1/chat/completions" and key == "Bearer synthetic-ssh-key"
            and body["model"] == "fixture-model" for path, key, body in requests)
 assert any(item.get("role") == "tool" and item.get("tool_call_id") == "fixture-edit"
            for item in requests[1][2]["messages"])
 with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding="utf-8", timeout=12) as session:
-    session.expect_exact("SSH fixture completed the edit.")
+    session.expect_exact("SSH fixture completed the directory.")
+    session.expect_exact("New tasks start in project scope.")
     session.expect_exact("code>")
-    assert len(requests) == 2, "Resuming sent an unexpected request"
+    assert len(requests) == 4, "Resuming sent an unexpected request"
     session.send("Wait for a response that will be cancelled.\r")
     assert waiting.wait(timeout=8), "The fixture did not receive the cancellation test request"
     session.sendcontrol("c")
@@ -150,7 +169,7 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding=
     session.expect(pexpect.EOF)
     session.close()
     assert session.exitstatus == 0, session.exitstatus
-assert len(requests) == 3, "Reopening the cancelled session sent an unexpected request"
+assert len(requests) == 5, "Reopening the cancelled session sent an unexpected request"
 assert (project / "note.txt").read_bytes() == b"reviewed\n"
 portable = json.loads((project / "portable settings.json").read_text(encoding="utf-8"))
 assert "api_key" not in portable["connections"]["SSH Fixture"]
@@ -174,6 +193,7 @@ with pexpect.spawn("ssh", import_args, encoding="utf-8", timeout=12) as session:
 imported = json.loads((project.parent / "imported-data/connections.json").read_text(encoding="utf-8"))
 assert "api_key" not in imported["connections"]["SSH Fixture"]
 assert "credential_id" not in imported["connections"]["SSH Fixture"]
-assert len(requests) == 3, "Connection transfer sent an unexpected model request"
-print("Qt-free preview passed SSH connection setup and transfer, reviewed edit, cancellation, and resume without replay.")
+assert len(requests) == 5, "Connection transfer sent an unexpected model request"
+assert "machine_create_directory" not in {tool["function"]["name"] for tool in requests[4][2]["tools"]}
+print("Qt-free preview passed SSH setup, reviewed project and machine changes, cancellation, and no-replay resume.")
 PY
