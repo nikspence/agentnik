@@ -53,6 +53,29 @@ for index in range(6):
         if expected:
             raise AssertionError("Draft did not enter and leave history in order")
     print(f"SUBMITTED-{index}:{draft.encode().hex()}:END", flush=True)
+from threading import Event
+from agentnik.code_composer import interactive_run_input
+from agentnik.code_terminal import drive_run
+
+class Run:
+    def __init__(self):
+        self.stopped = Event()
+
+    def run(self, emit):
+        emit({"kind": "model_delta", "stream_id": "fixture", "text": "RUN-STREAMING"})
+        if not self.stopped.wait(8):
+            raise AssertionError("The terminal did not stop the run")
+
+    def stop(self):
+        self.stopped.set()
+
+source = interactive_run_input(composer)
+assert source is not None
+result = drive_run(Run(), run_input=source)
+assert result["status"] == "cancelled" and result["choose_scope"], result
+assert result["partial_response"] == "RUN-STREAMING"
+assert input("SCOPE-PROMPT> ") == "machine"
+print("SCOPE-INPUT-RESTORED", flush=True)
 """
 
 
@@ -150,9 +173,14 @@ def main():
         terminal.write(" edited\r")
         revised = b"recovered draft edited".hex()
         expect(f"SUBMITTED-5:{revised}:END")
+        expect("RUN-STREAMING")
+        terminal.write("\x1b[17~")
+        expect("SCOPE-PROMPT>")
+        terminal.write("machine\r")
+        expect("SCOPE-INPUT-RESTORED")
     finally:
         terminal.close()
-    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Esc-LF modified Enter, Enter, Up/Down history, draft recovery after transcript scrollback, session ID completion, and editing a preloaded draft.")
+    print("ConPTY verified composer keys, session ID completion, draft recovery, and F6 run cancellation with restored scope prompt input.")
 
 
 if __name__ == "__main__":
