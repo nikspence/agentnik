@@ -144,7 +144,7 @@ Run `/skills` to find installed skills. A user-installed skill at `~/.agents/ski
 | `/settings mcp` | Manage desktop MCP profiles, access, tool priority, timeouts, and HTTPS bearer tokens. Setup does not start or contact a server. |
 | `/settings mcp edit-https NAME` | Rename an HTTPS MCP profile or change its URL after clearing its saved credential. |
 | `/settings mcp edit-local NAME` | Change a local MCP profile's name, executable, arguments, working directory, or environment mappings without starting it. |
-| `/mcp` / `/mcp use NAME` / `/mcp add NAME` | List enabled local and HTTPS profiles and select up to five in priority order. Use `/mcp remove NAME` or `/mcp off` to deselect. Code asks before starting or connecting to a server and before tool and resource requests. |
+| `/mcp` / `/mcp use NAME` / `/mcp add NAME` | List enabled local and HTTPS profiles and select up to five in priority order. Use `/mcp add NAME` to refresh a changed profile without dropping other selected servers. Use `/mcp remove NAME` or `/mcp off` to deselect. Code asks before starting or connecting to a server and before tool and resource requests. |
 | `/status` | Show the project, session, model selection, and active switches. |
 | `/context` | Inspect, clear, or toggle the previous task and answer carried into new turns. Explicit goal continuation uses its own saved evidence. |
 | `/memory` / `/memory show ID` | Read this project's shared desktop Code memory locally. It does not change session history or send a model request. |

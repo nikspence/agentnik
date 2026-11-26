@@ -1505,12 +1505,15 @@ class TerminalRunTests(unittest.TestCase):
                 with patch("builtins.input", side_effect=["Fixture Server", "https://example.org/mcp"]):
                     configure_code(store, ["mcp", "add-https"])
                 configure_code(store, ["mcp", "enable", "Fixture Server"])
+                with patch("builtins.input", side_effect=["Second Server", "https://second.example.org/mcp"]):
+                    configure_code(store, ["mcp", "add-https"])
+                configure_code(store, ["mcp", "enable", "Second Server"])
             finally:
                 store.db.close()
             composer = Mock()
             composer.prompt.side_effect = ["/connection Fixture", "/mcp use Fixture Server",
-                                           "/settings mcp timeout 42 Fixture Server",
-                                           "Try a stale selection", "/mcp", "/mcp use Fixture Server", "/mcp", "/exit"]
+                                           "/mcp add Second Server", "/settings mcp timeout 42 Fixture Server",
+                                           "Try a stale selection", "/mcp", "/mcp add Fixture Server", "/mcp", "/exit"]
             with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(data)]), \
                     patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
@@ -1524,6 +1527,7 @@ class TerminalRunTests(unittest.TestCase):
                 "Selected 1: Fixture Server",
             ])
             self.assertIn("A selected MCP server changed or is unavailable.", errors.getvalue())
+            self.assertEqual(out.getvalue().count("Selected 2: Second Server"), 2)
             request.assert_not_called()
             bridge.assert_not_called()
 

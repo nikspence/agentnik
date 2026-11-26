@@ -462,7 +462,7 @@ def terminal_session(options, root, lease, images):
                         print(terminal_text(f"Selected {index}: {profile['name']}{stale}"))
                     for profile in profiles:
                         print(terminal_text(f"Available: {profile['name']}"))
-                    print("Use /mcp use NAME to replace the selection, /mcp add NAME, /mcp remove NAME, or /mcp off.")
+                    print("Use /mcp use NAME to replace the selection, or /mcp add NAME to add or refresh one server. Use /mcp remove NAME or /mcp off to deselect.")
                 else:
                     action, _, name = command.removeprefix("/mcp ").partition(" ")
                     name = mcp_profile_name(name.strip(), profiles)
