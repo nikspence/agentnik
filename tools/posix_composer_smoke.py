@@ -14,7 +14,7 @@ except KeyboardInterrupt:
     print("DRAFT-CANCELLED", flush=True)
 else:
     raise AssertionError("Ctrl+C did not cancel the draft")
-for index in range(3):
+for index in range(4):
     print(f"READY-{index}", flush=True)
     draft = composer.prompt()
     print(f"SUBMITTED-{index}:{draft.encode().hex()}:END", flush=True)
@@ -52,11 +52,17 @@ def main():
         terminal.expect_exact("code>")
         terminal.send("\r")
         terminal.expect_exact(f"SUBMITTED-2:{b'draft kept across scrollback'.hex()}:END")
+        terminal.expect_exact("READY-3")
+        terminal.expect_exact("code>")
+        paste = "literal \x1b[13;5u and \x1b[27;5;13~ bytes"
+        terminal.send("\x1b[200~" + paste + "\x1b[201~")
+        terminal.send("\r")
+        terminal.expect_exact(f"SUBMITTED-3:{paste.encode().hex()}:END")
         terminal.expect(pexpect.EOF)
         terminal.close()
         if terminal.exitstatus != 0:
             raise SystemExit(f"Composer exited unexpectedly (status {terminal.exitstatus}).")
-    print("POSIX PTY verified Ctrl+C draft cancellation, Ctrl+J, distinct Ctrl+Enter sequences, Enter, Up history recall, and draft recovery after transcript scrollback.")
+    print("POSIX PTY verified Ctrl+C draft cancellation, Ctrl+J, distinct Ctrl+Enter sequences, Enter, Up history recall, draft recovery after transcript scrollback, and literal bracketed paste.")
 
 
 if __name__ == "__main__":
