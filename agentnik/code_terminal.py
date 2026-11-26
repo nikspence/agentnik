@@ -343,6 +343,14 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
             result["partial_response"] = next(reversed(streamed.values()))[:2000]
         return result
 
+    def record_steering(event):
+        write(f"{STEERING_OUTCOMES[event['kind']]}: {terminal_text(event['text'])}")
+        if checkpoint:
+            try:
+                checkpoint(event)
+            except (OSError, ValueError, sqlite3.Error):
+                write("Could not save steering activity.")
+
     try:
         while True:
             try:
@@ -360,8 +368,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 except (OSError, ValueError, sqlite3.Error):
                     write("Could not save goal progress. The active run will continue.")
                     checkpoint = None
-            if checkpoint and (kind in ("project_change", "image_generated", "subagent_tools_unsupported")
-                               or kind in STEERING_OUTCOMES):
+            if checkpoint and kind in ("project_change", "image_generated", "subagent_tools_unsupported"):
                 try:
                     checkpoint(event)
                 except (OSError, ValueError, sqlite3.Error):
@@ -479,7 +486,11 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 if run.decide(event["fingerprint"], response.lower() == "y") is False:
                     write("This approval prompt is no longer active. Your answer was not applied.")
             elif kind in STEERING_OUTCOMES:
-                write(f"{STEERING_OUTCOMES[kind]}: {terminal_text(event['text'])}")
+                record_steering(event)
+                if kind == "steering_delivered":
+                    acknowledge = getattr(run, "acknowledge_steering", None)
+                    if acknowledge is not None:
+                        acknowledge(event["text"])
             elif kind in ("output", "finished"):
                 if event.get("text") and not (kind == "finished" and event.get("response_shown")):
                     write(terminal_text(event["text"]))
@@ -505,8 +516,12 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
         if result:
             # A late interrupt must not rewrite a result already delivered by the worker.
             return completed_result(result)
-        run.stop()
+        steering = run.stop()
         write("\nStopping Code run…")
+        if isinstance(steering, dict):
+            for outcome in ("delivered", "uncertain", "undelivered"):
+                for message in steering.get(outcome, ()):
+                    record_steering({"kind": f"steering_{outcome}", "text": message})
         detail = ("Cancelled locally. A submitted request may still finish on its server. "
                   "Check the project before continuing. Agentnik will not replay the request.")
         write(detail)

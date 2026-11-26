@@ -668,10 +668,18 @@ class CodingRun:
                 parts.append((label+' ' if label else '')+role+': '+str(values['requests'])+' request(s), '+', '.join(fields)+' tokens')
         return 'Usage: '+'; '.join(parts) if parts else 'Usage: no model requests'
 
+    def known_run_secrets(self):
+        secrets=[self.connection.get('api_key','')]+[item.get('key','') for item in self.web_backends]
+        if self.image_config:secrets.append(self.image_config['connection'].get('api_key',''))
+        for bridge in self.mcp_bridges:
+            values=getattr(bridge,'environment_values',{})
+            if isinstance(values,dict):secrets.extend(value for value in values.values() if isinstance(value,str) and value)
+        return secrets
+
     def stop(self):
         with self.lock:
             self.cancel.set();self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear();self.decision.set()
-            undelivered=self.steering[:];self.steering.clear()
+            undelivered=scrub(self.steering,self.known_run_secrets());self.steering.clear()
             inflight=self.steering_inflight[:];self.steering_inflight.clear()
             delivered=self.steering_confirmed[:];self.steering_confirmed.clear()
             if not self.steering_submitted:undelivered=inflight+undelivered;inflight=[]
@@ -802,11 +810,7 @@ class CodingRun:
             self.goal_started=time.monotonic()
             if self.goal_budget['seconds']:runtime.external_deadline=self.goal_started+max(0,self.goal_budget['seconds']-self.goal_elapsed)
         next_source=1;hosted_urls=set();research_action=None;google_unavailable=False;search_access_blocked=False
-        secrets=[self.connection.get('api_key','')]+[item.get('key','') for item in self.web_backends]
-        if self.image_config:secrets.append(self.image_config['connection'].get('api_key',''))
-        for bridge in self.mcp_bridges:
-            values=getattr(bridge,'environment_values',{})
-            if isinstance(values,dict):secrets.extend(value for value in values.values() if isinstance(value,str) and value)
+        secrets=self.known_run_secrets()
         usage=self.usage
         def request(role,adapter,connection,body,state,hosted_search=False):
             totals=usage[role]

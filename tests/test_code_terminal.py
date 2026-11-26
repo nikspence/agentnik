@@ -3622,6 +3622,30 @@ class TerminalRunTests(unittest.TestCase):
             self.assertNotIn("fixture-secret", str(saved))
             prompt.assert_called_once()
 
+    def test_interrupt_records_queued_and_inflight_steering_without_leaking_keys(self):
+        from queue import Queue
+        from agentnik.code_agent import CodingRun
+
+        class InterruptQueue(Queue):
+            def get(self, *args, **kwargs):
+                raise KeyboardInterrupt
+
+        with TemporaryDirectory() as directory:
+            run = CodingRun({"url": "https://fixture.invalid/v1", "model": "fixture", "api_key": "secret-fixture"},
+                            Path(directory), "Fixture task")
+            self.assertTrue(run.steer("Queued change secret-fixture"))
+            run.steering_inflight = ["Possibly submitted"]
+            run.steering_submitted = True
+            events, lines = [], []
+            with patch.object(run, "run"), patch("agentnik.code_terminal.Queue", InterruptQueue):
+                result = drive_run(run, write=lines.append, checkpoint=events.append)
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(events, [
+            {"kind": "steering_uncertain", "text": "Possibly submitted"},
+            {"kind": "steering_undelivered", "text": "Queued change [redacted]"},
+        ])
+        self.assertNotIn("secret-fixture", str(lines))
+
     def test_interrupt_after_final_result_cannot_relabel_completed_run(self):
         from queue import Queue
         from unittest.mock import Mock
