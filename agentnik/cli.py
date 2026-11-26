@@ -139,7 +139,10 @@ def main():
     if args[:1] != ["code"]:
         return desktop_main()
 
+    from . import __version__
+
     parser = argparse.ArgumentParser(prog="agentnik code")
+    parser.add_argument("--version", action="version", version=f"Agentnik Code {__version__}")
     parser.add_argument("--data-dir", type=Path, help="Override the application data directory")
     parser.add_argument("--resume", nargs="?", const="latest", metavar="ID",
                         help="Resume a session in this project (default: latest)")

@@ -11,6 +11,7 @@ To test a built wheel without using PyPI, download and extract the `python-distr
 ```sh
 python -m pip install "./agentnik-0.12.0rc1-py3-none-any.whl[terminal]"
 agentnik code --help
+agentnik code --version
 ```
 
 Use the wheel filename from the artifact if its version differs. To request a fresh build, run the workflow with both `publish` and `legacy_0_11_1` unchecked.

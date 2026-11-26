@@ -28,6 +28,19 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_version_does_not_open_a_terminal_or_data_store(self):
+        from agentnik import __version__, cli
+
+        with TemporaryDirectory() as directory:
+            data = Path(directory) / "unused"
+            with patch("sys.argv", ["agentnik", "code", "--version", "--data-dir", str(data)]), \
+                    patch("sys.stdin.isatty", return_value=False), \
+                    contextlib.redirect_stdout(io.StringIO()) as output, self.assertRaises(SystemExit) as stopped:
+                cli.main()
+            self.assertEqual(stopped.exception.code, 0)
+            self.assertEqual(output.getvalue().strip(), f"Agentnik Code {__version__}")
+            self.assertFalse(data.exists())
+
     def test_unlimited_alias_respects_bounded_limits(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store
