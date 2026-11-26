@@ -1999,6 +1999,34 @@ class TerminalRunTests(unittest.TestCase):
             self.assertEqual(run.call_count, 1)
             prompt.assert_not_called()
 
+    def test_manual_git_commit_refuses_index_changes_during_confirmation(self):
+        import shutil
+        import subprocess
+        from agentnik.code_git_commands import manual_git
+
+        if shutil.which("git") is None:
+            self.skipTest("Native Git unavailable")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=True).stdout
+
+            git("init")
+            path = root / "note.txt"
+            path.write_text("first\n")
+            git("add", "--", path.name)
+
+            def approve(_):
+                path.write_text("changed during review\n")
+                git("add", "--", path.name)
+                return "y"
+
+            with self.assertRaisesRegex(ValueError, "staged changes changed during confirmation"):
+                manual_git(root, "commit Fixture", prompt=approve, write=lambda _: None)
+            self.assertIn("changed during review", git("show", ":note.txt"))
+            with self.assertRaises(subprocess.CalledProcessError):
+                git("rev-parse", "--verify", "HEAD")
+
     def test_manual_git_commit_and_push_use_explicit_confirmation_and_destination(self):
         import shutil
         import subprocess

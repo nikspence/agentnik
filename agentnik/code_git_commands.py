@@ -24,7 +24,8 @@ def manual_git(root, argument, *, prompt=None, write=print):
     prompt = prompt or input
 
     def run(*args, capture=False, **options):
-        return subprocess.run([executable, *args], cwd=root, check=False, text=True,
+        options.setdefault("text", True)
+        return subprocess.run([executable, *args], cwd=root, check=False,
                               capture_output=capture, **options)
 
     def repository():
@@ -64,9 +65,22 @@ def manual_git(root, argument, *, prompt=None, write=print):
             return
         result = run("--literal-pathspecs", "add" if action == "stage" else "reset", "--", value)
     elif action == "commit" and value:
-        write(f"Commit all staged changes in {repository()!r} with message {terminal_text(value)!r}.")
+        def staged_snapshot():
+            staged = run("diff", "--cached", "--raw", "--no-abbrev", "--no-renames", "-z", capture=True,
+                         text=False)
+            if staged.returncode:
+                raise ValueError("Git could not inspect the staged changes.")
+            head = run("rev-parse", "--verify", "HEAD", capture=True)
+            branch = run("symbolic-ref", "--quiet", "HEAD", capture=True)
+            return head.stdout, branch.stdout, staged.stdout
+
+        location = repository()
+        snapshot = staged_snapshot()
+        write(f"Commit all staged changes in {location!r} with message {terminal_text(value)!r}.")
         if prompt("Create commit? [y/N] ").strip().lower() != "y":
             return
+        if repository() != location or staged_snapshot() != snapshot:
+            raise ValueError("Git HEAD or staged changes changed during confirmation. Review /git diff --staged before retrying.")
         result = run("commit", "-m", value)
     elif action == "push" and len(value.split()) == 2:
         remote, branch = value.split()
