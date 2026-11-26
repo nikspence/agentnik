@@ -119,6 +119,7 @@ def main():
                   "/connections add  Configure a new connection\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
+                  "/settings         Show or change coding limits and TLS\n"
                   "/history          Show history for this session\n"
                   "/sessions         List saved sessions for the current project\n"
                   "/resume ID        Resume a saved session (or use latest)\n"
@@ -128,6 +129,19 @@ def main():
                   f" · Model: {model or '(connection default)'!r}")
         elif command in ("/connections", "/connections add"):
             connection_menu(options.data_dir, command.endswith(" add"))
+        elif command == "/settings" or command.startswith("/settings "):
+            from .code_settings import configure_code
+            from .code_terminal import terminal_text
+            from .storage import Store
+
+            try:
+                store = Store(options.data_dir)
+                try:
+                    print(configure_code(store, command.split()[1:]))
+                finally:
+                    store.db.close()
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                print(terminal_text(exc), file=sys.stderr)
         elif command in ("/history", "/sessions", "/resume") or command.startswith(("/open ", "/resume ")):
             from .code_history import CodeHistory, Store
             from .code_terminal import terminal_text

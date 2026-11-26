@@ -11,6 +11,25 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_terminal_settings_share_validated_limits_and_tls(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory:
+            store = Store(directory)
+            try:
+                configure_code(store, ["limits", "rounds", "12"])
+                configure_code(store, ["tls", "strict"])
+                with self.assertRaises(ValueError):
+                    configure_code(store, ["limits", "rounds", "0"])
+                saved = load_config(store.config_path)["settings"]
+                self.assertEqual(saved["coding_limits"]["rounds"], 12)
+                self.assertFalse(saved["relaxed_tls"])
+                configure_code(store, ["limits", "rounds", "default"])
+                self.assertNotEqual(load_config(store.config_path)["settings"]["coding_limits"]["rounds"], 12)
+            finally:
+                store.db.close()
+
     def test_history_persists_only_completed_context_for_current_project(self):
         from agentnik.code_history import CodeHistory
         from agentnik.storage import Store
