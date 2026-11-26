@@ -164,6 +164,8 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn(f"{session}  completed [current] [goal: cancelled]", output.getvalue())
             self.assertIn("Review machine logs", output.getvalue())
             self.assertIn("That goal used connection 'Fixture'.", output.getvalue())
+            self.assertIn("Continue using connection 'Fixture', model 'fixture', in machine scope.",
+                          output.getvalue())
             confirmation.assert_called_once_with("Continue this goal with fresh limits? [y/N] ")
             request.assert_not_called()
 

@@ -863,14 +863,6 @@ def terminal_session(options, root, lease, images):
                 if saved_scope != ("machine" if machine_scope else "project"):
                     print(f"That goal ran in {saved_scope} scope. Use /scope {saved_scope} before continuing.")
                     continue
-                print(terminal_text(resume["task"]))
-                print(terminal_text(resume["evidence"]))
-                try:
-                    if input("Continue this goal with fresh limits? [y/N] ").strip().lower() != "y":
-                        continue
-                except (EOFError, KeyboardInterrupt):
-                    print()
-                    continue
                 command = "Continue the saved objective. Inspect current state first and do not repeat uncertain actions."
             elif goal:
                 command = command.removeprefix("/goal ").strip()
@@ -883,6 +875,18 @@ def terminal_session(options, root, lease, images):
                     options.data_dir, connection_name, model, web_enabled,
                     discovered=discovered, mcp_selection=mcp_selection, root=root, memory_enabled=memory_enabled,
                 )
+                if continuing:
+                    target_model = connection.get("model", "")
+                    print(terminal_text(f"Continue using connection {connection_name!r}, model {target_model!r}, "
+                                        f"in {saved_scope} scope."))
+                    print(terminal_text(resume["task"]))
+                    print(terminal_text(resume["evidence"]))
+                    try:
+                        if input("Continue this goal with fresh limits? [y/N] ").strip().lower() != "y":
+                            continue
+                    except (EOFError, KeyboardInterrupt):
+                        print()
+                        continue
                 run = CodingRun(connection, root, command,
                                 context=context if use_context and not resume and not machine_scope else None,
                                 limits=limits,
