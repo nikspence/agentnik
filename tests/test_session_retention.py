@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 from agentnik import core, research
 from agentnik.retention import retain_result
-from agentnik.sessions import SessionError
+from agentnik.sessions import SessionError, validate_session
 from agentnik.storage import Store
 from agentnik.tools import Limits, Source
 from test_research import Backend, MESSAGES
@@ -32,6 +32,10 @@ class SessionRecovery(unittest.TestCase):
                 store.db.commit()
                 rows=store.list_sessions()
                 self.assertEqual(len(rows),5);self.assertEqual(sum(bool(r.get('_unavailable')) for r in rows),4)
+                with patch('agentnik.storage.validate_session', wraps=validate_session) as validate:
+                    self.assertEqual(store.list_sessions(mode='code'),[])
+                    validate.assert_not_called()
+                self.assertEqual([row['id'] for row in store.list_sessions(mode='chat')],[good['id']])
                 for row in rows:
                     if row.get('_unavailable'):
                         with self.assertRaises(SessionError): store.save(row)

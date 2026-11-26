@@ -214,14 +214,25 @@ class Store:
         self.db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)', (data['id'], time.time(), json.dumps(data)))
         self.db.commit()
 
-    def list_sessions(self):
+    def list_sessions(self, *, mode=None):
         result=[]
-        for ident,updated,payload in self.db.execute('SELECT id, updated, payload FROM sessions ORDER BY updated DESC'):
+        query='SELECT id, updated, payload FROM sessions'
+        params=()
+        if mode is not None:
+            query+=" WHERE CASE WHEN json_valid(payload) THEN json_extract(payload, '$.mode') END = ?"
+            params=(mode,)
+        try:
+            rows=self.db.execute(query+' ORDER BY updated DESC',params)
+        except sqlite3.OperationalError as exc:
+            if mode is None or 'no such function: json_' not in str(exc):raise
+            rows=self.db.execute('SELECT id, updated, payload FROM sessions ORDER BY updated DESC')
+        for ident,updated,payload in rows:
             try:
                 session=validate_session(json.loads(payload),ident)
             except (ValueError,TypeError,RecursionError):
                 session={'id':ident,'title':'Unavailable saved session','connection_name':'Stored data preserved; repair or use a compatible Agentnik version',
                          'mode':'chat','_unavailable':True}
+            if mode is not None and (session.get('mode')!=mode or session.get('_unavailable')):continue
             result.append(dict(session,updated=updated))
         return result
 
