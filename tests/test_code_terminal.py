@@ -11,6 +11,22 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_terminal_composer_keeps_newlines_and_records_submitted_input(self):
+        from importlib.util import find_spec
+
+        if find_spec("prompt_toolkit") is None:
+            self.skipTest("Terminal composer extra is not installed")
+        from prompt_toolkit.input import create_pipe_input
+        from prompt_toolkit.output import DummyOutput
+        from agentnik.code_composer import create_composer
+
+        with create_pipe_input() as pipe:
+            composer = create_composer(input=pipe, output=DummyOutput())
+            pipe.send_text("first line\rsecond line\x1b\r")
+            task = composer.prompt()
+            self.assertEqual(task, "first line\nsecond line")
+            self.assertEqual(composer.history.get_strings(), [task])
+
     def test_shell_advice_requires_disclosure_consent_and_skips_credentials(self):
         from threading import Event
         from agentnik.code_terminal import show_shell_advice
