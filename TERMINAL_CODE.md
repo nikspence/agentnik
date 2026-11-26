@@ -55,7 +55,9 @@ The [validation notes](VALIDATION.md) distinguish what was tested over OpenSSH f
 2. Run `/settings image set` to choose the image connection and model, then `/settings image on`. The image model can be different from the coding model.
 3. In a project with a `slides` folder, ask for one test slide. For example, use “Generate a 16:9 slide at `slides/slide-01.png`. Then use `view_image` to check the title for spelling and clipping.” In review mode, approve the proposed image request if it matches what you intended.
 
-Agentnik saves the generated image in the project. It does not send the image back to the coding model until the model requests inspection or you attach it explicitly. If `/skills` lists a presentation skill you want to use, select it with `/skills add ID`. The terminal tool handoff is tested. Full compatibility with external skills, including editable PowerPoint reconstruction, depends on the skill's tool requirements and has not been qualified.
+Agentnik saves the generated image in the project. It does not send the image back to the coding model until the model requests inspection or you attach it explicitly. The terminal tool handoff is tested. Full compatibility with external skills, including editable PowerPoint reconstruction, depends on the skill's tool requirements and has not been qualified.
+
+Run `/skills` to find installed skills. A user-installed skill at `~/.agents/skills/codex-ppt/SKILL.md` appears as `user:codex-ppt`. Enable it for this session with `/skills add user:codex-ppt`. For a project copy under `.agents/skills/codex-ppt/`, use `/skills add codex-ppt`. On SSH, Agentnik looks on the remote machine, not the machine running your SSH client.
 
 ## Settings and tools
 
