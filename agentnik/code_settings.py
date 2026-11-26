@@ -323,9 +323,19 @@ def configure_image(store, arguments):
     settings = store.config["settings"]
     image = validate_image_settings(settings.get("image_generation"))
     if not arguments:
+        from .image_settings import image_tool_config
+
+        note = ""
+        if image["enabled"]:
+            connections = {**environment_connections(), **store.config["connections"]}
+            try:
+                image_tool_config(image, connections)
+            except ValueError:
+                note = "The saved image setup is unavailable or invalid. Check the connection, model, and endpoint.\n"
         return (f"Image tool: {'on' if image['enabled'] else 'off'}\n"
                 f"Connection: {image['connection']!r} · Model: {image['model']!r}\n"
                 f"Endpoint: {'custom override' if image['endpoint'] else 'connection default'}\n"
+                f"{note}"
                 "Use /settings image set to configure, or /settings image on|off.")
     if arguments not in (["set"], ["on"], ["off"]):
         raise ValueError("Use /settings image set, on, or off.")

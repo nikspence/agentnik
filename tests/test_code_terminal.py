@@ -29,6 +29,31 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_terminal_image_status_flags_stale_or_invalid_setup_without_contacting_provider(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            store = Store(Path(directory))
+            try:
+                store.save_connection("Images", {"url": "https://images.example/v1", "model": "image"})
+                settings = store.config["settings"]
+                with patch("agentnik.core.environment_connections", return_value={}), \
+                        patch("agentnik.core.open_request") as request, patch.object(store, "flush") as flush:
+                    for name, endpoint, invalid in (
+                        ("Missing", "", True), ("Images", "https://other.example/images", True),
+                        ("Images", "", False),
+                    ):
+                        settings["image_generation"] = {
+                            "enabled": True, "connection": name, "model": "image", "endpoint": endpoint,
+                        }
+                        status = configure_code(store, ["image"])
+                        self.assertEqual("The saved image setup is unavailable or invalid" in status, invalid)
+                    request.assert_not_called()
+                    flush.assert_not_called()
+            finally:
+                store.db.close()
+
     def test_terminal_decision_status_reports_an_unavailable_saved_advisor(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store
