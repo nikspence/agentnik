@@ -35,6 +35,16 @@ def connection_menu(data_dir, action="", selected_name=""):
         elif old is None:
             print("Choose an existing saved connection.")
             return
+        if action == "show":
+            print(f"Saved connection {name!r}")
+            for field, label, default in (
+                ("protocol", "Protocol", "chat"), ("model", "Model", ""),
+                ("reasoning", "Reasoning effort", ""), ("service_tier", "Service tier", ""),
+                ("context_limit", "Context tokens", 0), ("stream", "Streaming", True),
+            ):
+                print(f"{label}: {old.get(field, default)!r}")
+            print("Endpoint URL and credentials are not displayed.")
+            return
         if action == "remove":
             if input(f"Remove saved connection {name!r}? [y/N] ").strip().lower() == "y":
                 store.delete_connection(name)
@@ -240,7 +250,7 @@ def terminal_session(options, root, lease, images):
                   "/diff [--staged] PATH  Review a file against HEAD\n"
                   "/git              Run manual Git status, diff, stage, unstage, commit, or push\n"
                   "/connections      List saved and environment connections\n"
-                  "/connections add|edit|options|key|remove [NAME]\n"
+                  "/connections show|add|edit|options|key|remove [NAME]\n"
                   "/connections discover  Look for supported services on this machine\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model [NAME]     Override the model, or reset to the connection default\n"
@@ -530,8 +540,8 @@ def terminal_session(options, root, lease, images):
         elif command == "/connections" or command.startswith("/connections "):
             _, _, operation = command.partition(" ")
             action, _, name = operation.strip().partition(" ")
-            if action not in ("", "add", "edit", "options", "key", "remove"):
-                print("Use /connections, or /connections add|edit|options|key|remove [NAME].")
+            if action not in ("", "show", "add", "edit", "options", "key", "remove"):
+                print("Use /connections, or /connections show|add|edit|options|key|remove [NAME].")
                 continue
             connection_menu(options.data_dir, action, name.strip())
             if not action:

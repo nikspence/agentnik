@@ -29,6 +29,26 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_show_saved_connection_is_read_only_and_omits_sensitive_fields(self):
+        from agentnik.cli import connection_menu
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            store = Store(Path(directory))
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/private-endpoint",
+                                                   "model": "fixture-model", "stream": False})
+                before = store.config_path.read_bytes()
+                with contextlib.redirect_stdout(io.StringIO()) as output, \
+                        patch("builtins.input", side_effect=AssertionError("unexpected edit prompt")):
+                    connection_menu(Path(directory), "show", "Fixture")
+                self.assertIn("Model: 'fixture-model'", output.getvalue())
+                self.assertIn("Streaming: False", output.getvalue())
+                self.assertNotIn("private-endpoint", output.getvalue())
+                self.assertEqual(store.config_path.read_bytes(), before)
+            finally:
+                store.db.close()
+
     def test_machine_scope_uses_absolute_reads_without_widening_project_tools(self):
         import json
         from unittest.mock import Mock
