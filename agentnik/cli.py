@@ -550,16 +550,16 @@ def terminal_session(options, root, lease, images):
             from .code_terminal import terminal_text
 
             try:
-                manual_git(root, command.partition(" ")[2])
+                manual_git(root, command.partition(" ")[2], write=write_activity)
             except (EOFError, KeyboardInterrupt):
-                print("Git command interrupted. Check Git state before retrying.")
+                write_activity("Git command interrupted. Check Git state before retrying.")
             except (OSError, ValueError) as exc:
                 print(terminal_text(exc), file=sys.stderr)
         elif command == "/diff" or command.startswith("/diff "):
             from .code_terminal import project_diff, terminal_text
 
             try:
-                print(terminal_text(project_diff(root, command.partition(" ")[2].strip())))
+                write_activity(terminal_text(project_diff(root, command.partition(" ")[2].strip())))
             except (OSError, ValueError) as exc:
                 print(terminal_text(exc), file=sys.stderr)
             except KeyError:

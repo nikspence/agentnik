@@ -1373,15 +1373,19 @@ class TerminalRunTests(unittest.TestCase):
                     self.assertIn("Unstaged", project_diff(root, ""))
 
                     composer = Mock()
-                    composer.prompt.side_effect = ["/diff", f'/diff "{path.name}"', "/exit"]
+                    composer.prompt.side_effect = ["/diff", f'/diff "{path.name}"', "/git", "/transcript", "/exit"]
                     argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
                     with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                             patch("agentnik.code_composer.create_composer", return_value=composer), \
+                            patch("agentnik.code_composer.transcript_pager") as pager, \
                             patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
                         self.assertEqual(cli.main(), 0)
                     request.assert_not_called()
                     self.assertIn("Unstaged", out.getvalue())
                     self.assertIn("+working", out.getvalue())
+                    pager.assert_called_once()
+                    self.assertIn("+working", pager.call_args.args[0])
+                    self.assertIn("require native Git on PATH", pager.call_args.args[0])
 
     def test_mcp_signin_persists_only_the_credential_reference(self):
         from agentnik.code_settings import configure_code
