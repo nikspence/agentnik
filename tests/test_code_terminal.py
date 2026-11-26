@@ -221,6 +221,8 @@ class TerminalRunTests(unittest.TestCase):
             reads = [call("machine_list_directory", {"path": str(base)}, ident="list"),
                      call("machine_inspect_path", {"path": str(outside)}, ident="metadata"),
                      call("machine_tail_file", {"path": str(outside), "lines": "1"}, ident="tail"),
+                     call("machine_patch_file", {"path": str(outside), "old_text": "fixture",
+                                                  "new_text": "not reviewed"}, ident="tail-only-patch"),
                      call("machine_read_file", {"path": str(outside)})]
             edit = call("machine_patch_file", {"path": str(outside), "old_text": "fixture", "new_text": "reviewed"},
                         ident="change")
@@ -282,6 +284,8 @@ class TerminalRunTests(unittest.TestCase):
             tail = next(m for m in bodies[1]["messages"] if m.get("tool_call_id") == "tail")
             self.assertEqual(json.loads(tail["content"]),
                              {"text": "Outside fixture evidence", "truncated": False})
+            rejected = next(m for m in bodies[1]["messages"] if m.get("tool_call_id") == "tail-only-patch")
+            self.assertIn("Read the current file with machine_read_file before editing", rejected["content"])
             from agentnik.code_agent import ProjectFiles
 
             with self.assertRaisesRegex(ValueError, "project-relative path"):
