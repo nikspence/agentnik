@@ -17,7 +17,7 @@ COMMANDS = (
     "/settings decision set", "/settings decision on", "/settings decision off",
     "/settings git-author", "/settings git-author set", "/settings git-author clear",
     "/settings goal", "/settings image", "/settings image set", "/settings image on",
-    "/settings image off", "/settings limits", "/settings mcp", "/settings mcp add-https",
+    "/settings image off", "/settings limits", "/settings limits all unlimited", "/settings limits all default", "/settings mcp", "/settings mcp add-https",
     "/settings mcp add-local", "/settings mcp edit-https", "/settings mcp edit-local",
     "/settings mcp enable", "/settings mcp disable",
     "/settings mcp on", "/settings mcp off", "/settings mcp priority", "/settings mcp remove",

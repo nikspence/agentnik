@@ -1466,6 +1466,30 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_bulk_run_limits_preserve_request_timeout_and_context(self):
+        from agentnik.code_limits import coding_limits, UNLIMITED_FIELDS
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            store = Store(directory)
+            try:
+                configure_code(store, ["limits", "model_seconds", "180"])
+                configure_code(store, ["limits", "context_bytes", "5000"])
+                for mode in ("unlimited", "default"):
+                    configure_code(store, ["limits", "all", mode])
+                    reopened = Store(directory)
+                    try:
+                        actual = reopened.config["settings"]["coding_limits"]
+                    finally:
+                        reopened.db.close()
+                    expected = dict(coding_limits(), model_seconds=180, context_bytes=5000)
+                    if mode == "unlimited":
+                        expected.update(dict.fromkeys(UNLIMITED_FIELDS, 0))
+                    self.assertEqual(actual, expected)
+            finally:
+                store.db.close()
+
     def test_terminal_composer_completes_nested_commands(self):
         from importlib.util import find_spec
 
@@ -2084,8 +2108,7 @@ class TerminalRunTests(unittest.TestCase):
                                         "/model fixture-override", "/model", "/vision on", "/connection Fixture",
                                         "/attach visual.png", "/attach discard.png",
                                         "/attachments", "/attachments remove 3", *pdf_commands,
-                                        *[f"/settings limits {key} unlimited" for key in
-                                          ("rounds", "requests", "calls", "turn_seconds")],
+                                        "/settings limits all unlimited",
                                         "/settngs", "//notes is an example path. Create a note.", "/context", "/context clear",
                                         "/permissions allow-all", "Create another note",
                                         "/scope machine", f'/attach "{brief}"', "/attachments",

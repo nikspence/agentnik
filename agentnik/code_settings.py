@@ -501,7 +501,8 @@ def configure_code(store, arguments, root=None):
             f"goal {key}: {goals[key] or 'unlimited'} (range {low}–{high}, 0 means unlimited)"
             for key, (_, low, high) in GOAL_FIELDS.items()
         ]
-    run_help = "Use /settings limits NAME VALUE (or default, or unlimited where listed)."
+    run_help = ("Use /settings limits NAME VALUE (or default, or unlimited where listed). "
+                "Use /settings limits all unlimited or /settings limits all default to change run budgets together.")
     goal_help = "Use /settings goal steps|seconds VALUE (or default or unlimited)."
     if arguments == ["tls"]:
         mode = "relaxed" if settings.get("relaxed_tls") else "strict"
@@ -586,7 +587,12 @@ def configure_code(store, arguments, root=None):
         return configure_decision(store, arguments[1:])
     if arguments[0] == "mcp":
         return configure_mcp(store, arguments[1:])
-    if len(arguments) in (2, 3) and arguments[0] in ("limits", "goal"):
+    if arguments in (["limits", "all", "unlimited"], ["limits", "all", "default"]):
+        values = coding_limits(settings.get("coding_limits"))
+        for key in UNLIMITED_FIELDS:
+            values[key] = 0 if arguments[-1] == "unlimited" else FIELDS[key][0]
+        settings["coding_limits"] = coding_limits(values)
+    elif len(arguments) in (2, 3) and arguments[0] in ("limits", "goal"):
         section, key = arguments[:2]
         fields, validator, setting = (
             (GOAL_FIELDS, goal_limits, "coding_goal_limits") if section == "goal"
