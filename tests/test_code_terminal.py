@@ -28,6 +28,20 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_unlimited_alias_respects_bounded_limits(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            store = Store(directory)
+            try:
+                configure_code(store, ["goal", "steps", "unlimited"])
+                self.assertEqual(store.config["settings"]["coding_goal_limits"]["steps"], 0)
+                with self.assertRaisesRegex(ValueError, "cannot be unlimited"):
+                    configure_code(store, ["limits", "model_seconds", "unlimited"])
+            finally:
+                store.db.close()
+
     def test_headless_pdf_extracts_text_and_rejects_encryption(self):
         from importlib.util import find_spec
         from agentnik.document_reader import read_document
@@ -864,7 +878,7 @@ class TerminalRunTests(unittest.TestCase):
                                         "/model fixture-override", "/model", "/vision on", "/connection Fixture",
                                         "/attach visual.png", "/attach discard.png",
                                         "/attachments", "/attachments remove 3", *pdf_commands,
-                                        *[f"/settings limits {key} 0" for key in
+                                        *[f"/settings limits {key} unlimited" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
                                         "/settngs", "//notes is an example path. Create a note.", "/context", "/context clear",
                                         "/permissions allow-all", "Create another note",

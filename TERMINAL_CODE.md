@@ -47,7 +47,7 @@ Two terminals can work in the same project using separate sessions. If another t
 | `/connections discover` | Check known loopback ports for local model services. Discovered connections last until the terminal exits. |
 | `/connections key NAME` / `/connections remove NAME` | Rotate or clear a credential, or remove a connection. |
 | `/permissions require` / `/permissions allow-all` | Require review or skip prompts for project edits and shell commands in this session. New and resumed sessions default to review. |
-| `/settings` | Manage run and goal limits, TLS, desktop appearance, and other shared settings. Use `0` for unlimited rounds, requests, calls, turn time, goal steps, or goal time. Model request timeouts and retained context remain bounded. |
+| `/settings` | Manage run and goal limits, TLS, desktop appearance, and other shared settings. Use `unlimited` or `0` for rounds, requests, calls, turn time, goal steps, or goal time. Model request timeouts and retained context remain bounded. |
 | `/skills` | List and preview available skills, then pin the ones you want to use. |
 | `/web on` | Enable research for this session. Manage access policy, routing priority, and provider credentials under `/settings web`. |
 | `/settings chat-limits` / `/settings web desktop on\|off` | Manage desktop Chat research limits and the default desktop Web switch. |

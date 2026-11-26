@@ -465,8 +465,8 @@ def configure_code(store, arguments, root=None):
         for key, (_, low, high) in GOAL_FIELDS.items():
             lines.append(f"goal {key}: {goals[key]} (range {low}–{high}, 0 means unlimited)")
         lines.extend((
-            "Use /settings limits NAME VALUE (or default).",
-            "Use /settings goal steps|seconds VALUE (or default).",
+            "Use /settings limits NAME VALUE (or default, or unlimited where listed).",
+            "Use /settings goal steps|seconds VALUE (or default or unlimited).",
             "Use /settings chat-limits to manage desktop Chat research budgets.",
             "Use /settings tls strict or /settings tls relaxed.",
             "Use /settings appearance to manage desktop appearance and layout.",
@@ -536,6 +536,10 @@ def configure_code(store, arguments, root=None):
         if key not in fields:
             raise ValueError("Unknown limit. Use /settings to list limits.")
         values = validator(settings.get(setting))
+        if value == "unlimited":
+            if section != "goal" and key not in UNLIMITED_FIELDS:
+                raise ValueError(f"{key} cannot be unlimited. Use /settings to see its range.")
+            value = "0"
         try:
             values[key] = fields[key][0] if value == "default" else int(value)
         except ValueError:
