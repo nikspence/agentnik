@@ -55,6 +55,23 @@ class TerminalRunTests(unittest.TestCase):
             self.assertEqual(output.getvalue().strip(), f"Agentnik Code {__version__}")
             self.assertFalse(data.exists())
 
+    def test_terminal_rejects_a_file_as_the_data_directory(self):
+        from agentnik import cli
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "not-a-directory"
+            data.write_text("Keep this")
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.cli.terminal_session") as session, \
+                    contextlib.redirect_stderr(io.StringIO()) as output, self.assertRaises(SystemExit) as stopped:
+                cli.main()
+            self.assertEqual(stopped.exception.code, 2)
+            self.assertIn("application data path must be a directory", output.getvalue())
+            self.assertEqual(data.read_text(), "Keep this")
+            session.assert_not_called()
+
     def test_unlimited_alias_respects_bounded_limits(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store
@@ -1383,6 +1400,7 @@ class TerminalRunTests(unittest.TestCase):
             ids = re.findall(r"Session: ([a-f0-9-]+) · Connection: 'Fixture'", output.getvalue())
             self.assertEqual(len(ids), 2)
             self.assertEqual(ids[0], ids[1])
+            self.assertIn(f"Data directory: {str(data)!r}", output.getvalue())
             self.assertIn("model_seconds:", output.getvalue())
             self.assertTrue(errors.getvalue())
 

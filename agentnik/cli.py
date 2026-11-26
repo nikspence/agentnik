@@ -168,6 +168,8 @@ def main():
         options.data_dir = (options.data_dir or default_home()).expanduser().resolve()
     except (OSError, RuntimeError) as exc:
         parser.error(f"cannot resolve the application data directory: {exc}")
+    if options.data_dir.exists() and not options.data_dir.is_dir():
+        parser.error("application data path must be a directory")
 
     with SessionLease(options.data_dir) as lease, ImageQueue() as images:
         return terminal_session(options, root, lease, images)
@@ -384,6 +386,7 @@ def terminal_session(options, root, lease, images):
                   f" · Vision: {'on' if vision_enabled else 'off'}"
                   f" · Thinking: {'on' if show_thinking else 'off'}"
                   f" · Permissions: {'require' if require_approval else 'allow-all'}")
+            print(f"Data directory: {str(options.data_dir)!r}")
         elif command == "/permissions" or command.startswith("/permissions "):
             mode = command.partition(" ")[2].strip()
             if not mode:
