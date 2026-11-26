@@ -171,12 +171,16 @@ class Localization(unittest.TestCase):
                     localized=tab.activity_text({'kind':'usage','text':current});self.assertIn('모델: 요청 1회',localized);self.assertIn('하위 에이전트: 요청 2회',localized)
                     malformed='Usage: unexpected';self.assertEqual(tab.activity_text({'kind':'usage','text':malformed}),malformed)
                     run=CodingRun({'model':'test'},str(folder),'task');tab.job=run;tab.run_id=run.run_id
-                    tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':{'cwd':str(folder),'path':'src/file.py','diff':'+exact text'}})
+                    proposal={'cwd':str(folder),'path':'src/file.py','diff':'+exact text'}
+                    run.pending=('one',proposal)
+                    tab.receive({'run_id':run.run_id,'kind':'edit_proposal','fingerprint':'one','proposal':proposal})
                     text=tab.approval.toPlainText();self.assertIn('확인되지 않음',text);self.assertIn(str(folder),text);self.assertIn('src/file.py',text)
                     self.assertIn('파일 수정 승인 대기 중: src/file.py',tab.activity.toPlainText())
                     self.assertEqual(store.list_sessions()[0]['code_activity'][-1]['text'],'Awaiting approval for file edit: src/file.py')
                     self.assertEqual(tab.diff.toPlainText(),'+exact text');tab.cancel()
-                finally:window.close();self.app.processEvents();store.db.close()
+                finally:
+                    with patch('agentnik.ui.confirm',return_value=True):window.close()
+                    self.app.processEvents();store.db.close()
         finally:self.app.removeTranslator(translator)
 
 
