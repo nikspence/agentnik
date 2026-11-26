@@ -258,7 +258,7 @@ def terminal_session(options, root, lease, images):
                   "/skills           List, preview or select project and user skills\n"
                   "/mcp              List or select MCP servers for this session\n"
                   "/permissions      Set project and shell approval for this session\n"
-                  "/scope [MODE]     Show or set project or machine file scope\n"
+                  "/scope [MODE]     Show or set file scope for the next run (project or machine)\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history [PAGE]   Show saved turns for this session\n"
                   "/new              Start a fresh session in this project\n"

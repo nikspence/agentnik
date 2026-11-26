@@ -69,8 +69,10 @@ class TerminalRunTests(unittest.TestCase):
                         ident="change")
             report = base / "report.txt"
             create = call("machine_create_file", {"path": str(report), "content": "Diagnostic report\n"}, ident="create")
+            declined = base / "declined.txt"
+            decline = call("machine_create_file", {"path": str(declined), "content": "Not approved"}, ident="decline")
             replies = iter([Wire(chat(calls=reads, finish="tool_calls"), False),
-                            Wire(chat(calls=[edit, create], finish="tool_calls"), False),
+                            Wire(chat(calls=[edit, create, decline], finish="tool_calls"), False),
                             Wire(chat("Outside fixture evidence"), False),
                             Wire(chat("Project response"), False),
                             Wire(chat(calls=[create], finish="tool_calls"), False),
@@ -85,16 +87,18 @@ class TerminalRunTests(unittest.TestCase):
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch.object(cli, "uuid4", return_value=session), \
                     patch("agentnik.code_composer.create_composer", side_effect=open_composer), \
-                    patch("builtins.input", return_value="y") as approval, \
+                    patch("builtins.input", side_effect=["y", "y", ""]) as approval, \
                     patch.object(core, "open_request", side_effect=send), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(len(bodies), 6, output.getvalue())
-            self.assertEqual(approval.call_count, 2, output.getvalue())
+            self.assertEqual(approval.call_count, 3, output.getvalue())
             self.assertIn("operation: machine_patch_file", output.getvalue())
             self.assertIn("operation: machine_create_file", output.getvalue())
             self.assertEqual(outside.read_text(encoding="utf-8"), "Outside reviewed evidence")
             self.assertEqual(report.read_bytes(), b"Diagnostic report\n")
+            self.assertFalse(declined.exists())
+            self.assertIn("Machine file creation declined by the user", json.dumps(bodies[2]["messages"]))
             self.assertIn("Permissions: require", output.getvalue())
             self.assertIn("Scope: machine", output.getvalue())
             self.assertIn("machine_read_file", {t["function"]["name"] for t in bodies[0]["tools"]})
