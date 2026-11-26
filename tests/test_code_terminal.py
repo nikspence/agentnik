@@ -28,6 +28,17 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertTrue(saved["mcp_servers"][0]["enabled"])
                 self.assertEqual(saved["settings"]["mcp_priority"], "last")
                 self.assertFalse(saved["settings"]["mcp_access_enabled"])
+                with patch("builtins.input", side_effect=[
+                    "Local Fixture", "python", '["-m", "fixture"]', "", '{"TOKEN":"MCP_TOKEN"}',
+                ]):
+                    configure_code(store, ["mcp", "add-local"])
+                local = load_config(store.config_path)["mcp_servers"][1]
+                self.assertFalse(local["enabled"])
+                self.assertEqual(local["args"], ["-m", "fixture"])
+                self.assertEqual(local["env"], {"TOKEN": "MCP_TOKEN"})
+                with patch("builtins.input", return_value="y"):
+                    configure_code(store, ["mcp", "remove", "Local", "Fixture"])
+                self.assertEqual(len(load_config(store.config_path)["mcp_servers"]), 1)
             finally:
                 store.db.close()
 

@@ -1,6 +1,7 @@
 """Terminal access to shared Code settings."""
 
 from getpass import GetPassWarning, getpass
+import json
 import os
 import warnings
 
@@ -23,27 +24,54 @@ def configure_mcp(store, arguments):
               f" · {'enabled' if item['enabled'] else 'disabled'}" for item in servers),
             "Use /settings mcp on|off, priority first|last, or enable|disable NAME.",
             "Use /settings mcp add-https to save an HTTPS server without credentials.",
+            "Use /settings mcp add-local to save a local executable or remove NAME to remove a server.",
         ])
     if arguments in (["on"], ["off"]):
         settings["mcp_access_enabled"] = arguments == ["on"]
     elif arguments in (["priority", "first"], ["priority", "last"]):
         settings["mcp_priority"] = arguments[1]
-    elif len(arguments) >= 2 and arguments[0] in ("enable", "disable"):
+    elif len(arguments) >= 2 and arguments[0] in ("enable", "disable", "remove"):
         name = " ".join(arguments[1:])
-        if not any(item["name"] == name for item in servers):
+        selected = next((item for item in servers if item["name"] == name), None)
+        if selected is None:
             raise ValueError("No saved MCP server with that name.")
+        if arguments[0] == "remove":
+            try:
+                if input(f"Remove saved MCP server {name!r}? [y/N] ").strip().lower() != "y":
+                    return "MCP server unchanged."
+            except (EOFError, KeyboardInterrupt):
+                return "MCP setup cancelled."
+            store.config["mcp_servers"] = validate_servers([item for item in servers if item is not selected])
+            store.flush()
+            if selected.get("credential_id"):
+                import keyring
+
+                try:
+                    keyring.delete_password("Agentnik", selected["credential_id"])
+                except Exception:
+                    return "Removed saved MCP server. Its credential could not be removed from the OS store."
+            return "Removed saved MCP server. No server was contacted."
         updated = [dict(item, enabled=arguments[0] == "enable") if item["name"] == name else item
                    for item in servers]
         store.config["mcp_servers"] = validate_servers(updated)
-    elif arguments == ["add-https"]:
+    elif arguments in (["add-https"], ["add-local"]):
         try:
             name = input("New server name: ").strip()
-            url = input("Server HTTPS URL: ").strip()
+            if arguments == ["add-https"]:
+                url = input("Server HTTPS URL: ").strip()
+                server = {"name": name, "url": url, "transport": "http", "credential_id": "", "enabled": False}
+            else:
+                command = input("Local executable: ").strip()
+                args = json.loads(input('Arguments as a JSON list (blank for none): ').strip() or "[]")
+                directory = input("Absolute working directory (optional): ").strip()
+                environment = json.loads(
+                    input('Environment variable name mappings as JSON (blank for none): ').strip() or "{}"
+                )
+                server = {"name": name, "command": command, "args": args, "enabled": False,
+                          "working_directory": directory, "env": environment}
         except (EOFError, KeyboardInterrupt):
             return "MCP setup cancelled."
-        updated = [*servers, {"name": name, "url": url, "transport": "http",
-                              "credential_id": "", "enabled": False}]
-        store.config["mcp_servers"] = validate_servers(updated)
+        store.config["mcp_servers"] = validate_servers([*servers, server])
     else:
         raise ValueError("Use /settings mcp to list supported operations.")
     store.flush()
