@@ -558,6 +558,7 @@ class TerminalRunTests(unittest.TestCase):
                           output.getvalue())
             self.assertIn("structured Git changes, and subagent file transfers still require review",
                           output.getvalue())
+            self.assertIn("Configured image generation also follows this mode", output.getvalue())
             self.assertIn("Scope: machine", output.getvalue())
             self.assertIn("machine_read_file", {t["function"]["name"] for t in bodies[0]["tools"]})
             self.assertNotIn("machine_read_file", {t["function"]["name"] for t in bodies[3]["tools"]})
@@ -3267,7 +3268,7 @@ class TerminalRunTests(unittest.TestCase):
         run = Mock()
         proposal = {"operation": "run_shell", "cwd": "fixture-project", "shell": "fixture-shell",
                     "command": "echo fixture", "max_seconds": 10, "max_output_bytes": 32000,
-                    "environment_hash": "not for the review screen"}
+                    "environment_hash": "not for the review screen", "purpose": "tests", "test_format": "unittest"}
         lines = []
 
         def work(emit):
@@ -3280,6 +3281,8 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("not confined to the project", review)
             self.assertIn("command: echo fixture", review)
             self.assertIn("max_output_bytes: 32000", review)
+            self.assertIn("purpose: tests", review)
+            self.assertIn("test_format: unittest", review)
             self.assertNotIn(proposal["environment_hash"], review)
             return ""
 

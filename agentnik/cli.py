@@ -618,9 +618,11 @@ def terminal_session(options, root, lease, images):
             mode = command.partition(" ")[2].strip()
             actions = "File edits in the current scope and ordinary shell commands"
             exceptions = "MCP requests, structured Git changes, and subagent file transfers still require review."
+            image_policy = ("Configured image generation also follows this mode and may send reference images "
+                            "to the image provider without a prompt in allow-all mode.")
             if not mode:
                 current = "require" if require_approval else "allow-all"
-                print(f"Current mode: {current}. Applies to {actions.lower()}. {exceptions}")
+                print(f"Current mode: {current}. Applies to {actions.lower()}. {exceptions} {image_policy}")
                 try:
                     mode = input("Choose require or allow-all [Enter to keep]: ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
@@ -636,7 +638,7 @@ def terminal_session(options, root, lease, images):
                 print(f"{actions} require approval for this session.")
             else:
                 print(f"{actions} normally skip approval for this session. {exceptions} "
-                      "Shell commands that need separate review still prompt.")
+                      "Shell commands that need separate review still prompt. " + image_policy)
                 if machine_scope:
                     print("Machine file changes normally skip approval (allow-all).")
         elif command in ("/web on", "/web off"):
