@@ -11,6 +11,27 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_image_settings_reject_an_override_on_another_host(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory:
+            store = Store(directory)
+            try:
+                store.save_connection("Fixture", {"url": "https://gateway.example/v1", "protocol": "chat"})
+                with patch("builtins.input", side_effect=["Fixture", "image-model", "https://other.example/images"]):
+                    with self.assertRaises(ValueError):
+                        configure_code(store, ["image", "set"])
+                with patch("builtins.input", side_effect=["Fixture", "image-model", ""]):
+                    configure_code(store, ["image", "set"])
+                configure_code(store, ["image", "on"])
+                settings = load_config(store.config_path)["settings"]["image_generation"]
+                self.assertEqual(settings, {
+                    "enabled": True, "connection": "Fixture", "model": "image-model", "endpoint": "",
+                })
+            finally:
+                store.db.close()
+
     def test_search_credentials_are_saved_in_keyring_and_not_listed(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store, load_config

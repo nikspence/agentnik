@@ -6,7 +6,40 @@ import warnings
 
 from .code_limits import FIELDS, GOAL_FIELDS, UNLIMITED_FIELDS, coding_limits, goal_limits
 from .localization import choices
+from .image_settings import image_endpoint, validate_image_settings
 from .search_providers import SEARCH_PROVIDERS
+
+
+def configure_image(store, arguments):
+    from .core import environment_connections
+
+    settings = store.config["settings"]
+    image = validate_image_settings(settings.get("image_generation"))
+    if not arguments:
+        return (f"Desktop image tool: {'on' if image['enabled'] else 'off'}\n"
+                f"Connection: {image['connection']!r} · Model: {image['model']!r}\n"
+                "Use /settings image set to configure, or /settings image on|off.")
+    if arguments not in (["set"], ["on"], ["off"]):
+        raise ValueError("Use /settings image set, on, or off.")
+    if arguments == ["set"]:
+        try:
+            name = input(f"Image connection [{image['connection']!r}]: ").strip() or image["connection"]
+            model = input(f"Image model [{image['model']!r}]: ").strip() or image["model"]
+            endpoint = input("Image endpoint override (blank for connection default): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return "Image setup cancelled."
+        image.update(connection=name, model=model, endpoint=endpoint)
+    else:
+        image["enabled"] = arguments == ["on"]
+    if arguments != ["off"]:
+        connections = {**environment_connections(), **store.config["connections"]}
+        connection = connections.get(image["connection"])
+        if not connection or not image["model"]:
+            raise ValueError("Choose an available connection and an image model.")
+        image_endpoint(connection, image["endpoint"])
+    settings["image_generation"] = validate_image_settings(image)
+    store.flush()
+    return "Saved desktop image settings. Image generation is not available in terminal Code."
 
 
 def web_providers(store, arguments):
@@ -120,6 +153,7 @@ def configure_code(store, arguments):
             "Use /settings appearance to manage desktop appearance and layout.",
             "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
             "Use /settings web providers to manage search provider credentials.",
+            "Use /settings image to configure the desktop image model.",
         ))
         return "\n".join(lines)
 
@@ -131,6 +165,8 @@ def configure_code(store, arguments):
         return "Saved desktop appearance setting. It applies when the desktop app next starts."
     if arguments[:2] == ["web", "providers"]:
         return web_providers(store, arguments[2:])
+    if arguments[0] == "image":
+        return configure_image(store, arguments[1:])
     if len(arguments) == 3 and arguments[0] in ("limits", "goal"):
         section, key, value = arguments
         fields, validator, setting = (
