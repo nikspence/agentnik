@@ -2372,6 +2372,26 @@ class TerminalRunTests(unittest.TestCase):
             self.assertTrue(read.call_args.args[0])
             composer.history.append_string.assert_not_called()
 
+    def test_unsaved_session_has_status_but_does_not_appear_in_saved_sessions(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ident = str(uuid4())
+            composer = Mock()
+            composer.prompt.side_effect = ["/status", "/sessions", "/exit"]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.cli.uuid4", return_value=ident), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn(f"Session: {ident}", output.getvalue())
+            self.assertIn("Your current session is saved when its first task starts.", output.getvalue())
+            self.assertEqual(output.getvalue().count(ident), 1)
+            request.assert_not_called()
+
     def test_session_listing_can_reach_older_pages_without_opening_sessions(self):
         from unittest.mock import Mock
         from agentnik import cli

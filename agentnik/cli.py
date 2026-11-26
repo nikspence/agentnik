@@ -371,7 +371,7 @@ def terminal_session(options, root, lease, images):
         if command == "/help":
             print("/keys             Show keyboard shortcuts\n"
                   "/transcript       Open the current session transcript\n"
-                  "/status           Show the project folder\n"
+                  "/status           Show the current session, project, model and permissions\n"
                   "/diff [--staged] PATH  Review a file against HEAD\n"
                   "/git              Run manual Git status, log, diff, stage, unstage, commit, or push\n"
                   "/connections      List saved and environment connections\n"
@@ -719,7 +719,7 @@ def terminal_session(options, root, lease, images):
                     goal = f" [goal: {goal_status}]" if goal_status else ""
                     print(terminal_text(f"{ident}  {record.get('code_state', 'idle')}{scope}{current}{goal}  {label}"))
                 if not sessions:
-                    print("No saved sessions for this project.")
+                    print("No saved sessions for this project. Your current session is saved when its first task starts.")
                 elif offset >= len(sessions):
                     print("No saved sessions on that page.")
                 elif len(sessions) > offset + 20:
