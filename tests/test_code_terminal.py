@@ -1697,11 +1697,18 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
 
     def test_terminal_responses_view_image_sends_render_only_after_tool_call(self):
+        self.check_terminal_view_image_transport("responses")
+
+    def test_terminal_messages_view_image_sends_render_only_after_tool_call(self):
+        self.check_terminal_view_image_transport("messages")
+
+    def check_terminal_view_image_transport(self, protocol):
         import base64
         import json
         from unittest.mock import Mock
         from agentnik import cli, core
         from agentnik.storage import Store
+        from test_compat_tools import msg
         from test_routing import Wire, function_call, message, response
         try:
             from PIL import Image
@@ -1714,17 +1721,23 @@ class TerminalRunTests(unittest.TestCase):
             root.mkdir()
             slide = root / "render.png"
             Image.new("RGB", (160, 90), "blue").save(slide)
-            url = "data:image/png;base64," + base64.b64encode(slide.read_bytes()).decode()
+            encoded = base64.b64encode(slide.read_bytes()).decode()
+            url = "data:image/png;base64," + encoded
             store = Store(data)
             try:
                 store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "vision",
-                                                   "protocol": "responses", "stream": False})
+                                                   "protocol": protocol, "stream": False})
             finally:
                 store.db.close()
             composer = Mock()
             composer.prompt.side_effect = ["/connection Fixture", "/vision on", "Review the rendered slide.", "/exit"]
-            call = dict(function_call("inspect", '{"path":"render.png"}'), name="view_image")
-            replies = iter([Wire(response([call]), False), Wire(response([message("Slide reviewed.")]), False)])
+            if protocol == "responses":
+                call = dict(function_call("inspect", '{"path":"render.png"}'), name="view_image")
+                proposal, answer = response([call]), response([message("Slide reviewed.")])
+            else:
+                call = {"type": "tool_use", "id": "inspect", "name": "view_image", "input": {"path": "render.png"}}
+                proposal, answer = msg([call], "tool_use"), msg([{"type": "text", "text": "Slide reviewed."}])
+            replies = iter([Wire(proposal, False), Wire(answer, False)])
             bodies = []
             def send(connection, endpoint, body, timeout):
                 bodies.append(json.loads(json.dumps(body)))
@@ -1736,13 +1749,23 @@ class TerminalRunTests(unittest.TestCase):
                     patch.object(core, "open_request", side_effect=send), contextlib.redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(cli.main(), 0)
             initial, continuation = bodies
-            self.assertNotIn(url, json.dumps(initial))
+            self.assertNotIn(encoded, json.dumps(initial))
             self.assertIn("view_image", {tool.get("name") for tool in initial["tools"]})
-            self.assertTrue(any(item.get("type") == "function_call_output" and item.get("call_id") == "inspect"
-                                for item in continuation["input"]))
-            self.assertEqual([part["image_url"] for item in continuation["input"]
-                              if isinstance(item.get("content"), list)
-                              for part in item["content"] if part.get("type") == "input_image"], [url])
+            if protocol == "responses":
+                self.assertTrue(any(item.get("type") == "function_call_output" and item.get("call_id") == "inspect"
+                                    for item in continuation["input"]))
+                self.assertEqual([block["image_url"] for item in continuation["input"]
+                                  if isinstance(item.get("content"), list)
+                                  for block in item["content"] if block.get("type") == "input_image"], [url])
+            else:
+                blocks = [block for item in continuation["messages"] if item.get("role") == "user"
+                          and isinstance(item.get("content"), list) for block in item["content"]]
+                result_index = next(index for index, block in enumerate(blocks)
+                                    if block.get("type") == "tool_result" and block.get("tool_use_id") == "inspect")
+                image_index, = [index for index, block in enumerate(blocks) if block.get("type") == "image"]
+                self.assertLess(result_index, image_index)
+                self.assertEqual(blocks[image_index]["source"],
+                                 {"type": "base64", "media_type": "image/png", "data": encoded})
             self.assertIn("Slide reviewed.", out.getvalue())
 
     def test_image_settings_reject_an_override_on_another_host(self):
