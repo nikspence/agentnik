@@ -135,6 +135,8 @@ FIELD_HELP={
     'right':'Exact local reference to compare against left, such as refs/remotes/origin/main.',
 }
 FIELD_OVERRIDES={
+    ('run_shell','path'):'Project-relative working directory, even in machine scope. Use "." for the project root.',
+    ('run_tests','path'):'Project-relative working directory, even in machine scope. Use "." for the project root.',
     ('read_skill_resource','path'):'Resource path relative to the selected skill directory.',
     ('read_project_skill','name'):'Exact skill id returned by list_project_skills.',
     ('list_skill_resources','name'):'Exact selected skill name.',

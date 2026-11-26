@@ -558,7 +558,7 @@ def terminal_session(options, root, lease, images):
                       else "Machine file changes normally skip approval (allow-all).")
             else:
                 print("File scope: project. Built-in file tools use project-relative paths. Machine tools are unavailable.")
-            print("Shell commands are not sandboxed in either scope.")
+            print("Shell commands are not sandboxed in either scope. Their starting directory is project-relative.")
         elif command == "/permissions" or command.startswith("/permissions "):
             mode = command.partition(" ")[2].strip()
             actions = "File edits in the current scope and ordinary shell commands"

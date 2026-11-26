@@ -194,6 +194,9 @@ class TerminalRunTests(unittest.TestCase):
                         description = tool["parameters"]["properties"]["path"]["description"]
                         self.assertTrue(description.startswith("Explicit absolute path"), (name, description))
                 self.assertIn("Project-relative", tools["read_file"]["parameters"]["properties"]["path"]["description"])
+                for name in ("run_shell", "run_tests"):
+                    description = tools[name]["parameters"]["properties"]["path"]["description"]
+                    self.assertIn("Project-relative working directory, even in machine scope", description)
             else:
                 request.assert_not_called()
 
