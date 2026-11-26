@@ -26,6 +26,7 @@ from importlib.util import find_spec
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import subprocess
 from threading import Event, Thread
 import pexpect
 
@@ -179,7 +180,8 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding=
     release.set()
     session.send("/new\r")
     session.expect(r"Started session ([a-f0-9-]{36})")
-    assert session.match.group(1) != original_session
+    newer_session = session.match.group(1)
+    assert newer_session != original_session
     session.expect_exact("code>")
     session.send("Separate session marker.\r")
     session.expect_exact("SSH fixture completed the edit.")
@@ -188,6 +190,13 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding=
     session.expect(pexpect.EOF)
     session.close()
     assert session.exitstatus == 0, session.exitstatus
+discovery = subprocess.run(["ssh", "-T", *args[1:-1], args[-1] + " --list-sessions"],
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True, timeout=12)
+listed = json.loads(discovery.stdout)
+assert [(row["id"], row["status"]) for row in listed] == [
+    (newer_session, "completed"), (original_session, "cancelled"),
+]
+assert len(requests) == 6, "Session discovery sent an unexpected request"
 with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume " + original_session],
                    encoding="utf-8", timeout=12) as session:
     session.expect_exact("Cancelled locally.")
