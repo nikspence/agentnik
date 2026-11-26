@@ -8,7 +8,7 @@ from .code_terminal import terminal_text
 
 
 def manual_git(root, argument, *, prompt=None, write=print):
-    usage = ("Use /git status, /git diff [--staged], /git stage PATH, /git unstage PATH, "
+    usage = ("Use /git status, /git log, /git diff [--staged], /git stage PATH, /git unstage PATH, "
              "/git commit MESSAGE, /git remotes, or /git push REMOTE BRANCH.")
     action, _, value = argument.partition(" ")
     value = value.strip()
@@ -16,16 +16,16 @@ def manual_git(root, argument, *, prompt=None, write=print):
         write(usage)
         write("These manual commands require native Git on PATH. Other Agentnik Code workflows do not require it.")
         return
-    if action not in ("status", "diff", "stage", "unstage", "commit", "remotes", "push"):
+    if action not in ("status", "log", "diff", "stage", "unstage", "commit", "remotes", "push"):
         raise ValueError(usage)
     executable = shutil.which("git")
     if not executable:
         raise ValueError("Native Git was not found on PATH. Install it to use /git, or continue without manual Git commands.")
     prompt = prompt or input
 
-    def run(*args, capture=False):
+    def run(*args, capture=False, **options):
         return subprocess.run([executable, *args], cwd=root, check=False, text=True,
-                              capture_output=capture)
+                              capture_output=capture, **options)
 
     def repository():
         result = run("rev-parse", "--show-toplevel", capture=True)
@@ -35,6 +35,16 @@ def manual_git(root, argument, *, prompt=None, write=print):
 
     if action == "status" and not value:
         result = run("status", "--short", "--branch")
+    elif action == "log" and not value:
+        repository()
+        head = run("rev-parse", "--verify", "HEAD^{commit}", capture=True)
+        if head.returncode:
+            write("No local commits to show.")
+            return
+        result = run("--no-pager", "log", "-10", "--format=%h %s", "--no-notes", "--no-show-signature",
+                     "--no-color", "--encoding=UTF-8", capture=True, encoding="utf-8", errors="replace")
+        if not result.returncode:
+            write("\n".join(terminal_text(line) for line in result.stdout.splitlines()))
     elif action == "remotes" and not value:
         result = run("remote", capture=True)
         if not result.returncode:

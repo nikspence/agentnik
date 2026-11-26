@@ -1278,6 +1278,9 @@ class TerminalRunTests(unittest.TestCase):
 
             run("init", "--quiet")
             run("init", "--bare", "--quiet", str(remote))
+            commits = []
+            manual_git(root, "log", write=commits.append)
+            self.assertEqual(commits, ["No local commits to show."])
             run("config", "user.name", "Fixture")
             run("config", "user.email", "fixture@example.org")
             run("config", "commit.gpgsign", "false")
@@ -1303,6 +1306,8 @@ class TerminalRunTests(unittest.TestCase):
             self.assertEqual(run("diff", "--cached", "--name-only"), "note draft.txt")
             manual_git(root, "commit Save fixture", prompt=lambda _: "y", write=lambda _: None)
             self.assertEqual(run("log", "-1", "--format=%s"), "Save fixture")
+            manual_git(nested, "log", write=commits.append)
+            self.assertEqual(commits[-1], run("log", "-1", "--format=%h %s"))
             manual_git(root, "push fixture release-smoke", prompt=lambda _: "", write=lambda _: None)
             self.assertEqual(run("for-each-ref", cwd=remote), "")
             manual_git(root, "push fixture release-smoke", prompt=lambda _: "y", write=lambda _: None)

@@ -133,7 +133,7 @@ Use `/settings subagents` to see how many explicit tool rejections Agentnik reme
 
 With Git installed, you can run `/git status`, `/git stage PATH`, `/git unstage PATH`, `/git commit MESSAGE`, and `/git push REMOTE BRANCH` yourself without turning the command into a model prompt. Stage and unstage take one project-relative file at a time. Commit uses the staged changes and your native Git identity. Push sends the current commit to the named branch on a configured remote without force. Changes ask for confirmation and use your normal Git configuration, hooks, and credential helpers.
 
-Use `/git diff` to review all unstaged tracked changes, or `/git diff --staged` to see what the next commit would contain. These read-only commands use Git's normal terminal output and pager.
+Use `/git log` to see up to ten recent commits without a pager. Use `/git diff` to review all unstaged tracked changes, or `/git diff --staged` to see what the next commit would contain. The diff commands use Git's normal terminal output and pager.
 
 Use `/git remotes` to list the remote names you can pass to `/git push`. It does not display remote URLs or contact any remote.
 

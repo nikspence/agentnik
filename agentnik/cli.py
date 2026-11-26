@@ -248,7 +248,7 @@ def terminal_session(options, root, lease, images):
         if command == "/help":
             print("/status           Show the project folder\n"
                   "/diff [--staged] PATH  Review a file against HEAD\n"
-                  "/git              Run manual Git status, diff, stage, unstage, commit, or push\n"
+                  "/git              Run manual Git status, log, diff, stage, unstage, commit, or push\n"
                   "/connections      List saved and environment connections\n"
                   "/connections show|add|edit|options|key|remove [NAME]\n"
                   "/connections discover  Look for supported services on this machine\n"
