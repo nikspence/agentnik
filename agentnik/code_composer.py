@@ -6,7 +6,7 @@ COMMANDS = (
     "/help", "/keys", "/transcript", "/status", "/check", "/diff", "/diff --staged", "/connections", "/connections add", "/connections edit",
     "/connections show", "/connections copy", "/connections options", "/connections key",
     "/connections remove", "/connections import", "/connections export", "/connections discover", "/connection",
-    "/model", "/models", "/goal", "/continue", "/web on", "/web off", "/vision", "/vision on", "/vision off",
+    "/model", "/models", "/goal", "/continue", "/continue preview", "/web on", "/web off", "/vision", "/vision on", "/vision off",
     "/thinking on", "/thinking off", "/mcp", "/mcp use", "/mcp add", "/mcp remove", "/mcp off",
     "/permissions", "/permissions require",
     "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove", "/skills resources", "/skills read",

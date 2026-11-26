@@ -479,6 +479,7 @@ def terminal_session(options, root, lease, images):
                   "/model [NAME]     Override the model, or reset to the connection default\n"
                   "/models [FILTER]  Fetch the selected connection's catalog and choose a model\n"
                   "/goal [OBJECTIVE] Show the saved goal or start an ongoing goal\n"
+                  "/continue preview  Inspect saved goal evidence without starting a run\n"
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/context          Inspect, clear, or toggle previous-turn context\n"
                   "/plan             Show the latest saved plan for this session\n"
@@ -1013,6 +1014,16 @@ def terminal_session(options, root, lease, images):
             selected = command[6:].strip()
             change_model(selected)
             print(f"Selected model {model!r}." if model else "Using the connection's default model.")
+        elif command == "/continue preview":
+            from .code_history import goal_continuation
+            from .code_terminal import terminal_text
+
+            saved = goal_continuation(last_goal_turn)
+            if saved is None:
+                print("No stopped goal is available to preview in this session.")
+            else:
+                print(terminal_text(f"Saved objective:\n{saved['task']}\n\n{saved['evidence']}"))
+                print("Preview only. No model request was sent.")
         elif command.startswith("/") and not command.startswith(("//", "/goal ")) and command != "/continue":
             print("Unknown command. Type /help, or start with // to send a prompt that begins with /.")
         elif command:

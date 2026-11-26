@@ -2915,13 +2915,13 @@ class TerminalRunTests(unittest.TestCase):
             ident = str(uuid4())
             store = Store(data)
             try:
-                CodeHistory(store, root).start("Fixture", {"model": "test"}, "Saved task", ident)
+                CodeHistory(store, root).start("Fixture", {"model": "test"}, "Saved task", ident, goal=True)
             finally:
                 store.db.close()
             settings = data / "connections.json"
             settings.write_text("{invalid", encoding="utf-8")
             composer = Mock()
-            composer.prompt.return_value = "/exit"
+            composer.prompt.side_effect = ["/continue preview", "/exit"]
             argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", ident]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
@@ -2929,6 +2929,9 @@ class TerminalRunTests(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             self.assertIn(f"Resumed session {ident}", output.getvalue())
+            self.assertIn("Saved objective:\nSaved task", output.getvalue())
+            self.assertIn("Previous run status: interrupted.", output.getvalue())
+            self.assertIn("Preview only. No model request was sent.", output.getvalue())
             request.assert_not_called()
             self.assertEqual(settings.read_text(encoding="utf-8"), "{invalid")
             store = Store.open_history(data)
