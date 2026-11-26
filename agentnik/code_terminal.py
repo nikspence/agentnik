@@ -359,6 +359,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     fields = ("operation", "path", "diff")
                 elif proposal.get("operation") == "machine_create_file":
                     fields = ("operation", "path", "content")
+                elif proposal.get("operation") == "machine_create_directory":
+                    fields = ("operation", "path")
                 elif proposal.get("operation") in ("delete_file", "create_directory", "move_file", "move_directory"):
                     fields = ("operation", "cwd", "path", "destination", "entries")
                 elif proposal.get("operation") in ("git_stage", "git_unstage", "git_create_branch",

@@ -858,6 +858,7 @@ class CodingRun:
                 available_tools.append(CodeTool('machine_inspect_path','Read the kind, modification timestamp, regular file size, and POSIX mode when available for one explicit absolute path. Does not read contents or follow the final symbolic link.',('path',)))
                 available_tools.append(CodeTool('machine_patch_file','Replace one exact text occurrence in an existing absolute-path UTF-8 file after reading it with machine_read_file. Review follows the current approval mode. Does not create or delete files.',('path','old_text','new_text')))
                 available_tools.append(CodeTool('machine_create_file','Create one new UTF-8 text file at an explicit absolute path in an existing directory. Never overwrites a file. Review follows the current approval mode.',('path','content')))
+                available_tools.append(CodeTool('machine_create_directory','Create one directory at an explicit absolute path. Its parent must already exist and the target must not exist. Review follows the current approval mode.',('path',)))
             if self.project_memory is None:
                 available_tools=[tool for tool in available_tools if tool.name not in ('search_memory','read_memory','propose_memory')]
             elif self.project_memory_read_only:
@@ -1020,7 +1021,7 @@ class CodingRun:
                             if isinstance(path,str):guidance.discover(path)
             def review(*review_args):
                 proposal,emit,runtime,kind=review_args
-                project_arguments={} if proposal.get('operation') in ('machine_patch_file','machine_create_file') else args
+                project_arguments={} if proposal.get('operation') in ('machine_patch_file','machine_create_file','machine_create_directory') else args
                 check_skill_versions();discover_arguments(project_arguments)
                 if scrub(guidance.render(),secrets)!=seen_guidance:
                     sync_guidance()
@@ -1993,6 +1994,19 @@ class CodingRun:
                             except OSError:raise LimitError('Machine file creation did not finish. Inspect the destination before retrying.') from None
                             event('project_change',label='machine file creation',path=path)
                             event('output',text='Created machine file: '+path)
+                            result={'applied':True,'path':path}
+                        elif call.name=='machine_create_directory':
+                            from .machine_files import create_machine_directory,machine_new_path
+                            path=args['path']
+                            try:machine_new_path(path)
+                            except ValueError as exc:raise ProjectToolError(str(exc)) from None
+                            proposal={'operation':'machine_create_directory','path':path}
+                            if self.review_project_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                raise ProjectToolError('Machine directory creation declined by the user')
+                            try:create_machine_directory(path,lambda:check_project_mutation(machine=True))
+                            except OSError:raise ProjectToolError('Could not create a new directory at the absolute path.') from None
+                            event('project_change',label='machine directory creation',path=path)
+                            event('output',text='Created machine directory: '+path)
                             result={'applied':True,'path':path}
                         elif call.name=='search_file':result=files.search(args['path'],args['query'])
                         elif call.name=='search_project':result=files.search_project(args['path'],args['query'],runtime.check)

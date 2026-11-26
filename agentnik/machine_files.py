@@ -135,12 +135,17 @@ def apply_machine_patch(value, observed, after, check):
         stream.truncate()
 
 
-def machine_create_preview(value, text):
+def machine_new_path(value):
     path = absolute_machine_path(value)
     if not path.name or not path.parent.is_dir():
-        raise ValueError("Choose a new file in an existing directory.")
+        raise ValueError("Choose a new path in an existing directory.")
     if os.path.lexists(path):
-        raise ValueError("The destination already exists. No file was changed.")
+        raise ValueError("The destination already exists. Nothing was changed.")
+    return path
+
+
+def machine_create_preview(value, text):
+    machine_new_path(value)
     data = text.encode("utf-8")
     if b"\x00" in data or len(data) > FULL_TEXT_BYTES:
         raise ValueError("The new file must be bounded UTF-8 text.")
@@ -154,3 +159,9 @@ def create_machine_file(value, data, check):
     with os.fdopen(fd, "wb", buffering=0) as stream:
         if stream.write(data) != len(data):
             raise OSError("Incomplete file write")
+
+
+def create_machine_directory(value, check):
+    path = absolute_machine_path(value)
+    check()
+    path.mkdir()
