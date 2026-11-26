@@ -273,6 +273,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     fields = ("operation", "server", "url", "command", "server_arguments", "template", "variables", "uri")
                 elif proposal.get("operation") in ("mcp_list_prompts", "mcp_get_prompt"):
                     fields = ("operation", "server", "url", "command", "server_arguments", "prompt", "arguments")
+                elif proposal.get("operation") == "mcp_complete_argument":
+                    fields = ("operation", "server", "url", "kind", "target", "argument", "value", "context")
                 else:
                     write("This operation cannot be reviewed in the terminal preview. Rejected.")
                     run.decide(event["fingerprint"], False)

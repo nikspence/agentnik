@@ -8,6 +8,7 @@ import subprocess
 from threading import Lock, Thread
 
 from .mcp_content import normalize_tool_result
+from .mcp_completion import completion_params, parse_completion
 from .mcp_2026 import INPUT_REQUIRED_ERROR, LEGACY_ENVELOPE_ERRORS, PROTOCOL as MODERN_PROTOCOL, parse_discovery, prepare_request
 from .mcp_prompts import PromptPages, parse_prompt_messages
 from .mcp_resources import ResourcePages, TemplatePages, expand_template, parse_resource_contents
@@ -32,7 +33,7 @@ def terminal_modern_reply(reply):
 class TerminalMCPBridge:
     review_required = True
     supported_actions = frozenset(("discover", "verify", "call", "resources_list", "resources_read",
-                                   "templates_list", "templates_read", "prompts_list", "prompts_get"))
+                                   "templates_list", "templates_read", "prompts_list", "prompts_get", "complete"))
 
     def __init__(self, server):
         self.server = copy.deepcopy(server)
@@ -260,7 +261,7 @@ class TerminalMCPBridge:
             secrets = list(self.environment_values.values())
             self.details, more = self._catalog() if "tools" in info["capabilities"] else ([], False)
             return {**scrub(info, secrets), "tool_details": self.details, "more_tools": more,
-                    "capabilities": [name for name in info["capabilities"] if name in ("tools", "resources", "prompts")],
+                    "capabilities": [name for name in info["capabilities"] if name in ("tools", "resources", "prompts", "completions")],
                     "task_capabilities": {}}
         if self.details is None:
             return {"error": "Discover the MCP server before requesting tools or resources."}
@@ -301,6 +302,26 @@ class TerminalMCPBridge:
             if any(contains_secret(outcome, secret) for secret in secrets):
                 return {"error": "MCP prompt reflected a mapped credential and was blocked."}
             return outcome
+        if action == "complete":
+            kind = payload["kind"]
+            target = payload["target"]
+            params = completion_params(kind, target, payload["argument"], payload["value"], payload["context"])
+            if kind == "prompt":
+                method, pages, field = "prompts/list", PromptPages(), "prompts"
+            else:
+                method, pages, field = "resources/templates/list", TemplatePages(), "templates"
+            listing = self._pages(method, pages, secrets)
+            if "error" in listing:
+                return listing
+            if target not in listing[field]:
+                return {"error": "The MCP completion target changed. List it again before requesting suggestions."}
+            reply = self._rpc("completion/complete", params, "completion")
+            if "error" in reply:
+                return {"error": scrub(rpc_error(reply), secrets)}
+            completion = parse_completion(reply.get("result"))
+            if any(contains_secret(completion, secret) for secret in secrets):
+                return {"error": "MCP suggestions reflected a mapped credential and were blocked."}
+            return {"completion": completion}
         expected = payload["tool"]
         current, _ = self._catalog()
         if expected not in current or expected.get("schema_status") != "available" or expected.get("task_support") == "required":

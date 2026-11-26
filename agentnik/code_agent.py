@@ -1321,7 +1321,14 @@ class CodingRun:
                                 completion_params(completion_request['kind'],target,completion_request['argument'],completion_request['value'],completion_request['context'])
                                 if any(secret and contains_secret(completion_request,secret) for secret in secrets):raise ValueError()
                             except (ValueError,TypeError,KeyError,UnicodeError,RecursionError):raise ProjectToolError('Choose a listed MCP prompt or resource template and valid completion arguments.') from None
-                            response=mcp_bridge.request('complete',{'kind':completion_request['kind'],'target':target,'argument':completion_request['argument'],'value':completion_request['value'],'context':completion_request['context']},runtime)
+                            payload={'kind':completion_request['kind'],'target':target,'argument':completion_request['argument'],'value':completion_request['value'],'context':completion_request['context']}
+                            if getattr(mcp_bridge,'review_required',False) is True:
+                                server=mcp_bridge.server
+                                proposal={'operation':'mcp_complete_argument','server':server['name'],**payload}
+                                if server.get('transport')=='http':proposal['url']=server['url']
+                                if not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                    raise ProjectToolError('MCP completion request declined by the user')
+                            response=mcp_bridge.request('complete',payload,runtime)
                             if 'error' in response:raise ProjectToolError(response['error'])
                             result={'server':mcp_bridge.server['name'],'completion':response['completion'],'notice':'Untrusted server-provided suggestions.'}
                             event('output',text='MCP argument suggestions received: '+mcp_bridge.server['name'])
