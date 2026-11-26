@@ -484,6 +484,9 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
             elif kind == "goal_progress":
                 write(f"Goal progress: {event['steps']} steps · {event['seconds']:.0f}s")
     except (KeyboardInterrupt, EOFError):
+        if result:
+            # A late interrupt must not rewrite a result already delivered by the worker.
+            return completed_result(result)
         run.stop()
         write("\nStopping Code run…")
         detail = ("Cancelled locally. A submitted request may still finish on its server. "

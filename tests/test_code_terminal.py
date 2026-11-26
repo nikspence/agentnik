@@ -3583,6 +3583,28 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(result["status"], "limited")
         self.assertIn("This approval prompt is no longer active. Your answer was not applied.", lines)
 
+    def test_interrupt_after_final_result_cannot_relabel_completed_run(self):
+        from queue import Queue
+        from unittest.mock import Mock
+
+        class LateInterruptQueue(Queue):
+            delivered = False
+
+            def get(self, *args, **kwargs):
+                if self.delivered:
+                    raise KeyboardInterrupt
+                event = super().get(*args, **kwargs)
+                self.delivered = True
+                return event
+
+        run = Mock()
+        final = {"kind": "finished", "status": "completed", "text": "Completed fixture."}
+        run.run.side_effect = lambda emit: emit(final)
+        lines = []
+        with patch("agentnik.code_terminal.Queue", LateInterruptQueue):
+            self.assertEqual(drive_run(run, write=lines.append), final)
+        self.assertEqual(lines, ["Completed fixture."])
+
     def test_terminal_does_not_send_advice_or_reprompt_if_approval_expires_at_consent(self):
         from unittest.mock import Mock
         from agentnik import decision_advice
