@@ -27,6 +27,20 @@ def absolute_machine_path(value):
     return path
 
 
+def inspect_machine_path(value):
+    """Read metadata without opening a file or following the final link."""
+    info = absolute_machine_path(value).lstat()
+    mode = info.st_mode
+    kind = ("link" if stat.S_ISLNK(mode) else "directory" if stat.S_ISDIR(mode)
+            else "file" if stat.S_ISREG(mode) else "other")
+    result = {"kind": kind, "modified_unix_ns": info.st_mtime_ns}
+    if kind == "file":
+        result["size_bytes"] = info.st_size
+    if os.name == "posix":
+        result["mode_octal"] = format(stat.S_IMODE(mode), "04o")
+    return result
+
+
 def list_machine_directory(value):
     entries = []
     truncated = False

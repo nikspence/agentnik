@@ -219,6 +219,7 @@ class TerminalRunTests(unittest.TestCase):
                 composer.prompt.side_effect = prompt
                 return composer
             reads = [call("machine_list_directory", {"path": str(base)}, ident="list"),
+                     call("machine_inspect_path", {"path": str(outside)}, ident="metadata"),
                      call("machine_read_file", {"path": str(outside)})]
             edit = call("machine_patch_file", {"path": str(outside), "old_text": "fixture", "new_text": "reviewed"},
                         ident="change")
@@ -271,6 +272,12 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Outside fixture evidence", json.dumps(bodies[1]["messages"]))
             listing = next(m for m in bodies[1]["messages"] if m.get("tool_call_id") == "list")
             self.assertIn({"name": "diagnostic.txt", "kind": "file"}, json.loads(listing["content"])["entries"])
+            meta = next(m for m in bodies[1]["messages"] if m.get("tool_call_id") == "metadata")
+            metadata = json.loads(meta["content"])
+            self.assertEqual(metadata["kind"], "file")
+            self.assertEqual(metadata["size_bytes"], len(b"Outside fixture evidence"))
+            self.assertIsInstance(metadata["modified_unix_ns"], int)
+            self.assertNotIn("text", metadata)
             from agentnik.code_agent import ProjectFiles
 
             with self.assertRaisesRegex(ValueError, "project-relative path"):
