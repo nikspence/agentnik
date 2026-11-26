@@ -1207,6 +1207,21 @@ class ModelCoding(unittest.TestCase):
             with patch.object(core,'open_request',side_effect=replies):run.run(emit)
             self.assertEqual(bridge.request.call_count,1);self.assertEqual(events[-1]['status'],'completed');self.assertFalse(any('MCP server allowed for this run:' in e.get('text','') for e in events))
 
+    def test_local_git_run_grant_rejects_remote_scope_and_is_revoked_by_steering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = CodingRun(C, directory, "Local review only.")
+            run.pending = ("remote", {"operation": "git_push_connect"})
+            self.assertFalse(run.decide("remote", True, "local_git_run", ("fixture", "secret")))
+            self.assertFalse(run.decide("remote", True, "local_git_run"))
+            self.assertIsNone(run.take_git_credentials())
+            self.assertFalse(run.local_git_run_allowed)
+            run.pending = ("local", {"operation": "git_stage"})
+            self.assertFalse(run.decide("stale", True, "local_git_run"))
+            self.assertTrue(run.decide("local", True, "local_git_run"))
+            self.assertTrue(run.local_git_run_allowed)
+            self.assertTrue(run.steer("Review the diff instead."))
+            self.assertFalse(run.local_git_run_allowed)
+
     def test_mcp_run_approval_rejects_unrelated_operations_and_stale_fingerprints(self):
         from unittest.mock import Mock
         bridge=Mock();bridge.server={'name':'Server'}

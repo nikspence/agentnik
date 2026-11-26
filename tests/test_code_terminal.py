@@ -2563,13 +2563,16 @@ class TerminalRunTests(unittest.TestCase):
                 Wire(chat(calls=[call("git_create_branch", {"name": "reviewed-branch"})], finish="tool_calls"), False),
                 Wire(chat("Branch declined."), False),
             ]
-            lines = []
+            lines, checkpoints = [], []
             with patch.object(core, "open_request", side_effect=turns), \
                     patch("builtins.input", side_effect=["g", "n"]) as prompt:
-                self.assertEqual(drive_run(run, write=lines.append)["status"], "completed")
+                self.assertEqual(drive_run(run, write=lines.append, checkpoint=checkpoints.append)["status"], "completed")
                 self.assertFalse(run.local_git_run_allowed)
                 self.assertEqual(drive_run(next_run, write=lines.append)["status"], "completed")
             self.assertEqual(prompt.call_count, 2)
+            self.assertEqual(checkpoints, [
+                {"kind": "approval_grant", "text": "Allowed structured local Git changes for this run."},
+            ])
             self.assertIn("Local Git allowed for this run: git_commit_staged", "\n".join(lines))
             with Repo(root) as repo:
                 self.assertEqual(repo[repo.head()].parents, [parent])

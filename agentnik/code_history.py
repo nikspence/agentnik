@@ -324,6 +324,11 @@ class CodeHistory:
             detail = message[:1900] + (" [shortened]" if len(message) > 1900 else "")
             append_code_activity(record, kind, f"{STEERING_OUTCOMES[kind]}: {detail}")
             self.store.save(record)
+        elif kind == "approval_grant":
+            detail = event.get("text")
+            if isinstance(detail, str) and detail:
+                append_code_activity(record, kind, detail[:2048])
+                self.store.save(record)
         elif kind == "plan":
             from .task_plan import validate_plan
 

@@ -498,8 +498,18 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 answer = response.lower()
                 scope = ("mcp_server_run" if mcp_scope and answer == "r" else
                          "local_git_run" if git_scope and answer == "g" else "once")
-                if worker.decide(event["fingerprint"], answer == "y" or scope != "once", scope) is False:
+                accepted = worker.decide(event["fingerprint"], answer == "y" or scope != "once", scope)
+                if accepted is False:
                     write("This approval prompt is no longer active. Your answer was not applied.")
+                elif accepted is True and scope != "once":
+                    detail = ("Allowed structured local Git changes for this run." if scope == "local_git_run" else
+                              f"Allowed MCP server {terminal_text(repr(proposal['server']))} for this run.")
+                    write(detail)
+                    if checkpoint:
+                        try:
+                            checkpoint({"kind": "approval_grant", "text": detail})
+                        except (OSError, ValueError, sqlite3.Error):
+                            write("Could not save the run approval in history.")
             elif kind in STEERING_OUTCOMES:
                 record_steering(event)
                 if kind == "steering_delivered":
