@@ -62,6 +62,34 @@ class TerminalSignInTests(unittest.TestCase):
         digest = hashlib.sha256(form["code_verifier"][0].encode()).digest()
         self.assertEqual(observed["code_challenge"], [base64.urlsafe_b64encode(digest).decode().rstrip("=")])
 
+    def test_failed_registration_does_not_open_browser_or_retry(self):
+        metadata = {
+            "issuer": self.issuer,
+            "authorization_endpoint": self.issuer + "/authorize",
+            "token_endpoint": self.issuer + "/token",
+            "registration_endpoint": self.issuer + "/register",
+            "pkce_s256": True,
+            "public_client_supported": True,
+        }
+        for response in (
+            TimeoutError(),
+            b'{"client_id":"test","client_secret":"unexpected"}',
+            b'{"client_id":"test","token_endpoint_auth_method":"client_secret_basic"}',
+            b'{"client_id":"test","redirect_uris":["https://wrong.example/callback"]}',
+            b'{"client_id":"test","client_id_expires_at":1}',
+            b'{"client_id":"first","client_id":"second"}',
+        ):
+            with self.subTest(response=response), patch(
+                "agentnik.mcp_oauth_signin.discover_authorization", return_value=metadata,
+            ), patch("agentnik.mcp_oauth_signin._read", side_effect=[response]) as request:
+                def present(*_):
+                    self.fail("Invalid registration reached the browser step")
+
+                with self.assertRaisesRegex(ValueError, "It was not retried"):
+                    sign_in(self.resource, "", "", present)
+                request.assert_called_once()
+                self.assertTrue(request.call_args.kwargs["registration"])
+
     def test_callback_rejects_wrong_or_duplicate_state_and_unexpected_issuer(self):
         for query in ("state=wrong&code=x", "state=ok&state=ok&code=x", "state=ok&code=x",
                       "state=ok&code=x&iss=https://other.example"):
