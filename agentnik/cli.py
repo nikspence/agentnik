@@ -146,6 +146,8 @@ def main():
     parser.add_argument("project", nargs="?", type=Path, default=Path.cwd(),
                         help="Project folder (default: current directory)")
     options = parser.parse_args(args[1:])
+    if options.resume is not None and not options.resume.strip():
+        parser.error("--resume needs a session ID, unique prefix, or latest")
     try:
         root = options.project.expanduser().resolve(strict=True)
     except (OSError, RuntimeError) as exc:
@@ -202,6 +204,7 @@ def terminal_session(options, root, lease, images):
     session_id = str(uuid4())
     pending_command = f"/resume {options.resume}" if options.resume else None
     while True:
+        starting_resume = pending_command is not None
         try:
             if pending_command:
                 command, pending_command = pending_command, None
@@ -509,6 +512,8 @@ def terminal_session(options, root, lease, images):
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
+                if starting_resume:
+                    return 1
                 continue
             if listing:
                 page = int(argument or 1)
@@ -527,6 +532,8 @@ def terminal_session(options, root, lease, images):
             if not records:
                 print("No saved history for this session." if command == "/history"
                       else "No saved session with that ID in this project. Sessions are saved when a task starts.")
+                if starting_resume:
+                    return 1
                 continue
             if command != "/history":
                 session_id = ident

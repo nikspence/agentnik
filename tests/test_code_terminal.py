@@ -1024,6 +1024,22 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(resolve_session_id(sessions, "latest"), "abcd-first")
         self.assertEqual(resolve_session_id(sessions, "missing"), "")
 
+    def test_failed_startup_resume_does_not_open_a_new_session(self):
+        from unittest.mock import Mock
+        from agentnik import cli
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            composer = Mock()
+            composer.prompt.return_value = "/exit"
+            argv = ["agentnik", "code", str(base), "--data-dir", str(base / "data"), "--resume", "missing"]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 1)
+            composer.prompt.assert_not_called()
+            self.assertIn("No saved session with that ID in this project", output.getvalue())
+
     def test_session_listing_can_reach_older_pages_without_opening_sessions(self):
         from unittest.mock import Mock
         from agentnik import cli
