@@ -55,6 +55,34 @@ class CodeWorkerTests(unittest.TestCase):
             worker.join(timeout=2)
         self.assertFalse(worker.is_alive())
 
+    def test_final_result_closes_controls_even_while_worker_is_cleaning_up(self):
+        from threading import Event
+        from unittest.mock import Mock
+
+        release = Event()
+        result_seen = Event()
+        run = Mock()
+
+        def work(emit):
+            emit({"kind": "finished", "status": "completed"})
+            release.wait(2)
+
+        run.run.side_effect = work
+        worker = start_code_worker(run, lambda event: result_seen.set(), interruption_text="Interrupted")
+        try:
+            self.assertTrue(result_seen.wait(2))
+            self.assertTrue(worker.is_alive())
+            self.assertTrue(worker.result_ready)
+            self.assertFalse(worker.approval_pending("proposal"))
+            self.assertFalse(worker.decide("proposal", True))
+            self.assertFalse(worker.steer("Too late"))
+            run.approval_pending.assert_not_called()
+            run.decide.assert_not_called()
+            run.steer.assert_not_called()
+        finally:
+            release.set()
+            worker.join(timeout=2)
+
     def test_client_checks_a_queued_approval_against_the_current_run(self):
         from unittest.mock import Mock
 

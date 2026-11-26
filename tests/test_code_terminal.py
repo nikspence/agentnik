@@ -3559,9 +3559,11 @@ class TerminalRunTests(unittest.TestCase):
         run.decide.assert_not_called()
 
     def test_shell_approval_explains_execution_boundary_and_output_limit(self):
+        from threading import Event
         from unittest.mock import Mock
 
         run = Mock()
+        release = Event()
         proposal = {"operation": "run_shell", "cwd": "fixture-project", "shell": "fixture-shell",
                     "command": "echo fixture", "max_seconds": 10, "max_output_bytes": 32000,
                     "environment_hash": "not for the review screen", "purpose": "tests", "test_format": "unittest"}
@@ -3569,6 +3571,7 @@ class TerminalRunTests(unittest.TestCase):
 
         def work(emit):
             emit({"kind": "operation_proposal", "fingerprint": "fixture", "proposal": proposal})
+            release.wait(3)
             emit({"kind": "finished", "status": "completed"})
 
         def decline(_):
@@ -3583,20 +3586,24 @@ class TerminalRunTests(unittest.TestCase):
             return ""
 
         run.run.side_effect = work
+        run.decide.side_effect = lambda *args: release.set()
         with patch("builtins.input", side_effect=decline):
             drive_run(run, write=lines.append)
         run.decide.assert_called_once_with("fixture", False)
 
     def test_prints_notice_when_approval_is_no_longer_pending(self):
+        from threading import Event
         from unittest.mock import Mock
 
         run = Mock()
+        release = Event()
         def work(emit):
             emit({"kind": "edit_proposal", "fingerprint": "expired",
                   "proposal": {"path": "note.txt", "diff": "+Not applied"}})
+            release.wait(3)
             emit({"kind": "finished", "status": "limited"})
         run.run.side_effect = work
-        run.decide.return_value = False
+        run.decide.side_effect = lambda *args: (release.set(), False)[1]
         lines = []
         with patch("builtins.input", return_value="y"):
             result = drive_run(run, write=lines.append)
@@ -3690,16 +3697,27 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(lines, ["Completed fixture."])
 
     def test_terminal_does_not_send_advice_or_reprompt_if_approval_expires_at_consent(self):
+        from threading import Event
         from unittest.mock import Mock
         from agentnik import decision_advice
 
         run = Mock()
-        run.approval_pending.side_effect = [True, True, False, False]
+        release = Event()
+        checks = iter([True, True, False, False])
+
+        def pending(_):
+            value = next(checks)
+            if not value:
+                release.set()
+            return value
+
+        run.approval_pending.side_effect = pending
         proposal = {"operation": "run_shell", "cwd": "fixture", "command": "echo fixture",
                     "shell": "fixture-shell", "environment_keys": []}
 
         def work(emit):
             emit({"kind": "operation_proposal", "fingerprint": "fixture", "proposal": proposal})
+            release.wait(3)
             emit({"kind": "finished", "status": "limited"})
 
         run.run.side_effect = work
@@ -3714,15 +3732,18 @@ class TerminalRunTests(unittest.TestCase):
         self.assertIn("Skipped an approval prompt that is no longer active.", lines)
 
     def test_skips_approval_that_expired_before_display(self):
+        from threading import Event
         from unittest.mock import Mock
 
         run = Mock()
+        release = Event()
         def work(emit):
             emit({"kind": "edit_proposal", "fingerprint": "expired",
                   "proposal": {"path": "note.txt", "diff": "+Not applied"}})
+            release.wait(3)
             emit({"kind": "finished", "status": "limited"})
         run.run.side_effect = work
-        run.approval_pending.return_value = False
+        run.approval_pending.side_effect = lambda *args: (release.set(), False)[1]
         lines = []
         with patch("builtins.input") as prompt:
             result = drive_run(run, write=lines.append)
@@ -3733,8 +3754,11 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(lines, ["Skipped an approval prompt that is no longer active."])
 
     def test_review_requires_explicit_input_and_escapes_terminal_controls(self):
+        from threading import Event
+
         class Run:
             decisions = []
+            done = Event()
 
             def run(self, emit):
                 emit({"kind": "edit_proposal", "fingerprint": "edit",
@@ -3749,9 +3773,12 @@ class TerminalRunTests(unittest.TestCase):
                       "proposal": {"operation": "subagent_file_transfer", "path": "note.txt",
                                    "destination": "https://example.org/v1/responses", "model": "fixture",
                                    "task": "Review note", "payload_bytes": 4, "diff": "Note"}})
+                self.done.wait(3)
 
             def decide(self, fingerprint, approved):
                 self.decisions.append((fingerprint, approved))
+                if len(self.decisions) == 4:
+                    self.done.set()
 
             def stop(self):
                 pass
