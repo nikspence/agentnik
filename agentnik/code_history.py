@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from uuid import UUID
 
+from .code_worker import STEERING_OUTCOMES
 from .repositories import RepositoryRegistry
 from .research import scrub
 from .sessions import append_code_activity, coding_model_binding
@@ -306,7 +307,15 @@ class CodeHistory:
         self.store.save(record)
 
     def checkpoint(self, record, event):
-        if event["kind"] == "plan":
+        kind = event["kind"]
+        if kind in STEERING_OUTCOMES:
+            message = event.get("text")
+            if not isinstance(message, str) or not message:
+                return
+            detail = message[:1900] + (" [shortened]" if len(message) > 1900 else "")
+            append_code_activity(record, kind, f"{STEERING_OUTCOMES[kind]}: {detail}")
+            self.store.save(record)
+        elif kind == "plan":
             from .task_plan import validate_plan
 
             record["coding_plan"] = validate_plan(event.get("plan"))

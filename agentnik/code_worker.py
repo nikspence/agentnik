@@ -3,6 +3,13 @@
 from threading import Thread
 
 
+STEERING_OUTCOMES = {
+    "steering_delivered": "Steering delivered",
+    "steering_undelivered": "Steering not delivered",
+    "steering_uncertain": "Steering delivery uncertain",
+}
+
+
 def approval_event_is_live(run, event):
     """Check a queued proposal immediately before a client renders it."""
     check = getattr(run, "approval_pending", None)

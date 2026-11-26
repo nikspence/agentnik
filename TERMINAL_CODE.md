@@ -11,7 +11,7 @@ For development, install from a checkout with `python -m pip install ".[terminal
 
 From the folder you want to work in, run `agentnik code`. A Git repository is optional. To work somewhere else, pass the folder as an argument. On a machine where you also use the desktop app, install `".[desktop,terminal]"` to use both. The clients share saved connections and application data. Use `--data-dir PATH` or `AGENTNIK_HOME` if you want a separate data store.
 
-While a run is waiting for an approval, enter `/steer MESSAGE` at the approval prompt to redirect it without approving the proposed action. This does not accept steering while the model is streaming.
+While a run is waiting for an approval, enter `/steer MESSAGE` at the approval prompt to redirect it without approving the proposed action. Delivery outcomes reported by the coding engine appear in `/history` and are never replayed as steering commands. The terminal does not accept steering while the model is streaming.
 
 ## Launch from VS Code
 

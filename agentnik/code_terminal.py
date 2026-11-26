@@ -321,7 +321,7 @@ def remember_terminal_subagent_rejection(data_dir, name, connection):
 
 
 def drive_run(run, write=print, advice=None, checkpoint=None):
-    from .code_worker import approval_event_is_live, start_code_worker
+    from .code_worker import STEERING_OUTCOMES, approval_event_is_live, start_code_worker
 
     events = Queue()
     done = object()
@@ -360,7 +360,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 except (OSError, ValueError, sqlite3.Error):
                     write("Could not save goal progress. The active run will continue.")
                     checkpoint = None
-            if checkpoint and kind in ("project_change", "image_generated", "subagent_tools_unsupported"):
+            if checkpoint and (kind in ("project_change", "image_generated", "subagent_tools_unsupported")
+                               or kind in STEERING_OUTCOMES):
                 try:
                     checkpoint(event)
                 except (OSError, ValueError, sqlite3.Error):
@@ -477,13 +478,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     continue
                 if run.decide(event["fingerprint"], response.lower() == "y") is False:
                     write("This approval prompt is no longer active. Your answer was not applied.")
-            elif kind in ("steering_delivered", "steering_undelivered", "steering_uncertain"):
-                label = {
-                    "steering_delivered": "Steering delivered",
-                    "steering_undelivered": "Steering not delivered",
-                    "steering_uncertain": "Steering delivery uncertain",
-                }[kind]
-                write(f"{label}: {terminal_text(event['text'])}")
+            elif kind in STEERING_OUTCOMES:
+                write(f"{STEERING_OUTCOMES[kind]}: {terminal_text(event['text'])}")
             elif kind in ("output", "finished"):
                 if event.get("text") and not (kind == "finished" and event.get("response_shown")):
                     write(terminal_text(event["text"]))
