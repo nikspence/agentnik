@@ -12,6 +12,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 - The installed preview passed loopback OpenSSH with a fresh non-root account and a local model fixture. The check covers connection setup, an approved edit, Ctrl+C while a response is withheld, and resume without replay. A local run also verified credential-free connection transfer to a new profile. The [reproduction guide](DEVELOPMENT_VALIDATION.md#qt-free-ssh-smoke-test) covers the disposable environment. These results do not establish live-provider behavior over SSH or server-side cancellation. [Hosted SSH check](https://github.com/nikspence/agentnik/actions/runs/45882769651)
 
+- The expanded SSH fixture at `a32b798` passed locally against the downloaded `rc2` wheel. It verified that a folder outside the project did not exist before approval, was created after approval, and that the next task after resume did not expose the machine creation tool.
+
 - At `760ccd7`, all 140 coding-engine tests passed on Windows, and 73 terminal tests passed under Linux on WSL, with the Windows-only test skipped.
 
 - Machine-scope terminal tests passed on native Windows and on Linux under WSL at `37b2ce0` (56 and 55 passing respectively, with the Windows-only path test skipped on Linux). Mocked requests verified absolute-path reads and writes, a declined write leaving no file, return to project scope on resume, and rejection of a machine tool call after resume. This does not qualify macOS or live model behavior.
