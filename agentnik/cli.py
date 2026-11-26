@@ -538,9 +538,13 @@ def terminal_session(options, root, lease, images):
             elif mode:
                 print("Use /scope project or /scope machine.")
                 continue
-            print(f"File scope: {'machine' if machine_scope else 'project'}. "
-                  "Machine scope adds absolute-path directory listing, metadata, text reads, edits, and file creation. Approval and OS permissions are unchanged. "
-                  "Shell commands are not sandboxed.")
+            if machine_scope:
+                print("File scope: machine. Machine tools use absolute paths and run with your OS account's permissions.")
+                print("Machine file changes require approval." if require_approval
+                      else "Machine file changes normally skip approval (allow-all).")
+            else:
+                print("File scope: project. Built-in file tools use project-relative paths. Machine tools are unavailable.")
+            print("Shell commands are not sandboxed in either scope.")
         elif command == "/permissions" or command.startswith("/permissions "):
             mode = command.partition(" ")[2].strip()
             actions = "File edits in the current scope and ordinary shell commands"
@@ -564,6 +568,8 @@ def terminal_session(options, root, lease, images):
             else:
                 print(f"{actions} normally skip approval for this session. {exceptions} "
                       "Shell commands that need separate review still prompt.")
+                if machine_scope:
+                    print("Machine file changes normally skip approval (allow-all).")
         elif command in ("/web on", "/web off"):
             web_enabled = command.endswith(" on")
             print("Web research enabled for next task. Queries may go to configured or fallback services."
