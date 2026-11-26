@@ -1,5 +1,6 @@
 import contextlib
 import io
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -118,6 +119,18 @@ class TerminalRunTests(unittest.TestCase):
             self.assertEqual(labels["Resumed task"], "code> ")
             self.assertFalse(any(t["function"]["name"].startswith("machine_") for t in bodies[4]["tools"]))
             self.assertIn("Unknown or unavailable tool", json.dumps(bodies[5]["messages"]))
+
+    @unittest.skipUnless(os.name == "nt", "Windows path rules")
+    def test_machine_paths_reject_windows_device_names_and_aliases(self):
+        from agentnik.machine_files import absolute_machine_path
+
+        for path in (r"C:\work\NUL.txt", r"C:\work\COM¹.log", r"C:\work\aux .txt",
+                     r"C:\work\folder.\report.txt", "C:\\work\\.. \\report.txt",
+                     r"C:\work\report.txt:stream", r"\\?\C:\work\report.txt"):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                absolute_machine_path(path)
+        for path in (r"C:\work\report.txt", r"\\server\share\report.txt"):
+            self.assertEqual(absolute_machine_path(path), Path(path))
 
     def test_machine_create_does_not_overwrite_a_file_created_after_preview(self):
         from agentnik.machine_files import create_machine_file, machine_create_preview

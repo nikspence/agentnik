@@ -9,14 +9,21 @@ import stat
 
 from .code_limits import FULL_TEXT_BYTES
 
+_WINDOWS_DEVICES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {
+    prefix + digit for prefix in ("COM", "LPT") for digit in "123456789¹²³"
+}
+
 
 def absolute_machine_path(value):
     path = Path(value)
     if not path.is_absolute() or ".." in path.parts or "\x00" in value:
         raise ValueError("Use an explicit absolute path without traversal.")
-    if os.name == "nt" and (path.drive.startswith(("\\\\?\\", "\\\\.\\"))
-                            or any(":" in part for part in path.parts[1:])):
-        raise ValueError("Windows device namespaces and alternate data streams are not supported.")
+    if os.name == "nt":
+        if path.drive.startswith(("\\\\?\\", "\\\\.\\")):
+            raise ValueError("Windows device namespaces are not supported.")
+        for part in path.parts[1:]:
+            if ":" in part or part.endswith((".", " ")) or part.split(".", 1)[0].rstrip(" ").upper() in _WINDOWS_DEVICES:
+                raise ValueError("Use regular Windows path components without device names, streams, or trailing dots or spaces.")
     return path
 
 
