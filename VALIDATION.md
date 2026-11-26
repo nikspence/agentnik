@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- After switching prompt submission to plain Enter in `3f32b81`, an Ubuntu pseudoterminal with no display accepted `/status` and `/exit` using Enter. The [updated preview artifact](https://github.com/nikspence/agentnik/actions/runs/45865859442) passed the distribution build checks and skipped the PyPI publish job.
+
 - The downloadable `0.12.0rc1` build-only artifact at source revision `056895d` installed on Windows in a fresh virtual environment without Qt. From outside the checkout, the installed launcher showed `agentnik code --help` and passed all 31 terminal tests, including session paging and unique-prefix resume. The [artifact build](https://github.com/nikspence/agentnik/actions/runs/45864776589) skipped the PyPI publish job.
 
 - On Windows, a live terminal Code smoke test used OpenRouter GPT-6.1 Terra over streaming Chat Completions. With scripted prompt input in a temporary non-Git folder, the model proposed one file edit, waited for approval, wrote the expected bytes, and returned a final answer after two provider requests. The saved session reopened without replay. This qualifies that coding path, not native keyboard behavior, SSH, or LiteLLM.
