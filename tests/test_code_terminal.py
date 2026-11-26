@@ -744,6 +744,35 @@ class TerminalRunTests(unittest.TestCase):
                 left_store.db.close()
                 right_store.db.close()
 
+    def test_launch_cannot_resume_a_session_from_another_project(self):
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            first, second, data = base / "first", base / "second", base / "data"
+            first.mkdir()
+            second.mkdir()
+            session = str(uuid4())
+            store = Store(data)
+            try:
+                history = CodeHistory(store, first)
+                record, task = history.start("Fixture", {"model": "test"}, "Other project's prompt", session)
+                history.finish(record, task, {"status": "completed", "text": "Done"})
+            finally:
+                store.db.close()
+
+            argv = ["agentnik", "code", str(second), "--data-dir", str(data), "--resume", session]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer"), \
+                    patch.object(core, "open_request") as request, \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 1)
+            request.assert_not_called()
+            self.assertIn("No saved session with that ID in this project", output.getvalue())
+            self.assertNotIn("Other project's prompt", output.getvalue())
+
     def test_busy_resume_preserves_the_current_terminal_session(self):
         from unittest.mock import Mock
         from agentnik import cli, core
