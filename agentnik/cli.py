@@ -666,7 +666,7 @@ def terminal_session(options, root, lease, images):
         elif command == "/skills" or command.startswith("/skills "):
             from .code_agent import ProjectFiles
             from .code_terminal import terminal_text
-            from .project_skills import list_skills, read_skill
+            from .project_skills import list_resources, list_skills, read_skill
 
             action, _, ident = command.partition(" ")[2].partition(" ")
             ident = ident.strip()
@@ -688,6 +688,16 @@ def terminal_session(options, root, lease, images):
                         print(terminal_text(f"* {name} [unavailable]"))
                     print("Use /skills show ID to review, /skills add ID to select the current revision, "
                           "or /skills remove ID to clear a selection.")
+                    print("Use /skills resources ID to list supporting files.")
+                elif action == "resources" and ident:
+                    result = list_resources(files, ident)
+                    if result["resources"]:
+                        for path in result["resources"]:
+                            print(terminal_text(path))
+                    else:
+                        print("No supporting files found.")
+                    if result["truncated"]:
+                        print("The supporting-file list is incomplete due to scan limits.")
                 elif action in ("show", "add") and ident:
                     skill = read_skill(files, ident)
                     if action == "show":

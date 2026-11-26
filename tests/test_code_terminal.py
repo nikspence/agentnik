@@ -1383,9 +1383,12 @@ class TerminalRunTests(unittest.TestCase):
             skill.parent.mkdir(parents=True)
             header = "---\nname: notes\ndescription: Note formatting\n---\n"
             skill.write_text(header + "Old instructions.", encoding="utf-8")
+            (skill.parent / "templates").mkdir()
+            (skill.parent / "templates" / "note.md").write_text("Private content fixture.", encoding="utf-8")
             composer = Mock()
 
             def prompts():
+                yield "/skills resources notes"
                 yield "/skills add notes"
                 skill.write_text(header + "New instructions.", encoding="utf-8")
                 yield "/skills"
@@ -1403,6 +1406,8 @@ class TerminalRunTests(unittest.TestCase):
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
                     patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(cli.main(), 0)
+            self.assertIn("templates/note.md", out.getvalue())
+            self.assertNotIn("Private content fixture.", out.getvalue())
             self.assertIn("* notes [changed since selection]", out.getvalue())
             self.assertIn("New instructions.", out.getvalue())
             self.assertEqual(out.getvalue().count("* notes [unavailable]"), 1)
