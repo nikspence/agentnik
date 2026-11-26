@@ -1439,6 +1439,7 @@ class TerminalRunTests(unittest.TestCase):
                 emit({"kind": "model_delta", "stream_id": "1", "text": second[len(first):]})
                 emit({"kind": "model_response", "stream_id": "1", "text": second,
                       "thinking": "Provider detail"})
+                emit({"kind": "finished", "status": "completed"})
 
             def stop(self):
                 pass
@@ -1447,6 +1448,21 @@ class TerminalRunTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             drive_run(Run())
         self.assertEqual(output.getvalue(), second + "\nModel thinking:\nProvider detail\n")
+
+    def test_terminal_reports_missing_worker_result_without_echoing_exception(self):
+        from unittest.mock import Mock
+
+        for failure in (None, RuntimeError("fixture-secret")):
+            with self.subTest(failure=failure):
+                run = Mock()
+                run.run.side_effect = failure
+                lines = []
+                result = drive_run(run, write=lines.append)
+                self.assertEqual(result["status"], "interrupted")
+                self.assertIn("will not replay the request", result["text"])
+                self.assertEqual(lines, [result["text"]])
+                self.assertNotIn("fixture-secret", result["text"])
+                run.stop.assert_called_once()
 
     def test_terminal_shows_valid_model_plan_updates_without_requesting_approval(self):
         from unittest.mock import Mock
@@ -1458,6 +1474,7 @@ class TerminalRunTests(unittest.TestCase):
                 {"step": "Render the slide", "status": "completed"},
                 {"step": "Inspect the slide", "status": "in_progress"},
             ]}})
+            emit({"kind": "finished", "status": "completed"})
         run.run.side_effect = work
         lines = []
         drive_run(run, write=lines.append)

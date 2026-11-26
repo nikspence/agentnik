@@ -226,7 +226,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
         try:
             run.run(events.put)
         except Exception:
-            events.put({"kind": "finished", "text": "Coding run failed to start or stopped unexpectedly."})
+            # Never display raw worker exceptions, which can contain provider details.
+            pass
         finally:
             events.put(done)
 
@@ -245,6 +246,11 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
             if event is done:
                 if partial_line:
                     write()
+                if not result:
+                    detail = ("Code stopped before reporting a result. Check the project before continuing. "
+                              "Agentnik will not replay the request.")
+                    write(detail)
+                    result = {"status": "interrupted", "text": detail}
                 return dict(result, last_goal_detail=goal_detail) if goal_detail else result
             kind = event["kind"]
             if checkpoint and kind in ("goal_status", "goal_progress"):
