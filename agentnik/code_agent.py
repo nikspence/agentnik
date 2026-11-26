@@ -1984,12 +1984,13 @@ class CodingRun:
                         elif call.name=='machine_create_file':
                             from .machine_files import create_machine_file,machine_create_preview
                             path=args['path'];content=args['content']
-                            try:data=machine_create_preview(path,content)
+                            try:data,parent=machine_create_preview(path,content)
                             except ValueError as exc:raise ProjectToolError(str(exc)) from None
                             proposal={'operation':'machine_create_file','path':path,'content':content}
                             if self.review_project_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
                                 raise ProjectToolError('Machine file creation declined by the user')
-                            try:create_machine_file(path,data,lambda:check_project_mutation(machine=True))
+                            try:create_machine_file(path,data,parent,lambda:check_project_mutation(machine=True))
+                            except ValueError as exc:raise ProjectToolError(str(exc)) from None
                             except FileExistsError:raise ProjectToolError('The destination now exists. No file was changed.') from None
                             except OSError:raise LimitError('Machine file creation did not finish. Inspect the destination before retrying.') from None
                             event('project_change',label='machine file creation',path=path)
@@ -1998,12 +1999,13 @@ class CodingRun:
                         elif call.name=='machine_create_directory':
                             from .machine_files import create_machine_directory,machine_new_path
                             path=args['path']
-                            try:machine_new_path(path)
+                            try:parent=machine_new_path(path)
                             except ValueError as exc:raise ProjectToolError(str(exc)) from None
                             proposal={'operation':'machine_create_directory','path':path}
                             if self.review_project_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
                                 raise ProjectToolError('Machine directory creation declined by the user')
-                            try:create_machine_directory(path,lambda:check_project_mutation(machine=True))
+                            try:create_machine_directory(path,parent,lambda:check_project_mutation(machine=True))
+                            except ValueError as exc:raise ProjectToolError(str(exc)) from None
                             except OSError:raise ProjectToolError('Could not create a new directory at the absolute path.') from None
                             event('project_change',label='machine directory creation',path=path)
                             event('output',text='Created machine directory: '+path)

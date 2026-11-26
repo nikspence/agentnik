@@ -137,31 +137,48 @@ def apply_machine_patch(value, observed, after, check):
 
 def machine_new_path(value):
     path = absolute_machine_path(value)
-    if not path.name or not path.parent.is_dir():
+    if not path.name:
+        raise ValueError("Choose a new path in an existing directory.")
+    try:
+        parent = path.parent.stat()
+    except OSError:
+        raise ValueError("Choose a new path in an existing directory.") from None
+    if not stat.S_ISDIR(parent.st_mode):
         raise ValueError("Choose a new path in an existing directory.")
     if os.path.lexists(path):
         raise ValueError("The destination already exists. Nothing was changed.")
-    return path
+    return parent.st_dev, parent.st_ino
+
+
+def require_same_parent(path, observed):
+    try:
+        parent = path.parent.stat()
+    except OSError:
+        raise ValueError("The destination directory is no longer available. Nothing was created.") from None
+    if not stat.S_ISDIR(parent.st_mode) or (parent.st_dev, parent.st_ino) != observed:
+        raise ValueError("The destination directory changed during review. Nothing was created.")
 
 
 def machine_create_preview(value, text):
-    machine_new_path(value)
+    parent = machine_new_path(value)
     data = text.encode("utf-8")
     if b"\x00" in data or len(data) > FULL_TEXT_BYTES:
         raise ValueError("The new file must be bounded UTF-8 text.")
-    return data
+    return data, parent
 
 
-def create_machine_file(value, data, check):
+def create_machine_file(value, data, parent, check):
     path = absolute_machine_path(value)
     check()
+    require_same_parent(path, parent)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o666)
     with os.fdopen(fd, "wb", buffering=0) as stream:
         if stream.write(data) != len(data):
             raise OSError("Incomplete file write")
 
 
-def create_machine_directory(value, check):
+def create_machine_directory(value, parent, check):
     path = absolute_machine_path(value)
     check()
+    require_same_parent(path, parent)
     path.mkdir()

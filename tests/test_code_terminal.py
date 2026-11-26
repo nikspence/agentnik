@@ -523,10 +523,10 @@ class TerminalRunTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             target = root / "diagnostics"
-            self.assertEqual(machine_new_path(str(target)), target)
+            parent = machine_new_path(str(target))
             target.write_bytes(b"other writer")
             with self.assertRaises(FileExistsError):
-                create_machine_directory(str(target), lambda: None)
+                create_machine_directory(str(target), parent, lambda: None)
             self.assertEqual(target.read_bytes(), b"other writer")
             with self.assertRaisesRegex(ValueError, "existing directory"):
                 machine_new_path(str(root / "absent" / "diagnostics"))
@@ -536,11 +536,30 @@ class TerminalRunTests(unittest.TestCase):
 
         with TemporaryDirectory() as directory:
             path = Path(directory).resolve() / "report.txt"
-            data = machine_create_preview(str(path), "new report")
+            data, parent = machine_create_preview(str(path), "new report")
             path.write_bytes(b"other writer")
             with self.assertRaises(FileExistsError):
-                create_machine_file(str(path), data, lambda: None)
+                create_machine_file(str(path), data, parent, lambda: None)
             self.assertEqual(path.read_bytes(), b"other writer")
+
+    def test_machine_creation_stops_if_the_reviewed_parent_is_replaced(self):
+        from agentnik.machine_files import create_machine_directory, create_machine_file, machine_create_preview, machine_new_path
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            parent = root / "parent"
+            parent.mkdir()
+            child_dir = str(parent / "new-dir")
+            child_file = str(parent / "new.txt")
+            directory_observed = machine_new_path(child_dir)
+            data, file_observed = machine_create_preview(child_file, "new")
+            parent.rename(root / "original")
+            parent.mkdir()
+            with self.assertRaisesRegex(ValueError, "directory changed during review"):
+                create_machine_directory(child_dir, directory_observed, lambda: None)
+            with self.assertRaisesRegex(ValueError, "directory changed during review"):
+                create_machine_file(child_file, data, file_observed, lambda: None)
+            self.assertEqual(list(parent.iterdir()), [])
 
     def test_machine_patch_reviews_unterminated_lines_and_rejects_overlapping_matches(self):
         from agentnik.machine_files import machine_patch_preview, open_machine_text
