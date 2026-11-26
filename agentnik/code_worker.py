@@ -4,15 +4,17 @@ from threading import Thread
 
 
 def start_code_worker(run, emit, *, interruption_text, finished=None, daemon=False):
-    """Start one runner and notify clients without forwarding raw exceptions."""
+    """Deliver events in order, ending with one result before notifying completion."""
     def work():
         reported = False
 
         def forward(event):
             nonlocal reported
-            emit(event)
+            if reported:
+                return
             if event.get("kind") == "finished":
                 reported = True
+            emit(event)
 
         try:
             run.run(forward)
