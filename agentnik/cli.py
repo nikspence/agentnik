@@ -422,6 +422,7 @@ def terminal_session(options, root, lease, images):
             print("/keys             Show keyboard shortcuts\n"
                   "/transcript       Open the current session transcript\n"
                   "/status           Show the current session, project, model and permissions\n"
+                  "/diff --staged   Preview staged changes without native Git\n"
                   "/diff [--staged] PATH  Review a file against HEAD\n"
                   "/git              Run manual Git status, log, diff, stage, unstage, commit, or push\n"
                   "/connections      List saved and environment connections\n"

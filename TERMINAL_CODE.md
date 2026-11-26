@@ -146,7 +146,7 @@ Run `/skills` to find installed skills. A user-installed skill at `~/.agents/ski
 | `/memory` / `/memory show ID` | Read this project's shared desktop Code memory locally. It does not change session history or send a model request. |
 | `/memory on` / `/memory off` | Allow the coding model to request saved project memory for this session. Terminal model access is read-only and resets when you switch model, connection, or session. |
 | `/attach PATH` | Queue extracted text from a project text file, PDF, DOCX, XLSX, or PPTX for the next task. Terminal PDF support extracts text only, without page rendering or OCR, and does not accept encrypted files. Paste a relative or absolute path inside the project, with optional surrounding quotes. With `/vision on`, you can also queue PNG, JPEG, or WebP images. Use `/attachments` to inspect the queue and `/attachments clear` to empty it. |
-| `/diff` / `/diff PATH` / `/diff --staged PATH` | List tracked changes or compare a file in the working tree or index against HEAD. |
+| `/diff` / `/diff PATH` / `/diff --staged [PATH]` | List tracked changes, compare one file, or preview up to 12 staged patches without native Git. |
 | `/attachments remove NUMBER` | Remove one queued file by its number in `/attachments`. The original file stays in the project. |
 
 Project scope limits the built-in file tools. Project commands such as builds and tests still run in your normal user environment, and the shell is not sandboxed. The model is instructed to ask for machine scope when it needs to inspect or edit outside files directly.

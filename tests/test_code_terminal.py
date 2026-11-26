@@ -1393,6 +1393,32 @@ class TerminalRunTests(unittest.TestCase):
                     staged = project_diff(root, "--staged note.txt")
                     self.assertIn("+staged first draft", staged)
                     self.assertNotIn("current first draft", staged)
+                    overview = project_diff(root, "--staged")
+                    self.assertIn("empty tree", overview)
+                    self.assertIn("Staged: 'note.txt'", overview)
+                    self.assertIn("+staged first draft", overview)
+                    self.assertNotIn("current first draft", overview)
+
+    def test_staged_overview_bounds_patches_and_keeps_unavailable_paths_visible(self):
+        from agentnik.code_terminal import project_diff
+
+        paths = [f"file{i:02d}" for i in range(15)]
+
+        def inspect(action, path=""):
+            if action == "git_status":
+                return {"staged": paths, "conflicted": ["merge"], "head": "fixture"}
+            if path == paths[0]:
+                raise ValueError("Binary fixture")
+            return {"diff": "x" * 2500}
+
+        with TemporaryDirectory() as directory, patch("agentnik.git_service.GitService.inspect", side_effect=inspect) as read:
+            output = project_diff(Path(directory), "--staged")
+        self.assertIn("Patch unavailable: Binary fixture", output)
+        self.assertIn("Patch preview shortened.", output)
+        self.assertIn("Unresolved merge entries are excluded.", output)
+        self.assertIn("Only the first 12 staged paths", output)
+        self.assertNotIn(paths[12], output)
+        self.assertEqual(read.call_count, 13)
 
     def test_project_diff_distinguishes_worktree_from_index(self):
         from unittest.mock import Mock

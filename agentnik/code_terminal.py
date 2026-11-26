@@ -68,7 +68,29 @@ def project_diff(root, argument):
             status["scope"],
             "Use /diff PATH to compare with HEAD or /diff --staged PATH to review the index.",
         ])
-    staged = argument == "--staged" or argument.startswith("--staged ")
+    if argument == "--staged":
+        status = git.inspect("git_status")
+        paths = status["staged"]
+        lines = ["Staged changes compared with HEAD." if status["head"]
+                 else "Staged changes compared with the empty tree."]
+        if not paths:
+            lines.append("No staged changes.")
+        if status["conflicted"]:
+            lines.append("Unresolved merge entries are excluded. Use /diff to list them.")
+        for path in paths[:12]:
+            lines.append(f"Staged: {path!r}")
+            try:
+                diff = git.inspect("git_diff_staged", path)["diff"]
+                lines.append(diff[:2400] or "No textual changes for this file.")
+                if len(diff) > 2400:
+                    lines.append("Patch preview shortened.")
+            except (OSError, ValueError, KeyError) as exc:
+                lines.append(f"Patch unavailable: {exc}")
+        if len(paths) > 12:
+            lines.append("Only the first 12 staged paths are shown.")
+        lines.append("Use /diff --staged PATH for a single-file diff.")
+        return "\n".join(lines)
+    staged = argument.startswith("--staged ")
     path = argument.partition(" ")[2].strip() if staged else argument
     if len(path) >= 2 and path[0] == path[-1] and path[0] in ("'", '"'):
         path = path[1:-1]
