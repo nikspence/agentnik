@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- A separate local Windows ConPTY probe resumed a synthetic saved session at `e0dc856`, opened the actual pager with `/transcript`, returned with Q, and ran `/status`. It used an isolated data directory and no provider request. This verifies the slash-command path, not the terminal emulator's handling of Ctrl+T or PageUp.
+
 - A Windows ConPTY smoke test sent simulated input to the real terminal composer. Ctrl+J inserted a newline, Enter submitted the two-line draft, and Up recalled the exact draft for resubmission. It passed locally and against the installed Qt-free wheel on the hosted Windows runner at `e2d7d8d`. Reproduce with `python tools/conpty_composer_smoke.py` in a Windows environment with the terminal extra and optional `pywinpty`. This does not qualify transcript shortcuts, terminal application bindings, or a physical keyboard. [Hosted Windows job](https://github.com/nikspence/agentnik/actions/runs/45879998897)
 
 - Machine-scope terminal tests passed on native Windows and on Linux under WSL at `37b2ce0` (56 and 55 passing respectively, with the Windows-only path test skipped on Linux). Mocked requests verified absolute-path reads and writes, a declined write leaving no file, return to project scope on resume, and rejection of a machine tool call after resume. This does not qualify macOS or live model behavior.
