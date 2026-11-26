@@ -11,13 +11,18 @@ from .sessions import append_code_activity, coding_model_binding
 from .storage import Store
 
 
-def saved_session_summaries(data_dir, root):
-    """Read project session metadata without initializing or leasing the profile."""
+def saved_session_metadata(data_dir, root):
+    """Read client-safe project metadata without opening sessions or exposing their contents."""
     if not (Path(data_dir) / "history.sqlite3").exists():
-        return {}
+        return []
     store = Store(data_dir, read_only_history=True)
     try:
-        return CodeHistory(store, root).session_summaries()
+        return [
+            {"id": ident, "status": record.get("code_state", "idle"),
+             "scope": record.get("coding_file_scope", "project"), "goal_status": goal,
+             "updated_at": record["updated"]}
+            for ident, (record, goal) in CodeHistory(store, root).session_summaries().items()
+        ]
     finally:
         store.db.close()
 

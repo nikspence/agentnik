@@ -277,16 +277,11 @@ def main():
         parser.error("application data path must be a directory")
 
     if options.list_sessions:
-        from .code_history import saved_session_summaries
+        from .code_history import saved_session_metadata
         from .code_terminal import terminal_text
 
         try:
-            sessions = [
-                {"id": ident, "status": record.get("code_state", "idle"),
-                 "scope": record.get("coding_file_scope", "project"), "goal_status": goal,
-                 "updated_at": record["updated"]}
-                for ident, (record, goal) in saved_session_summaries(options.data_dir, root).items()
-            ]
+            sessions = saved_session_metadata(options.data_dir, root)
         except (OSError, ValueError, sqlite3.Error) as exc:
             print(terminal_text(exc), file=sys.stderr)
             return 1
@@ -319,10 +314,10 @@ def terminal_session(options, root, lease, images):
         return f"code [{', '.join(modes)}]> " if modes else "code> "
 
     def saved_session_ids():
-        from .code_history import saved_session_summaries
+        from .code_history import saved_session_metadata
 
         try:
-            return tuple(saved_session_summaries(options.data_dir, root))
+            return tuple(row["id"] for row in saved_session_metadata(options.data_dir, root))
         except (OSError, ValueError, sqlite3.Error):
             return ()
 
