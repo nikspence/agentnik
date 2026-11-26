@@ -95,6 +95,17 @@ class Store:
         self.db.execute('CREATE TABLE IF NOT EXISTS prompts (id TEXT PRIMARY KEY, mode TEXT NOT NULL, created REAL NOT NULL, payload TEXT NOT NULL, UNIQUE(mode, payload))')
         if 'name' not in {row[1] for row in self.db.execute('PRAGMA table_info(prompts)')}: self.db.execute("ALTER TABLE prompts ADD COLUMN name TEXT NOT NULL DEFAULT ''")
 
+    @classmethod
+    def open_history(cls, root, *, writable=False):
+        """Open an existing history database without initializing settings or attachments."""
+        if not writable:
+            return cls(root, read_only_history=True)
+        store = cls.__new__(cls)
+        store.root = Path(root)
+        uri = (store.root / 'history.sqlite3').absolute().as_uri()
+        store.db = sqlite3.connect(uri + '?mode=rw', uri=True)
+        return store
+
     def flush(self):
         temp = self.config_path.with_suffix('.tmp')
         temp.write_text(json.dumps(self.config, indent=2)+'\n', encoding='utf-8')

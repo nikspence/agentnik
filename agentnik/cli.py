@@ -756,7 +756,7 @@ def terminal_session(options, root, lease, images):
                 if not (options.data_dir / "history.sqlite3").exists():
                     sessions, records, snapshot = {}, [], None
                 else:
-                    store = Store(options.data_dir, read_only_history=read_only)
+                    store = Store.open_history(options.data_dir, writable=not read_only)
                     try:
                         history = CodeHistory(store, root)
                         if listing:

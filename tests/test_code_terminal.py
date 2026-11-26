@@ -2553,6 +2553,40 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(resolve_session_id(sessions, "latest"), "abcd-first")
         self.assertEqual(resolve_session_id(sessions, "missing"), "")
 
+    def test_resume_recovers_history_even_with_unreadable_settings(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "data"
+            ident = str(uuid4())
+            store = Store(data)
+            try:
+                CodeHistory(store, root).start("Fixture", {"model": "test"}, "Saved task", ident)
+            finally:
+                store.db.close()
+            settings = data / "connections.json"
+            settings.write_text("{invalid", encoding="utf-8")
+            composer = Mock()
+            composer.prompt.return_value = "/exit"
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", ident]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request") as request, \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn(f"Resumed session {ident}", output.getvalue())
+            request.assert_not_called()
+            self.assertEqual(settings.read_text(encoding="utf-8"), "{invalid")
+            store = Store.open_history(data)
+            try:
+                self.assertEqual(CodeHistory(store, root).list(ident)[0]["code_state"], "interrupted")
+            finally:
+                store.db.close()
+
     def test_failed_startup_resume_does_not_open_a_new_session(self):
         from unittest.mock import Mock
         from agentnik import cli
