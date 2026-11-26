@@ -22,7 +22,7 @@ from .decision_advice import parse_advice
 from .task_plan import validate_plan
 from .subagent_status import validate_record
 from .sessions import append_code_activity
-from .code_limits import FIELDS,coding_limits,GOAL_FIELDS,goal_limits
+from .code_limits import FIELDS,UNLIMITED_FIELDS,coding_limits,GOAL_FIELDS,goal_limits
 from .selection_scroll import SelectionScroll
 from .web import public_url
 from . import core,routing
@@ -179,7 +179,9 @@ class CodingLimitsDialog(QDialog):
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form);self.fields={}
         labels={'rounds':self.tr('Tool rounds'),'requests':self.tr('Model requests'),'calls':self.tr('Tool calls'),'turn_seconds':self.tr('Run or goal step time (seconds)'),'model_seconds':self.tr('Model call timeout (seconds)'),'context_bytes':self.tr('Retained context (bytes)')}
         for key,(_,minimum,maximum) in FIELDS.items():
-            box=QSpinBox();box.setRange(minimum,maximum);box.setValue(coding_limits(values)[key]);form.addRow(labels[key],box);self.fields[key]=box
+            box=QSpinBox();box.setRange(0 if key in UNLIMITED_FIELDS else minimum,maximum)
+            if key in UNLIMITED_FIELDS:box.setSpecialValueText(self.tr('Unlimited'))
+            box.setValue(coding_limits(values)[key]);form.addRow(labels[key],box);self.fields[key]=box
         self.goal_fields={}
         for key,label in (('steps',self.tr('Goal steps')),('seconds',self.tr('Goal active time (seconds)'))):
             box=QSpinBox();box.setRange(GOAL_FIELDS[key][1],GOAL_FIELDS[key][2]);box.setSpecialValueText(self.tr('Unlimited'));box.setValue(goal_limits(goal_values)[key]);form.addRow(label,box);self.goal_fields[key]=box

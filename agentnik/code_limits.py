@@ -5,10 +5,11 @@ FIELDS = {
     'rounds': (48, 1, 128),
     'requests': (50, 1, 256),
     'calls': (96, 1, 256),
-    'turn_seconds': (3600, 10, 7200),
+    'turn_seconds': (3600, 1, 7200),
     'model_seconds': (300, 10, 7200),
     'context_bytes': (16000000, 4096, 64000000),
 }
+UNLIMITED_FIELDS = frozenset({'rounds', 'requests', 'calls', 'turn_seconds'})
 
 FULL_TEXT_BYTES=128_000
 PATCH_FILE_BYTES=10_000_000
@@ -35,6 +36,8 @@ def coding_limits(value=None):
     value=dict(value)
     value.setdefault('model_seconds',FIELDS['model_seconds'][0])
     for key, (_, minimum, maximum) in FIELDS.items():
+        if key in UNLIMITED_FIELDS and type(value[key]) is int and value[key] == 0:
+            continue
         if type(value[key]) is not int or not minimum <= value[key] <= maximum:
             raise ValueError('Invalid coding limit: '+key)
     return dict(value)

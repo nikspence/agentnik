@@ -1648,7 +1648,7 @@ class ModelCoding(unittest.TestCase):
 
     def test_coding_limits_reject_invalid_values(self):
         from agentnik.code_limits import coding_limits
-        for bad in ({},{**coding_limits(),'calls':0},{**coding_limits(),'requests':True},{**coding_limits(),'turn_seconds':99999},{**coding_limits(),'model_seconds':0},{**coding_limits(),'model_seconds':True},{**coding_limits(),'model_seconds':7201}):
+        for bad in ({},{**coding_limits(),'calls':-1},{**coding_limits(),'requests':True},{**coding_limits(),'turn_seconds':99999},{**coding_limits(),'model_seconds':0},{**coding_limits(),'model_seconds':True},{**coding_limits(),'model_seconds':7201}):
             with self.assertRaises(ValueError):coding_limits(bad)
 
     def test_more_than_128_tool_calls_can_run_with_increased_limit(self):

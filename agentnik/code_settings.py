@@ -1,6 +1,6 @@
 """Terminal access to shared Code settings."""
 
-from .code_limits import FIELDS, GOAL_FIELDS, coding_limits, goal_limits
+from .code_limits import FIELDS, GOAL_FIELDS, UNLIMITED_FIELDS, coding_limits, goal_limits
 from .localization import choices
 
 
@@ -56,7 +56,8 @@ def configure_code(store, arguments):
         tls = "relaxed" if settings.get("relaxed_tls") else "strict"
         lines = [f"TLS verification: {tls}"]
         for key, (default, low, high) in FIELDS.items():
-            lines.append(f"{key}: {limits[key]} (range {low}–{high}, default {default})")
+            optional = ", 0 means unlimited" if key in UNLIMITED_FIELDS else ""
+            lines.append(f"{key}: {limits[key]} (range {low}–{high}, default {default}{optional})")
         goals = goal_limits(settings.get("coding_goal_limits"))
         for key, (_, low, high) in GOAL_FIELDS.items():
             lines.append(f"goal {key}: {goals[key]} (range {low}–{high}, 0 means unlimited)")

@@ -34,7 +34,10 @@ class TerminalRunTests(unittest.TestCase):
             argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
             edit = call("write_file", {"path": "note.txt", "content": "reviewed\n"})
             first = Mock()
-            first.prompt.side_effect = ["/connection Fixture", "Create a note", "/exit"]
+            first.prompt.side_effect = ["/connection Fixture",
+                                        *[f"/settings limits {key} 0" for key in
+                                          ("rounds", "requests", "calls", "turn_seconds")],
+                                        "Create a note", "/exit"]
             output = io.StringIO()
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=first), \
@@ -112,7 +115,7 @@ class TerminalRunTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     configure_code(store, ["appearance", "font", "100"])
                 with self.assertRaises(ValueError):
-                    configure_code(store, ["limits", "rounds", "0"])
+                    configure_code(store, ["limits", "rounds", "-1"])
                 saved = load_config(store.config_path)["settings"]
                 self.assertEqual(saved["coding_limits"]["rounds"], 12)
                 self.assertEqual(saved["coding_goal_limits"]["steps"], 3)
