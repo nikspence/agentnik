@@ -84,6 +84,17 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           agentnik code --help
+      - name: Verify installed session discovery without a terminal
+        working-directory: ${{ runner.temp }}
+        run: >-
+          python -c "import json, pathlib, subprocess, tempfile;
+          temp = tempfile.TemporaryDirectory(prefix='agentnik workspace ');
+          project = pathlib.Path(temp.name);
+          profile = project / 'unused profile';
+          result = subprocess.run(['agentnik', 'code', str(project), '--data-dir', str(profile), '--list-sessions'],
+          stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True, timeout=20);
+          assert json.loads(result.stdout) == [] and not result.stderr and not profile.exists();
+          temp.cleanup()"
       - name: Verify terminal extras are present without Qt
         working-directory: ${{ runner.temp }}
         run: >-
