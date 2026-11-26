@@ -2617,17 +2617,20 @@ class TerminalRunTests(unittest.TestCase):
     def test_history_paging_is_scoped_and_does_not_load_prompt_recall(self):
         from unittest.mock import Mock
         from agentnik import cli
+        from agentnik.storage import Store
 
         records = [{"code_activity": [{"kind": "prompt", "text": f"Turn {i:02d}"}]} for i in range(21)]
         records[0]["coding_file_scope"] = "machine"
         records[0]["code_activity"] += [{"kind": "tool", "text": f"Entry {i:02d}"} for i in range(21)]
         with TemporaryDirectory() as directory:
             root = Path(directory)
+            Store(Path(directory) / "data").db.close()
             composer = Mock()
             composer.prompt.side_effect = ["/history", "/history 2", "/history 3", "/history 0",
                                            "/history turn 1", "/history turn 22", "/history turn", "/exit"]
             argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.storage.load_config", side_effect=AssertionError("no settings needed")), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
                     patch("agentnik.code_history.CodeHistory.list", return_value=records) as read, \
                     contextlib.redirect_stdout(io.StringIO()) as output:
@@ -2772,20 +2775,42 @@ class TerminalRunTests(unittest.TestCase):
             self.assertEqual(output.getvalue().count(ident), 1)
             request.assert_not_called()
 
+    def test_browsing_empty_history_does_not_create_a_database(self):
+        from unittest.mock import Mock
+        from agentnik import cli
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "data"
+            composer = Mock()
+            composer.prompt.side_effect = ["/sessions", "/history", "/plan", "/goal", "/exit"]
+            with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(data)]), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 0)
+            self.assertFalse((data / "history.sqlite3").exists())
+            self.assertFalse((data / "attachments").exists())
+            for text in ("No saved sessions", "No saved history", "No saved plan", "No saved goal"):
+                self.assertIn(text, output.getvalue())
+
     def test_session_listing_can_reach_older_pages_without_opening_sessions(self):
         from unittest.mock import Mock
         from agentnik import cli
+        from agentnik.storage import Store
 
         saved = {f"fixture-{i:02d}": {"title": f"Saved {i}", "code_state": "completed"} for i in range(21)}
         saved = {ident: (record, "completed" if ident == "fixture-00" else None)
                  for ident, record in saved.items()}
         with TemporaryDirectory() as directory:
             base = Path(directory)
+            Store(Path(directory) / "data").db.close()
             composer = Mock()
             composer.prompt.side_effect = ["/sessions", "/sessions 2", "/sessions 3", "/sessions 0", "/exit"]
             argv = ["agentnik", "code", str(base), "--data-dir", str(base / "data")]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.cli.uuid4", return_value="fixture-00"), \
+                    patch("agentnik.storage.load_config", side_effect=AssertionError("no settings needed")), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
                     patch("agentnik.code_history.CodeHistory.session_summaries", return_value=saved), \
                     patch("agentnik.code_history.CodeHistory.list") as read_records, \

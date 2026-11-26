@@ -752,17 +752,21 @@ def terminal_session(options, root, lease, images):
                       f"Use {action} PAGE with a positive whole page number.")
                 continue
             try:
-                store = Store(options.data_dir)
-                try:
-                    history = CodeHistory(store, root)
-                    if listing:
-                        sessions = history.session_summaries()
-                    elif current_only:
-                        records = history.list(session_id)
-                    else:
-                        ident, snapshot = history.prepare_resume(argument, lease)
-                finally:
-                    store.db.close()
+                read_only = listing or current_only
+                if not (options.data_dir / "history.sqlite3").exists():
+                    sessions, records, snapshot = {}, [], None
+                else:
+                    store = Store(options.data_dir, read_only_history=read_only)
+                    try:
+                        history = CodeHistory(store, root)
+                        if listing:
+                            sessions = history.session_summaries()
+                        elif current_only:
+                            records = history.list(session_id)
+                        else:
+                            ident, snapshot = history.prepare_resume(argument, lease)
+                    finally:
+                        store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 if starting_resume:
