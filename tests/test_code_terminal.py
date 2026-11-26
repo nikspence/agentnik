@@ -29,6 +29,30 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_copy_saved_connection_does_not_copy_credentials_or_overwrite(self):
+        from agentnik.cli import connection_menu
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory:
+            data = Path(directory)
+            store = Store(data)
+            try:
+                store.save_connection("Source", {"url": "https://example.org/v1", "model": "fixture",
+                                                 "stream": False, "api_key": "synthetic"}, plaintext=True)
+                before = store.config_path.read_bytes()
+                with contextlib.redirect_stdout(io.StringIO()), patch("builtins.input", side_effect=["Source", "Copy"]):
+                    connection_menu(data, "copy", "Source")
+                    self.assertEqual(store.config_path.read_bytes(), before)
+                    connection_menu(data, "copy", "Source")
+                connections = load_config(store.config_path)["connections"]
+                self.assertEqual(connections["Source"]["api_key"], "synthetic")
+                self.assertNotIn("api_key", connections["Copy"])
+                self.assertNotIn("credential_id", connections["Copy"])
+                self.assertEqual(connections["Copy"]["model"], "fixture")
+                self.assertFalse(connections["Copy"]["stream"])
+            finally:
+                store.db.close()
+
     def test_manual_git_help_remains_available_without_native_git(self):
         from agentnik.code_git_commands import manual_git
 
