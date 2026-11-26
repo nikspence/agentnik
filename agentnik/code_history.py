@@ -33,14 +33,14 @@ class CodeHistory:
             latest.setdefault(self.session_id(record), record)
         return latest
 
-    def start(self, name, connection, task, session_id=None, *, goal=False):
+    def start(self, name, connection, task, session_id=None, *, goal=False, extra_secrets=()):
         registry = RepositoryRegistry(self.store)
         project = next((row["id"] for row in registry.list() if same_project(row["path"], self.root)), None)
         if project is None:
             project = registry.put(self.root)
         record = registry.session(project)
         key = connection.get("api_key")
-        objective = scrub(task, [key])[:16000]
+        objective = scrub(task, [key, *extra_secrets])[:16000]
         task = objective[:2048]
         record.update(code_state="running", coding_last_run_goal=goal,
                       coding_models={"model": {"connection": name, "model": connection["model"]}})

@@ -167,6 +167,7 @@ def main():
         print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
     context = None
+    web_enabled = False
     session_id = str(uuid4())
     pending_command = f"/resume {options.resume}" if options.resume else None
     while True:
@@ -190,6 +191,7 @@ def main():
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
+                  "/web on|off       Enable or disable web research for this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
                   "/new              Start a fresh session in this project\n"
@@ -198,10 +200,15 @@ def main():
                   "/exit             Close Agentnik Code")
         elif command == "/status":
             print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
-                  f" · Model: {model or '(connection default)'!r}")
+                  f" · Model: {model or '(connection default)'!r} · Web: {'on' if web_enabled else 'off'}")
+        elif command in ("/web on", "/web off"):
+            web_enabled = command.endswith(" on")
+            print("Web research enabled for next task. Queries may go to configured or fallback services."
+                  if web_enabled else "Web research disabled.")
         elif command == "/new":
             session_id = str(uuid4())
             context = None
+            web_enabled = False
             transcript.clear()
             if composer:
                 composer = open_composer()
@@ -258,6 +265,7 @@ def main():
                 continue
             if command != "/history":
                 session_id = ident
+                web_enabled = False
                 transcript.clear()
                 if composer:
                     composer = open_composer()
@@ -300,22 +308,25 @@ def main():
             if goal:
                 command = command.removeprefix("/goal ").strip()
             try:
-                connection, limits, goal_budget = load_run_settings(options.data_dir, connection_name, model)
+                connection, limits, goal_budget, research_options = load_run_settings(
+                    options.data_dir, connection_name, model, web_enabled
+                )
                 run = CodingRun(connection, root, command, context=context, limits=limits,
-                                goal=goal, goal_budget=goal_budget)
+                                goal=goal, goal_budget=goal_budget, **research_options)
                 run.stream_activity = True
                 run.review_project_edits = True
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 continue
-            transcript.append("Task: " + terminal_text(
-                command.replace(connection.get("api_key") or "\0", "[redacted]")
-            ) + "\n")
             try:
                 store = Store(options.data_dir)
                 try:
                     history = CodeHistory(store, root)
-                    record, task = history.start(connection_name, connection, command, session_id, goal=goal)
+                    record, task = history.start(
+                        connection_name, connection, command, session_id, goal=goal,
+                        extra_secrets=[item.get("key") for item in research_options["web_backends"]],
+                    )
+                    transcript.append("Task: " + terminal_text(task) + "\n")
                     result = drive_run(run, write_activity)
                     history.finish(record, task, result)
                     context = record.get("coding_context")

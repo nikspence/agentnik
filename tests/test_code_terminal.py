@@ -11,6 +11,25 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_web_opt_in_honors_strict_navigation_without_loading_search_keys(self):
+        from unittest.mock import Mock
+        from agentnik.code_research import code_research_options
+
+        store = Mock()
+        store.config = {"settings": {"research_access_policy": "strict_public"}}
+        connection = {"url": "https://gateway.example/v1", "protocol": "chat", "model": "test"}
+        self.assertFalse(code_research_options(store, "Fixture", connection, False)["web_enabled"])
+        options = code_research_options(store, "Fixture", connection, True)
+        self.assertTrue(options["web_enabled"])
+        self.assertEqual(options["search_provider"], "none")
+        self.assertFalse(options["hosted_search"])
+        store.web_backend_specs.assert_not_called()
+        store.config["settings"]["research_access_policy"] = "public_fetch"
+        store.web_backend_specs.return_value = [{"kind": "ollama"}, {"kind": "brave"}]
+        options = code_research_options(store, "Fixture", connection, True)
+        self.assertEqual(options["search_provider"], "managed")
+        self.assertEqual(options["web_backends"], [{"kind": "brave"}])
+
     def test_full_cli_turn_applies_reviewed_edit_and_resumes_without_replay(self):
         from unittest.mock import Mock
         from agentnik import cli, core

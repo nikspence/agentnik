@@ -13,8 +13,9 @@ def terminal_text(text):
     )
 
 
-def load_run_settings(data_dir, name, model):
+def load_run_settings(data_dir, name, model, web_enabled=False):
     from . import core, tls
+    from .code_research import code_research_options
     from .storage import Store
 
     store = Store(data_dir)
@@ -31,7 +32,8 @@ def load_run_settings(data_dir, name, model):
             raise ValueError("No model selected. Use /model to specify one.")
         settings = store.config["settings"]
         tls.configure(settings.get("relaxed_tls", False))
-        return connection, settings.get("coding_limits"), settings.get("coding_goal_limits")
+        options = code_research_options(store, name, connection, web_enabled)
+        return connection, settings.get("coding_limits"), settings.get("coding_goal_limits"), options
     finally:
         store.db.close()
 

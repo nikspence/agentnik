@@ -9,7 +9,6 @@ import threading
 import uuid
 import time
 from datetime import datetime
-from urllib.parse import urlsplit
 from PySide6.QtCore import Qt,Signal,QObject,QUrl,QPoint,QTimer
 from PySide6.QtGui import QDesktopServices,QTextCursor,QTextDocument,QTextDocumentFragment,QTextCharFormat
 from PySide6.QtWidgets import QScrollArea,QApplication,QWidget,QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QLineEdit,QListWidget,QListWidgetItem,QPushButton,QDialogButtonBox,QFileDialog,QInputDialog,QMessageBox,QPlainTextEdit,QTextBrowser,QComboBox,QCheckBox,QSpinBox,QTabWidget
@@ -27,7 +26,7 @@ from .selection_scroll import SelectionScroll
 from .web import public_url
 from . import core,routing
 from .research_ui import SearchBackends
-from .search_providers import SEARCH_KINDS,SEARCH_PROVIDERS
+from .search_providers import SEARCH_PROVIDERS
 
 
 class CodeActivity(QTextBrowser):
@@ -1200,15 +1199,13 @@ class CodeTab(QWidget):
                 if snapshot:context=coding_effective_context(context,snapshot)
                 elif self.coding_auto_compact.isChecked() and len(context['task'])+len(context['answer'])>=3000:
                     self.compact_coding_context(auto_start=True,connection=heavy);return
-            enabled=self.web_enabled.isChecked();backends=[];provider='none'
-            if enabled:
-                strict=routing.connection_defaults(self.store.config,self.roles['heavy'][0].currentData(),heavy)['access_policy']=='strict_public'
-                parsed=urlsplit(heavy['url']);direct=parsed.scheme=='https' and parsed.hostname=='ollama.com' and parsed.port in (None,443)
-                if not strict:
-                    backends=[b for b in self.store.web_backend_specs() if b.get('kind') in SEARCH_KINDS and (b.get('kind')!='ollama' or direct)]
-                    provider='managed'
             from .mcp_support import server_fingerprint
             refs=(([self.mcp_primary_ref] if self.mcp_primary_ref else [])+self.mcp_extra_refs) if self.window.mcp_access.isChecked() else []
+            from .code_research import code_research_options
+            enabled=self.web_enabled.isChecked()
+            options=code_research_options(self.store,self.roles['heavy'][0].currentData(),heavy,enabled,
+                                          mcp_first=bool(refs) and self.store.config['settings'].get('mcp_priority','first')=='first')
+            backends=options['web_backends'];provider=options['search_provider'];hosted_enabled=options['hosted_search']
             if len(refs)>5:raise ValueError(self.tr('Select at most five MCP servers.'))
             entries=self.store.config.get('mcp_servers',[]);servers=[]
             for ref in refs:
@@ -1231,8 +1228,6 @@ class CodeTab(QWidget):
                 files=ProjectFiles(self.session['path_snapshot']);limit=coding_limits(self.store.config['settings'].get('coding_limits'))['context_bytes'];selected=prepare_track(files,ident,secrets,limit)
                 if not self.review_selected_track(selected,heavy,prompt):return
                 if prepare_track(files,ident,secrets,limit)!=selected:raise ValueError(self.tr('Selected track changed after review; review and start again.'))
-            from . import hosted,research
-            hosted_enabled=enabled and not strict and not (refs and self.store.config['settings'].get('mcp_priority','first')=='first') and self.store.config['settings'].get('research_policy','Provider first')=='Provider first' and hosted.supported_endpoint(heavy) and research.capability(self.store.config,heavy,'hosted_search').state!='unsupported'
             project=self.window.repositories.get(self.session['project_id'])
             git_author=self.window.repositories.git_author(project['id']) if project and os.path.normcase(project['path'])==os.path.normcase(self.session['path_snapshot']) else None
             image_config=self.window.image_tool_config()

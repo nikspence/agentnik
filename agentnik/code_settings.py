@@ -66,6 +66,7 @@ def configure_code(store, arguments):
             "Use /settings goal steps|seconds VALUE (or default).",
             "Use /settings tls strict or /settings tls relaxed.",
             "Use /settings appearance to manage desktop appearance and layout.",
+            "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
         ))
         return "\n".join(lines)
 
@@ -91,6 +92,10 @@ def configure_code(store, arguments):
         settings[setting] = validator(values)
     elif arguments in (["tls", "strict"], ["tls", "relaxed"]):
         settings["relaxed_tls"] = arguments[1] == "relaxed"
+    elif arguments[:2] == ["web", "access"] and arguments[2:] in (["public_fetch"], ["strict_public"]):
+        settings["research_access_policy"] = arguments[2]
+    elif arguments[:2] == ["web", "priority"] and arguments[2:] in (["provider"], ["managed"]):
+        settings["research_policy"] = "Provider first" if arguments[2] == "provider" else "Agentnik first"
     else:
         raise ValueError("Use /settings to see supported settings and syntax.")
     store.flush()
