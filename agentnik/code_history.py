@@ -87,6 +87,7 @@ class ResumeSnapshot:
     skill_pins: dict
     prompt_history: tuple[str, ...]
     activity: tuple[str, ...]
+    latest_goal_turn: dict | None
 
 
 def resume_snapshot(records):
@@ -109,6 +110,7 @@ def resume_snapshot(records):
         project_context_for_resume(records), dict(record.get("coding_skill_pins", {})),
         tuple(reversed(prompts)),
         tuple(line for saved in reversed(records[:20]) for line in activity_preview(saved)),
+        next((saved for saved in records if "coding_goal" in saved), None),
     )
 
 

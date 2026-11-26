@@ -311,7 +311,7 @@ def terminal_session(options, root, lease, images):
     mcp_selection = []
     context = None
     use_context = True
-    last_record = None
+    last_goal_turn = None
     web_enabled = False
     vision_enabled = False
     memory_enabled = False
@@ -320,9 +320,9 @@ def terminal_session(options, root, lease, images):
     documents = []
     session_id = str(uuid4())
     def reset_session_state():
-        nonlocal context, use_context, last_record, web_enabled, vision_enabled, memory_enabled
+        nonlocal context, use_context, last_goal_turn, web_enabled, vision_enabled, memory_enabled
         nonlocal mcp_selection, show_thinking, skill_pins, require_approval, machine_scope, composer
-        context = last_record = None
+        context = last_goal_turn = None
         use_context = require_approval = True
         web_enabled = vision_enabled = memory_enabled = show_thinking = machine_scope = False
         mcp_selection = []
@@ -681,6 +681,7 @@ def terminal_session(options, root, lease, images):
         elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume")
               or command.startswith("/open ") or command in ("/plan", "/goal")):
             from .code_history import CodeHistory, Store, activity_preview
+            from .sessions import coding_model_binding
             from .code_terminal import terminal_text
 
             action = command.split(" ", 1)[0]
@@ -769,7 +770,9 @@ def terminal_session(options, root, lease, images):
             for line in snapshot.activity:
                 write_activity(terminal_text(line))
             record = snapshot.record
-            last_record = record
+            last_goal_turn = snapshot.latest_goal_turn
+            if last_goal_turn and coding_model_binding(last_goal_turn).get("connection") != snapshot.connection:
+                last_goal_turn = None
             skill_pins = snapshot.skill_pins
             context = snapshot.project_context
             connection_name, model = snapshot.connection, snapshot.model
@@ -804,7 +807,7 @@ def terminal_session(options, root, lease, images):
                 connection_name = name
                 model = ""
                 context = None
-                last_record = None
+                last_goal_turn = None
                 vision_enabled = False
                 memory_enabled = False
             print(f"Selected connection {name!r}.")
@@ -848,12 +851,12 @@ def terminal_session(options, root, lease, images):
 
             continuing = command == "/continue"
             goal = continuing or command.startswith("/goal ")
-            resume = goal_continuation(last_record) if continuing else None
+            resume = goal_continuation(last_goal_turn) if continuing else None
             if continuing:
                 if resume is None:
                     print("No stopped goal is available to continue in this session.")
                     continue
-                saved_scope = last_record.get("coding_file_scope", "project")
+                saved_scope = last_goal_turn.get("coding_file_scope", "project")
                 if saved_scope != ("machine" if machine_scope else "project"):
                     print(f"That goal ran in {saved_scope} scope. Use /scope {saved_scope} before continuing.")
                     continue
@@ -922,7 +925,8 @@ def terminal_session(options, root, lease, images):
                     finally:
                         images.clear()
                     history.finish(record, task, result, save_context=not machine_scope)
-                    last_record = record
+                    if goal:
+                        last_goal_turn = record
                     if not machine_scope:
                         context = record.get("coding_context")
                 finally:

@@ -142,6 +142,8 @@ class TerminalRunTests(unittest.TestCase):
                 history.finish(record, task, {"status": "cancelled", "text": "Stopped diagnostic."},
                                save_context=False)
                 self.assertEqual(history.list(session)[0]["coding_file_scope"], "machine")
+                followup, prompt = history.start("Fixture", {"model": "fixture"}, "Check project status", session)
+                history.finish(followup, prompt, {"status": "completed", "text": "Checked."})
             finally:
                 store.db.close()
 
@@ -156,8 +158,8 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             self.assertIn("That goal ran in machine scope. Use /scope machine before continuing.", output.getvalue())
             self.assertIn("[Saved turn used machine scope]", output.getvalue())
-            self.assertIn(f"{session}  cancelled [machine]", output.getvalue())
-            self.assertIn("New tasks start in project scope.", output.getvalue())
+            self.assertIn(f"{session}  completed [current] [goal: cancelled]", output.getvalue())
+            self.assertIn("Review machine logs", output.getvalue())
             confirmation.assert_called_once_with("Continue this goal with fresh limits? [y/N] ")
             request.assert_not_called()
 
