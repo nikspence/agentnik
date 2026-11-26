@@ -1119,7 +1119,7 @@ class TerminalRunTests(unittest.TestCase):
                 history = CodeHistory(store, root)
                 session = str(uuid4())
                 history.start("fixture", {"model": "test"}, "Finish project", session, goal=True)
-                with SessionLease(data) as lease:
+                with SessionLease(data) as lease, SessionLease(data) as other:
                     record = history.list(session)[0]
                     history.checkpoint_goal(record, {"kind": "goal_status", "status": "active",
                                                      "detail": "Draft was created."})
@@ -1129,8 +1129,19 @@ class TerminalRunTests(unittest.TestCase):
                     history.recover_interrupted(record, lease)
                     self.assertEqual(record["code_state"], "running")
                     lease.select(session)
-                    history.recover_interrupted(record, lease)
-                    saved = history.list(session)[0]
+                    unrelated = str(uuid4())
+                    other.select(unrelated)
+                    with self.assertRaisesRegex(ValueError, "already open"):
+                        history.prepare_resume(session, other)
+                    self.assertEqual(other.session_id, unrelated)
+                    self.assertEqual(history.list(session)[0]["code_state"], "running")
+                    lease.close()
+                    ident, snapshot = history.prepare_resume(session, other)
+                    self.assertEqual(ident, session)
+                    self.assertEqual(other.session_id, session)
+                    self.assertEqual(snapshot.prompt_history, ("Finish project",))
+                    saved = snapshot.record
+                    self.assertEqual(history.list(session)[0]["code_state"], "interrupted")
                     self.assertEqual(saved["coding_goal"]["status"], "interrupted")
                     self.assertEqual(goal_continuation(saved)["task"], "Finish project")
                     self.assertIn("Draft was created.", goal_continuation(saved)["evidence"])
