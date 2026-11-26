@@ -6,6 +6,15 @@ Agentnik Code is available as a terminal preview. It uses Agentnik's own coding 
 python -m pip install ".[terminal]"
 ```
 
+To test a built wheel without using PyPI, download and extract the `python-distributions` artifact from a successful [build-only GitHub Actions run](https://github.com/nikspence/agentnik/actions/workflows/publish-to-pypi.yml). Create and activate a fresh virtual environment, then install the wheel with the terminal extra:
+
+```sh
+python -m pip install "./agentnik-0.12.0rc1-py3-none-any.whl[terminal]"
+agentnik code --help
+```
+
+Use the wheel filename from the artifact if its version differs. To request a fresh build, run the workflow with both `publish` and `legacy_0_11_1` unchecked.
+
 From the folder you want to work in, run `agentnik code`. A Git repository is optional. To work somewhere else, pass the folder as an argument. On a machine where you also use the desktop app, install `".[desktop,terminal]"` to use both. The clients share saved connections and application data. Use `--data-dir PATH` or `AGENTNIK_HOME` if you want a separate data store.
 
 ## First task
