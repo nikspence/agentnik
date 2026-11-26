@@ -22,15 +22,16 @@ from .mcp_oauth_record import make_record
 from .tools import Limits, Runtime
 
 
-def _read(runtime, url, body=None, max_bytes=MAX_METADATA):
+def _read(runtime, url, body=None, max_bytes=MAX_METADATA, *, registration=False):
     headers = {"Accept": "application/json"}
     if body is not None:
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        headers["Content-Type"] = "application/json" if registration else "application/x-www-form-urlencoded"
     request = Request(url, data=body, headers=headers)
     opener = build_opener(NoRedirect(), HTTPSHandler(context=tls.context()))
     with opener.open(request, timeout=runtime.timeout()) as response:
         data = response.read(max_bytes + 1)
-        if len(data) > max_bytes or response.status != 200 or response.headers.get_content_type() != "application/json":
+        if (len(data) > max_bytes or response.status not in ((200, 201) if registration else (200,))
+                or response.headers.get_content_type() != "application/json"):
             raise ValueError("Invalid OAuth endpoint response")
         return data
 
@@ -121,8 +122,44 @@ def _wait_for_callback(listener, state, issuer, require_issuer):
     raise ValueError("OAuth sign-in timed out.")
 
 
+def _valid_client_id(value):
+    return isinstance(value, str) and 0 < len(value) <= 1024 and all(33 <= ord(ch) <= 126 for ch in value)
+
+
+def register_public_client(metadata, redirect):
+    endpoint = metadata.get("registration_endpoint")
+    if not endpoint:
+        raise ValueError("This issuer requires a registered public OAuth client ID.")
+    body = json.dumps({
+        "client_name": "Agentnik", "application_type": "native", "redirect_uris": [redirect],
+        "grant_types": ["authorization_code"] + (["refresh_token"] if metadata.get("refresh_grant_supported") else []),
+        "response_types": ["code"], "token_endpoint_auth_method": "none",
+    }).encode("utf-8")
+    runtime = Runtime(limits=Limits(request_seconds=15, turn_seconds=15))
+    try:
+        url = _endpoint(endpoint).geturl()
+        raw = runtime.wait(lambda: _read(runtime, url, body, _MAX_RESPONSE, registration=True))
+        result = json.loads(raw, object_pairs_hook=_object_pairs)
+        if not isinstance(result, dict) or not _valid_client_id(result.get("client_id")):
+            raise ValueError()
+        expires = result.get("client_id_expires_at", 0)
+        if (type(expires) is not int or expires < 0 or (expires and expires <= time.time())
+                or result.get("token_endpoint_auth_method", "none") != "none" or result.get("client_secret")
+                or result.get("redirect_uris", [redirect]) != [redirect]):
+            raise ValueError()
+        for field, required in (("grant_types", "authorization_code"), ("response_types", "code")):
+            choices = result.get(field, [required])
+            if not isinstance(choices, list) or required not in choices:
+                raise ValueError()
+        return result["client_id"]
+    except Exception:
+        raise ValueError("OAuth client registration did not finish safely. It was not retried.") from None
+    finally:
+        runtime.closed = True
+
+
 def sign_in(resource, client_id, scope, present):
-    if not 0 < len(client_id) <= 1024 or any(not 33 <= ord(ch) <= 126 for ch in client_id):
+    if client_id != "" and not _valid_client_id(client_id):
         raise ValueError("Enter the public OAuth client ID registered with this provider.")
     if len(scope) > 4096 or any(not 32 <= ord(ch) <= 126 or ch in '"\\' for ch in scope):
         raise ValueError("Invalid OAuth scopes.")
@@ -137,6 +174,8 @@ def sign_in(resource, client_id, scope, present):
     with socket.create_server(("127.0.0.1", 0)) as listener:
         port = listener.getsockname()[1]
         redirect = f"http://127.0.0.1:{port}/callback"
+        if not client_id:
+            client_id = register_public_client(metadata, redirect)
         params = {"response_type": "code", "client_id": client_id, "redirect_uri": redirect, "state": state,
                   "code_challenge": challenge, "code_challenge_method": "S256", "resource": resource}
         if scope:

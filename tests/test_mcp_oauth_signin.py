@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 import socket
 import unittest
 from unittest.mock import patch
@@ -13,11 +14,17 @@ class TerminalSignInTests(unittest.TestCase):
     resource = "https://mcp.example/api"
 
     def test_loopback_signin_binds_exchange_to_pkce_and_resource(self):
+        for dynamic in (False, True):
+            with self.subTest(dynamic=dynamic):
+                self.check_signin(dynamic)
+
+    def check_signin(self, dynamic):
         observed = {}
         metadata = {
             "issuer": self.issuer,
             "authorization_endpoint": self.issuer + "/authorize",
             "token_endpoint": self.issuer + "/token",
+            "registration_endpoint": self.issuer + "/register",
             "pkce_s256": True,
             "public_client_supported": True,
             "authorization_response_iss_parameter_supported": True,
@@ -33,10 +40,19 @@ class TerminalSignInTests(unittest.TestCase):
 
         with patch("agentnik.mcp_oauth_signin.discover_authorization", return_value=metadata), patch(
             "agentnik.mcp_oauth_signin._read",
-            return_value=b'{"access_token":"example-token","token_type":"Bearer","expires_in":3600}',
+            side_effect=([b'{"client_id":"public-client","token_endpoint_auth_method":"none"}'] if dynamic else []) +
+                        [b'{"access_token":"example-token","token_type":"Bearer","expires_in":3600}'],
         ) as exchange:
-            sign_in(self.resource, "public-client", "read", present)
-        exchange.assert_called_once()
+            sign_in(self.resource, "" if dynamic else "public-client", "read", present)
+        self.assertEqual(exchange.call_count, 2 if dynamic else 1)
+        if dynamic:
+            registration = exchange.call_args_list[0]
+            self.assertEqual(registration.args[1], metadata["registration_endpoint"])
+            self.assertTrue(registration.kwargs["registration"])
+            registration_body = json.loads(registration.args[2])
+            self.assertEqual(registration_body["redirect_uris"], observed["redirect_uri"])
+            self.assertEqual(registration_body["token_endpoint_auth_method"], "none")
+        self.assertEqual(observed["client_id"], ["public-client"])
         _, endpoint, body, _ = exchange.call_args.args
         form = parse_qs(body.decode())
         self.assertEqual(endpoint, metadata["token_endpoint"])

@@ -80,7 +80,7 @@ def configure_mcp_signin(store, name):
         print(terminal_text(url), flush=True)
 
     try:
-        client_id = input("Registered public OAuth client ID: ").strip()
+        client_id = input("Public OAuth client ID (blank to register with the issuer): ").strip()
         scope = input("Scopes (optional, space separated): ").strip()
         record = sign_in(server["url"], client_id, scope, present)
     except (EOFError, KeyboardInterrupt):
@@ -144,7 +144,7 @@ def configure_mcp(store, arguments):
             "Use /settings mcp edit-local NAME to edit a local server without starting it.",
             "Use /settings mcp token NAME to set, rotate, or clear an HTTPS bearer token.",
             "Use /settings mcp renew NAME to renew an existing OAuth sign-in.",
-            "Use /settings mcp signin NAME with a registered public OAuth client.",
+            "Use /settings mcp signin NAME with a public client ID or dynamic registration.",
             f"Use /settings mcp timeout SECONDS NAME (1–{MAX_TIMEOUT_SECONDS}, or default).",
         ])
     if len(arguments) >= 2 and arguments[0] == "token":
