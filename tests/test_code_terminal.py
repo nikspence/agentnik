@@ -1510,7 +1510,7 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
 
     def test_terminal_project_memory_reads_desktop_entries_without_crossing_projects(self):
-        from agentnik.code_terminal import terminal_project_memory
+        from agentnik.code_terminal import load_run_settings, terminal_project_memory
         from agentnik.project_memory import ProjectMemory
         from agentnik.repositories import RepositoryRegistry
         from agentnik.storage import Store
@@ -1523,6 +1523,7 @@ class TerminalRunTests(unittest.TestCase):
             store = Store(data)
             try:
                 registry = RepositoryRegistry(store)
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
                 memory = ProjectMemory(store.root / "history.sqlite3", registry.put(root))
                 saved = memory.save({"title": "Fixture", "text": "Use the local fixture.\x1b[2J",
                                      "source": "README.md", "stale": True})
@@ -1530,6 +1531,10 @@ class TerminalRunTests(unittest.TestCase):
                 detail = terminal_project_memory(data, root, f"show {saved['id']}")
                 self.assertIn("Source: README.md", detail)
                 self.assertNotIn("\x1b", detail)
+                self.assertNotIn("project_memory", load_run_settings(data, "Fixture", "", root=root)[3])
+                options = load_run_settings(data, "Fixture", "", root=root, memory_enabled=True)[3]
+                self.assertTrue(options["project_memory_read_only"])
+                self.assertEqual(options["project_memory"].read(saved["id"]), saved)
                 self.assertEqual(terminal_project_memory(data, other, ""), "No saved memory for this project.")
                 registry.put(other)
                 with self.assertRaisesRegex(ValueError, "No memory entry with that ID"):

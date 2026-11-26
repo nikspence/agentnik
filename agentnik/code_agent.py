@@ -593,9 +593,9 @@ def tool_error_detail(result,limit=500):
     return detail if len(detail)<=limit else detail[:limit]+'…'
 
 class CodingRun:
-    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None,hosted_search=False,mcp_priority='first',git_author=None,image_config=None,vision_enabled=False):
+    def __init__(self,connection,root,prompt,context=None,web_backends=None,limits=None,web_enabled=None,search_provider=None,skills=None,skill_pins=None,mcp_bridge=None,mcp_bridges=None,unsupported_subagent_roles=None,working_notes=None,project_memory=None,selected_track=None,images=None,documents=None,resume_context=None,goal=False,goal_budget=None,hosted_search=False,mcp_priority='first',git_author=None,image_config=None,vision_enabled=False,project_memory_read_only=False):
         from .code_artifacts import validate_notes, Artifacts
-        self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.test_report_may_be_stale=False;self.project_memory=project_memory
+        self.working_notes=validate_notes(working_notes or {});self.artifacts=Artifacts();self.latest_test_report=None;self.test_report_may_be_stale=False;self.project_memory=project_memory;self.project_memory_read_only=project_memory_read_only
         from .track_execution import validate_runtime_track,initial_progress
         self.selected_track=validate_runtime_track(selected_track) if selected_track else None;self.track_progress=initial_progress(self.selected_track) if self.selected_track else None
         from .repositories import validate_git_author
@@ -840,6 +840,10 @@ class CodingRun:
         try:
             files=ProjectFiles(self.root);project=ProjectTools(files);c=self.connection;native=core.native_ollama(c);protocol=c.get('protocol','chat')
             available_tools=list(TOOLS)
+            if self.project_memory is None:
+                available_tools=[tool for tool in available_tools if tool.name not in ('search_memory','read_memory','propose_memory')]
+            elif self.project_memory_read_only:
+                available_tools=[tool for tool in available_tools if tool.name!='propose_memory']
             if self.image_config:
                 available_tools.append(CodeTool('image_gen','Generate or edit a raster project asset using the configured image model. Use when the user requests an image; do not claim visual inspection unless an available image inspection tool was used. path must be a project-relative PNG, JPEG, or WebP file in an existing folder. reference_paths is a JSON array encoded as a string containing up to four project image paths or attachment:N identifiers; use [] for a new image. To replace an existing image include its path in reference_paths. aspect_ratio is auto, 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, or 2:3. background is auto, transparent, or opaque. Transparent images require PNG or WebP.',('prompt','path','reference_paths','aspect_ratio','background')))
             if self.vision_enabled:

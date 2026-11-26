@@ -55,6 +55,20 @@ class MemoryTests(unittest.TestCase):
         self.assertNotIn('Run unittest',json.dumps(bodies[0]))
         self.assertIn(item['id'],json.dumps(bodies[1]));self.assertIn('Run unittest',json.dumps(bodies[2]))
 
+    def test_read_only_model_memory_does_not_allow_writes(self):
+        args={'id':'','title':'Design','text':'Attempted write','source':'','stale':'false'}
+        replies=[Wire(chat(calls=[call('propose_memory',args)],finish='tool_calls'),False),Wire(chat('Done'),False)]
+        bodies=[]
+        def send(c,url,body,timeout):
+            bodies.append(json.loads(json.dumps(body)))
+            return replies.pop(0)
+        run=CodingRun(dict(C,stream=False),str(self.root/'one'),'work',project_memory=self.memory,project_memory_read_only=True)
+        with patch('agentnik.core.open_request',side_effect=send):run.run(lambda event:None)
+        names={tool['function']['name'] for tool in bodies[0]['tools']}
+        self.assertTrue({'search_memory','read_memory'}<=names)
+        self.assertNotIn('propose_memory',names)
+        self.assertEqual(self.memory.list(),[])
+
     def test_concurrent_update_rejects_automatic_save(self):
         item=self.memory.save(ENTRY)
         args={'id':item['id'],'title':'Tests','text':'New','source':'README.md','stale':'false'}

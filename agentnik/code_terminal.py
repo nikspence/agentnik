@@ -167,7 +167,8 @@ def terminal_mcp_bridges(config, selection):
     return bridges
 
 
-def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None, mcp_selection=(), root=None):
+def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None, mcp_selection=(), root=None,
+                      memory_enabled=False):
     from importlib.util import find_spec
     from . import core, tls
     from .code_research import code_research_options
@@ -221,6 +222,11 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
             ident = next((row["id"] for row in registry.list() if same_project(row["path"], root)), None)
             if ident:
                 options["git_author"] = registry.git_author(ident)
+                if memory_enabled:
+                    from .project_memory import ProjectMemory
+
+                    options["project_memory"] = ProjectMemory(store.root / "history.sqlite3", ident)
+                    options["project_memory_read_only"] = True
         return connection, settings.get("coding_limits"), settings.get("coding_goal_limits"), options, advice
     finally:
         store.db.close()

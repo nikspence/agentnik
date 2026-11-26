@@ -208,6 +208,7 @@ def terminal_session(options, root, lease, images):
     last_record = None
     web_enabled = False
     vision_enabled = False
+    memory_enabled = False
     show_thinking = False
     skill_pins = {}
     documents = []
@@ -243,7 +244,7 @@ def terminal_session(options, root, lease, images):
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/context          Inspect, clear, or toggle previous-turn context\n"
                   "/plan             Show the latest saved plan for this session\n"
-                  "/memory [show ID] Read shared project memory locally\n"
+                  "/memory           List local project memory; show ID, on, or off\n"
                   "/attach PATH      Include a project image or document in the next task\n"
                   "/attachments      List queued files; remove NUMBER or clear\n"
                   "/web on|off       Enable or disable web research for this session\n"
@@ -362,6 +363,10 @@ def terminal_session(options, root, lease, images):
                 print("Use /context on, /context off, or /context clear.")
             else:
                 print("Use /context to see available actions.")
+        elif command in ("/memory on", "/memory off"):
+            memory_enabled = command == "/memory on"
+            print("Project memory enabled for model reads. Requested entries may go to the coding model."
+                  if memory_enabled else "Project memory disabled for the coding model.")
         elif command == "/memory" or command.startswith("/memory "):
             from .code_terminal import terminal_project_memory, terminal_text
 
@@ -394,7 +399,7 @@ def terminal_session(options, root, lease, images):
                   f" · Vision: {'on' if vision_enabled else 'off'}"
                   f" · Thinking: {'on' if show_thinking else 'off'}"
                   f" · Permissions: {'require' if require_approval else 'allow-all'}")
-            print(f"Data directory: {str(options.data_dir)!r}")
+            print(f"Data directory: {str(options.data_dir)!r} · Model memory reads: {'on' if memory_enabled else 'off'}")
         elif command == "/permissions" or command.startswith("/permissions "):
             mode = command.partition(" ")[2].strip()
             if not mode:
@@ -476,6 +481,7 @@ def terminal_session(options, root, lease, images):
             last_record = None
             web_enabled = False
             vision_enabled = False
+            memory_enabled = False
             mcp_selection = []
             show_thinking = False
             skill_pins = {}
@@ -609,6 +615,7 @@ def terminal_session(options, root, lease, images):
                 use_context = True
                 web_enabled = False
                 vision_enabled = False
+                memory_enabled = False
                 mcp_selection = []
                 show_thinking = False
                 require_approval = True
@@ -673,6 +680,7 @@ def terminal_session(options, root, lease, images):
                 context = None
                 last_record = None
                 vision_enabled = False
+                memory_enabled = False
             print(f"Selected connection {name!r}.")
         elif command == "/models" or command.startswith("/models "):
             from .code_terminal import choose_catalog_model, terminal_text
@@ -687,14 +695,17 @@ def terminal_session(options, root, lease, images):
                 print(terminal_text(exc), file=sys.stderr)
                 continue
             if selected is not None:
-                model = selected
-                vision_enabled = False
+                if selected != model:
+                    model = selected
+                    vision_enabled = False
+                    memory_enabled = False
                 print(f"Selected model {model!r}. Catalog entries do not establish tool or vision support.")
         elif command == "/model" or command.startswith("/model "):
             selected = command[6:].strip()
             if selected != model:
                 model = selected
                 vision_enabled = False
+                memory_enabled = False
             print(f"Selected model {model!r}." if model else "Using the connection's default model.")
         elif command.startswith("/") and not command.startswith(("//", "/goal ")) and command != "/continue":
             print("Unknown command. Type /help, or start with // to send a prompt that begins with /.")
@@ -734,7 +745,7 @@ def terminal_session(options, root, lease, images):
                     raise ValueError("Enable /vision on or clear the queued image attachments first.")
                 connection, limits, goal_budget, research_options, advice = load_run_settings(
                     options.data_dir, connection_name, model, web_enabled,
-                    discovered=discovered, mcp_selection=mcp_selection, root=root,
+                    discovered=discovered, mcp_selection=mcp_selection, root=root, memory_enabled=memory_enabled,
                 )
                 run = CodingRun(connection, root, command, context=context if use_context and not resume else None,
                                 limits=limits,
