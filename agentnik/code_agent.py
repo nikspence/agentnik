@@ -687,10 +687,11 @@ class CodingRun:
             if freeze:self.goal_elapsed=elapsed;self.goal_started=None
             return {'steps':self.goal_steps,'seconds':elapsed}
 
-    def steer(self,message):
+    def steer(self,message,*,approval_fingerprint=None):
         if not isinstance(message,str) or not message.strip() or len(message.encode('utf-8'))>16000:return False
         with self.lock:
             if self.cancel.is_set() or not self.accepting_steering or len(self.steering)>=32:return False
+            if approval_fingerprint is not None and not self._approval_pending(approval_fingerprint):return False
             self.steering.append(message.strip())
             if self.pending:
                 proposal=self.pending[1];self.answer=False;self.answer_steered=True;self._git_credentials=None

@@ -446,9 +446,10 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     if field in proposal:
                         label = "snapshot" if field == "diff" and proposal.get("operation") == "subagent_file_transfer" else field
                         write(f"{label}: {terminal_text(proposal[field])}")
+                write("Type /steer MESSAGE to redirect the run instead of deciding this proposal.")
                 if advice and proposal.get("operation") == "run_shell":
-                    response = input("Approve once? [y/N/a for System One advice] ").strip().lower()
-                    if response == "a":
+                    response = input("Approve once? [y/N/a for System One advice] ").strip()
+                    if response.lower() == "a":
                         def still_pending():
                             return approval_event_is_live(run, event)
 
@@ -457,11 +458,32 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                         if not still_pending():
                             write("Skipped an approval prompt that is no longer active.")
                             continue
-                        response = input("Approve once? [y/N] ").strip().lower()
+                        response = input("Approve once? [y/N] ").strip()
                 else:
-                    response = input("Approve once? [y/N] ").strip().lower()
-                if run.decide(event["fingerprint"], response == "y") is False:
+                    response = input("Approve once? [y/N] ").strip()
+                while response == "/steer" or response.startswith("/steer "):
+                    message = response.removeprefix("/steer").strip()
+                    if message and run.steer(message, approval_fingerprint=event["fingerprint"]):
+                        write("Steering queued. The pending proposal was not approved.")
+                        response = None
+                        break
+                    if not approval_event_is_live(run, event):
+                        write("This approval prompt is no longer active. Your steering was not queued.")
+                        response = None
+                        break
+                    write("Steering not queued. Enter /steer MESSAGE or decide the proposal.")
+                    response = input("Approve once? [y/N] ").strip()
+                if response is None:
+                    continue
+                if run.decide(event["fingerprint"], response.lower() == "y") is False:
                     write("This approval prompt is no longer active. Your answer was not applied.")
+            elif kind in ("steering_delivered", "steering_undelivered", "steering_uncertain"):
+                label = {
+                    "steering_delivered": "Steering delivered",
+                    "steering_undelivered": "Steering not delivered",
+                    "steering_uncertain": "Steering delivery uncertain",
+                }[kind]
+                write(f"{label}: {terminal_text(event['text'])}")
             elif kind in ("output", "finished"):
                 if event.get("text") and not (kind == "finished" and event.get("response_shown")):
                     write(terminal_text(event["text"]))

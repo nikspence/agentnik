@@ -11,6 +11,8 @@ For development, install from a checkout with `python -m pip install ".[terminal
 
 From the folder you want to work in, run `agentnik code`. A Git repository is optional. To work somewhere else, pass the folder as an argument. On a machine where you also use the desktop app, install `".[desktop,terminal]"` to use both. The clients share saved connections and application data. Use `--data-dir PATH` or `AGENTNIK_HOME` if you want a separate data store.
 
+While a run is waiting for an approval, enter `/steer MESSAGE` at the approval prompt to redirect it without approving the proposed action. This does not accept steering while the model is streaming.
+
 ## Launch from VS Code
 
 Open the project folder in VS Code and run `agentnik code` in its integrated terminal. For Remote SSH, install Agentnik on the remote host and run it from the remote terminal.

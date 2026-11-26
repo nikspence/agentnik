@@ -3583,6 +3583,32 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(result["status"], "limited")
         self.assertIn("This approval prompt is no longer active. Your answer was not applied.", lines)
 
+    def test_terminal_steering_declines_pending_edit_and_reaches_the_next_request(self):
+        from agentnik import core
+        from agentnik.code_agent import CodingRun
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = CodingRun({"url": "https://example.invalid/v1", "model": "fixture", "stream": False},
+                            root, "Write the note.")
+            run.configure_interaction(review_project_edits=True)
+            proposal = call("write_file", {"path": "note.txt", "content": "Do not write."})
+            with patch.object(core, "open_request", side_effect=[
+                    Wire(chat(calls=[proposal], finish="tool_calls"), False),
+                    Wire(chat("I will only summarize."), False),
+            ]) as provider, patch("builtins.input", return_value="/steer Summarize Instead.") as prompt, \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                result = drive_run(run)
+            self.assertEqual(result["status"], "completed")
+            self.assertFalse((root / "note.txt").exists())
+            self.assertEqual(provider.call_count, 2)
+            self.assertIn("Summarize Instead.", str(provider.call_args.args[2]))
+            self.assertIn("Steering delivered: Summarize Instead.", out.getvalue())
+            prompt.assert_called_once()
+
     def test_interrupt_after_final_result_cannot_relabel_completed_run(self):
         from queue import Queue
         from unittest.mock import Mock
