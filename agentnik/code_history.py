@@ -33,16 +33,19 @@ class CodeHistory:
             latest.setdefault(self.session_id(record), record)
         return latest
 
-    def start(self, name, connection, task, session_id=None):
+    def start(self, name, connection, task, session_id=None, *, goal=False):
         registry = RepositoryRegistry(self.store)
         project = next((row["id"] for row in registry.list() if same_project(row["path"], self.root)), None)
         if project is None:
             project = registry.put(self.root)
         record = registry.session(project)
         key = connection.get("api_key")
-        task = scrub(task, [key])[:2048]
-        record.update(code_state="running", coding_last_run_goal=False,
+        objective = scrub(task, [key])[:16000]
+        task = objective[:2048]
+        record.update(code_state="running", coding_last_run_goal=goal,
                       coding_models={"model": {"connection": name, "model": connection["model"]}})
+        if goal:
+            record["coding_goal"] = {"objective": objective, "status": "active", "detail": ""}
         if session_id:
             record["coding_terminal_session"] = session_id
         append_code_activity(record, "prompt", task)
@@ -55,6 +58,10 @@ class CodeHistory:
             state = "interrupted"
         answer = result.get("text", "")[:2048]
         record["code_state"] = state
+        if record.get("coding_last_run_goal"):
+            record["coding_goal"].update(status=state, detail=answer)
+            if "goal_progress" in result:
+                record["coding_goal_progress"] = result["goal_progress"]
         if answer:
             append_code_activity(record, "finished", answer)
         if state == "completed" and result.get("response_shown") and answer:

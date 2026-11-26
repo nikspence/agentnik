@@ -186,6 +186,7 @@ def main():
                   "/connections add|edit|options|key|remove [NAME]\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
+                  "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
                   "/sessions         List saved sessions for the current project\n"
@@ -272,7 +273,9 @@ def main():
             context = None
         elif command == "/model" or command.startswith("/model "):
             model = command[6:].strip()
-        elif command.startswith("/"):
+        elif command == "/goal":
+            print("Enter /goal followed by an objective.")
+        elif command.startswith("/") and not command.startswith("/goal "):
             print("Unknown command. Type /help.")
         elif command:
             if not connection_name:
@@ -282,9 +285,13 @@ def main():
             from .code_history import CodeHistory, Store
             from .code_terminal import drive_run, load_run_settings, terminal_text
 
+            goal = command.startswith("/goal ")
+            if goal:
+                command = command.removeprefix("/goal ").strip()
             try:
-                connection, limits = load_run_settings(options.data_dir, connection_name, model)
-                run = CodingRun(connection, root, command, context=context, limits=limits)
+                connection, limits, goal_budget = load_run_settings(options.data_dir, connection_name, model)
+                run = CodingRun(connection, root, command, context=context, limits=limits,
+                                goal=goal, goal_budget=goal_budget)
                 run.stream_activity = True
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
@@ -296,7 +303,7 @@ def main():
                 store = Store(options.data_dir)
                 try:
                     history = CodeHistory(store, root)
-                    record, task = history.start(connection_name, connection, command, session_id)
+                    record, task = history.start(connection_name, connection, command, session_id, goal=goal)
                     result = drive_run(run, write_activity)
                     history.finish(record, task, result)
                     context = record.get("coding_context")

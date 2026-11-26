@@ -1,6 +1,6 @@
 """Terminal access to shared Code settings."""
 
-from .code_limits import FIELDS, coding_limits
+from .code_limits import FIELDS, GOAL_FIELDS, coding_limits, goal_limits
 from .localization import choices
 
 
@@ -57,8 +57,12 @@ def configure_code(store, arguments):
         lines = [f"TLS verification: {tls}"]
         for key, (default, low, high) in FIELDS.items():
             lines.append(f"{key}: {limits[key]} (range {low}–{high}, default {default})")
+        goals = goal_limits(settings.get("coding_goal_limits"))
+        for key, (_, low, high) in GOAL_FIELDS.items():
+            lines.append(f"goal {key}: {goals[key]} (range {low}–{high}, 0 means unlimited)")
         lines.extend((
             "Use /settings limits NAME VALUE (or default).",
+            "Use /settings goal steps|seconds VALUE (or default).",
             "Use /settings tls strict or /settings tls relaxed.",
             "Use /settings appearance to manage desktop appearance and layout.",
         ))
@@ -70,15 +74,20 @@ def configure_code(store, arguments):
             return lines
         store.flush()
         return "Saved desktop appearance setting. It applies when the desktop app next starts."
-    if len(arguments) == 3 and arguments[0] == "limits":
-        _, key, value = arguments
-        if key not in FIELDS:
-            raise ValueError("Unknown coding limit. Use /settings to list limits.")
+    if len(arguments) == 3 and arguments[0] in ("limits", "goal"):
+        section, key, value = arguments
+        fields, validator, setting = (
+            (GOAL_FIELDS, goal_limits, "coding_goal_limits") if section == "goal"
+            else (FIELDS, coding_limits, "coding_limits")
+        )
+        if key not in fields:
+            raise ValueError("Unknown limit. Use /settings to list limits.")
+        values = validator(settings.get(setting))
         try:
-            limits[key] = FIELDS[key][0] if value == "default" else int(value)
+            values[key] = fields[key][0] if value == "default" else int(value)
         except ValueError:
             raise ValueError("Use a whole number or default.") from None
-        settings["coding_limits"] = coding_limits(limits)
+        settings[setting] = validator(values)
     elif arguments in (["tls", "strict"], ["tls", "relaxed"]):
         settings["relaxed_tls"] = arguments[1] == "relaxed"
     else:

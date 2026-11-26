@@ -31,7 +31,7 @@ def load_run_settings(data_dir, name, model):
             raise ValueError("No model selected. Use /model to specify one.")
         settings = store.config["settings"]
         tls.configure(settings.get("relaxed_tls", False))
-        return connection, settings.get("coding_limits")
+        return connection, settings.get("coding_limits"), settings.get("coding_goal_limits")
     finally:
         store.db.close()
 
@@ -101,6 +101,10 @@ def drive_run(run, write=print):
                     write(terminal_text(event["text"]))
                 if kind == "finished" and event.get("usage"):
                     write(terminal_text(event["usage"]))
+            elif kind == "goal_status":
+                write(terminal_text(f"Goal {event['status']} (model reported): {event['detail']}"))
+            elif kind == "goal_progress":
+                write(f"Goal progress: {event['steps']} steps · {event['seconds']:.0f}s")
     except (KeyboardInterrupt, EOFError):
         run.stop()
         write("\nStopping Code run…")

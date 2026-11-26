@@ -52,6 +52,7 @@ class TerminalRunTests(unittest.TestCase):
             store = Store(directory)
             try:
                 configure_code(store, ["limits", "rounds", "12"])
+                configure_code(store, ["goal", "steps", "3"])
                 configure_code(store, ["tls", "strict"])
                 configure_code(store, ["appearance", "theme", "dark"])
                 configure_code(store, ["appearance", "language", "en"])
@@ -62,6 +63,7 @@ class TerminalRunTests(unittest.TestCase):
                     configure_code(store, ["limits", "rounds", "0"])
                 saved = load_config(store.config_path)["settings"]
                 self.assertEqual(saved["coding_limits"]["rounds"], 12)
+                self.assertEqual(saved["coding_goal_limits"]["steps"], 3)
                 self.assertFalse(saved["relaxed_tls"])
                 self.assertEqual(saved["theme"], "Dark")
                 self.assertEqual(saved["language"], "en")
@@ -86,7 +88,9 @@ class TerminalRunTests(unittest.TestCase):
             record, task = history.start("example", connection, "Find synthetic-secret", first)
             self.assertNotIn("coding_context", history.list()[0])
             history.finish(record, task, {"status": "completed", "response_shown": True, "text": "Done"})
-            history.start("example", connection, "Different task", second)
+            goal, task = history.start("example", connection, "Different task", second, goal=True)
+            history.finish(goal, task, {"status": "failed", "limited": True,
+                                        "goal_progress": {"steps": 3, "seconds": 2}})
             store.db.close()
             store = Store(base / "settings")
             try:
@@ -95,6 +99,8 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(restored["coding_context"], {"task": "Find [redacted]", "answer": "Done"})
                 self.assertEqual(set(history.sessions()), {first, second})
                 self.assertNotIn("coding_context", history.list(second)[0])
+                self.assertEqual(history.list(second)[0]["coding_goal"]["status"], "limited")
+                self.assertEqual(history.list(second)[0]["coding_goal_progress"]["steps"], 3)
                 self.assertEqual(CodeHistory(store, base).list(), [])
             finally:
                 store.db.close()
