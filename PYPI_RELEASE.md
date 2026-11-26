@@ -18,6 +18,8 @@ Create a GitHub environment named `pypi`. Restrict it to release tags and config
 
 ## Local build and manual fallback
 
+To publish the original desktop-only `0.11.1`, dispatch the workflow from `master` with the historical release option selected. It checks out the exact commit behind `v0.11.1`, because that tag predates the publishing workflow. The upload option is still off by default. If you restrict the GitHub `pypi` environment to release tags, temporarily allow `master` for this historical dispatch or use the manual upload route.
+
 From a clean checkout, use Python 3.11 or newer. Build into an empty output directory so checks and uploads apply to a single version:
 
 ```sh

@@ -7,6 +7,10 @@ on:
         description: Upload the checked distributions to PyPI (requires a matching release tag)
         type: boolean
         default: false
+      legacy_0_11_1:
+        description: Build the original desktop-only v0.11.1 release instead of the selected ref
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,22 +21,32 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.legacy_0_11_1 && '326925b3253c04ea6ab3071ebeb56236c94a8ac8' || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Verify release tag
-        if: inputs.publish
+        if: inputs.publish || inputs.legacy_0_11_1
+        env:
+          LEGACY_RELEASE: ${{ inputs.legacy_0_11_1 }}
         run: |
           python - <<'PY'
           import os
+          import subprocess
           import tomllib
           from pathlib import Path
 
           from agentnik import __version__
 
           version = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
-          if version != __version__ or os.environ["GITHUB_REF"] != f"refs/tags/v{version}":
+          if version != __version__:
+              raise SystemExit("Package versions do not match.")
+          if os.environ["LEGACY_RELEASE"] == "true":
+              commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+              if version != "0.11.1" or commit != "326925b3253c04ea6ab3071ebeb56236c94a8ac8":
+                  raise SystemExit("Historical release source does not match v0.11.1.")
+          elif os.environ["GITHUB_REF"] != f"refs/tags/v{version}":
               raise SystemExit("Select the release tag v" + version + " and keep package versions in sync.")
           PY
       - name: Build and check distributions
@@ -47,7 +61,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: inputs.publish && startsWith(github.ref, 'refs/tags/v')
+    if: inputs.publish && (inputs.legacy_0_11_1 || startsWith(github.ref, 'refs/tags/v'))
     needs: build
     runs-on: ubuntu-latest
     environment:
