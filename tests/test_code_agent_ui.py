@@ -48,6 +48,41 @@ class CodingWorkspace(unittest.TestCase):
             finally:
                 window.close();app.processEvents();store.db.close()
 
+    def test_terminal_history_cannot_be_renamed_or_deleted_while_the_session_is_open(self):
+        from uuid import uuid4
+        from PySide6.QtWidgets import QApplication, QInputDialog
+        from agentnik.code_history import CodeHistory
+        from agentnik.code_lease import SessionLease
+        from agentnik.ui import Window
+
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory).resolve();store=Store(root/'data');window=Window(store)
+            ident=str(uuid4())
+            try:
+                history=CodeHistory(store,root)
+                record,task=history.start('Fixture',{'model':'fixture'},'A terminal task.',ident,goal=True)
+                history.finish(record,task,{'status':'completed','text':'Done.'})
+                saved,=history.list(ident)
+                chat_session=store.new_session('chat','Fixture',{})
+                store.save(chat_session)
+                window.refresh_history();window.history.setCurrentRow(1)
+                with patch.object(QInputDialog,'getText',return_value=('New title',True)),patch('agentnik.ui.error') as error:
+                    with SessionLease(store.root) as lease:
+                        lease.select(ident)
+                        window.rename();window.delete_ids([record['id'],chat_session['id']])
+                    self.assertEqual(error.call_count,2)
+                    self.assertEqual(history.list(ident),[saved])
+                    self.assertIn(chat_session['id'],{item['id'] for item in store.list_sessions()})
+                    window.rename()
+                    renamed,=history.list(ident)
+                    self.assertEqual(renamed['title'],'New title')
+                    self.assertEqual(renamed['updated'],saved['updated'])
+                    window.delete_ids([record['id']])
+                    self.assertEqual(history.list(ident),[])
+            finally:
+                window.close();app.processEvents();store.db.close()
+
     def test_unexpected_worker_failure_returns_control_without_leaking_details(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

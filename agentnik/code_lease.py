@@ -1,5 +1,6 @@
 """Process-held leases for terminal sessions; the OS releases locks on exit."""
 
+from contextlib import ExitStack, contextmanager
 import errno
 import os
 from pathlib import Path
@@ -52,3 +53,16 @@ class SessionLease:
         self.close()
         self.stream = stream
         self.session_id = session_id
+
+
+@contextmanager
+def terminal_history_leases(data_dir, records):
+    """Hold the terminal leases for every saved turn a client intends to mutate."""
+    ids = {record["coding_terminal_session"] for record in records if record.get("coding_terminal_session")}
+    with ExitStack() as stack:
+        for ident in sorted(ids):
+            lease = stack.enter_context(SessionLease(
+                data_dir, contention_message="Close the active terminal session before changing its history.",
+            ))
+            lease.select(ident)
+        yield

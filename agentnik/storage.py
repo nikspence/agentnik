@@ -224,9 +224,12 @@ class Store:
                     connection_name=name, connection=safe_connection(c), messages=[], runs=[],
                     form={'state':'', 'json_state':False, 'questions':[], 'images':[]}, draft='', draft_images=[])
 
-    def save(self, session):
+    def save(self, session, *, preserve_updated=False):
         data = validate_session(session); data['connection'] = safe_connection(data['connection'])
-        self.db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)', (data['id'], time.time(), json.dumps(data)))
+        if preserve_updated:
+            self.db.execute('UPDATE sessions SET payload = ? WHERE id = ?', (json.dumps(data), data['id']))
+        else:
+            self.db.execute('INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)', (data['id'], time.time(), json.dumps(data)))
         self.db.commit()
 
     def list_sessions(self, *, mode=None, terminal_session=None):

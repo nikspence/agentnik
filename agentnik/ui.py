@@ -1519,6 +1519,19 @@ class Window(QMainWindow):
         if session.get('_unavailable'): return error(self,self.tr('This session cannot be renamed until its stored data is repaired. The original record is preserved.'))
         name,ok = QInputDialog.getText(self,self.tr('Rename session'),self.tr('Title:'),text=session['title'])
         if ok and name.strip():
+            if session.get('coding_terminal_session'):
+                from .code_lease import terminal_history_leases
+
+                try:
+                    with terminal_history_leases(self.store.root,[session]):
+                        current=next((saved for saved in self.store.list_sessions(mode='code',terminal_session=session['coding_terminal_session'])
+                                      if saved['id']==session['id']),None)
+                        if current is not None:
+                            current['title']=name.strip()
+                            self.store.save(current,preserve_updated=True)
+                except (ValueError,OSError) as exc:
+                    return error(self,str(exc))
+                self.session_updated();return
             session['title'] = name.strip()
             for i in range(self.tabs.count()):
                 tab = self.tabs.widget(i)
@@ -1529,10 +1542,18 @@ class Window(QMainWindow):
             tab = self.tabs.widget(i)
             if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)) and tab.session['id'] in ids and tab.job:
                 return error(self,self.tr('Cancel running requests before deleting their sessions.'))
+        from .code_lease import terminal_history_leases
+
+        try:
+            records=[record for record in self.store.list_sessions() if record['id'] in ids]
+            with terminal_history_leases(self.store.root,records):
+                self.store.delete(ids)
+        except (ValueError,OSError) as exc:
+            return error(self,str(exc))
         for i in reversed(range(self.tabs.count())):
             tab = self.tabs.widget(i)
             if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)) and tab.session['id'] in ids: tab._closed = True; self.tabs.removeTab(i); tab.deleteLater()
-        self.store.delete(ids); self.refresh_history(); self.stats()
+        self.refresh_history(); self.stats()
     def delete(self):
         item = self.history.currentItem()
         if item and confirm(self,self.tr('Delete this session and its unshared stored images?')): self.delete_ids([item.data(Qt.ItemDataRole.UserRole)])
