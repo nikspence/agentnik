@@ -639,6 +639,7 @@ class CodingRun:
         self.steering=[];self.steering_inflight=[];self.steering_confirmed=[];self.steering_submitted=False;self.accepting_steering=True
         self.usage={role:self._empty_usage() for role in ('Model','Subagent')}
         self.show_thinking=False
+        self.stream_activity=False
 
     @staticmethod
     def _empty_usage():
@@ -788,8 +789,18 @@ class CodingRun:
             model_runtime=Runtime(self.cancel,replace(runtime.limits,request_seconds=self.limits['model_seconds']),self.run_id)
             model_runtime.started=runtime.started
             model_runtime.external_deadline=runtime.external_deadline
+            streamed=''
+            stream_id=uuid.uuid4().hex
+            def stream_activity(snapshot):
+                nonlocal streamed
+                if not self.stream_activity or self.cancel.is_set():return
+                from .code_stream import visible_prefix
+                text=visible_prefix(snapshot.get('text',''),secrets)
+                if text.startswith(streamed) and text!=streamed:
+                    event('model_delta',stream_id=stream_id,text=text[len(streamed):])
+                    streamed=text
             try:
-                result=model_runtime.wait(lambda:adapter.request(connection,body,model_runtime,lambda _:None,state,hosted=True,allow_functions=True) if hosted_search else adapter.request(connection,body,model_runtime,lambda _:None,state))
+                result=model_runtime.wait(lambda:adapter.request(connection,body,model_runtime,stream_activity,state,hosted=True,allow_functions=True) if hosted_search else adapter.request(connection,body,model_runtime,stream_activity,state))
             finally:model_runtime.closed=True
             metrics=state.get('metrics',{})
             with self.lock:
@@ -801,7 +812,7 @@ class CodingRun:
                 def bounded(value):
                     value=scrub(value,secrets) if isinstance(value,str) else ''
                     return value[:32000]+('\n[Response truncated in activity.]' if len(value)>32000 else '')
-                event('model_response',role=role,model=connection.get('model',''),text=bounded(response),thinking=bounded(thinking))
+                event('model_response',role=role,model=connection.get('model',''),text=bounded(response),thinking=bounded(thinking),stream_id=stream_id)
             return result
         usage_text=self.usage_text
         def event(kind,**data):

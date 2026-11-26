@@ -50,6 +50,8 @@ def drive_run(run):
 
     thread = Thread(target=worker)
     thread.start()
+    streamed = {}
+    partial_line = False
     try:
         while True:
             try:
@@ -57,8 +59,26 @@ def drive_run(run):
             except Empty:
                 continue
             if event is done:
+                if partial_line:
+                    print()
                 return
             kind = event["kind"]
+            if kind == "model_delta":
+                key = event["stream_id"]
+                streamed[key] = streamed.get(key, "") + event["text"]
+                print(terminal_text(event["text"]), end="", flush=True)
+                partial_line = True
+                continue
+            if kind == "model_response":
+                prefix = streamed.pop(event.get("stream_id"), "")
+                response = event.get("text", "")
+                if partial_line and prefix and response.startswith(prefix):
+                    print(terminal_text(response[len(prefix):]))
+                    partial_line = False
+                    continue
+            if partial_line:
+                print()
+                partial_line = False
             if kind in ("edit_proposal", "operation_proposal"):
                 proposal = event["proposal"]
                 if kind == "edit_proposal":

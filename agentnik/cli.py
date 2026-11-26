@@ -110,6 +110,7 @@ def main():
             try:
                 connection, limits = load_run_settings(options.data_dir, connection_name, model)
                 run = CodingRun(connection, root, command, limits=limits)
+                run.stream_activity = True
             except (OSError, ValueError) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 continue
