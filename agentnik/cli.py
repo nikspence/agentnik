@@ -588,7 +588,9 @@ def terminal_session(options, root, lease, images):
             last_record = record
             skill_pins = dict(record.get("coding_skill_pins", {}))
             context = record.get("coding_context") if record.get("code_state") == "completed" else None
-            binding = record.get("coding_models", {}).get("model", {})
+            from .sessions import coding_model_binding
+
+            binding = coding_model_binding(record)
             connection_name = binding.get("connection", "")
             model = binding.get("model", "")
             print(f"Resumed session {session_id}. Enter a new task when ready. Nothing was restarted.")

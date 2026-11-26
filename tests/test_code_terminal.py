@@ -469,6 +469,9 @@ class TerminalRunTests(unittest.TestCase):
                 for ident, prompt in ((current, "Current task"), (busy, "Other terminal task")):
                     record, _ = history.start("Fixture", connection, prompt, ident)
                     history.finish(record, prompt, {"status": "completed", "text": "Done"})
+                    if ident == current:
+                        record["coding_models"] = {"heavy": record["coding_models"]["model"]}
+                        store.save(record)
                 composer = Mock()
                 composer.prompt.side_effect = [f"/resume {busy}", "/status", "/exit"]
                 argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", current]
@@ -483,6 +486,7 @@ class TerminalRunTests(unittest.TestCase):
                 transport.assert_not_called()
                 self.assertIn("already open in another terminal", errors.getvalue())
                 self.assertIn(f"Session: {current}", output.getvalue())
+                self.assertIn("Connection: 'Fixture' · Model: 'fixture'", output.getvalue())
                 self.assertNotIn("Other terminal task", output.getvalue())
                 composer.history.append_string.assert_called_once_with("Current task")
             finally:

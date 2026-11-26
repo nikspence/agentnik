@@ -10,6 +10,12 @@ MAX_CODE_ACTIVITY_EVENTS=10_000
 MAX_CODE_ACTIVITY_CHARS=4_000_000
 
 
+def coding_model_binding(session):
+    """Read the current model selection, including sessions written before the single-model UI."""
+    bindings = session.get("coding_models", {})
+    return bindings.get("model", bindings.get("heavy", {}))
+
+
 def append_code_activity(session,kind,text):
     """Keep a large bounded history and signal a new session version when needed."""
     history=session.setdefault('code_activity',[])

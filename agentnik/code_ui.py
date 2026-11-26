@@ -20,7 +20,7 @@ from . import decision_advice
 from .decision_advice import parse_advice
 from .task_plan import validate_plan
 from .subagent_status import validate_record
-from .sessions import append_code_activity
+from .sessions import append_code_activity, coding_model_binding
 from .code_limits import FIELDS,UNLIMITED_FIELDS,coding_limits,GOAL_FIELDS,goal_limits
 from .selection_scroll import SelectionScroll
 from .web import public_url
@@ -300,7 +300,7 @@ class CodeTab(QWidget):
         self.coding_context_button=QPushButton(self.tr('Coding context…'));self.coding_context_button.clicked.connect(self.edit_coding_context)
         self.coding_auto_compact=QCheckBox(self.tr('Auto compact context'),self);self.coding_auto_compact.setToolTip(self.tr('Before a follow-up run, summarize a long previous task and answer using the selected model. This uses an additional model request.'));self.coding_auto_compact.setChecked(session.get('coding_auto_compact',True));self.coding_auto_compact.toggled.connect(self.save_coding_auto_compact);self.coding_auto_compact.hide()
         self.roles={}
-        bindings=dict(session.get('coding_models',{}));saved=bindings.get('model',bindings.get('heavy',{}))
+        saved=coding_model_binding(session)
         model_row=QHBoxLayout();layout.insertLayout(1,model_row);model_row.addWidget(QLabel(self.tr('Model')))
         connection=QComboBox();connection.setObjectName('codeModelConnection');connection.addItem(self.tr('Not configured'),'')
         for name in window.connections:connection.addItem(name,name)
