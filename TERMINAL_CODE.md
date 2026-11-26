@@ -14,7 +14,7 @@ agentnik code --help
 agentnik code --version
 ```
 
-Use the wheel filename from the artifact if its version differs. To request a fresh build, run the workflow with both `publish` and `legacy_0_11_1` unchecked.
+Use the wheel filename from the artifact if its version differs. New build-only artifacts include `SOURCE-COMMIT.txt` and `SHA256SUMS`, so you can distinguish builds with the same preview version. To request a fresh build, run the workflow with both `publish` and `legacy_0_11_1` unchecked.
 
 From the folder you want to work in, run `agentnik code`. A Git repository is optional. To work somewhere else, pass the folder as an argument. On a machine where you also use the desktop app, install `".[desktop,terminal]"` to use both. The clients share saved connections and application data. Use `--data-dir PATH` or `AGENTNIK_HOME` if you want a separate data store.
 

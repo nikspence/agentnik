@@ -54,6 +54,12 @@ jobs:
           python -m pip install build twine
           python -m build --outdir dist/pypi
           python -m twine check --strict dist/pypi/*
+      - name: Record build-only artifact provenance
+        if: ${{ !inputs.publish }}
+        working-directory: dist/pypi
+        run: |
+          git rev-parse HEAD > SOURCE-COMMIT.txt
+          sha256sum -- *.whl *.tar.gz > SHA256SUMS
       - uses: actions/upload-artifact@v5
         with:
           name: python-distributions
