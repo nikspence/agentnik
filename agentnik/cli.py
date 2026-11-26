@@ -162,6 +162,12 @@ def main():
         parser.error("an interactive terminal is required")
     from .code_lease import SessionLease
     from .code_attachments import ImageQueue
+    from .storage import default_home
+
+    try:
+        options.data_dir = (options.data_dir or default_home()).expanduser().resolve()
+    except (OSError, RuntimeError) as exc:
+        parser.error(f"cannot resolve the application data directory: {exc}")
 
     with SessionLease(options.data_dir) as lease, ImageQueue() as images:
         return terminal_session(options, root, lease, images)

@@ -28,6 +28,20 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_terminal_resolves_tilde_data_directory_for_session_and_lock(self):
+        from agentnik import cli
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            argv = ["agentnik", "code", str(root), "--data-dir", "~/agentnik-fixture"]
+            with patch.dict("os.environ", {"HOME": str(root), "USERPROFILE": str(root)}), \
+                    patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.cli.terminal_session", return_value=0) as session:
+                self.assertEqual(cli.main(), 0)
+            options, _, lease, _ = session.call_args.args
+            self.assertEqual(options.data_dir, root / "agentnik-fixture")
+            self.assertEqual(lease.directory.parent, options.data_dir)
+
     def test_version_does_not_open_a_terminal_or_data_store(self):
         from agentnik import __version__, cli
 
