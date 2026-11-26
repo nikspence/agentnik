@@ -72,6 +72,8 @@ Top-level build versions are pinned to the tested Windows environment. Transitiv
 
 Use Python 3.11 for the dual-launcher build. On the tested Python 3.15 build, the frozen console could list sessions but failed when the interactive composer initialized its executor. In a Windows test environment with `pywinpty`, verify interactive input separately with `python tools/conpty_composer_smoke.py --exe PATH_TO_AGENTNIK_TERMINAL_EXE`.
 
+Run **Build Windows onedir preview** from the GitHub Actions tab to build the selected ref on Windows with Python 3.11. The workflow runs the build-host smoke and the frozen ConPTY keyboard check before uploading the ZIP and checksum as an Actions artifact. It does not create a tag, attach a release asset, or publish to PyPI.
+
 
 ## Native terminal keyboard check
 
