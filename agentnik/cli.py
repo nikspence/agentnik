@@ -238,7 +238,7 @@ def terminal_session(options, root, lease, images):
                   "/history          Show history for this session\n"
                   "/new              Start a fresh session in this project\n"
                   "/sessions [PAGE]  List saved sessions for the current project\n"
-                  "/resume ID        Resume a saved session (or use latest)\n"
+                  "/resume ID        Resume by ID, unique prefix, or latest\n"
                   "/exit             Close Agentnik Code")
         elif command == "/mcp off":
             mcp_selection.clear()
@@ -468,7 +468,7 @@ def terminal_session(options, root, lease, images):
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
         elif command in ("/history", "/sessions", "/resume") or command.startswith(("/open ", "/resume ", "/sessions ")):
-            from .code_history import CodeHistory, Store
+            from .code_history import CodeHistory, Store, resolve_session_id
             from .code_terminal import terminal_text
 
             listing = command == "/resume" or command.split(" ", 1)[0] == "/sessions"
@@ -483,7 +483,7 @@ def terminal_session(options, root, lease, images):
                     history = CodeHistory(store, root)
                     sessions = history.sessions() if command != "/history" else {}
                     if not listing:
-                        ident = next(iter(sessions), "") if argument == "latest" else argument
+                        ident = resolve_session_id(sessions, argument)
                         if ident in sessions:
                             lease.select(ident)
                         records = history.list(session_id if command == "/history" else ident)

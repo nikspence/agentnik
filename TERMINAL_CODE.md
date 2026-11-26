@@ -21,7 +21,7 @@ Each launch starts a separate session, even in the same project. `/new` starts a
 
 At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T opens the transcript, and PageUp opens it and moves back. In the transcript, PageUp/PageDown or Ctrl+B/Ctrl+F move by a page, and Ctrl+U/Ctrl+D move by half a page. Ctrl+T or Q returns to the draft.
 
-Use `/sessions 2`, `/sessions 3`, and so on to find older sessions. Listing a page does not reopen any session.
+Use `/sessions 2`, `/sessions 3`, and so on to find older sessions. Listing a page does not reopen any session. Both `/resume` and `agentnik code --resume` accept a unique ID prefix, so you only need to type enough characters to identify one session in the current project.
 
 `/goal OBJECTIVE` starts an ongoing goal. To continue a stopped goal, use `/continue` and review the saved objective before starting a fresh run. The model receives saved evidence and is directed to inspect current state before acting.
 

@@ -13,6 +13,20 @@ def same_project(path, root):
     return os.path.normcase(str(Path(path).resolve())) == os.path.normcase(str(root))
 
 
+def resolve_session_id(sessions, selector):
+    """Resolve a full ID, a unique prefix, or the most recent saved session."""
+    if selector == "latest":
+        return next(iter(sessions), "")
+    if selector in sessions:
+        return selector
+    if not selector:
+        return ""
+    matches = [ident for ident in sessions if ident.startswith(selector)]
+    if len(matches) > 1:
+        raise ValueError("That session ID prefix matches multiple sessions. Enter more characters or use /sessions.")
+    return matches[0] if matches else ""
+
+
 def goal_continuation(record):
     if not record or record.get("code_state") not in ("limited", "blocked", "cancelled", "interrupted", "failed"):
         return None
