@@ -186,8 +186,13 @@ def terminal_session(options, root, lease, images):
         transcript.append(text + end)
         print(text, end=end, flush=flush)
 
+    machine_scope = False
+
+    def prompt_label():
+        return "code [machine]> " if machine_scope else "code> "
+
     def open_composer():
-        return create_composer(transcript=lambda: "".join(transcript))
+        return create_composer(transcript=lambda: "".join(transcript), message=prompt_label)
 
     try:
         composer = open_composer()
@@ -213,7 +218,6 @@ def terminal_session(options, root, lease, images):
     skill_pins = {}
     documents = []
     require_approval = True
-    machine_scope = False
     session_id = str(uuid4())
     pending_command = f"/resume {options.resume}" if options.resume else None
     while True:
@@ -222,7 +226,7 @@ def terminal_session(options, root, lease, images):
             if pending_command:
                 command, pending_command = pending_command, None
             else:
-                command = (composer.prompt() if composer else input("code> ")).strip()
+                command = (composer.prompt() if composer else input(prompt_label())).strip()
         except KeyboardInterrupt:
             print()
             continue

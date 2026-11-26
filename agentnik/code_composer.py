@@ -29,7 +29,7 @@ COMMANDS = (
 )
 
 
-def create_composer(transcript=lambda: "", **options):
+def create_composer(transcript=lambda: "", *, message="code> ", **options):
     from prompt_toolkit import PromptSession
     from prompt_toolkit.application import in_terminal
     from prompt_toolkit.completion import WordCompleter
@@ -64,7 +64,7 @@ def create_composer(transcript=lambda: "", **options):
             event.app.create_background_task(show())
 
     return PromptSession(
-        "code> ",
+        message,
         multiline=True,
         prompt_continuation=" ...> ",
         history=InMemoryHistory(),

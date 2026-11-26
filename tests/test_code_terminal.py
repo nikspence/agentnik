@@ -50,9 +50,19 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
             composer = Mock()
             session = uuid4()
-            composer.prompt.side_effect = ["/connection Fixture", "/scope machine", "/status", "Read diagnostics",
-                                           "/scope project", "Continue project work",
-                                           "/scope machine", f"/resume {session}", "/status", "Resumed task", "/exit"]
+            commands = iter(["/connection Fixture", "/scope machine", "/status", "Read diagnostics",
+                             "/scope project", "Continue project work",
+                             "/scope machine", f"/resume {session}", "/status", "Resumed task", "/exit"])
+            labels = {}
+
+            def open_composer(*, transcript, message):
+                def prompt():
+                    command = next(commands)
+                    labels[command] = message()
+                    return command
+
+                composer.prompt.side_effect = prompt
+                return composer
             reads = [call("machine_list_directory", {"path": str(base)}, ident="list"),
                      call("machine_read_file", {"path": str(outside)})]
             edit = call("machine_patch_file", {"path": str(outside), "old_text": "fixture", "new_text": "reviewed"},
@@ -74,7 +84,7 @@ class TerminalRunTests(unittest.TestCase):
             argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch.object(cli, "uuid4", return_value=session), \
-                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("agentnik.code_composer.create_composer", side_effect=open_composer), \
                     patch("builtins.input", return_value="y") as approval, \
                     patch.object(core, "open_request", side_effect=send), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
@@ -98,6 +108,10 @@ class TerminalRunTests(unittest.TestCase):
                 ProjectFiles(root).path(str(outside))
             self.assertNotIn("Outside fixture evidence", json.dumps(bodies[3]["messages"]))
             self.assertIn("Scope: project", output.getvalue())
+            self.assertEqual(labels["Read diagnostics"], "code [machine]> ")
+            self.assertEqual(labels["Continue project work"], "code> ")
+            self.assertEqual(labels[f"/resume {session}"], "code [machine]> ")
+            self.assertEqual(labels["Resumed task"], "code> ")
             self.assertFalse(any(t["function"]["name"].startswith("machine_") for t in bodies[4]["tools"]))
             self.assertIn("Unknown or unavailable tool", json.dumps(bodies[5]["messages"]))
 
