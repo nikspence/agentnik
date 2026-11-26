@@ -814,6 +814,31 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn(f"Resumed session {session_id}", output.getvalue())
             reopened.history.append_string.assert_any_call("Create another note")
 
+    def test_session_listing_can_reach_older_pages_without_opening_sessions(self):
+        from unittest.mock import Mock
+        from agentnik import cli
+
+        saved = {f"fixture-{i:02d}": {"title": f"Saved {i}", "code_state": "completed"} for i in range(21)}
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            composer = Mock()
+            composer.prompt.side_effect = ["/sessions", "/sessions 2", "/sessions 3", "/sessions 0", "/exit"]
+            argv = ["agentnik", "code", str(base), "--data-dir", str(base / "data")]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("agentnik.code_history.CodeHistory.sessions", return_value=saved), \
+                    patch("agentnik.code_history.CodeHistory.list") as read_records, \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 0)
+            read_records.assert_not_called()
+            first, second = output.getvalue().split("More saved sessions are available under /sessions 2.")
+            self.assertIn("fixture-19", first)
+            self.assertNotIn("fixture-20", first)
+            self.assertIn("fixture-20", second)
+            self.assertNotIn("fixture-19", second)
+            self.assertIn("No saved sessions on that page.", second)
+            self.assertIn("positive whole page number", second)
+
     def test_connection_keyring_fallback_requires_explicit_consent(self):
         from keyring.errors import NoKeyringError
         from agentnik.cli import connection_menu

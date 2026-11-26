@@ -237,7 +237,7 @@ def terminal_session(options, root, lease, images):
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
                   "/new              Start a fresh session in this project\n"
-                  "/sessions         List saved sessions for the current project\n"
+                  "/sessions [PAGE]  List saved sessions for the current project\n"
                   "/resume ID        Resume a saved session (or use latest)\n"
                   "/exit             Close Agentnik Code")
         elif command == "/mcp off":
@@ -467,35 +467,46 @@ def terminal_session(options, root, lease, images):
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
-        elif command in ("/history", "/sessions", "/resume") or command.startswith(("/open ", "/resume ")):
+        elif command in ("/history", "/sessions", "/resume") or command.startswith(("/open ", "/resume ", "/sessions ")):
             from .code_history import CodeHistory, Store
             from .code_terminal import terminal_text
 
+            listing = command == "/resume" or command.split(" ", 1)[0] == "/sessions"
+            argument = command.partition(" ")[2].strip()
+            if listing and argument and (not argument.isascii() or not argument.isdecimal()
+                                         or len(argument) > 9 or int(argument) < 1):
+                print("Use /sessions PAGE with a positive whole page number.")
+                continue
             try:
                 store = Store(options.data_dir)
                 try:
                     history = CodeHistory(store, root)
                     sessions = history.sessions() if command != "/history" else {}
-                    ident = command.partition(" ")[2].strip()
-                    if ident == "latest":
-                        ident = next(iter(sessions), "")
-                    if ident in sessions and command not in ("/history", "/sessions", "/resume"):
-                        lease.select(ident)
-                    records = history.list(session_id if command == "/history" else ident)
-                    if records and command not in ("/history", "/sessions", "/resume"):
-                        history.recover_interrupted(records[0], lease)
+                    if not listing:
+                        ident = next(iter(sessions), "") if argument == "latest" else argument
+                        if ident in sessions:
+                            lease.select(ident)
+                        records = history.list(session_id if command == "/history" else ident)
+                        if records and command != "/history":
+                            history.recover_interrupted(records[0], lease)
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 continue
-            if command in ("/sessions", "/resume"):
-                for ident, record in list(sessions.items())[:20]:
+            if listing:
+                page = int(argument or 1)
+                offset = (page - 1) * 20
+                for ident, record in list(sessions.items())[offset:offset + 20]:
                     label = next((e["text"].split("\n")[0][:80] for e in record.get("code_activity", [])
                                   if e["kind"] == "prompt"), record["title"])
                     print(terminal_text(f"{ident}  {record.get('code_state', 'idle')}  {label}"))
                 if not sessions:
                     print("No saved sessions for this project.")
+                elif offset >= len(sessions):
+                    print("No saved sessions on that page.")
+                elif len(sessions) > offset + 20:
+                    print(f"More saved sessions are available under /sessions {page + 1}.")
                 continue
             if not records:
                 print("No saved history for this session." if command == "/history"
