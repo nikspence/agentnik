@@ -33,7 +33,7 @@ except KeyboardInterrupt:
     print("DRAFT-CANCELLED", flush=True)
 else:
     raise AssertionError("Ctrl+C did not cancel the draft")
-for index in range(5):
+for index in range(6):
     changes = []
     def observe(buffer):
         changes.append(buffer.text)
@@ -42,7 +42,7 @@ for index in range(5):
     composer.default_buffer.on_text_changed += observe
     print(f"READY-{index}", flush=True)
     try:
-        draft = composer.prompt()
+        draft = composer.prompt(default="recovered draft") if index == 5 else composer.prompt()
     finally:
         composer.default_buffer.on_text_changed -= observe
     if index == 2:
@@ -144,9 +144,15 @@ def main():
         terminal.write("\r")
         completed = ("/resume " + session_id).encode().hex()
         expect(f"SUBMITTED-4:{completed}:END")
+        expect("READY-5")
+        expect("code>")
+        sleep(0.15)
+        terminal.write(" edited\r")
+        revised = b"recovered draft edited".hex()
+        expect(f"SUBMITTED-5:{revised}:END")
     finally:
         terminal.close()
-    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Esc-LF modified Enter, Enter, Up/Down history, draft recovery after transcript scrollback, and session ID completion.")
+    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Esc-LF modified Enter, Enter, Up/Down history, draft recovery after transcript scrollback, session ID completion, and editing a preloaded draft.")
 
 
 if __name__ == "__main__":

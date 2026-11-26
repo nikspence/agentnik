@@ -390,11 +390,13 @@ def terminal_session(options, root, lease, images):
     pending_command = f"/resume {options.resume}" if options.resume else None
     while True:
         starting_resume = pending_command is not None
+        editing_rejected_draft = False
         try:
             if pending_command:
                 command, pending_command = pending_command, None
             else:
                 if composer and draft_to_edit:
+                    editing_rejected_draft = True
                     draft, draft_to_edit = draft_to_edit, ""
                     command = composer.prompt(default=draft).strip()
                 else:
@@ -1071,7 +1073,7 @@ def terminal_session(options, root, lease, images):
                         ],
                     )
                     started = True
-                    if submitted == rejected_draft:
+                    if submitted and (editing_rejected_draft or submitted == rejected_draft):
                         rejected_draft = ""
                     transcript.append("Task: " + terminal_text(task) + "\n")
                     documents.clear()
