@@ -708,6 +708,42 @@ class TerminalRunTests(unittest.TestCase):
             right.select(first)
             self.assertEqual(right.session_id, first)
 
+    def test_two_open_sessions_keep_separate_goal_and_prompt_history(self):
+        from agentnik.code_history import CodeHistory
+        from agentnik.code_lease import SessionLease
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            first, second = str(uuid4()), str(uuid4())
+            left_store, right_store = Store(data), Store(data)
+            try:
+                with SessionLease(data) as left, SessionLease(data) as right:
+                    left.select(first)
+                    right.select(second)
+                    left_history = CodeHistory(left_store, root)
+                    right_history = CodeHistory(right_store, root)
+                    first_record, first_task = left_history.start(
+                        "Fixture", {"model": "test"}, "Review slides", first, goal=True)
+                    second_record, second_task = right_history.start(
+                        "Fixture", {"model": "test"}, "Update documentation", second, goal=True)
+                    right_history.finish(second_record, second_task, {"status": "completed", "text": "Docs done"})
+                    left_history.finish(first_record, first_task, {"status": "cancelled", "text": "Slides paused"})
+                    for history in (left_history, right_history):
+                        self.assertEqual(set(history.sessions()), {first, second})
+                        for session, task, state in ((first, "Review slides", "cancelled"),
+                                                     (second, "Update documentation", "completed")):
+                            saved, = history.list(session)
+                            self.assertEqual(saved["coding_goal"]["objective"], task)
+                            self.assertEqual(saved["code_state"], state)
+                            self.assertEqual([item["text"] for item in saved["code_activity"]
+                                              if item["kind"] == "prompt"], [task])
+            finally:
+                left_store.db.close()
+                right_store.db.close()
+
     def test_busy_resume_preserves_the_current_terminal_session(self):
         from unittest.mock import Mock
         from agentnik import cli, core
