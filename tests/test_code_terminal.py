@@ -29,6 +29,19 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_manual_git_help_remains_available_without_native_git(self):
+        from agentnik.code_git_commands import manual_git
+
+        lines = []
+        with patch("agentnik.code_git_commands.shutil.which", return_value=None) as find, \
+                patch("agentnik.code_git_commands.subprocess.run") as run:
+            manual_git(Path.cwd(), "", write=lines.append)
+            find.assert_not_called()
+            self.assertIn("require native Git on PATH", "\n".join(lines))
+            with self.assertRaisesRegex(ValueError, "Native Git was not found on PATH"):
+                manual_git(Path.cwd(), "status")
+            run.assert_not_called()
+
     def test_terminal_tls_status_reports_saved_mode_without_writing(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store

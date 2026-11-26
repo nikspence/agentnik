@@ -14,12 +14,13 @@ def manual_git(root, argument, *, prompt=None, write=print):
     value = value.strip()
     if not action:
         write(usage)
+        write("These manual commands require native Git on PATH. Other Agentnik Code workflows do not require it.")
         return
     if action not in ("status", "diff", "stage", "unstage", "commit", "remotes", "push"):
         raise ValueError(usage)
     executable = shutil.which("git")
     if not executable:
-        raise ValueError("Install Git and make it available on PATH to use /git.")
+        raise ValueError("Native Git was not found on PATH. Install it to use /git, or continue without manual Git commands.")
     prompt = prompt or input
 
     def run(*args, capture=False):
