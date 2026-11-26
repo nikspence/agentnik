@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: ${{ matrix.os }} / Python 3.12
@@ -65,6 +69,12 @@ jobs:
           cache: pip
       - name: Install terminal dependencies
         run: python -m pip install ".[terminal]"
+      - name: Check release distributions
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install build twine
+          python -m build --outdir dist/pypi-check
+          python -m twine check --strict dist/pypi-check/*
       - name: Verify the installed launcher outside the checkout
         working-directory: ${{ runner.temp }}
         run: |
