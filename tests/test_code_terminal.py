@@ -29,6 +29,26 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_terminal_decision_status_reports_an_unavailable_saved_advisor(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            store = Store(Path(directory))
+            try:
+                store.config["settings"].update(
+                    decision_advice_enabled=True,
+                    decision_model={"connection": "Missing fixture", "model": "advisor"},
+                )
+                with patch("agentnik.core.environment_connections", return_value={}), \
+                        patch.object(store, "flush") as flush:
+                    status = configure_code(store, ["decision"])
+                    self.assertIn("The saved advisor is unavailable", status)
+                    self.assertIn("/settings decision set", status)
+                    flush.assert_not_called()
+            finally:
+                store.db.close()
+
     def test_project_context_resume_skips_machine_records_but_not_failed_project_turns(self):
         from agentnik.code_history import project_context_for_resume
 

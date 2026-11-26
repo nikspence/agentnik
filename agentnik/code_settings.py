@@ -285,8 +285,15 @@ def configure_decision(store, arguments):
     binding = dict(settings.get("decision_model", {"connection": "", "model": ""}))
     enabled = settings.get("decision_advice_enabled", False)
     if not arguments:
+        from .decision_advice import configured_advisor
+
+        connections = {**environment_connections(), **store.config["connections"]} if enabled else {}
+        _, advisor = configured_advisor(settings, connections)
+        unavailable = ("The saved advisor is unavailable. No System One advice will be offered.\n"
+                       if enabled and advisor is None else "")
         return (f"System One shell advice: {'on' if enabled else 'off'}\n"
                 f"Connection: {binding['connection']!r} · Model: {binding['model']!r}\n"
+                f"{unavailable}"
                 "Use /settings decision set to configure, or /settings decision on|off.")
     if arguments not in (["set"], ["on"], ["off"]):
         raise ValueError("Use /settings decision set, on, or off.")
