@@ -2038,7 +2038,8 @@ class TerminalRunTests(unittest.TestCase):
                                           ("rounds", "requests", "calls", "turn_seconds")],
                                         "/settngs", "//notes is an example path. Create a note.", "/context", "/context clear",
                                         "/permissions allow-all", "Create another note",
-                                        "/new", "/status", "/history", "/exit"]
+                                        "/scope machine", f'/attach "{brief}"', "/attachments",
+                                        "/new", "/status", "/attachments", "/history", "/exit"]
             output = io.StringIO()
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=first), \
@@ -2055,6 +2056,13 @@ class TerminalRunTests(unittest.TestCase):
                     contextlib.redirect_stderr(io.StringIO()) as errors:
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 4, output.getvalue())
+            before_new, after_new = output.getvalue().split("Started session ", 1)
+            self.assertIn("Machine file changes normally skip approval", before_new)
+            self.assertIn(brief.name, before_new)
+            self.assertIn("Scope: project", after_new)
+            self.assertIn("Permissions: require", after_new)
+            self.assertIn("Vision: off", after_new)
+            self.assertIn("No queued attachments.", after_new)
             self.assertIn("Project file edits, deletions, and generated images require user approval",
                           transport.call_args_list[0].args[2]["messages"][0]["content"])
             self.assertIn("Project file edits and deletions apply without per-file approval",
