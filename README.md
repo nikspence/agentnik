@@ -21,7 +21,7 @@ For testing System One Decision models with varying states, images, and question
 
 Research and coding workflows include preview features. Model listings do not establish support for tools, images, research or System One. See [validation](VALIDATION.md) for observed behavior and remaining platform and compatibility checks.
 
-The terminal preview starts with `agentnik code` from the folder you want to work in. Use `/connections` to list connections or `/connections add` to configure one, then select it with `/connection NAME`. Use `/model NAME` to override its default model and enter a task to start a turn. The preview supports review of file edits and shell commands, and Ctrl+C requests cancellation. Terminal history and the full desktop settings are still in development.
+The terminal preview starts with `agentnik code` from the folder you want to work in. Install the `agentnik[terminal]` extra from this checkout (`pip install ".[terminal]"`) for multiline editing, in-session prompt recall and slash command completion. Enter adds a line and Alt+Enter submits. Use `/connections` to list connections or `/connections add` to configure one, then select it with `/connection NAME`. Use `/model NAME` to override its default model and enter a task to start a turn. The preview supports review of file edits and shell commands, and Ctrl+C requests cancellation. Persistent terminal sessions and the full desktop settings are still in development.
 
 ## What Agentnik is not
 

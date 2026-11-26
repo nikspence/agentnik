@@ -72,11 +72,25 @@ def main():
         parser.error("an interactive terminal is required")
     print(f"Agentnik Code preview · {str(root)!r}")
     print("Select a connection with /connection NAME, then enter a task. Type /help.")
+    from .code_composer import create_composer
+
+    try:
+        composer = create_composer()
+    except ModuleNotFoundError as exc:
+        if exc.name != "prompt_toolkit":
+            raise
+        composer = None
+        print("Install agentnik[terminal] for multiline editing and prompt recall.")
+    else:
+        print("Enter adds a line. Alt+Enter submits. Use Up/Down to recall input and Tab for commands.")
     connection_name = model = ""
     while True:
         try:
-            command = input("code> ").strip()
-        except (EOFError, KeyboardInterrupt):
+            command = (composer.prompt() if composer else input("code> ")).strip()
+        except KeyboardInterrupt:
+            print()
+            continue
+        except EOFError:
             print()
             return 0
         if command == "/exit":
