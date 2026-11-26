@@ -1551,6 +1551,32 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_quoted_saved_connection_names_work_in_selection_and_settings(self):
+        from unittest.mock import Mock
+        from agentnik import cli
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "profile"
+            store = Store(data)
+            try:
+                store.save_connection("Team Endpoint", {"url": "https://example.org/v1", "model": "fixture"})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ['/connections show "Team Endpoint"', '/connection "Team Endpoint"',
+                                           "/status", "/exit"]
+            with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(data)]), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("Selected connection 'Team Endpoint'.", out.getvalue())
+            self.assertIn("Connection: 'Team Endpoint'", out.getvalue())
+            self.assertIn("fixture", out.getvalue())
+            self.assertEqual(cli.connection_name_argument('"Literal"', {'"Literal"'}), '"Literal"')
+
     def test_terminal_settings_interrupt_returns_to_the_composer(self):
         from unittest.mock import Mock
         from agentnik import cli, core

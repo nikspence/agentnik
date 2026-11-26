@@ -79,6 +79,12 @@ def import_connection_settings(store, filename):
     print(f"Imported {len(new)} connection(s). Use /connections key NAME to add credentials.")
 
 
+def connection_name_argument(name, known_names):
+    if len(name) >= 2 and name[0] == name[-1] and name[0] in ("'", '"') and name not in known_names:
+        return name[1:-1]
+    return name
+
+
 def connection_menu(data_dir, action="", selected_name="", *, discovered=None):
     from .core import PROTOCOLS, environment_connections, validate_connections
     from .storage import ConfigurationError, Store
@@ -102,9 +108,13 @@ def connection_menu(data_dir, action="", selected_name="", *, discovered=None):
                     print(f"{label}: {name!r} · {entry.get('model', '')!r}")
             return
         name = selected_name or input("Connection name: ").strip()
-        old = store.config["connections"].get(name)
+        saved = store.config["connections"]
+        alternates = {**(discovered or {}), **environment_connections()} if action == "copy" and name not in saved else {}
+        if selected_name:
+            name = connection_name_argument(name, saved.keys() | alternates.keys())
+        old = saved.get(name)
         if action == "copy" and old is None:
-            old = environment_connections().get(name) or (discovered or {}).get(name)
+            old = alternates.get(name)
             if old is None:
                 print("Choose a saved, environment, or discovered connection.")
                 return
@@ -840,7 +850,11 @@ def terminal_session(options, root, lease, images):
             try:
                 store = Store(options.data_dir)
                 try:
-                    available = name in store.config["connections"] or name in discovered or name in environment_connections()
+                    known = store.config["connections"].keys() | discovered.keys()
+                    if name not in known:
+                        known |= environment_connections().keys()
+                    name = connection_name_argument(name, known)
+                    available = name in known
                 finally:
                     store.db.close()
             except (ConfigurationError, OSError, sqlite3.Error):
