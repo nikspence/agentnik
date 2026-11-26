@@ -6,7 +6,7 @@ import sys
 CHILD = """
 from agentnik.code_composer import create_composer
 
-composer = create_composer()
+composer = create_composer(transcript=lambda: chr(10).join(f"Transcript row {i:03}" for i in range(100)))
 print("CANCEL-READY", flush=True)
 try:
     composer.prompt()
@@ -14,7 +14,7 @@ except KeyboardInterrupt:
     print("DRAFT-CANCELLED", flush=True)
 else:
     raise AssertionError("Ctrl+C did not cancel the draft")
-for index in range(2):
+for index in range(3):
     print(f"READY-{index}", flush=True)
     draft = composer.prompt()
     print(f"SUBMITTED-{index}:{draft.encode().hex()}:END", flush=True)
@@ -26,7 +26,7 @@ def main():
         import pexpect
     except ImportError:
         raise SystemExit("Install pexpect in the smoke-test environment first.") from None
-    with pexpect.spawn(sys.executable, ["-u", "-c", CHILD], encoding="utf-8", timeout=10) as terminal:
+    with pexpect.spawn(sys.executable, ["-u", "-c", CHILD], encoding="utf-8", timeout=10, dimensions=(24, 80)) as terminal:
         terminal.expect_exact("CANCEL-READY")
         terminal.expect_exact("code>")
         terminal.send("discard this draft")
@@ -41,11 +41,22 @@ def main():
         terminal.expect_exact("code>")
         terminal.send("\x1b[A\r")
         terminal.expect_exact(f"SUBMITTED-1:{draft}:END")
+        terminal.expect_exact("READY-2")
+        terminal.expect_exact("code>")
+        terminal.send("draft kept across scrollback")
+        terminal.sendcontrol("t")
+        terminal.expect_exact("Transcript row 099")
+        terminal.send("\x15" * 3)
+        terminal.expect_exact("Transcript row 066")
+        terminal.send("q")
+        terminal.expect_exact("code>")
+        terminal.send("\r")
+        terminal.expect_exact(f"SUBMITTED-2:{b'draft kept across scrollback'.hex()}:END")
         terminal.expect(pexpect.EOF)
         terminal.close()
         if terminal.exitstatus != 0:
             raise SystemExit(f"Composer exited unexpectedly (status {terminal.exitstatus}).")
-    print("POSIX PTY verified Ctrl+C draft cancellation, Ctrl+J, Enter, and Up history recall.")
+    print("POSIX PTY verified Ctrl+C draft cancellation, Ctrl+J, Enter, Up history recall, and draft recovery after transcript scrollback.")
 
 
 if __name__ == "__main__":
