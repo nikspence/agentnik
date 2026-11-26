@@ -41,7 +41,7 @@ for index in range(4):
     finally:
         composer.default_buffer.on_text_changed -= observe
     if index == 2:
-        expected = ["current draft", "first line" + chr(10) + "second line", "current draft"]
+        expected = ["current draft", chr(10).join(("first line", "second line", "third line")), "current draft"]
         for value in changes:
             if expected and value == expected[0]:
                 expected.pop(0)
@@ -99,8 +99,8 @@ def main():
         seen = seen.split("READY-0\r\n", 1)[1]
         # VT output may reset formatting between the label and its trailing space.
         expect("code>")
-        terminal.write("first line\nsecond line\r")
-        draft = b"first line\nsecond line".hex()
+        terminal.write("first line\nsecond line\x1b\nthird line\r")
+        draft = b"first line\nsecond line\nthird line".hex()
         expect(f"SUBMITTED-0:{draft}:END")
         expect("READY-1\r\n")
         seen = seen.split("READY-1\r\n", 1)[1]
@@ -132,7 +132,7 @@ def main():
         expect(f"SUBMITTED-3:{b'draft kept across scrollback'.hex()}:END")
     finally:
         terminal.close()
-    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Enter, Up/Down history, and draft recovery after transcript scrollback.")
+    print("ConPTY verified Ctrl+C draft cancellation, Ctrl+J, Esc-LF modified Enter, Enter, Up/Down history, and draft recovery after transcript scrollback.")
 
 
 if __name__ == "__main__":
