@@ -15,6 +15,7 @@ def request(c,body,runtime,emit,state):
     messages=c.get('protocol')=='messages'
     state.update(text='',thinking='',metrics={},provider_usage={})
     blocks={}; fragments={}; closed=set(); calls={}; finish=None; stopped=False; started=False; message_delta_seen=False
+    saw_finish_usage=False
     def usage(data):
         state['provider_usage']=core.merge_usage(state['provider_usage'],data.get('usage'))
         state['metrics'].update(core.usage_metrics(dict(data,usage=state['provider_usage'])))
@@ -96,10 +97,20 @@ def request(c,body,runtime,emit,state):
                 if not isinstance(choices,list): raise ResearchError('Malformed completion choices')
                 if len(choices)>1: raise ResearchError('Multiple completion choices are not supported')
                 if choices:
-                    if finish is not None: raise ResearchError('Completion data after finish')
                     choice=choices[0]
                     if not isinstance(choice,dict): raise ResearchError('Malformed completion choice')
                     if choice.get('index',0)!=0: raise ResearchError('Unexpected completion choice index')
+                    if finish is not None:
+                        # Some gateways repeat the finish marker on a final usage frame.
+                        trailer=choice.get('delta')
+                        if (not saw_finish_usage and isinstance(data.get('usage'),dict) and data['usage']
+                                and set(choice)<= {'index','delta','finish_reason','native_finish_reason'}
+                                and choice.get('finish_reason')==finish and isinstance(trailer,dict)
+                                and set(trailer)<= {'content','role'} and trailer.get('content') in (None,'')
+                                and trailer.get('role') in (None,'assistant')):
+                            saw_finish_usage=True
+                            continue
+                        raise ResearchError('Completion data after finish')
                     delta=choice.get('delta') or choice.get('message') or {}
                     if not isinstance(delta,dict): raise ResearchError('Malformed completion delta')
                     for field in ('content','reasoning_content'):

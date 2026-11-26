@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- On Windows, a live terminal Code smoke test used OpenRouter GPT-6.1 Terra over streaming Chat Completions. With scripted prompt input in a temporary non-Git folder, the model proposed one file edit, waited for approval, wrote the expected bytes, and returned a final answer after two provider requests. The saved session reopened without replay. This qualifies that coding path, not native keyboard behavior, SSH, or LiteLLM.
+
 - The `0.12.0rc1` terminal wheel passed strict package checks, installed without Qt in fresh virtual environments, and ran the terminal and loopback OAuth suites outside the checkout on Windows and Ubuntu under WSL. All three installed-wheel jobs also passed on hosted Windows, macOS, and Linux runners for [commit `8279538`](https://github.com/nikspence/agentnik/actions/runs/45863359794). An Ubuntu pseudoterminal run with no display opened a non-Git folder by default, accepted `/status` and `/exit` via Alt+Enter, and reported that folder and a new session. This does not qualify a remote SSH login, its credential store, or a live provider.
 
 - Selected Code, Chat and research tasks have completed through local Ollama, OpenRouter and LiteLLM routes. These observations cover individual models and tasks, not all tools or providers.

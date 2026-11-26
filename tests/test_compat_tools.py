@@ -52,9 +52,20 @@ class Matrix(unittest.TestCase):
     def test_chat_stream_assembles_arguments_and_reads_usage_after_finish(self):
         events=[{'choices':[{'delta':{'tool_calls':[dict(chat_call(args='{"que'),index=0)]}}]},
                 {'choices':[{'delta':{'tool_calls':[{'index':0,'function':{'arguments':'ry":"evidence"}'}}]},'finish_reason':'tool_calls'}]},
-                {'choices':[],'usage':{'prompt_tokens':12,'completion_tokens':4}}]
+                {'choices':[{'index':0,'delta':{'content':'','role':'assistant'},'finish_reason':'tool_calls',
+                             'native_finish_reason':'tool_calls'}],
+                 'usage':{'prompt_tokens':12,'completion_tokens':4}}]
         result,bodies,backend,c=self.run_loop('chat',[Wire(events),Wire([{'choices':[{'delta':{'content':'Answer [S1]'},'finish_reason':'stop'}],'usage':{'prompt_tokens':8,'completion_tokens':2}}])],True)
         self.assertEqual(result['status'],'ok'); self.assertEqual(backend.searches,['evidence']); self.assertEqual(result['metrics']['input_tokens'],20)
+
+    def test_chat_stream_rejects_payload_in_repeated_finish_frame(self):
+        events=[{'choices':[{'delta':{'tool_calls':[dict(chat_call(args='{"query":"evidence"}'),index=0)]},
+                             'finish_reason':'tool_calls'}]},
+                {'choices':[{'delta':{'content':'unexpected'},'finish_reason':'tool_calls'}],
+                 'usage':{'prompt_tokens':12}}]
+        result,_,backend,_=self.run_loop('chat',[Wire(events)],True)
+        self.assertNotEqual(result['status'],'ok')
+        self.assertEqual(backend.searches,[])
 
     def test_messages_preserve_signed_and_redacted_thinking_and_group_results(self):
         thinking={'type':'thinking','thinking':'Plan','signature':'opaque-signature'}
