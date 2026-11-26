@@ -16,7 +16,7 @@ def configure_image(store, arguments):
     settings = store.config["settings"]
     image = validate_image_settings(settings.get("image_generation"))
     if not arguments:
-        return (f"Desktop image tool: {'on' if image['enabled'] else 'off'}\n"
+        return (f"Image tool: {'on' if image['enabled'] else 'off'}\n"
                 f"Connection: {image['connection']!r} · Model: {image['model']!r}\n"
                 "Use /settings image set to configure, or /settings image on|off.")
     if arguments not in (["set"], ["on"], ["off"]):
@@ -39,7 +39,7 @@ def configure_image(store, arguments):
         image_endpoint(connection, image["endpoint"])
     settings["image_generation"] = validate_image_settings(image)
     store.flush()
-    return "Saved desktop image settings. Image generation is not available in terminal Code."
+    return "Saved image settings. They apply to the next run."
 
 
 def web_providers(store, arguments):
@@ -153,7 +153,7 @@ def configure_code(store, arguments):
             "Use /settings appearance to manage desktop appearance and layout.",
             "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
             "Use /settings web providers to manage search provider credentials.",
-            "Use /settings image to configure the desktop image model.",
+            "Use /settings image to configure the image model.",
         ))
         return "\n".join(lines)
 

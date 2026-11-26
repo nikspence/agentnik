@@ -5,8 +5,6 @@ import json
 import math
 import re
 
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice
-from PySide6.QtGui import QImageReader
 from . import core
 from .image_settings import image_endpoint
 
@@ -28,6 +26,18 @@ class ImageRequestUncertain(ImageRequestError):
 def image_bytes(data):
     """Check bounded raster data and decode it before storage or transmission."""
     if not isinstance(data,bytes) or not data or len(data)>MAX_IMAGE_BYTES:raise ImageRequestError('Image data is empty or exceeds the image size limit')
+    try:
+        from PySide6.QtCore import QByteArray, QBuffer, QIODevice
+        from PySide6.QtGui import QImageReader
+    except ModuleNotFoundError as exc:
+        if exc.name != 'PySide6':raise
+        from .headless_image import decode
+        try:fmt,_=decode(data,MAX_PIXELS)
+        except ModuleNotFoundError as missing:
+            if missing.name!='PIL':raise
+            raise ImageRequestError('Install the Agentnik terminal extra for headless image generation') from None
+        except ValueError as failure:raise ImageRequestError(str(failure)) from None
+        return FORMATS[fmt]
     buf=QBuffer();buf.setData(QByteArray(data));buf.open(QIODevice.OpenModeFlag.ReadOnly)
     try:
         reader=QImageReader(buf);fmt=bytes(reader.format()).decode('ascii','ignore').lower()

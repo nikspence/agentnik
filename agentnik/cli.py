@@ -349,7 +349,10 @@ def main():
                     history = CodeHistory(store, root)
                     record, task = history.start(
                         connection_name, connection, command, session_id, goal=goal,
-                        extra_secrets=[item.get("key") for item in research_options["web_backends"]],
+                        extra_secrets=[
+                            *(item.get("key") for item in research_options["web_backends"]),
+                            research_options.get("image_config", {}).get("connection", {}).get("api_key"),
+                        ],
                     )
                     transcript.append("Task: " + terminal_text(task) + "\n")
                     result = drive_run(run, write_activity)

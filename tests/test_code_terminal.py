@@ -11,6 +11,34 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_headless_image_codec_preserves_transparency_without_qt(self):
+        import builtins
+        from importlib.util import find_spec
+
+        if find_spec("PIL") is None:
+            self.skipTest("Terminal image extra is not installed")
+        from PIL import Image
+        from agentnik.code_image import convert
+        from agentnik.image_generation import image_bytes
+
+        raw = io.BytesIO()
+        Image.new("RGBA", (32, 18), (255, 40, 0, 80)).save(raw, "PNG")
+        real_import = builtins.__import__
+
+        def no_qt(name, *args, **kwargs):
+            if name.startswith("PySide6"):
+                raise ModuleNotFoundError(name="PySide6")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=no_qt):
+            self.assertEqual(image_bytes(raw.getvalue()), ("image/png", ".png"))
+            result = convert(raw.getvalue(), ".webp")
+            with self.assertRaisesRegex(ValueError, "transparency"):
+                convert(raw.getvalue(), ".jpg")
+        with Image.open(io.BytesIO(result)) as asset:
+            self.assertEqual(asset.size, (32, 18))
+            self.assertEqual(asset.getpixel((0, 0))[3], 80)
+
     def test_image_settings_reject_an_override_on_another_host(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store, load_config

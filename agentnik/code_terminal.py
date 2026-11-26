@@ -14,8 +14,10 @@ def terminal_text(text):
 
 
 def load_run_settings(data_dir, name, model, web_enabled=False):
+    from importlib.util import find_spec
     from . import core, tls
     from .code_research import code_research_options
+    from .image_settings import image_endpoint, validate_image_settings
     from .storage import Store
 
     store = Store(data_dir)
@@ -33,6 +35,17 @@ def load_run_settings(data_dir, name, model, web_enabled=False):
         settings = store.config["settings"]
         tls.configure(settings.get("relaxed_tls", False))
         options = code_research_options(store, name, connection, web_enabled)
+        image = validate_image_settings(settings.get("image_generation"))
+        if image["enabled"]:
+            if find_spec("PySide6") is None and find_spec("PIL") is None:
+                raise ValueError("Install the Agentnik terminal extra for headless image generation.")
+            image_connection = connections.get(image["connection"])
+            if not image_connection or not image["model"]:
+                raise ValueError("The configured image connection or model is unavailable.")
+            image_endpoint(image_connection, image["endpoint"])
+            options["image_config"] = {
+                "connection": image_connection, "model": image["model"], "endpoint": image["endpoint"],
+            }
         return connection, settings.get("coding_limits"), settings.get("coding_goal_limits"), options
     finally:
         store.db.close()
@@ -92,6 +105,9 @@ def drive_run(run, write=print):
                     fields = ("cwd", "shell", "command", "max_seconds")
                 elif proposal.get("operation") in ("delete_file", "create_directory", "move_file", "move_directory"):
                     fields = ("operation", "cwd", "path", "destination", "entries")
+                elif proposal.get("operation") == "image_gen":
+                    fields = ("operation", "endpoint", "model", "prompt", "references",
+                              "aspect_ratio", "background", "cwd", "path")
                 else:
                     write("This operation cannot be reviewed in the terminal preview. Rejected.")
                     run.decide(event["fingerprint"], False)

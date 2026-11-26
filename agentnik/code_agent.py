@@ -1842,6 +1842,13 @@ class CodingRun:
                                 aspect='' if args['aspect_ratio']=='auto' else args['aspect_ratio']
                                 background='' if args['background']=='auto' else args['background']
                                 if background=='transparent' and Path(args['path']).suffix.lower() in ('.jpg','.jpeg'):raise ValueError('Use PNG or WebP for a transparent image')
+                                if self.review_project_edits:
+                                    proposal={'operation':'image_gen','cwd':str(files.root),'path':args['path'],'base':base,
+                                              'endpoint':image_generation.image_endpoint(self.image_config['connection'],self.image_config['endpoint']),
+                                              'model':self.image_config['model'],'prompt':args['prompt'],'references':args['reference_paths'],
+                                              'aspect_ratio':args['aspect_ratio'],'background':args['background']}
+                                    if not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                        raise ProjectToolError('Image request declined by the user')
                                 event('output',text='Generating image with the configured image model. '+image_generation.request_options(aspect,background,len(refs)))
                                 generated=runtime.wait(lambda:image_generation.generate(self.image_config['connection'],self.image_config['model'],args['prompt'],refs,endpoint=self.image_config['endpoint'],cancel=self.cancel,aspect_ratio=aspect,background=background),request_seconds=300)
                                 data=code_image.convert(generated['data'],Path(args['path']).suffix)

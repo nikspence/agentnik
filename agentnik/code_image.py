@@ -5,8 +5,6 @@ import os
 from pathlib import Path
 import stat
 import tempfile
-from PySide6.QtCore import QByteArray,QBuffer,QIODevice
-from PySide6.QtGui import QImage
 from . import image_generation
 
 
@@ -40,6 +38,16 @@ def prepare(files,path,project_paths):
 
 def convert(data,suffix):
     target={'.png':'PNG','.jpg':'JPEG','.jpeg':'JPEG','.webp':'WEBP'}[suffix.lower()]
+    image_generation.image_bytes(data)
+    try:
+        from PySide6.QtCore import QByteArray,QBuffer,QIODevice
+        from PySide6.QtGui import QImage
+    except ModuleNotFoundError as exc:
+        if exc.name!='PySide6':raise
+        from .headless_image import encode
+        result=encode(data,target,image_generation.MAX_PIXELS)
+        image_generation.image_bytes(result)
+        return result
     image=QImage.fromData(data)
     if image.isNull():raise ValueError('Generated image could not be decoded')
     if target=='JPEG' and image.hasAlphaChannel():raise ValueError('Use a PNG or WebP destination to preserve transparency')
