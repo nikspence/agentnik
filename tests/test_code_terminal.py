@@ -96,8 +96,9 @@ class TerminalRunTests(unittest.TestCase):
             self.assertEqual(asset.size, (32, 18))
             self.assertEqual(asset.getpixel((0, 0))[3], 80)
         with TemporaryDirectory() as directory, patch("builtins.__import__", side_effect=no_qt):
-            (Path(directory) / "asset.webp").write_bytes(result)
-            data, mime = read_image(ProjectFiles(directory), "asset.webp")
+            root = Path(directory).resolve()
+            (root / "asset.webp").write_bytes(result)
+            data, mime = read_image(ProjectFiles(root), "asset.webp")
             message = image_message([("asset.webp", data, mime)], "chat")
             self.assertTrue(message["content"][1]["image_url"]["url"].startswith("data:image/webp;base64,"))
 
