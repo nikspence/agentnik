@@ -11,6 +11,28 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_terminal_mcp_reuses_only_ready_oauth_records_for_the_selected_server(self):
+        import json
+        from agentnik.code_terminal import terminal_mcp_bridges
+
+        profile = {"name": "OAuth", "transport": "http", "url": "https://example.org/mcp",
+                   "credential_id": "fixture", "enabled": True, "auth_type": "oauth"}
+        config = {"settings": {}, "mcp_servers": [profile]}
+        record = {"version": 1, "resource_url": profile["url"], "issuer": "https://auth.example.org",
+                  "token_endpoint": "https://auth.example.org/token", "client_id": "client",
+                  "access_token": "access-fixture", "refresh_token": "refresh-fixture",
+                  "expires_at": None, "refresh_pending": False}
+        with patch("keyring.get_password", return_value=json.dumps(record)) as get:
+            bridge, = terminal_mcp_bridges(config, [profile])
+            self.assertEqual(bridge.token, "access-fixture")
+            get.assert_called_once_with("Agentnik", "fixture")
+        with patch("keyring.get_password", return_value=json.dumps(dict(record, refresh_pending=True))):
+            with self.assertRaisesRegex(ValueError, "needs renewal"):
+                terminal_mcp_bridges(config, [profile])
+        with patch("keyring.get_password", return_value=json.dumps(dict(record, resource_url="https://other.example.org/mcp"))):
+            with self.assertRaisesRegex(ValueError, "sign-in is unavailable"):
+                terminal_mcp_bridges(config, [profile])
+
     def test_terminal_mcp_keeps_selection_order_and_rejects_stale_profiles(self):
         from agentnik.code_terminal import terminal_mcp_bridges
 

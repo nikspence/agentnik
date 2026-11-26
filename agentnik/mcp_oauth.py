@@ -1,6 +1,7 @@
 """MCP OAuth challenge and discovery URL handling; no network requests."""
+import json
 import re
-from urllib.parse import urlsplit,urlunsplit
+from urllib.parse import parse_qsl,urlsplit,urlunsplit
 from urllib.request import parse_http_list
 
 _TOKEN=r"[!#$%&'*+.^_`|~0-9A-Za-z-]+"
@@ -57,3 +58,35 @@ def authorization_server_metadata_urls(issuer_url):
     urls=[origin+'/.well-known/oauth-authorization-server'+path,origin+'/.well-known/openid-configuration'+path]
     if path:urls.append(origin+path.rstrip('/')+'/.well-known/openid-configuration')
     return urls
+
+
+def _object_pairs(pairs):
+    result={}
+    for key,value in pairs:
+        if key in result:raise ValueError('Duplicate metadata field')
+        result[key]=value
+    return result
+
+
+_RESERVED=frozenset(('client_id','response_type','redirect_uri','state','scope','resource','code_challenge','code_challenge_method','grant_type','code','code_verifier'))
+_MAX_RESPONSE=65536
+
+
+def parse_token_response(data,status,ctype):
+    """Validate token material without exposing server-provided error text."""
+    if status!=200 or ctype!='application/json':raise ValueError('Invalid token response')
+    result=json.loads(bytes(data).decode('utf-8'),object_pairs_hook=_object_pairs)
+    if not isinstance(result,dict) or not isinstance(result.get('token_type'),str) or result['token_type'].lower()!='bearer':raise ValueError('Invalid token response')
+    token=result.get('access_token')
+    if not isinstance(token,str) or not token or len(token)>4096 or any(not 33<=ord(ch)<=126 for ch in token):raise ValueError('Invalid token response')
+    refresh=result.get('refresh_token')
+    if refresh is not None and (not isinstance(refresh,str) or not refresh or len(refresh)>4096 or any(not 33<=ord(ch)<=126 for ch in refresh)):raise ValueError('Invalid token response')
+    expiry=result.get('expires_in')
+    if expiry is not None and (type(expiry) is not int or expiry<=0):raise ValueError('Invalid token response')
+    return {'access_token':token,'refresh_token':refresh,'expires_in':expiry}
+
+
+def _endpoint(url):
+    parts=_https_parts(url,allow_query=True)
+    if any(key.lower() in _RESERVED for key,_ in parse_qsl(parts.query,keep_blank_values=True,max_num_fields=100)):raise ValueError('Reserved OAuth endpoint query parameter')
+    return parts

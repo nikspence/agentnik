@@ -250,7 +250,7 @@ def terminal_session(options, root, lease, images):
                     name = name.strip()
                     selected = next((profile for profile in profiles if profile["name"] == name), None)
                     if selected is None:
-                        raise ValueError("Choose an enabled local or HTTPS MCP server without OAuth.")
+                        raise ValueError("Choose an enabled local or HTTPS MCP server.")
                     if action == "use":
                         mcp_selection = [selected]
                     else:

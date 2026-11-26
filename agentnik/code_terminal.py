@@ -79,8 +79,7 @@ def terminal_mcp_profiles(data_dir):
 
     store = Store(data_dir)
     try:
-        return [item for item in store.config.get("mcp_servers", [])
-                if item["enabled"] and item.get("auth_type") != "oauth"]
+        return [item for item in store.config.get("mcp_servers", []) if item["enabled"]]
     finally:
         store.db.close()
 
@@ -96,13 +95,23 @@ def terminal_mcp_bridges(config, selection):
     bridges = []
     saved = config.get("mcp_servers", [])
     for profile in selection:
-        if profile not in saved or not profile["enabled"] or profile.get("auth_type") == "oauth":
+        if profile not in saved or not profile["enabled"]:
             raise ValueError("A selected MCP server changed or is unavailable. Reselect it or remove it.")
         if profile.get("transport") != "http":
             bridges.append(TerminalMCPBridge(profile))
             continue
         token = ""
-        if profile.get("credential_id"):
+        if profile.get("auth_type") == "oauth":
+            from .mcp_oauth_record import credential_state, read_record
+
+            try:
+                record = read_record(profile["credential_id"], profile["url"])
+            except Exception:
+                raise ValueError("A selected MCP OAuth sign-in is unavailable. Sign in again in desktop settings.") from None
+            if credential_state(record) != "ready":
+                raise ValueError("A selected MCP OAuth sign-in needs renewal. Renew it in desktop settings.")
+            token = record["access_token"]
+        elif profile.get("credential_id"):
             import keyring
 
             try:

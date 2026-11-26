@@ -4,37 +4,12 @@ import hashlib
 import json
 import secrets
 import time
-from urllib.parse import parse_qs,parse_qsl,urlencode,urlsplit,urlunsplit
+from urllib.parse import parse_qs,urlencode,urlsplit,urlunsplit
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtNetwork import QHostAddress,QNetworkAccessManager,QNetworkRequest,QTcpServer
 from . import tls
-from .mcp_oauth import _https_parts
-from .mcp_oauth_discovery import _object_pairs
-
-_RESERVED=frozenset(('client_id','response_type','redirect_uri','state','scope','resource','code_challenge','code_challenge_method','grant_type','code','code_verifier'))
-_MAX_RESPONSE=65536
-
-
-def parse_token_response(data,status,ctype):
-    """Validate token material without exposing server-provided error text."""
-    if status!=200 or ctype!='application/json':raise ValueError('Invalid token response')
-    result=json.loads(bytes(data).decode('utf-8'),object_pairs_hook=_object_pairs)
-    if not isinstance(result,dict) or not isinstance(result.get('token_type'),str) or result['token_type'].lower()!='bearer':raise ValueError('Invalid token response')
-    token=result.get('access_token')
-    if not isinstance(token,str) or not token or len(token)>4096 or any(not 33<=ord(ch)<=126 for ch in token):raise ValueError('Invalid token response')
-    refresh=result.get('refresh_token')
-    if refresh is not None and (not isinstance(refresh,str) or not refresh or len(refresh)>4096 or any(not 33<=ord(ch)<=126 for ch in refresh)):raise ValueError('Invalid token response')
-    expiry=result.get('expires_in')
-    if expiry is not None and (type(expiry) is not int or expiry<=0):raise ValueError('Invalid token response')
-    return {'access_token':token,'refresh_token':refresh,'expires_in':expiry}
-
-
-def _endpoint(url):
-    parts=_https_parts(url,allow_query=True)
-    if any(key.lower() in _RESERVED for key,_ in parse_qsl(parts.query,keep_blank_values=True,max_num_fields=100)):raise ValueError('Reserved OAuth endpoint query parameter')
-    return parts
-
+from .mcp_oauth import _https_parts,_object_pairs,_endpoint,_MAX_RESPONSE,parse_token_response
 
 def _scope(value):
     if not isinstance(value,str) or len(value)>4096 or any(ord(ch)<32 or ord(ch)>126 for ch in value):raise ValueError('Invalid OAuth scope')

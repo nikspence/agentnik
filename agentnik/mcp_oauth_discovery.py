@@ -4,17 +4,9 @@ from urllib.parse import urlsplit
 from PySide6.QtCore import QObject,QTimer,QUrl,Signal
 from PySide6.QtNetwork import QNetworkAccessManager,QNetworkRequest
 from . import tls
-from .mcp_oauth import _https_parts,protected_resource_metadata_urls,authorization_server_metadata_urls
+from .mcp_oauth import _object_pairs,_https_parts,protected_resource_metadata_urls,authorization_server_metadata_urls
 
 MAX_METADATA=131072
-
-
-def _object_pairs(pairs):
-    result={}
-    for key,value in pairs:
-        if key in result:raise ValueError('Duplicate metadata field')
-        result[key]=value
-    return result
 
 
 def _same_resource(configured,claimed):
