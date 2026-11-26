@@ -3,6 +3,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -20,6 +21,35 @@ C={'url':'https://gateway.example/v1','protocol':'chat','model':'mock','stream':
 
 
 class SessionRecovery(unittest.TestCase):
+    def test_filtered_terminal_history_falls_back_when_sqlite_has_no_json_functions(self):
+        from uuid import uuid4
+        from agentnik.code_history import CodeHistory
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            project = base / "project"
+            project.mkdir()
+            store = Store(base / "data")
+            try:
+                [first, second] = [str(uuid4()) for _ in range(2)]
+                history = CodeHistory(store, project)
+                wanted, _ = history.start("Fixture", C, "First task", first)
+                history.start("Fixture", C, "Second task", second)
+                store.save(store.new_session("chat", "test", C))
+                db = store.db
+
+                def execute(query, args=()):
+                    if "json_extract" in query:
+                        raise sqlite3.OperationalError("no such function: json_extract")
+                    return db.execute(query, args)
+
+                with patch.object(store, "db") as legacy:
+                    legacy.execute.side_effect = execute
+                    self.assertEqual([record["id"] for record in history.list(first)], [wanted["id"]])
+                    self.assertEqual(set(history.sessions()), {first, second})
+            finally:
+                store.db.close()
+
     def test_bad_and_future_rows_preserved_while_valid_history_remains_usable(self):
         with tempfile.TemporaryDirectory() as directory:
             store=Store(directory)
