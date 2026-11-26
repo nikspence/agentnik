@@ -281,7 +281,12 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
 
     events = Queue()
     done = object()
-    thread = start_code_worker(run, events.put, finished=lambda: events.put(done))
+    def interrupted():
+        events.put({"kind": "finished", "status": "interrupted",
+                    "text": "Code stopped before reporting a result. Check the project before continuing. "
+                            "Agentnik will not replay the request."})
+
+    thread = start_code_worker(run, events.put, failed=interrupted, finished=lambda: events.put(done))
     streamed = {}
     partial_line = False
     result = {}
@@ -295,11 +300,6 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
             if event is done:
                 if partial_line:
                     write()
-                if not result:
-                    detail = ("Code stopped before reporting a result. Check the project before continuing. "
-                              "Agentnik will not replay the request.")
-                    write(detail)
-                    result = {"status": "interrupted", "text": detail}
                 return dict(result, last_goal_detail=goal_detail) if goal_detail else result
             kind = event["kind"]
             if checkpoint and kind in ("goal_status", "goal_progress"):

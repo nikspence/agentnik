@@ -2442,6 +2442,7 @@ class TerminalRunTests(unittest.TestCase):
                 run.run.side_effect = failure
                 lines = []
                 result = drive_run(run, write=lines.append)
+                self.assertEqual(result["kind"], "finished")
                 self.assertEqual(result["status"], "interrupted")
                 self.assertIn("will not replay the request", result["text"])
                 self.assertEqual(lines, [result["text"]])
