@@ -135,6 +135,22 @@ class Store:
             try: keyring.delete_password('Agentnik', old['credential_id'])
             except Exception: pass
 
+    def update_connection_settings(self, name, connection):
+        """Update metadata without reading, rewriting, or moving credentials."""
+        from .core import validate_connections
+        from .research_settings import invalidate_capabilities
+
+        old = self.config['connections'][name]
+        metadata = validate_connections({'connections': {name: safe_connection(connection)}})[name]
+        if metadata['url'] != old['url'] and (old.get('credential_id') or old.get('api_key')):
+            raise ValueError('Changing an authenticated endpoint requires replacing or clearing its credential.')
+        if metadata == validate_connections({'connections': {name: safe_connection(old)}})[name]:
+            return
+        updated = {**old, **metadata, '_capability_scope': uuid.uuid4().hex}
+        invalidate_capabilities(self.config, [old, updated])
+        self.config['connections'][name] = updated
+        self.flush()
+
     def delete_connection(self, name):
         c = self.config['connections'].pop(name)
         from .research_settings import invalidate_capabilities

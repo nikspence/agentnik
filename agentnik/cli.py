@@ -10,43 +10,77 @@ from uuid import uuid4
 import warnings
 
 
-def connection_menu(data_dir, add=False):
+def connection_menu(data_dir, action="", selected_name=""):
     from .core import PROTOCOLS, environment_connections, validate_connections
     from .storage import ConfigurationError, Store
 
     try:
         store = Store(data_dir)
-    except (ConfigurationError, OSError) as exc:
+    except (ConfigurationError, OSError, sqlite3.Error) as exc:
         print(exc, file=sys.stderr)
         return
     try:
-        if not add:
+        if not action:
             saved = store.config["connections"]
             for label, entries in (("Saved", saved), ("Environment", environment_connections())):
                 for name, entry in entries.items():
                     print(f"{label}: {name!r} · {entry.get('model', '')!r}")
             return
-        name = input("Connection name: ").strip()
-        if not name or name in store.config["connections"]:
-            print("Choose a new, nonempty connection name.")
+        name = selected_name or input("Connection name: ").strip()
+        old = store.config["connections"].get(name)
+        if action == "add":
+            if not name or old is not None:
+                print("Choose a new, nonempty connection name.")
+                return
+        elif old is None:
+            print("Choose an existing saved connection.")
             return
-        url = input("Endpoint URL: ").strip()
-        protocol = input(f"Protocol ({', '.join(PROTOCOLS)}) [chat]: ").strip() or "chat"
-        model = input("Model: ").strip()
+        if action == "remove":
+            if input(f"Remove saved connection {name!r}? [y/N] ").strip().lower() == "y":
+                store.delete_connection(name)
+                print("Removed saved connection.")
+            return
+        previous = old or {}
+        connection = dict(previous)
+        if action in ("add", "edit"):
+            for field, label, default in (
+                ("url", "Endpoint URL", ""),
+                ("protocol", f"Protocol ({', '.join(PROTOCOLS)})", "chat"),
+                ("model", "Model", ""),
+            ):
+                current = previous.get(field, default)
+                connection[field] = input(f"{label} [{current!r}]: ").strip() or current
         connection = validate_connections({"connections": {
-            name: {"url": url, "protocol": protocol, "model": model},
+            name: connection,
         }})[name]
+        if action == "edit":
+            store.update_connection_settings(name, connection)
+            print(f"Saved connection {name!r}.")
+            return
         with warnings.catch_warnings():
             warnings.simplefilter("error", GetPassWarning)
-            connection["api_key"] = getpass("API key (blank for none): ")
+            key = getpass("API key (blank for none): ")
+        if action == "key" and not key:
+            if input("Clear the saved credential? [y/N] ").strip().lower() != "y":
+                return
+        connection["api_key"] = key
+        plaintext = bool(key) and input(
+            "Store API key as plaintext on this machine? [y/N, default: credential store] "
+        ).strip().lower() == "y"
         try:
-            store.save_connection(name, connection)
+            store.save_connection(name, connection, plaintext=plaintext)
         except Exception:
             print("Could not save the connection. Check storage and credential store availability.",
                   file=sys.stderr)
         else:
             print(f"Saved connection {name!r}.")
-    except (ValueError, EOFError, KeyboardInterrupt, GetPassWarning):
+    except ValueError as exc:
+        from .code_terminal import terminal_text
+
+        print(terminal_text(exc), file=sys.stderr)
+    except (OSError, sqlite3.Error):
+        print("Could not update the saved connection.", file=sys.stderr)
+    except (EOFError, KeyboardInterrupt, GetPassWarning):
         print("Connection setup cancelled or invalid.")
     finally:
         store.db.close()
@@ -126,7 +160,7 @@ def main():
         if command == "/help":
             print("/status           Show the project folder\n"
                   "/connections      List saved and environment connections\n"
-                  "/connections add  Configure a new connection\n"
+                  "/connections add|edit|key|remove [NAME]\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
                   "/settings         Show or change coding limits and TLS\n"
@@ -137,8 +171,13 @@ def main():
         elif command == "/status":
             print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
                   f" · Model: {model or '(connection default)'!r}")
-        elif command in ("/connections", "/connections add"):
-            connection_menu(options.data_dir, command.endswith(" add"))
+        elif command == "/connections" or command.startswith("/connections "):
+            _, _, operation = command.partition(" ")
+            action, _, name = operation.strip().partition(" ")
+            if action not in ("", "add", "edit", "key", "remove"):
+                print("Use /connections, or /connections add|edit|key|remove [NAME].")
+                continue
+            connection_menu(options.data_dir, action, name.strip())
         elif command == "/settings" or command.startswith("/settings "):
             from .code_settings import configure_code
             from .code_terminal import terminal_text

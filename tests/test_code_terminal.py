@@ -11,6 +11,31 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_connection_edit_preserves_credential_and_refuses_to_move_it(self):
+        from agentnik.cli import connection_menu
+        from agentnik.storage import Store, load_config
+
+        with TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            store = Store(directory)
+            try:
+                store.config["connections"]["Local"] = {
+                    "url": "http://localhost:11434/v1", "model": "before",
+                    "protocol": "chat", "credential_id": "test-item",
+                }
+                store.flush()
+                with patch("builtins.input", side_effect=["", "", "after"]):
+                    connection_menu(directory, "edit", "Local")
+                with patch("builtins.input", side_effect=["https://example.org/v1", "", "other"]), \
+                        contextlib.redirect_stderr(io.StringIO()) as errors:
+                    connection_menu(directory, "edit", "Local")
+                self.assertIn("authenticated endpoint", errors.getvalue())
+                updated = load_config(store.config_path)["connections"]["Local"]
+                self.assertEqual(updated["model"], "after")
+                self.assertEqual(updated["credential_id"], "test-item")
+                self.assertEqual(updated["url"], "http://localhost:11434/v1")
+            finally:
+                store.db.close()
+
     def test_terminal_settings_share_validated_limits_and_tls(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store, load_config
