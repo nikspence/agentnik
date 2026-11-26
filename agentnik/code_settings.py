@@ -531,7 +531,7 @@ def configure_code(store, arguments, root=None):
             "Use /settings chat-limits to manage desktop Chat research budgets.",
             "Use /settings tls strict or /settings tls relaxed.",
             "Use /settings appearance to manage desktop appearance and layout.",
-            "Use /settings desktop-code auto-compact on|off to set the desktop Code default.",
+            "Use /settings desktop-code to manage desktop Code display and compaction defaults.",
             "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
             "Use /settings web providers to manage search provider credentials.",
             "Use /settings image to configure the image model.",
@@ -571,16 +571,27 @@ def configure_code(store, arguments, root=None):
             "Terminal web access is selected per session with /web on or /web off.",
         ])
     if arguments[0] == "desktop-code":
-        key = "desktop_code_auto_compact"
-        if arguments in (["desktop-code"], ["desktop-code", "auto-compact"]):
-            state = "off" if settings.get(key) is False else "on"
-            return (f"Desktop Code auto-compaction default: {state}. "
-                    "Use /settings desktop-code auto-compact on|off.")
-        if arguments not in (["desktop-code", "auto-compact", "on"], ["desktop-code", "auto-compact", "off"]):
-            raise ValueError("Use /settings desktop-code auto-compact on|off.")
-        settings[key] = arguments[-1] == "on"
+        defaults = {
+            "auto-compact": ("desktop_code_auto_compact", True, "auto-compaction"),
+            "thinking": ("desktop_code_show_thinking", False, "model thinking display"),
+        }
+        usage = "Use /settings desktop-code auto-compact|thinking on|off."
+        if arguments == ["desktop-code"]:
+            lines = [
+                f"Desktop Code {label} default: {'on' if settings.get(key, default) is True else 'off'}."
+                for key, default, label in defaults.values()
+            ]
+            return "\n".join([*lines, usage])
+        if len(arguments) not in (2, 3) or arguments[1] not in defaults:
+            raise ValueError(usage)
+        key, default, label = defaults[arguments[1]]
+        if len(arguments) == 2:
+            return f"Desktop Code {label} default: {'on' if settings.get(key, default) is True else 'off'}. {usage}"
+        if arguments[2] not in ("on", "off"):
+            raise ValueError(usage)
+        settings[key] = arguments[2] == "on"
         store.flush()
-        return "Saved the desktop Code auto-compaction default. Explicit session choices are unchanged."
+        return f"Saved the desktop Code {label} default. Explicit session choices are unchanged."
     if arguments[0] == "chat-limits":
         saved_limits = dict(settings.get("chat_research_limits") or {})
         if len(arguments) == 1:

@@ -36,14 +36,16 @@ class CodingCompactionTests(unittest.TestCase):
                 saved=store.list_sessions()[0];self.assertFalse(saved['coding_auto_compact'])
             finally:window.close();self.app.processEvents();store.db.close()
 
-    def test_terminal_desktop_compaction_default_preserves_explicit_session_choice(self):
+    def test_terminal_desktop_code_defaults_preserve_explicit_session_choices(self):
         from agentnik.code_settings import configure_code
         from agentnik.ui import Window
 
         with tempfile.TemporaryDirectory() as directory, patch.object(core,'discover',return_value={}), patch.object(core,'environment_connections',return_value={}):
             root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
             configure_code(store,['desktop-code','auto-compact','off'])
-            self.assertIn('default: off',configure_code(store,['desktop-code']))
+            configure_code(store,['desktop-code','thinking','on'])
+            self.assertIn('model thinking display default: on',configure_code(store,['desktop-code']))
+            self.assertIn('auto-compaction default: off',configure_code(store,['desktop-code']))
             store.db.close()
             store=Store(root/'data');window=Window(store)
             try:
@@ -51,10 +53,13 @@ class CodingCompactionTests(unittest.TestCase):
                 first=window.repositories.session(ident)
                 store.save(first);window.open_session(first)
                 self.assertFalse(window.tabs.currentWidget().coding_auto_compact.isChecked())
+                self.assertTrue(window.tabs.currentWidget().show_thinking.isChecked())
                 second=window.repositories.session(ident)
                 second['coding_auto_compact']=True
+                second['coding_show_thinking']=False
                 store.save(second);window.open_session(second)
                 self.assertTrue(window.tabs.currentWidget().coding_auto_compact.isChecked())
+                self.assertFalse(window.tabs.currentWidget().show_thinking.isChecked())
             finally:
                 window.close();self.app.processEvents();store.db.close()
 

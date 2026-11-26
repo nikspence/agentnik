@@ -136,6 +136,7 @@ Run `/skills` to find installed skills. A user-installed skill at `~/.agents/ski
 | `/skills` | List and preview available skills, then pin the ones you want to use. |
 | `/web on` | Enable research for this session. Manage access policy, routing priority, and provider credentials under `/settings web`. |
 | `/settings desktop-code auto-compact on\|off` | Set the desktop Code default for sessions without an explicit auto-compaction choice. Does not enable compaction in the TUI. |
+| `/settings desktop-code thinking on\|off` | Set whether desktop Code shows and saves provider-returned thinking by default. Existing session choices and the terminal `/thinking` switch are unchanged. |
 | `/settings chat-limits` / `/settings web desktop on\|off` | Manage desktop Chat research limits and the default desktop Web switch. |
 | `/settings image set` / `/settings image on` | Configure and enable generation or editing of PNG, JPEG, and WebP assets. Pillow handles raster files when Qt is absent. |
 | `/vision` / `/vision on` | Check the current session's inspection setting or let the selected vision-capable model inspect supported project images. Generation is configured separately. |
