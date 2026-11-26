@@ -545,8 +545,21 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertFalse(local["enabled"])
                 self.assertEqual(local["args"], ["-m", "fixture"])
                 self.assertEqual(local["env"], {"TOKEN": "MCP_TOKEN"})
+                configure_code(store, ["mcp", "enable", "Local", "Fixture"])
+                configure_code(store, ["mcp", "timeout", "120", "Local", "Fixture"])
+                with patch("builtins.input", side_effect=["", "", "not-json", "", ""]):
+                    with self.assertRaises(ValueError):
+                        configure_code(store, ["mcp", "edit-local", "Local", "Fixture"])
+                with patch("builtins.input", side_effect=["Renamed Local", "python3", "[]", "-", "{}"]):
+                    configure_code(store, ["mcp", "edit-local", "Local", "Fixture"])
+                local = load_config(store.config_path)["mcp_servers"][1]
+                self.assertEqual(local["command"], "python3")
+                self.assertEqual(local["args"], [])
+                self.assertEqual(local["env"], {})
+                self.assertTrue(local["enabled"])
+                self.assertEqual(local["timeout_seconds"], 120)
                 with patch("builtins.input", return_value="y"):
-                    configure_code(store, ["mcp", "remove", "Local", "Fixture"])
+                    configure_code(store, ["mcp", "remove", "Renamed", "Local"])
                 self.assertEqual(len(load_config(store.config_path)["mcp_servers"]), 1)
             finally:
                 store.db.close()

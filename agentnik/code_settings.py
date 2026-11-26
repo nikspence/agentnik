@@ -129,6 +129,7 @@ def configure_mcp(store, arguments):
             "Use /settings mcp add-https to save an HTTPS server without credentials.",
             "Use /settings mcp edit-https NAME to rename an HTTPS profile or change its URL.",
             "Use /settings mcp add-local to save a local executable or remove NAME to remove a server.",
+            "Use /settings mcp edit-local NAME to edit a local server without starting it.",
             "Use /settings mcp token NAME to set, rotate, or clear an HTTPS bearer token.",
             "Use /settings mcp renew NAME to renew an existing OAuth sign-in.",
             "Use /settings mcp signin NAME with a registered public OAuth client.",
@@ -157,6 +158,31 @@ def configure_mcp(store, arguments):
         store.config["mcp_servers"] = validate_servers([replacement if item is selected else item for item in servers])
         store.flush()
         return "Updated HTTPS MCP profile. No server was contacted."
+    if len(arguments) >= 2 and arguments[0] == "edit-local":
+        from .code_terminal import terminal_text
+
+        name = " ".join(arguments[1:])
+        selected = next((item for item in servers if item["name"] == name and item.get("transport") != "http"), None)
+        if selected is None:
+            raise ValueError("Choose a saved local MCP profile.")
+        try:
+            new_name = input(f"Server name [{terminal_text(name)!r}]: ").strip() or name
+            command = input(f"Local executable [{terminal_text(selected['command'])!r}]: ").strip()
+            args = input("Arguments as a JSON list (blank keeps current, [] clears): ").strip()
+            directory = input("Absolute working directory (blank keeps current, - clears): ").strip()
+            env = input("Environment variable name mappings as JSON (blank keeps current, {} clears): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return "MCP setup cancelled."
+        replacement = dict(selected, name=new_name, command=command or selected["command"])
+        if args:
+            replacement["args"] = json.loads(args)
+        if directory:
+            replacement["working_directory"] = "" if directory == "-" else directory
+        if env:
+            replacement["env"] = json.loads(env)
+        store.config["mcp_servers"] = validate_servers([replacement if item is selected else item for item in servers])
+        store.flush()
+        return "Updated local MCP profile. No server was started."
     if len(arguments) >= 2 and arguments[0] == "renew":
         from . import tls
         from .code_terminal import terminal_text
