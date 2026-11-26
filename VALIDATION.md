@@ -4,6 +4,10 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- The build-only `0.12.0rc8` distributions from `30c5406` matched their SHA-256 checksums. The downloaded wheel passed 91 terminal tests outside the checkout in a fresh Qt-free Windows environment, with two POSIX-only skips. Publishing was skipped. [rc8 preview](https://github.com/nikspence/agentnik/actions/runs/45899455231)
+
+- The user reported that Agentnik Code worked with their physical keyboard. The tested build and terminal emulator were not specified. This is user-reported evidence for their setup, separate from the automated PTY checks.
+
 - The build-only `0.12.0rc7` distributions from `52f20ba` matched their SHA-256 checksums. In a fresh Qt-free Windows environment outside the checkout, the downloaded wheel passed the ConPTY keyboard smoke, including saved-session Tab completion, the installed session-discovery smoke, and 89 terminal tests with two POSIX-only skips. The downloaded wheel also passed authenticated Linux SSH, including opening the original cancelled session by exact ID after a second session saved a newer turn. All four hosted Qt-free jobs passed on the same source revision. The publish job was skipped. [rc7 preview](https://github.com/nikspence/agentnik/actions/runs/45898441572) · [Hosted wheel checks](https://github.com/nikspence/agentnik/actions/runs/45898440108)
 
 - The build-only `0.12.0rc6` distributions from `5ef4db8` matched their SHA-256 checksums. Outside the checkout, the downloaded wheel passed installed session discovery and 87 terminal tests in a fresh Qt-free Windows environment, with two POSIX-only skips. The downloaded wheel also passed authenticated Linux SSH, including bulk run-budget changes without a model request, multiline submission, approvals, cancellation, and no-replay resume. All four hosted Qt-free jobs passed on the same source revision. The publish job was skipped. [rc6 preview](https://github.com/nikspence/agentnik/actions/runs/45896360451) · [Hosted wheel checks](https://github.com/nikspence/agentnik/actions/runs/45896359638)

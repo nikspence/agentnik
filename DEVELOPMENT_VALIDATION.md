@@ -14,7 +14,7 @@ From the checkout, set `PREVIEW_DIR` to the absolute directory containing the ex
 docker run --rm \
   --mount "type=bind,src=$PREVIEW_DIR,dst=/preview,readonly" \
   --mount "type=bind,src=$PWD/tools,dst=/tools,readonly" \
-  python:3.12-slim sh -c 'tr -d "\015" </tools/ssh_terminal_smoke.sh | sh -s -- /preview/agentnik-0.12.0rc7-py3-none-any.whl'
+  python:3.12-slim sh -c 'tr -d "\015" </tools/ssh_terminal_smoke.sh | sh -s -- /preview/agentnik-0.12.0rc8-py3-none-any.whl'
 ```
 
 The fixture installs dependencies in the disposable container, then uses a fresh non-root account and a throwaway key over loopback OpenSSH. It checks the installed launcher without Qt, credential-free connection transfer, bulk run-budget changes, a CSI-u Ctrl+Enter sequence producing one multiline request, a reviewed project edit and machine-scope directory creation, Ctrl+C cancellation, noninteractive session discovery, and exact-ID resume without replay. Reopening a machine-scope session starts in project scope. It checks that a synthetic API key does not echo and opts into plaintext storage only inside the disposable test profile. Model responses come from a loopback fixture. No live inference is used.
@@ -61,7 +61,7 @@ Top-level build versions are pinned to the tested Windows environment. Transitiv
 
 ## Native terminal keyboard check
 
-With a build from the current checkout, run `agentnik code --check-keys` in the terminal emulator you want to qualify. It uses one synthetic saved prompt and a sample transcript without opening or saving any real session. For an older preview without this command, use a disposable profile with a nonempty saved session. No provider request is needed. Note the OS, emulator and version, whether the session is local or over SSH, and whether the keys came from a physical keyboard or a macro.
+With rc8 or a newer build, run `agentnik code --check-keys` in the terminal emulator you want to qualify. It uses one synthetic saved prompt and a sample transcript without opening or saving any real session. For an older preview without this command, use a disposable profile with a nonempty saved session. No provider request is needed. Note the OS, emulator and version, whether the session is local or over SSH, and whether the keys came from a physical keyboard or a macro.
 
 1. Type a two-line draft. Verify that Ctrl+Enter inserts a newline if the emulator sends it distinctly. If it does not, verify Ctrl+J. Enter should submit and Alt+Enter should not be needed.
 2. With a draft still in the composer, press Up to recall a prior prompt and Down to restore the draft.
