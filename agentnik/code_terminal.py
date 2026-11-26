@@ -361,7 +361,9 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 if kind == "edit_proposal":
                     fields = ("cwd", "path", "diff")
                 elif proposal.get("operation") == "run_shell":
-                    fields = ("cwd", "shell", "command", "max_seconds")
+                    write("This command runs as your account, inherits the terminal environment, "
+                          "and is not confined to the project.")
+                    fields = ("cwd", "shell", "command", "max_seconds", "max_output_bytes")
                 elif proposal.get("operation") == "machine_patch_file":
                     fields = ("operation", "path", "diff")
                 elif proposal.get("operation") == "machine_create_file":

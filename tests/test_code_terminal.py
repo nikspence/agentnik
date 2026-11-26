@@ -3261,6 +3261,33 @@ class TerminalRunTests(unittest.TestCase):
                                                         "  [completed] Render the slide", "  [in progress] Inspect the slide"])
         run.decide.assert_not_called()
 
+    def test_shell_approval_explains_execution_boundary_and_output_limit(self):
+        from unittest.mock import Mock
+
+        run = Mock()
+        proposal = {"operation": "run_shell", "cwd": "fixture-project", "shell": "fixture-shell",
+                    "command": "echo fixture", "max_seconds": 10, "max_output_bytes": 32000,
+                    "environment_hash": "not for the review screen"}
+        lines = []
+
+        def work(emit):
+            emit({"kind": "operation_proposal", "fingerprint": "fixture", "proposal": proposal})
+            emit({"kind": "finished", "status": "completed"})
+
+        def decline(_):
+            review = "\n".join(lines)
+            self.assertIn("inherits the terminal environment", review)
+            self.assertIn("not confined to the project", review)
+            self.assertIn("command: echo fixture", review)
+            self.assertIn("max_output_bytes: 32000", review)
+            self.assertNotIn(proposal["environment_hash"], review)
+            return ""
+
+        run.run.side_effect = work
+        with patch("builtins.input", side_effect=decline):
+            drive_run(run, write=lines.append)
+        run.decide.assert_called_once_with("fixture", False)
+
     def test_prints_notice_when_approval_is_no_longer_pending(self):
         from unittest.mock import Mock
 
