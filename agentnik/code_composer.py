@@ -3,7 +3,7 @@
 COMMANDS = (
     "/help", "/status", "/diff", "/diff --staged", "/connections", "/connections add", "/connections edit",
     "/connections options", "/connections key", "/connections remove", "/connection",
-    "/model", "/goal", "/continue", "/web on", "/web off", "/vision on", "/vision off",
+    "/model", "/models", "/goal", "/continue", "/web on", "/web off", "/vision on", "/vision off",
     "/thinking on", "/thinking off", "/permissions", "/permissions require",
     "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove",
     "/settings", "/history", "/new", "/sessions", "/resume", "/exit",

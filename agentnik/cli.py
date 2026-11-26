@@ -196,6 +196,7 @@ def main():
                   "/connections add|edit|options|key|remove [NAME]\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
+                  "/models [FILTER]  Fetch the selected connection's catalog and choose a model\n"
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/web on|off       Enable or disable web research for this session\n"
@@ -389,6 +390,21 @@ def main():
             context = None
             last_record = None
             vision_enabled = False
+        elif command == "/models" or command.startswith("/models "):
+            from .code_terminal import choose_catalog_model, terminal_text
+
+            try:
+                selected = choose_catalog_model(options.data_dir, connection_name, command.partition(" ")[2].strip())
+            except (EOFError, KeyboardInterrupt):
+                print()
+                continue
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                print(terminal_text(exc), file=sys.stderr)
+                continue
+            if selected is not None:
+                model = selected
+                vision_enabled = False
+                print(f"Selected model {model!r}. Catalog entries do not establish tool or vision support.")
         elif command == "/model" or command.startswith("/model "):
             model = command[6:].strip()
             vision_enabled = False

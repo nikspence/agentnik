@@ -34,6 +34,45 @@ def project_diff(root, argument):
     return result["diff"] or "No textual changes for this file."
 
 
+def choose_catalog_model(data_dir, name, match=""):
+    from . import core, tls
+    from .storage import Store
+
+    store = Store(data_dir)
+    try:
+        connections = {**core.environment_connections(), **store.connections()}
+        connection = connections.get(name)
+        if connection is None:
+            raise ValueError("Select a connection with /connection NAME first.")
+        tls.configure(store.config["settings"].get("relaxed_tls", False))
+        try:
+            catalog = core.models(connection)
+        except core.EndpointError as exc:
+            raise ValueError(f"Model catalog returned HTTP {exc.status}. You can still use /model NAME.") from None
+        except (OSError, ValueError, TypeError, AttributeError):
+            raise ValueError("Model catalog unavailable. You can still use /model NAME.") from None
+    finally:
+        store.db.close()
+    key = connection.get("api_key")
+    models = [model for model in dict.fromkeys(catalog)
+              if 0 < len(model) <= 512 and model.isprintable() and (not key or key not in model)
+              and match.casefold() in model.casefold()]
+    if not models:
+        print("No matching models. You can still use /model NAME.")
+        return None
+    shown = models[:30]
+    for index, model in enumerate(shown, 1):
+        print(f"{index:2}. {terminal_text(model)}")
+    if len(models) > len(shown):
+        print("Showing the first 30 matches. Use /models FILTER to narrow the list.")
+    choice = input("Select a model number [Enter to cancel]: ").strip()
+    if not choice:
+        return None
+    if not choice.isascii() or not choice.isdecimal() or len(choice) > 2 or not 1 <= int(choice) <= len(shown):
+        raise ValueError("Choose one of the displayed model numbers.")
+    return shown[int(choice) - 1]
+
+
 def load_run_settings(data_dir, name, model, web_enabled=False):
     from importlib.util import find_spec
     from . import core, tls
