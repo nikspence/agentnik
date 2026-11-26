@@ -17,6 +17,7 @@ def same_project(path, root):
 
 def resolve_session_id(sessions, selector):
     """Resolve a full ID, a unique prefix, or the most recent saved session."""
+    selector = selector.lower()
     if selector == "latest":
         return next(iter(sessions), "")
     if selector in sessions:
@@ -145,6 +146,7 @@ class CodeHistory:
 
     def select_for_resume(self, selector, lease):
         """Attach to one saved session before recovering interrupted work."""
+        selector = selector.lower()
         try:
             full_id = str(UUID(selector)) == selector
         except ValueError:

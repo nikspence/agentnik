@@ -1274,7 +1274,7 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
-            argv = ["agentnik", "code", str(second), "--data-dir", str(data), "--resume", session]
+            argv = ["agentnik", "code", str(second), "--data-dir", str(data), "--resume", session.upper()]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer"), \
                     patch.object(CodeHistory, "sessions", side_effect=AssertionError("unexpected session scan")), \
@@ -2312,8 +2312,8 @@ class TerminalRunTests(unittest.TestCase):
 
         sessions = {"abcd-first": {}, "abcd-second": {}, "1234-third": {}}
         with self.assertRaisesRegex(ValueError, "matches multiple sessions"):
-            resolve_session_id(sessions, "abcd")
-        self.assertEqual(resolve_session_id(sessions, "abcd-s"), "abcd-second")
+            resolve_session_id(sessions, "ABCD")
+        self.assertEqual(resolve_session_id(sessions, "ABCD-S"), "abcd-second")
         self.assertEqual(resolve_session_id(sessions, "latest"), "abcd-first")
         self.assertEqual(resolve_session_id(sessions, "missing"), "")
 
