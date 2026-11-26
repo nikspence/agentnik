@@ -468,6 +468,9 @@ class TerminalRunTests(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(len(bodies), 6, output.getvalue())
+            self.assertIn("Machine file changes require user approval.", json.dumps(bodies[0]["messages"]))
+            self.assertIn("Project scope is active. Machine file tools are unavailable.",
+                          json.dumps(bodies[4]["messages"]))
             self.assertIn("Ctrl+U/Ctrl+D scroll by half a page", output.getvalue())
             self.assertIn("No transcript for this session yet.", output.getvalue())
             pager.assert_called_once()
