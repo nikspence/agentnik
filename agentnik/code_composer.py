@@ -137,6 +137,32 @@ def create_composer(transcript=lambda: "", *, message="code> ", session_ids=None
     )
 
 
+def run_keyboard_check():
+    """Exercise the actual composer with no profile or model connection."""
+    sample = "Saved keyboard-check prompt"
+    transcript = "\n".join(f"Sample transcript line {index:03}" for index in range(1, 101))
+    try:
+        composer = create_composer(transcript=lambda: transcript, message="keys> ")
+    except ModuleNotFoundError as exc:
+        if exc.name != "prompt_toolkit":
+            raise
+        print("Install agentnik[terminal] to run the keyboard check.")
+        return 1
+    composer.history.append_string(sample)
+    print("Offline keyboard check. No session is opened or saved.")
+    print("Type a draft. Try Ctrl+Enter or Ctrl+J for a second line, and Up/Down at the draft boundary.")
+    print("Use Ctrl+T to open the sample transcript, scroll with Ctrl+U/Ctrl+D, then press Q to return.")
+    print("Press Enter to report the draft's line count, or Ctrl+C to cancel.")
+    try:
+        draft = composer.prompt()
+    except (KeyboardInterrupt, EOFError):
+        print("\nKeyboard check ended without submission.")
+    else:
+        lines = draft.count("\n") + 1 if draft else 0
+        print(f"Enter submitted {lines} line(s). No model request was sent.")
+    return 0
+
+
 def transcript_pager(text, page_up=False, **terminal):
     from bisect import bisect_right
     from prompt_toolkit.application import Application

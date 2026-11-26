@@ -1517,6 +1517,25 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_keyboard_check_uses_temporary_history_without_a_profile(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+
+        with TemporaryDirectory() as directory:
+            profile = Path(directory) / "unused"
+            composer = Mock()
+            composer.prompt.return_value = "first\nsecond"
+            with patch("sys.argv", ["agentnik", "code", "--check-keys", "--data-dir", str(profile)]), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer) as create, \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            request.assert_not_called()
+            self.assertFalse(profile.exists())
+            self.assertIn("Sample transcript line 001", create.call_args.kwargs["transcript"]())
+            composer.history.append_string.assert_called_once_with("Saved keyboard-check prompt")
+            self.assertIn("Enter submitted 2 line(s).", out.getvalue())
+
     def test_terminal_composer_completes_nested_commands(self):
         from importlib.util import find_spec
 

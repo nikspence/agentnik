@@ -244,12 +244,18 @@ def main():
     parser.add_argument("--version", action="version", version=f"Agentnik Code {__version__}")
     parser.add_argument("--data-dir", type=Path, help="Override the application data directory")
     session_action = parser.add_mutually_exclusive_group()
+    session_action.add_argument("--check-keys", action="store_true", help="Check keyboard shortcuts without starting a session")
     session_action.add_argument("--list-sessions", action="store_true", help="List saved project sessions as JSON")
     session_action.add_argument("--resume", nargs="?", const="latest", metavar="ID",
                         help="Resume a session in this project (default: latest)")
     parser.add_argument("project", nargs="?", type=Path, default=Path.cwd(),
                         help="Project folder (default: current directory)")
     options = parser.parse_args(args[1:])
+    if options.check_keys:
+        if not sys.stdin.isatty():
+            parser.error("an interactive terminal is required")
+        from .code_composer import run_keyboard_check
+        return run_keyboard_check()
     if options.resume is not None and not options.resume.strip():
         parser.error("--resume needs a session ID, unique prefix, or latest")
     try:

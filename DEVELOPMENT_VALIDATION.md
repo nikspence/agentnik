@@ -61,7 +61,7 @@ Top-level build versions are pinned to the tested Windows environment. Transitiv
 
 ## Native terminal keyboard check
 
-Use a preview wheel in a disposable profile and open a nonempty saved session in the terminal emulator you want to qualify. No provider request is needed. Note the OS, emulator and version, whether the session is local or over SSH, and whether the keys came from a physical keyboard or a macro.
+With a build from the current checkout, run `agentnik code --check-keys` in the terminal emulator you want to qualify. It uses one synthetic saved prompt and a sample transcript without opening or saving any real session. For an older preview without this command, use a disposable profile with a nonempty saved session. No provider request is needed. Note the OS, emulator and version, whether the session is local or over SSH, and whether the keys came from a physical keyboard or a macro.
 
 1. Type a two-line draft. Verify that Ctrl+Enter inserts a newline if the emulator sends it distinctly. If it does not, verify Ctrl+J. Enter should submit and Alt+Enter should not be needed.
 2. With a draft still in the composer, press Up to recall a prior prompt and Down to restore the draft.
