@@ -1373,6 +1373,37 @@ class TerminalRunTests(unittest.TestCase):
         self.assertNotIn("b-model", output.getvalue())
         self.assertNotIn("\x1b", output.getvalue())
 
+    def test_terminal_skill_resource_read_accepts_spaces_and_rejects_parent_paths(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            skills = root / ".agents" / "skills"
+            skill = skills / "notes"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: notes\ndescription: Note formatting\n---\nInstructions.", encoding="utf-8",
+            )
+            (skill / "note template.md").write_text("Visible resource fixture.", encoding="utf-8")
+            (skills / "outside.txt").write_text("Outside resource fixture.", encoding="utf-8")
+            composer = Mock()
+            composer.prompt.side_effect = [
+                "/skills read notes note template.md", "/skills read notes ../outside.txt",
+                "/skills read notes", "/exit",
+            ]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out, \
+                    contextlib.redirect_stderr(io.StringIO()) as errors:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("Visible resource fixture.", out.getvalue())
+            self.assertIn("Use /skills read ID PATH", out.getvalue())
+            self.assertIn("Use a skill-relative resource path", errors.getvalue())
+            self.assertNotIn("Outside resource fixture.", out.getvalue() + errors.getvalue())
+            request.assert_not_called()
+
     def test_terminal_skills_show_changed_and_missing_pinned_revisions(self):
         from unittest.mock import Mock
         from agentnik import cli, core

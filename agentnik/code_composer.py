@@ -9,7 +9,7 @@ COMMANDS = (
     "/model", "/models", "/goal", "/continue", "/web on", "/web off", "/vision", "/vision on", "/vision off",
     "/thinking on", "/thinking off", "/mcp", "/mcp use", "/mcp add", "/mcp remove", "/mcp off",
     "/permissions", "/permissions require",
-    "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove", "/skills resources",
+    "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove", "/skills resources", "/skills read",
     "/scope", "/scope project", "/scope machine",
     "/context", "/context on", "/context off", "/context clear", "/attach", "/attachments", "/attachments clear",
     "/attachments remove",
