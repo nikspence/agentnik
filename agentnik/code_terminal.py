@@ -1,6 +1,7 @@
 """Terminal adapter for Agentnik's existing Code run and approval contract."""
 
 from queue import Empty, Queue
+from contextlib import ExitStack
 import sqlite3
 import unicodedata
 
@@ -326,7 +327,7 @@ class _ScopeSwitch(Exception):
         self.scope = scope
 
 
-def drive_run(run, write=print, advice=None, checkpoint=None):
+def drive_run(run, write=print, advice=None, checkpoint=None, *, run_input=None):
     from .code_agent import LOCAL_GIT_APPROVAL_OPERATIONS, MCP_APPROVAL_OPERATIONS
     from .code_worker import STEERING_OUTCOMES, start_code_worker
 
@@ -341,6 +342,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
     partial_line = False
     result = {}
     goal_detail = ""
+    input_mode = ExitStack()
+    listening = False
 
     def completed_result(result):
         result = dict(result)
@@ -360,6 +363,19 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
 
     try:
         while True:
+            if run_input is not None and not result:
+                from prompt_toolkit.keys import Keys
+
+                if not listening:
+                    input_mode.enter_context(run_input.raw_mode())
+                    listening = True
+                for key in run_input.read_keys():
+                    if key.key == Keys.ControlC:
+                        raise KeyboardInterrupt
+                    if key.key == Keys.F6:
+                        raise _ScopeSwitch(None)
+                if run_input.closed:
+                    raise EOFError
             try:
                 event = events.get(timeout=0.1)
             except Empty:
@@ -409,6 +425,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 write()
                 partial_line = False
             if kind in ("edit_proposal", "operation_proposal"):
+                input_mode.close()
+                listening = False
                 if not worker.approval_pending(event["fingerprint"]):
                     write("Skipped an approval prompt that is no longer active.")
                     continue
@@ -557,6 +575,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
             elif kind == "goal_progress":
                 write(f"Goal progress: {event['steps']} steps · {event['seconds']:.0f}s")
     except (KeyboardInterrupt, EOFError, _ScopeSwitch) as exc:
+        input_mode.close()
         if result:
             # A late interrupt must not rewrite a result already delivered by the worker.
             return completed_result(result)
@@ -571,8 +590,12 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
         write(detail)
         outcome = {"status": "cancelled", "text": detail, "last_goal_detail": goal_detail}
         if isinstance(exc, _ScopeSwitch):
-            outcome["next_scope"] = exc.scope
+            if exc.scope is None:
+                outcome["choose_scope"] = True
+            else:
+                outcome["next_scope"] = exc.scope
         return completed_result(outcome)
     finally:
+        input_mode.close()
         worker.stop()
         worker.join()

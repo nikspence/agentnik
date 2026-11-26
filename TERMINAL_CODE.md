@@ -163,7 +163,7 @@ Switching to machine scope pauses automatic project context. Switching back rest
 
 To continue a goal recorded in machine scope, reselect `/scope machine` before running `/continue`. Resuming the session itself does not re-enable machine scope.
 
-At an approval prompt, enter `/scope project` or `/scope machine` to stop the current run and select scope for the next one without approving the pending action. During streaming, press Ctrl+C to return to the prompt before setting scope. Check for changes that already took effect before submitting a new task. Scope changes do not alter a request already sent to the model or undo an applied edit.
+At an approval prompt, enter `/scope project` or `/scope machine` to stop the current run and select scope for the next one without approving the pending action. In the interactive terminal, press F6 during streaming to stop the run and open the scope choice. If your terminal does not pass F6 through, use Ctrl+C and then `/scope` at the session prompt. Check for changes that already took effect before submitting a new task. Scope changes do not alter a request already sent to the model or undo an applied edit.
 
 Structured local Git operations such as staging, creating a branch, and committing require an initial review, even in `allow-all`. At a local Git approval prompt, choose `g` to allow later structured local Git changes in this repository for the current run. This does not allow fetch or push, and the grant expires on steering or when the run ends. The terminal shows the branch or files, diff, and commit identity and message where applicable. Structured remote Git operations are not available in this preview.
 

@@ -319,7 +319,7 @@ def terminal_settings_arguments(command):
 def terminal_session(options, root, lease, images):
     print(f"Agentnik Code preview · {str(root)!r}")
     print("Select a connection with /connection NAME, then enter a task. Type /help.")
-    from .code_composer import COMPOSER_KEYS, TRANSCRIPT_KEYS, create_composer, transcript_pager
+    from .code_composer import COMPOSER_KEYS, TRANSCRIPT_KEYS, create_composer, interactive_run_input, transcript_pager
 
     transcript = deque(maxlen=2048)
 
@@ -1214,7 +1214,11 @@ def terminal_session(options, root, lease, images):
                             history.checkpoint(record, event)
 
                     try:
-                        result = drive_run(run, write_activity, advice=advice, checkpoint=checkpoint)
+                        run_input = interactive_run_input(composer)
+                        if run_input is not None:
+                            print(COMPOSER_KEYS[3])
+                        result = drive_run(run, write_activity, advice=advice, checkpoint=checkpoint,
+                                           run_input=run_input)
                     finally:
                         images.clear()
                     history.finish(record, task, result, save_context=not machine_scope)
@@ -1224,9 +1228,17 @@ def terminal_session(options, root, lease, images):
                         context = record.get("coding_context")
                         context_model = connection["model"] if context else ""
                         context_route = record.get("coding_run_route") if context else None
-                    if result.get("next_scope") in ("project", "machine"):
-                        machine_scope = result["next_scope"] == "machine"
-                        print(f"Next run will use {result['next_scope']} file scope. No task was restarted.")
+                    next_scope = result.get("next_scope")
+                    if result.get("choose_scope"):
+                        try:
+                            next_scope = input("Next run file scope [project/machine, Enter to keep]: ").strip()
+                        except (KeyboardInterrupt, EOFError):
+                            next_scope = ""
+                        if next_scope and next_scope not in ("project", "machine"):
+                            print("Scope unchanged. Use /scope project or /scope machine.")
+                    if next_scope in ("project", "machine"):
+                        machine_scope = next_scope == "machine"
+                        print(f"Next run will use {next_scope} file scope. No task was restarted.")
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:

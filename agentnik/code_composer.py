@@ -40,7 +40,19 @@ COMPOSER_KEYS = (
     "Enter submits. Ctrl+Enter (where supported) or Ctrl+J adds a line.",
     "Use Up/Down to recall input and Tab for slash commands.",
     "Ctrl+T or PageUp opens the transcript.",
+    "During a run, F6 stops and opens the file scope choice. Ctrl+C stops.",
 )
+
+
+def interactive_run_input(composer):
+    import sys
+
+    if composer is None or not sys.stdin.isatty():
+        return None
+    from prompt_toolkit.input import Input
+
+    source = composer.app.input
+    return source if isinstance(source, Input) else None
 
 TRANSCRIPT_KEYS = (
     "PageUp/PageDown or Ctrl+B/Ctrl+F scroll by a page.",

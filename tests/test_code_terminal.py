@@ -3689,6 +3689,45 @@ class TerminalRunTests(unittest.TestCase):
             drive_run(run)
         self.assertEqual(output.getvalue(), "Already shown.\nTool activity\n New ending.\n")
 
+    def test_f6_stops_stream_and_restores_input_before_scope_choice(self):
+        from threading import Event
+        from unittest.mock import Mock
+        from prompt_toolkit.keys import Keys
+
+        run = Mock()
+        stopped = Event()
+        shown = Event()
+        modes = []
+
+        @contextlib.contextmanager
+        def raw_mode():
+            modes.append("raw")
+            try:
+                yield
+            finally:
+                modes.append("restored")
+
+        def work(emit):
+            emit({"kind": "model_delta", "stream_id": "answer", "text": "Partial response"})
+            stopped.wait(3)
+
+        def write(line="", **kwargs):
+            if line == "Partial response":
+                shown.set()
+            if line.startswith("\nStopping"):
+                self.assertEqual(modes, ["raw", "restored"])
+
+        run.run.side_effect = work
+        run.stop.side_effect = stopped.set
+        source = Mock(closed=False)
+        source.raw_mode.side_effect = raw_mode
+        source.read_keys.side_effect = lambda: [Mock(key=Keys.F6)] if shown.is_set() else []
+        result = drive_run(run, write=write, run_input=source)
+        self.assertEqual(result["status"], "cancelled")
+        self.assertTrue(result["choose_scope"])
+        self.assertNotIn("next_scope", result)
+        self.assertEqual(result["partial_response"], "Partial response")
+
     def test_interrupted_stream_is_saved_as_activity_not_context(self):
         from unittest.mock import Mock
         from agentnik.code_history import CodeHistory, activity_preview, goal_continuation
