@@ -1418,7 +1418,7 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
-    def test_terminal_composer_completes_nested_settings_commands(self):
+    def test_terminal_composer_completes_nested_commands(self):
         from importlib.util import find_spec
 
         if find_spec("prompt_toolkit") is None:
@@ -1432,6 +1432,8 @@ class TerminalRunTests(unittest.TestCase):
         with create_pipe_input() as pipe:
             composer = create_composer(input=pipe, output=DummyOutput())
             for partial, expected in (
+                ("/resume lat", "/resume latest"),
+                ("/open lat", "/open latest"),
                 ("/settings mcp sig", "/settings mcp signin"),
                 ("/settings web providers s", "/settings web providers set"),
                 ("/settings image s", "/settings image set"),
