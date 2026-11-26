@@ -188,7 +188,7 @@ def main():
 def terminal_session(options, root, lease, images):
     print(f"Agentnik Code preview · {str(root)!r}")
     print("Select a connection with /connection NAME, then enter a task. Type /help.")
-    from .code_composer import COMPOSER_KEYS, TRANSCRIPT_KEYS, create_composer
+    from .code_composer import COMPOSER_KEYS, TRANSCRIPT_KEYS, create_composer, transcript_pager
 
     transcript = deque(maxlen=2048)
 
@@ -253,8 +253,21 @@ def terminal_session(options, root, lease, images):
                 print("Enter submits. Install agentnik[terminal] for multiline editing, history and transcript shortcuts.")
             print("Ctrl+C cancels the current input or run.")
             continue
+        if command == "/transcript":
+            if not transcript:
+                print("No transcript for this session yet.")
+            elif not composer:
+                print("Install agentnik[terminal] for the transcript pager, or use /history for saved turns.")
+            else:
+                try:
+                    transcript_pager("".join(transcript), input=composer.app.input,
+                                     output=composer.app.output).run()
+                except (KeyboardInterrupt, EOFError):
+                    print()
+            continue
         if command == "/help":
             print("/keys             Show keyboard shortcuts\n"
+                  "/transcript       Open the current session transcript\n"
                   "/status           Show the project folder\n"
                   "/diff [--staged] PATH  Review a file against HEAD\n"
                   "/git              Run manual Git status, log, diff, stage, unstage, commit, or push\n"

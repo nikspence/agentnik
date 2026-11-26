@@ -3,7 +3,7 @@
 COMMANDS = (
     "/git", "/git status", "/git stage", "/git unstage", "/git commit", "/git push",
     "/git diff", "/git diff --staged", "/git log", "/git remotes",
-    "/help", "/keys", "/status", "/diff", "/diff --staged", "/connections", "/connections add", "/connections edit",
+    "/help", "/keys", "/transcript", "/status", "/diff", "/diff --staged", "/connections", "/connections add", "/connections edit",
     "/connections show", "/connections options", "/connections key", "/connections remove", "/connections discover", "/connection",
     "/model", "/models", "/goal", "/continue", "/web on", "/web off", "/vision", "/vision on", "/vision off",
     "/thinking on", "/thinking off", "/mcp", "/mcp use", "/mcp add", "/mcp remove", "/mcp off",

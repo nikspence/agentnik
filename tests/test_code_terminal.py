@@ -99,7 +99,8 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
             composer = Mock()
             session = uuid4()
-            commands = iter(["/keys", "/connection Fixture", "/scope machine", "/status", "Read diagnostics",
+            commands = iter(["/keys", "/transcript", "/connection Fixture", "/scope machine", "/status", "Read diagnostics",
+                             "/transcript",
                              "/scope project", "Continue project work",
                              "/permissions allow-all", "/scope machine", f"/resume {session}",
                              "/status", "Resumed task", "/exit"])
@@ -137,12 +138,17 @@ class TerminalRunTests(unittest.TestCase):
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch.object(cli, "uuid4", return_value=session), \
                     patch("agentnik.code_composer.create_composer", side_effect=open_composer), \
+                    patch("agentnik.code_composer.transcript_pager") as pager, \
                     patch("builtins.input", side_effect=["y", "y", ""]) as approval, \
                     patch.object(core, "open_request", side_effect=send), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(len(bodies), 6, output.getvalue())
             self.assertIn("Ctrl+U/Ctrl+D scroll by half a page", output.getvalue())
+            self.assertIn("No transcript for this session yet.", output.getvalue())
+            pager.assert_called_once()
+            self.assertIn("Created machine file", pager.call_args.args[0])
+            pager.return_value.run.assert_called_once()
             self.assertEqual(approval.call_count, 3, output.getvalue())
             self.assertIn("operation: machine_patch_file", output.getvalue())
             self.assertIn("operation: machine_create_file", output.getvalue())

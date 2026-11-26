@@ -54,7 +54,7 @@ This launches the existing TUI on demand. It does not install an extension or pr
 
 Each launch starts a separate session, even in the same project. `/new` starts another session without leaving the terminal. A session appears in `/sessions` after its first task starts. Connection and shared settings changes are saved separately, so they are still available if you exit during setup. Use `/history` to view the current session. Use `/resume ID`, or launch with `agentnik code --resume ID`. Use `latest` in place of an ID to pick the most recent saved session. Reopening a session sends no model request and does not replay tool actions. The Up key can recall up to 100 saved prompts from the reopened session, independent of the shorter transcript preview.
 
-At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T opens the transcript, and PageUp opens it and moves back. In the transcript, PageUp/PageDown or Ctrl+B/Ctrl+F move by a page, and Ctrl+U/Ctrl+D move by half a page. Ctrl+T or Q returns to the draft. Run `/keys` to see these shortcuts in the terminal.
+At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T or `/transcript` opens the transcript, and PageUp opens it and moves back. In the transcript, PageUp/PageDown or Ctrl+B/Ctrl+F move by a page, and Ctrl+U/Ctrl+D move by half a page. Ctrl+T or Q returns to the composer. Run `/keys` to see these shortcuts in the terminal.
 
 Unrecognized slash commands are not sent to the model. If your task starts with a literal slash, such as an absolute Unix path, type an extra slash at the start. Agentnik removes the first slash before submitting the task.
 
