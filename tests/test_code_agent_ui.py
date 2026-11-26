@@ -14,6 +14,40 @@ from test_compat_tools import chat
 from test_code_agent import C,call
 
 class CodingWorkspace(unittest.TestCase):
+    def test_opening_active_terminal_turn_from_desktop_is_read_only(self):
+        from uuid import uuid4
+        from PySide6.QtWidgets import QApplication, QDialog, QPlainTextEdit
+        from agentnik.code_history import CodeHistory
+        from agentnik.code_lease import SessionLease
+        from agentnik.ui import Window
+
+        app=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory,patch.object(core,'discover',return_value={}),patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory).resolve();store=Store(root/'data');window=Window(store)
+            ident=str(uuid4())
+            try:
+                with SessionLease(store.root) as lease:
+                    lease.select(ident)
+                    history=CodeHistory(store,root)
+                    history.start('Fixture',{'model':'fixture'},'A terminal run is still active.',ident,goal=True)
+                    saved,=history.list(ident)
+                    shown=[]
+                    def inspect(dialog):
+                        shown.append(dialog)
+                        view=dialog.findChild(QPlainTextEdit,'terminalTurnPreview')
+                        self.assertTrue(view.isReadOnly())
+                        self.assertIn('A terminal run is still active.',view.toPlainText())
+                    before=window.tabs.count()
+                    with patch.object(QDialog,'exec',new=inspect):
+                        window.open_session(saved)
+                    self.assertEqual(len(shown),1)
+                    self.assertEqual(window.tabs.count(),before)
+                    restored,=history.list(ident)
+                    self.assertEqual(restored,saved)
+                    self.assertEqual(restored['code_state'],'running')
+            finally:
+                window.close();app.processEvents();store.db.close()
+
     def test_unexpected_worker_failure_returns_control_without_leaking_details(self):
         os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
         from PySide6.QtWidgets import QApplication

@@ -1465,8 +1465,23 @@ class Window(QMainWindow):
             name,ok = QInputDialog.getItem(self,self.tr('New decision') if mode=='decision' else self.tr('New chat'),self.tr('Connection:'),list(self.connections),0,False)
             if not ok: return
         session = self.store.new_session(mode,name,self.connections[name]); self.store.save(session); self.open_session(session); self.refresh_history()
+    def show_terminal_turn(self,session):
+        from .code_history import activity_preview
+
+        dialog=QDialog(self);dialog.setWindowTitle(self.tr('Saved terminal Code turn'));dialog.resize(720,520)
+        layout=QVBoxLayout(dialog)
+        ident=session['coding_terminal_session']
+        label=QLabel(self.tr('Read-only preview. To reopen the session, run {command} from the project folder.')
+                     .format(command=f'agentnik code --resume {ident}'))
+        label.setTextFormat(Qt.TextFormat.PlainText);label.setWordWrap(True);layout.addWidget(label)
+        view=QPlainTextEdit();view.setObjectName('terminalTurnPreview');view.setReadOnly(True)
+        view.setPlainText('\n\n'.join(activity_preview(session)));layout.addWidget(view)
+        button(self.tr('Close'),dialog.accept,layout);dialog.exec()
+
     def open_session(self,session):
         if session.get('_unavailable'): return error(self,self.tr('This saved session cannot be opened with the current version. Its original data is preserved in history.sqlite3. Repair or restore the record, or use a compatible Agentnik version.'))
+        if session['mode']=='code' and session.get('coding_terminal_session'):
+            return self.show_terminal_turn(session)
         for i in range(self.tabs.count()):
             tab = self.tabs.widget(i)
             if isinstance(tab,(SessionTab,CodeTab,LegacyDecisionTab)) and tab.session['id'] == session['id']: self.tabs.setCurrentIndex(i); return
