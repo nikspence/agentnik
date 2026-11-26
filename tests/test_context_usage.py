@@ -20,6 +20,16 @@ class ContextUsage(unittest.TestCase):
         self.assertIsNone(usage['last_model_request']['configured_context_limit_tokens']);self.assertIsNone(usage['last_model_request']['reported_input_tokens'])
         self.assertIn('not tokens',usage['notice'])
 
+    def test_unlimited_budget_snapshot_is_strict_json(self):
+        import math
+
+        limits = Limits(requests=math.inf, calls=math.inf, rounds=math.inf, turn_seconds=math.inf)
+        usage = context_usage(Runtime(limits=limits), limits, {}, 0, request_measurement({}), None)
+        budget = json.loads(json.dumps(usage, allow_nan=False))["run_budget"]
+        for key in ("model_requests_limit", "tool_calls_limit", "tool_rounds_limit", "turn_seconds_limit"):
+            self.assertIsNone(budget[key])
+        self.assertEqual(budget["context_bytes_limit"], limits.context_bytes)
+
     def test_chat_responses_and_messages_protocols(self):
         cases=[
             ('chat',[chat(calls=[call('get_context_usage',{})],finish='tool_calls'),chat('Done')]),
