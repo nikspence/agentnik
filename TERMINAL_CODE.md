@@ -6,7 +6,7 @@ Agentnik Code is available as a terminal preview. It uses Agentnik's own coding 
 python -m pip install ".[terminal]"
 ```
 
-To test without using PyPI for Agentnik itself, download and extract the `python-distributions` artifact from the [verified 0.12.0rc1 preview build](https://github.com/nikspence/agentnik/actions/runs/45881078424). This build includes the `/keys` and `/transcript` commands. Open a terminal in the extracted folder, create and activate a fresh virtual environment, then install the wheel with the terminal extra. Pip may fetch dependencies from PyPI.
+To test without using PyPI for Agentnik itself, download and extract the `python-distributions` artifact from the [verified 0.12.0rc1 preview build](https://github.com/nikspence/agentnik/actions/runs/45883569420). This build includes terminal connection import and export. Open a terminal in the extracted folder, create and activate a fresh virtual environment, then install the wheel with the terminal extra. Pip may fetch dependencies from PyPI.
 
 ```sh
 python -m pip install "./agentnik-0.12.0rc1-py3-none-any.whl[terminal]"
