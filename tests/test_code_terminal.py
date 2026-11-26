@@ -1379,6 +1379,22 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("No saved sessions on that page.", second)
             self.assertIn("positive whole page number", second)
 
+    def test_terminal_honors_saved_model_scoped_subagent_capability(self):
+        from agentnik.code_terminal import load_run_settings
+        from agentnik.storage import Store
+        from agentnik.subagent_capabilities import remember
+
+        with TemporaryDirectory() as directory:
+            store = Store(directory)
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
+                remember(store.config, store.connections()["Fixture"])
+                store.flush()
+                self.assertEqual(load_run_settings(directory, "Fixture", "")[3]["unsupported_subagent_roles"], {"model"})
+                self.assertNotIn("unsupported_subagent_roles", load_run_settings(directory, "Fixture", "other")[3])
+            finally:
+                store.db.close()
+
     def test_terminal_git_author_override_is_shared_and_project_scoped(self):
         from agentnik.code_settings import configure_code
         from agentnik.code_terminal import load_run_settings

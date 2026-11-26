@@ -144,6 +144,7 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
     from .code_research import code_research_options
     from .image_settings import image_endpoint, validate_image_settings
     from .storage import Store
+    from .subagent_capabilities import unsupported
 
     store = Store(data_dir)
     try:
@@ -161,6 +162,11 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
         tls.configure(settings.get("relaxed_tls", False))
         options = code_research_options(store, name, connection, web_enabled,
                                         mcp_first=bool(mcp_selection) and settings.get("mcp_priority", "first") == "first")
+        capability_connection = dict(connection)
+        if name not in store.config["connections"]:
+            capability_connection.pop("_capability_scope", None)
+        if unsupported(store.config, capability_connection):
+            options["unsupported_subagent_roles"] = {"model"}
         if mcp_selection:
             options.update(mcp_bridges=terminal_mcp_bridges(store.config, mcp_selection),
                            mcp_priority=settings.get("mcp_priority", "first"))
