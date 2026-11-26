@@ -832,6 +832,23 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(options["search_provider"], "managed")
         self.assertEqual(options["web_backends"], [{"kind": "brave"}])
 
+    def test_manual_git_diff_only_accepts_the_staged_switch(self):
+        from subprocess import CompletedProcess
+        from agentnik.code_git_commands import manual_git
+
+        root = Path.cwd()
+        with patch("agentnik.code_git_commands.shutil.which", return_value="git"), \
+                patch("agentnik.code_git_commands.subprocess.run", return_value=CompletedProcess([], 0)) as run, \
+                patch("builtins.input") as prompt:
+            manual_git(root, "diff --staged")
+            run.assert_called_once_with(
+                ["git", "diff", "--no-ext-diff", "--no-textconv", "--staged", "--"],
+                cwd=root, check=False, text=True, capture_output=False)
+            with self.assertRaises(ValueError):
+                manual_git(root, "diff --output=unexpected")
+            self.assertEqual(run.call_count, 1)
+            prompt.assert_not_called()
+
     def test_manual_git_commit_and_push_use_explicit_confirmation_and_destination(self):
         import shutil
         import subprocess

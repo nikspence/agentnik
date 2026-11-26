@@ -2,6 +2,7 @@
 
 COMMANDS = (
     "/git", "/git status", "/git stage", "/git unstage", "/git commit", "/git push",
+    "/git diff", "/git diff --staged",
     "/help", "/status", "/diff", "/diff --staged", "/connections", "/connections add", "/connections edit",
     "/connections options", "/connections key", "/connections remove", "/connections discover", "/connection",
     "/model", "/models", "/goal", "/continue", "/web on", "/web off", "/vision on", "/vision off",

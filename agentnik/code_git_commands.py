@@ -8,13 +8,14 @@ from .code_terminal import terminal_text
 
 
 def manual_git(root, argument, *, prompt=None, write=print):
-    usage = "Use /git status, /git stage PATH, /git unstage PATH, /git commit MESSAGE, or /git push REMOTE BRANCH."
+    usage = ("Use /git status, /git diff [--staged], /git stage PATH, /git unstage PATH, "
+             "/git commit MESSAGE, or /git push REMOTE BRANCH.")
     action, _, value = argument.partition(" ")
     value = value.strip()
     if not action:
         write(usage)
         return
-    if action not in ("status", "stage", "unstage", "commit", "push"):
+    if action not in ("status", "diff", "stage", "unstage", "commit", "push"):
         raise ValueError(usage)
     executable = shutil.which("git")
     if not executable:
@@ -27,6 +28,8 @@ def manual_git(root, argument, *, prompt=None, write=print):
 
     if action == "status" and not value:
         result = run("status", "--short", "--branch")
+    elif action == "diff" and value in ("", "--staged"):
+        result = run("diff", "--no-ext-diff", "--no-textconv", *(["--staged"] if value else []), "--")
     elif action in ("stage", "unstage") and value:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
             value = value[1:-1]
