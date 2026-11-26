@@ -21,6 +21,17 @@ class TerminalRunTests(unittest.TestCase):
                 with patch("builtins.input", side_effect=["Fixture Server", "https://example.org/mcp"]):
                     configure_code(store, ["mcp", "add-https"])
                 self.assertFalse(load_config(store.config_path)["mcp_servers"][0]["enabled"])
+                with patch("agentnik.code_settings.getpass", return_value="fixture-token"), \
+                        patch("keyring.set_password") as save:
+                    configure_code(store, ["mcp", "token", "Fixture", "Server"])
+                credential = load_config(store.config_path)["mcp_servers"][0]["credential_id"]
+                save.assert_called_once_with("Agentnik", credential, "fixture-token")
+                self.assertNotIn("fixture-token", store.config_path.read_text())
+                with patch("agentnik.code_settings.getpass", return_value=""), \
+                        patch("builtins.input", return_value="y"), patch("keyring.delete_password") as remove:
+                    configure_code(store, ["mcp", "token", "Fixture", "Server"])
+                remove.assert_called_once_with("Agentnik", credential)
+                self.assertEqual(load_config(store.config_path)["mcp_servers"][0]["credential_id"], "")
                 configure_code(store, ["mcp", "enable", "Fixture", "Server"])
                 configure_code(store, ["mcp", "priority", "last"])
                 configure_code(store, ["mcp", "off"])

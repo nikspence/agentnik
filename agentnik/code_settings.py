@@ -3,12 +3,59 @@
 from getpass import GetPassWarning, getpass
 import json
 import os
+from uuid import uuid4
 import warnings
 
 from .code_limits import FIELDS, GOAL_FIELDS, UNLIMITED_FIELDS, coding_limits, goal_limits
 from .localization import choices
 from .image_settings import image_endpoint, validate_image_settings
 from .search_providers import SEARCH_PROVIDERS
+
+
+def configure_mcp_token(store, servers, name):
+    from .mcp_support import validate_servers
+    import keyring
+
+    selected = next((item for item in servers if item["name"] == name and item.get("transport") == "http"), None)
+    if selected is None:
+        raise ValueError("Choose a saved HTTPS MCP server.")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", GetPassWarning)
+            token = getpass("Bearer token (blank to clear): ")
+        if not token and input("Clear this server's saved credential? [y/N] ").strip().lower() != "y":
+            return "MCP credential unchanged."
+    except (EOFError, KeyboardInterrupt, GetPassWarning):
+        return "MCP credential setup cancelled."
+    if token and (len(token) > 4096 or any(not 33 <= ord(ch) <= 126 for ch in token)):
+        raise ValueError("Bearer token must be a single visible ASCII token.")
+
+    credential = uuid4().hex if token else ""
+    updated = dict(selected, credential_id=credential)
+    updated.pop("auth_type", None)
+    entries = validate_servers([updated if item is selected else item for item in servers])
+    if credential:
+        try:
+            keyring.set_password("Agentnik", credential, token)
+        except Exception:
+            return "Could not save the MCP credential in the OS credential store."
+    store.config["mcp_servers"] = entries
+    try:
+        store.flush()
+    except OSError:
+        store.config["mcp_servers"] = servers
+        if credential:
+            try:
+                keyring.delete_password("Agentnik", credential)
+            except Exception:
+                pass
+        raise
+    if selected.get("credential_id"):
+        try:
+            keyring.delete_password("Agentnik", selected["credential_id"])
+        except Exception:
+            return "Updated MCP settings. The previous credential could not be removed from the OS store."
+    return "Updated MCP credential. No server was contacted."
 
 
 def configure_mcp(store, arguments):
@@ -25,7 +72,10 @@ def configure_mcp(store, arguments):
             "Use /settings mcp on|off, priority first|last, or enable|disable NAME.",
             "Use /settings mcp add-https to save an HTTPS server without credentials.",
             "Use /settings mcp add-local to save a local executable or remove NAME to remove a server.",
+            "Use /settings mcp token NAME to set, rotate, or clear an HTTPS bearer token.",
         ])
+    if len(arguments) >= 2 and arguments[0] == "token":
+        return configure_mcp_token(store, servers, " ".join(arguments[1:]))
     if arguments in (["on"], ["off"]):
         settings["mcp_access_enabled"] = arguments == ["on"]
     elif arguments in (["priority", "first"], ["priority", "last"]):
