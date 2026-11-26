@@ -97,6 +97,16 @@ class CodeHistory:
 
             record["coding_plan"] = validate_plan(event.get("plan"))
             self.store.save(record)
+        elif event["kind"] in ("project_change", "image_generated"):
+            path = event.get("path")
+            if not isinstance(path, str):
+                return
+            if event["kind"] == "image_generated":
+                detail = f"Generated image: {path}"
+            else:
+                detail = f"Applied project {event['label']}: {path}"
+            append_code_activity(record, "project_change", detail[:2048])
+            self.store.save(record)
         else:
             self.checkpoint_goal(record, event)
 

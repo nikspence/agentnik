@@ -832,6 +832,7 @@ class CodingRun:
             emit(dict(run_id=self.run_id,kind=kind,**scrub(data)))
         def applied_event(label,path,diff=''):
             if self.latest_test_report is not None:self.test_report_may_be_stale=True
+            event('project_change',label=label,path=path)
             text='Applied project '+label+': '+path+('\n'+diff if diff else '')
             event('output',text=text[:1750]+('\n[diff excerpt truncated]' if len(text)>1750 else ''))
         runtime.mcp_progress=lambda server,detail:event('output',text='MCP '+server+': '+detail)

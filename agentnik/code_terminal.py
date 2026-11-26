@@ -259,6 +259,11 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 except (OSError, ValueError, sqlite3.Error):
                     write("Could not save goal progress. The active run will continue.")
                     checkpoint = None
+            if checkpoint and kind in ("project_change", "image_generated"):
+                try:
+                    checkpoint(event)
+                except (OSError, ValueError, sqlite3.Error):
+                    write("Could not save project activity. The active run will continue.")
             if kind == "finished":
                 result = event
             if kind == "model_delta":

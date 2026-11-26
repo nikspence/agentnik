@@ -850,6 +850,15 @@ class TerminalRunTests(unittest.TestCase):
             encoded = base64.b64encode((root / "slide.png").read_bytes()).decode()
             self.assertNotIn(encoded, requests[1])
             self.assertIn("data:image/png;base64," + encoded, requests[2])
+            from agentnik.code_history import CodeHistory
+
+            store = Store(data)
+            try:
+                saved = CodeHistory(store, root).list()[0]["code_activity"]
+                self.assertIn({"kind": "project_change", "text": "Generated image: slide.png"}, saved)
+                self.assertNotIn(encoded, json.dumps(saved))
+            finally:
+                store.db.close()
 
     def test_image_settings_reject_an_override_on_another_host(self):
         from agentnik.code_settings import configure_code
@@ -1145,6 +1154,8 @@ class TerminalRunTests(unittest.TestCase):
                 session_id, record = next(iter(CodeHistory(store, root).sessions().items()))
                 self.assertEqual(record["coding_context"]["answer"], "Created another note.")
                 self.assertIn("notes", record["coding_skill_pins"])
+                self.assertIn({"kind": "project_change", "text": "Applied project edit: auto.txt"},
+                              record["code_activity"])
                 from agentnik.sessions import append_code_activity
 
                 for index in range(21):
