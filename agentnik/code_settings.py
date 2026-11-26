@@ -10,6 +10,7 @@ from .code_limits import FIELDS, GOAL_FIELDS, UNLIMITED_FIELDS, coding_limits, g
 from .localization import choices
 from .image_settings import image_endpoint, validate_image_settings
 from .search_providers import SEARCH_PROVIDERS
+from .tools import CHAT_LIMIT_FIELDS, chat_limits
 
 
 def configure_mcp_token(store, servers, name):
@@ -312,6 +313,7 @@ def configure_code(store, arguments):
         lines.extend((
             "Use /settings limits NAME VALUE (or default).",
             "Use /settings goal steps|seconds VALUE (or default).",
+            "Use /settings chat-limits to manage desktop Chat research budgets.",
             "Use /settings tls strict or /settings tls relaxed.",
             "Use /settings appearance to manage desktop appearance and layout.",
             "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
@@ -330,6 +332,38 @@ def configure_code(store, arguments):
         return "Saved desktop appearance setting. It applies when the desktop app next starts."
     if arguments[:2] == ["web", "providers"]:
         return web_providers(store, arguments[2:])
+    if arguments == ["web"]:
+        return "\n".join([
+            f"Desktop web default: {'on' if settings.get('web_search_enabled', False) else 'off'}",
+            f"Navigation policy: {settings.get('research_access_policy', 'public_fetch')}",
+            f"Search priority: {settings.get('research_policy', 'Provider first')}",
+            "Use /settings web desktop on|off, access public_fetch|strict_public, "
+            "priority provider|managed, or providers.",
+            "Terminal web access is selected per session with /web on or /web off.",
+        ])
+    if arguments[0] == "chat-limits":
+        saved_limits = dict(settings.get("chat_research_limits") or {})
+        if len(arguments) == 1:
+            values = chat_limits(saved_limits)
+            return "\n".join([
+                *(f"{key}: {getattr(values, key)} (range {low}–{high})"
+                  for key, (low, high) in CHAT_LIMIT_FIELDS.items()),
+                "Use /settings chat-limits NAME VALUE (or default).",
+            ])
+        if len(arguments) != 3 or arguments[1] not in CHAT_LIMIT_FIELDS:
+            raise ValueError("Use /settings chat-limits to see fields and ranges.")
+        _, key, value = arguments
+        if value == "default":
+            saved_limits.pop(key, None)
+        else:
+            try:
+                saved_limits[key] = int(value)
+            except ValueError:
+                raise ValueError("Use a whole number or default.") from None
+        chat_limits(saved_limits)
+        settings["chat_research_limits"] = saved_limits
+        store.flush()
+        return "Saved desktop Chat research limits."
     if arguments[0] == "image":
         return configure_image(store, arguments[1:])
     if arguments[0] == "decision":
@@ -356,6 +390,8 @@ def configure_code(store, arguments):
         settings["research_access_policy"] = arguments[2]
     elif arguments[:2] == ["web", "priority"] and arguments[2:] in (["provider"], ["managed"]):
         settings["research_policy"] = "Provider first" if arguments[2] == "provider" else "Agentnik first"
+    elif arguments[:2] == ["web", "desktop"] and arguments[2:] in (["on"], ["off"]):
+        settings["web_search_enabled"] = arguments[2] == "on"
     else:
         raise ValueError("Use /settings to see supported settings and syntax.")
     store.flush()

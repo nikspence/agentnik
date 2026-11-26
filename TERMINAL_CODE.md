@@ -34,6 +34,7 @@ At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T
 | `/settings` | Manage run and goal limits, TLS, desktop appearance, and other shared settings. Use `0` for unlimited rounds, requests, calls, turn time, goal steps, or goal time. Model request timeouts and retained context remain bounded. |
 | `/skills` | List and preview available skills, then pin the ones you want to use. |
 | `/web on` | Enable research for this session. Manage access policy, routing priority, and provider credentials under `/settings web`. |
+| `/settings chat-limits` / `/settings web desktop on\|off` | Manage desktop Chat research limits and the default desktop Web switch. |
 | `/settings image set` / `/settings image on` | Configure and enable generation or editing of PNG, JPEG, and WebP assets. Pillow handles raster files when Qt is absent. |
 | `/vision on` | Let the selected vision-capable model inspect supported project images. |
 | `/thinking on` | Show thinking returned by the provider, when available. |

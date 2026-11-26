@@ -347,6 +347,10 @@ class TerminalRunTests(unittest.TestCase):
             try:
                 configure_code(store, ["limits", "rounds", "12"])
                 configure_code(store, ["goal", "steps", "3"])
+                configure_code(store, ["web", "desktop", "on"])
+                configure_code(store, ["chat-limits", "rounds", "5"])
+                with self.assertRaises(ValueError):
+                    configure_code(store, ["chat-limits", "rounds", "0"])
                 configure_code(store, ["tls", "strict"])
                 configure_code(store, ["appearance", "theme", "dark"])
                 configure_code(store, ["appearance", "language", "en"])
@@ -358,6 +362,8 @@ class TerminalRunTests(unittest.TestCase):
                 saved = load_config(store.config_path)["settings"]
                 self.assertEqual(saved["coding_limits"]["rounds"], 12)
                 self.assertEqual(saved["coding_goal_limits"]["steps"], 3)
+                self.assertTrue(saved["web_search_enabled"])
+                self.assertEqual(saved["chat_research_limits"], {"rounds": 5})
                 self.assertFalse(saved["relaxed_tls"])
                 self.assertEqual(saved["theme"], "Dark")
                 self.assertEqual(saved["language"], "en")
