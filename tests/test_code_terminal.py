@@ -2700,6 +2700,21 @@ class TerminalRunTests(unittest.TestCase):
                 finally:
                     store.db.close()
 
+    def test_terminal_check_summary_only_exposes_selected_local_fields(self):
+        from agentnik.code_terminal import run_settings_summary
+
+        summary = run_settings_summary(
+            {"model": "model-fixture-secret", "api_key": "fixture-secret", "url": "https://hidden.invalid"},
+            {"web_enabled": True, "mcp_bridges": [object()], "image_config": {"unshown": "provider-private"}},
+            vision=True, image_count=2, document_count=3,
+        )
+        self.assertIn("Effective model: 'model-[redacted]'", summary)
+        for expected in ("Web: on", "Image inspection: on", "Image generation: configured",
+                         "MCP profiles: 1", "2 image(s), 3 document(s)"):
+            self.assertIn(expected, summary)
+        for private in ("fixture-secret", "hidden.invalid", "provider-private"):
+            self.assertNotIn(private, summary)
+
     def test_terminal_check_validates_settings_without_sending_or_saving_a_turn(self):
         from unittest.mock import Mock
         from agentnik import cli, core
@@ -2726,6 +2741,7 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Select a connection", errors.getvalue())
             self.assertIn("No model selected", errors.getvalue())
             self.assertIn("Local run settings passed.", out.getvalue())
+            self.assertIn("Effective model: 'mock-model'", out.getvalue())
             request.assert_not_called()
             store = Store.open_history(data)
             try:

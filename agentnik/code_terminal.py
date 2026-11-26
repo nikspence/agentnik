@@ -256,6 +256,21 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
         store.db.close()
 
 
+def run_settings_summary(connection, options, *, vision, image_count, document_count):
+    """Describe resolved local settings without URLs, tokens, or attachment contents."""
+    from .research import scrub
+
+    model = scrub(connection.get("model", ""), [connection.get("api_key")])
+    return terminal_text(
+        f"Effective model: {model!r} · "
+        f"Web: {'on' if options.get('web_enabled') else 'off'} · "
+        f"Image inspection: {'on' if vision else 'off'} · "
+        f"Image generation: {'configured' if options.get('image_config') else 'off'} · "
+        f"MCP profiles: {len(options.get('mcp_bridges', ()))}\n"
+        f"Queued attachments: {image_count} image(s), {document_count} document(s)."
+    )
+
+
 def show_shell_advice(connection, proposal, cancel, write):
     from . import core, decision_advice
 

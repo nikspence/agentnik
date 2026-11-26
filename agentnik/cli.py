@@ -626,15 +626,17 @@ def terminal_session(options, root, lease, images):
             except KeyError:
                 print("Git diff unavailable. The repository may not have an initial commit.", file=sys.stderr)
         elif command == "/check":
-            from .code_terminal import terminal_text
+            from .code_terminal import run_settings_summary, terminal_text
 
             try:
-                current_run_settings()
+                connection, _, _, run_options, _ = current_run_settings()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
             else:
                 print("Local run settings passed. No model request was sent. "
                       "This does not verify credentials or provider capabilities.")
+                print(run_settings_summary(connection, run_options, vision=vision_enabled,
+                                           image_count=len(images.paths()), document_count=len(documents)))
         elif command == "/status":
             print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
                   f" · Model: {model or '(connection default)'!r} · Web: {'on' if web_enabled else 'off'}"
