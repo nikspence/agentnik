@@ -34,13 +34,13 @@ def project_diff(root, argument):
     return result["diff"] or "No textual changes for this file."
 
 
-def choose_catalog_model(data_dir, name, match=""):
+def choose_catalog_model(data_dir, name, match="", discovered=None):
     from . import core, tls
     from .storage import Store
 
     store = Store(data_dir)
     try:
-        connections = {**core.environment_connections(), **store.connections()}
+        connections = {**(discovered or {}), **core.environment_connections(), **store.connections()}
         connection = connections.get(name)
         if connection is None:
             raise ValueError("Select a connection with /connection NAME first.")
@@ -73,7 +73,7 @@ def choose_catalog_model(data_dir, name, match=""):
     return shown[int(choice) - 1]
 
 
-def load_run_settings(data_dir, name, model, web_enabled=False):
+def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None):
     from importlib.util import find_spec
     from . import core, tls
     from .code_research import code_research_options
@@ -82,7 +82,7 @@ def load_run_settings(data_dir, name, model, web_enabled=False):
 
     store = Store(data_dir)
     try:
-        connections = {**core.environment_connections(), **store.connections()}
+        connections = {**(discovered or {}), **core.environment_connections(), **store.connections()}
         connection = connections.get(name)
         if connection is None:
             raise ValueError("Unknown connection. Use /connections to list names.")

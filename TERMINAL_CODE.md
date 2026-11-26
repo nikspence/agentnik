@@ -29,6 +29,7 @@ At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T
 | --- | --- |
 | `/connections edit NAME` | Change a saved connection's endpoint, protocol, or model. |
 | `/connections options NAME` | Change reasoning effort, service tier, context limit, or streaming. |
+| `/connections discover` | Check known loopback ports for local model services. Discovered connections last until the terminal exits. |
 | `/connections key NAME` / `/connections remove NAME` | Rotate or clear a credential, or remove a connection. |
 | `/permissions require` / `/permissions allow-all` | Require review or skip prompts for project edits and shell commands in this session. New and resumed sessions default to review. |
 | `/settings` | Manage run and goal limits, TLS, desktop appearance, and other shared settings. Use `0` for unlimited rounds, requests, calls, turn time, goal steps, or goal time. Model request timeouts and retained context remain bounded. |

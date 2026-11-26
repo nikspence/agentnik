@@ -166,6 +166,7 @@ def main():
         print("Enter adds a line. Alt+Enter submits. Use Up/Down to recall input and Tab for commands.")
         print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
+    discovered = {}
     context = None
     use_context = True
     last_record = None
@@ -195,6 +196,7 @@ def main():
                   "/diff [--staged] PATH  Review a file against HEAD\n"
                   "/connections      List saved and environment connections\n"
                   "/connections add|edit|options|key|remove [NAME]\n"
+                  "/connections discover  Look for supported services on this machine\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
                   "/models [FILTER]  Fetch the selected connection's catalog and choose a model\n"
@@ -328,6 +330,20 @@ def main():
             if composer:
                 composer = open_composer()
             print(f"Started session {session_id}. Previous sessions are available under /sessions.")
+        elif command == "/connections discover":
+            from .core import discover
+            from .code_terminal import terminal_text
+
+            print("Checking known local model service ports…", flush=True)
+            try:
+                discovered = discover()
+            except KeyboardInterrupt:
+                print("\nDiscovery cancelled.")
+                continue
+            for name, connection in discovered.items():
+                print(terminal_text(f"{name} · {connection.get('model', '') or '(model not listed)'}"))
+            print("Select a discovered name with /connection NAME." if discovered
+                  else "No local model services were found.")
         elif command == "/connections" or command.startswith("/connections "):
             _, _, operation = command.partition(" ")
             action, _, name = operation.strip().partition(" ")
@@ -335,6 +351,9 @@ def main():
                 print("Use /connections, or /connections add|edit|options|key|remove [NAME].")
                 continue
             connection_menu(options.data_dir, action, name.strip())
+            if not action:
+                for label, entry in discovered.items():
+                    print(f"Discovered: {label!r} · {entry.get('model', '')!r}")
         elif command == "/settings" or command.startswith("/settings "):
             from .code_settings import configure_code
             from .code_terminal import terminal_text
@@ -417,7 +436,8 @@ def main():
             from .code_terminal import choose_catalog_model, terminal_text
 
             try:
-                selected = choose_catalog_model(options.data_dir, connection_name, command.partition(" ")[2].strip())
+                selected = choose_catalog_model(options.data_dir, connection_name, command.partition(" ")[2].strip(),
+                                                discovered=discovered)
             except (EOFError, KeyboardInterrupt):
                 print()
                 continue
@@ -462,7 +482,7 @@ def main():
                 command = command.removeprefix("/goal ").strip()
             try:
                 connection, limits, goal_budget, research_options, advice = load_run_settings(
-                    options.data_dir, connection_name, model, web_enabled
+                    options.data_dir, connection_name, model, web_enabled, discovered=discovered
                 )
                 run = CodingRun(connection, root, command, context=context if use_context and not resume else None,
                                 limits=limits,

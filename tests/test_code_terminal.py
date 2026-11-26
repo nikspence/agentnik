@@ -12,15 +12,16 @@ from agentnik.code_stream import visible_prefix
 
 class TerminalRunTests(unittest.TestCase):
     def test_model_picker_filters_catalog_and_does_not_echo_reflected_credentials(self):
-        from agentnik.code_terminal import choose_catalog_model
+        from agentnik.code_terminal import choose_catalog_model, load_run_settings
 
+        discovered = {"local:fixture": {"url": "http://localhost:11434/v1", "api_key": "test-secret"}}
         with TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()) as output, \
-                patch("agentnik.core.environment_connections", return_value={
-                    "env:fixture": {"url": "https://gateway.example/v1", "api_key": "test-secret"},
-                }), patch("agentnik.core.models", return_value=[
+                patch("agentnik.core.models", return_value=[
                     "a-model", "b-model", "a-test-secret", "a-\x1b[2J",
                 ]) as catalog, patch("builtins.input", return_value="1"):
-            self.assertEqual(choose_catalog_model(directory, "env:fixture", "a-"), "a-model")
+            self.assertEqual(choose_catalog_model(directory, "local:fixture", "a-", discovered), "a-model")
+            connection, *_ = load_run_settings(directory, "local:fixture", "a-model", discovered=discovered)
+            self.assertEqual(connection["model"], "a-model")
         catalog.assert_called_once()
         self.assertNotIn("test-secret", output.getvalue())
         self.assertNotIn("b-model", output.getvalue())
