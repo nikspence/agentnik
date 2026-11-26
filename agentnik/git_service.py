@@ -355,15 +355,18 @@ class GitService:
                 index=repo.open_index()
                 from dulwich.object_store import iter_tree_contents
                 base={e.path:(e.mode,e.sha) for e in iter_tree_contents(repo.object_store,repo[head].tree)} if head is not None else {}
-                staged=[p for p in sorted(set(base)|set(index))
+                from dulwich.index import ConflictedIndexEntry
+                conflicts = {p for p in index if isinstance(index[p], ConflictedIndexEntry)}
+                staged=[p for p in sorted((set(base)|set(index)) - conflicts)
                         if base.get(p)!=((index[p].mode,index[p].sha) if p in index else None)]
                 unstaged=[]
                 for key in list(index)[:128]:
+                    if key in conflicts:continue
                     try:
                         target=self.files.path(key.decode('utf-8'))
                         if not target.exists() or Blob.from_string(self.files.read(key.decode('utf-8'),remember=False).encode()).id!=index[key].sha:unstaged.append(key.decode('utf-8'))
                     except (ValueError,UnicodeError):continue
-                return {'head':head.decode() if head is not None else None,'staged':[p.decode('utf-8','replace') for p in staged[:128]],'unstaged':unstaged,'scope':'First 128 tracked paths; untracked files not enumerated'}
+                return {'head':head.decode() if head is not None else None,'staged':[p.decode('utf-8','replace') for p in staged[:128]],'unstaged':unstaged,'conflicted':[p.decode('utf-8','replace') for p in sorted(conflicts)[:128]],'scope':'First 128 tracked paths; untracked files not enumerated'}
             self.files.path(path)
             before = self.base(repo, path)
             after = self.files.read(path, remember=False) if self.files.path(path).exists() else ''
@@ -420,7 +423,10 @@ class GitService:
 
     @staticmethod
     def index_text(repo,index,key):
+        from dulwich.index import ConflictedIndexEntry
         if key not in index:return ''
+        if isinstance(index[key], ConflictedIndexEntry):
+            raise ValueError('This file has an unresolved merge conflict and no single staged version.')
         if index[key].mode not in (0o100644,0o100755):raise ValueError('Only regular UTF-8 files are supported')
         data=repo[index[key].sha].data
         if len(data)>32000 or b'\x00' in data:raise ValueError('Index file is oversized or binary')

@@ -61,6 +61,7 @@ def project_diff(root, argument):
     if not argument:
         status = git.inspect("git_status")
         return "\n".join([
+            *(f"Conflicted: {path!r}" for path in status["conflicted"]),
             *(f"Staged: {path!r}" for path in status["staged"]),
             *(f"Unstaged: {path!r}" for path in status["unstaged"]),
             *([] if status["head"] else ["No commits yet. Diffs compare with an empty tree."]),

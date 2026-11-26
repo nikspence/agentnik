@@ -46,6 +46,30 @@ class GitServiceTests(unittest.TestCase):
                     f"old mode {entry.mode:o}", f"new mode {index[b'sample.sh'].mode:o}",
                 ])
 
+    def test_terminal_diff_reports_unmerged_index_entries(self):
+        from dulwich.index import ConflictedIndexEntry
+        from agentnik.code_terminal import project_diff
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            with porcelain.init(root) as repo:
+                path = root / "merge.txt"
+                path.write_bytes(b"base\n")
+                porcelain.add(repo, [path.name])
+                porcelain.commit(repo, message=b"Initial", author=b"Test <test@example.invalid>",
+                                 committer=b"Test <test@example.invalid>", no_verify=True, sign=False)
+                index = repo.open_index()
+                entry = index[b"merge.txt"]
+                index[b"merge.txt"] = ConflictedIndexEntry(ancestor=entry, this=entry, other=entry)
+                index.write()
+                path.write_bytes(b"<<<<<<< local\n")
+                status = project_diff(root, "")
+                self.assertIn("Conflicted: 'merge.txt'", status)
+                self.assertNotIn("Staged: 'merge.txt'", status)
+                self.assertIn("+<<<<<<< local", project_diff(root, path.name))
+                with self.assertRaisesRegex(ValueError, "unresolved merge conflict"):
+                    project_diff(root, "--staged merge.txt")
+
     def test_review_commit_and_conflicts(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);repo=porcelain.init(folder)
