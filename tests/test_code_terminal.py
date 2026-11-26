@@ -1407,6 +1407,7 @@ class TerminalRunTests(unittest.TestCase):
     def test_terminal_skills_show_changed_and_missing_pinned_revisions(self):
         from unittest.mock import Mock
         from agentnik import cli, core
+        from agentnik.storage import Store
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1416,16 +1417,27 @@ class TerminalRunTests(unittest.TestCase):
             skill.write_text(header + "Old instructions.", encoding="utf-8")
             (skill.parent / "templates").mkdir()
             (skill.parent / "templates" / "note.md").write_text("Private content fixture.", encoding="utf-8")
+            store = Store(root / "data")
+            try:
+                store.save_connection("Fixture", {"url": "https://fixture.invalid/v1", "model": "test", "protocol": "chat"})
+            finally:
+                store.db.close()
             composer = Mock()
 
             def prompts():
+                yield "/connection Fixture"
                 yield "/skills resources notes"
                 yield "/skills add notes"
                 skill.write_text(header + "New instructions.", encoding="utf-8")
                 yield "/skills"
+                yield "/check"
+                yield "Unsent task after skill change."
+                yield "/draft"
                 yield "/skills show notes"
                 yield "/skills add notes"
+                yield "/check"
                 skill.unlink()
+                yield "/check"
                 yield "/skills"
                 yield "/skills remove notes"
                 yield "/skills"
@@ -1435,13 +1447,19 @@ class TerminalRunTests(unittest.TestCase):
             argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
-                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out, \
+                    contextlib.redirect_stderr(io.StringIO()) as errors:
                 self.assertEqual(cli.main(), 0)
             self.assertIn("templates/note.md", out.getvalue())
             self.assertNotIn("Private content fixture.", out.getvalue())
             self.assertIn("* notes [changed since selection]", out.getvalue())
             self.assertIn("New instructions.", out.getvalue())
             self.assertEqual(out.getvalue().count("* notes [unavailable]"), 1)
+            self.assertEqual(errors.getvalue().count("Selected skill changed."), 2)
+            self.assertIn("Selected skill is unavailable.", errors.getvalue())
+            self.assertEqual(out.getvalue().count("Local run settings passed."), 1)
+            self.assertIn({"default": "Unsent task after skill change."},
+                          [call.kwargs for call in composer.prompt.call_args_list])
             request.assert_not_called()
 
     def test_project_diff_can_review_first_commit_without_native_git(self):

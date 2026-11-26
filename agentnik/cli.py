@@ -378,6 +378,14 @@ def terminal_session(options, root, lease, images):
             raise ValueError("Select a connection with /connection NAME first.")
         if images.paths() and not vision_enabled:
             raise ValueError("Enable /vision on or clear the queued image attachments first.")
+        if skill_pins:
+            from .code_agent import ProjectFiles
+            from .project_skills import verify_skill_pins
+
+            try:
+                verify_skill_pins(ProjectFiles(root), list(skill_pins), skill_pins)
+            except ValueError as exc:
+                raise ValueError(f"{exc} Use /skills show ID and /skills add ID, or /skills remove ID.") from None
         return load_run_settings(
             options.data_dir, connection_name, model, web_enabled, discovered=discovered,
             mcp_selection=mcp_selection, root=root, memory_enabled=memory_enabled,
