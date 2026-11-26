@@ -60,6 +60,8 @@ If you want a launcher in **Terminal → Run Task**, add this example to the wor
 
 The first task starts a fresh session. The second asks for a saved session ID or unique prefix and defaults to `latest`. It reopens the selected workspace session without sending a model request. If it is already open in another terminal, use that terminal or close it before resuming. It does not install an extension or provide editor-native diffs. [VS Code task input variables](https://code.visualstudio.com/docs/reference/variables-reference#_input-variables)
 
+If VS Code opens the folder in Restricted Mode and doesn't allow tasks, leave its trust setting unchanged. In a separate terminal, change to the workspace directory and run `agentnik code`, or run `agentnik code --resume ID` to reopen a specific session. Use `agentnik code --list-sessions` first if you need the ID.
+
 For editor integrations or scripts, `agentnik code --list-sessions` prints a JSON array of saved sessions in the current project, newest first. It returns the session ID, saved turn status, file scope, goal status, and last update time (`updated_at` in Unix seconds) without opening the composer or resuming a run. Pass a project folder to list sessions for a different workspace.
 
 ## First task
