@@ -87,6 +87,28 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_connection_import_rejects_duplicate_names_and_fields_before_approval(self):
+        from agentnik.cli import import_connection_settings
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = Store(root / "data")
+            try:
+                path = root / "connections.json"
+                for raw in (
+                    '{"connections":{"A":{"url":"https://one.example"},"A":{"url":"https://two.example"}}}',
+                    '{"connections":{"A":{"url":"https://one.example","url":"https://two.example"}}}',
+                ):
+                    path.write_text(raw, encoding="utf-8")
+                    with patch("builtins.input") as prompt:
+                        with self.assertRaisesRegex(ValueError, "no duplicate names or fields"):
+                            import_connection_settings(store, str(path))
+                        prompt.assert_not_called()
+                    self.assertEqual(store.config["connections"], {})
+            finally:
+                store.db.close()
+
     def test_copy_saved_connection_does_not_copy_credentials_or_overwrite(self):
         from agentnik.cli import connection_menu
         from agentnik.storage import Store, load_config

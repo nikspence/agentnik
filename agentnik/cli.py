@@ -45,6 +45,14 @@ def export_connection_settings(store, filename):
 def import_connection_settings(store, filename):
     from .core import validate_connections
 
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Ambiguous connection import.")
+            result[key] = value
+        return result
+
     path = connection_settings_path(filename)
     if not path.is_file():
         raise ValueError("Choose an existing connections JSON file.")
@@ -53,9 +61,9 @@ def import_connection_settings(store, filename):
     if len(raw) > 1_048_576:
         raise ValueError("Connection imports must be no larger than 1 MiB.")
     try:
-        incoming = validate_connections(json.loads(raw.decode("utf-8-sig")))
+        incoming = validate_connections(json.loads(raw.decode("utf-8-sig"), object_pairs_hook=unique_object))
     except (ValueError, RecursionError):
-        raise ValueError("The file is not valid Agentnik connections JSON.") from None
+        raise ValueError("Use valid Agentnik connections JSON with no duplicate names or fields.") from None
     if len(incoming) > 100:
         raise ValueError("Import at most 100 connections at a time.")
     new = {name: settings for name, settings in incoming.items() if name not in store.config["connections"]}
