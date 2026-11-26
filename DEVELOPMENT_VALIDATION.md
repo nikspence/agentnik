@@ -17,7 +17,7 @@ docker run --rm \
   python:3.12-slim sh -c 'tr -d "\015" </tools/ssh_terminal_smoke.sh | sh -s -- /preview/agentnik-0.12.0rc1-py3-none-any.whl'
 ```
 
-The fixture installs dependencies in the disposable container, then uses a fresh non-root account and a throwaway key over loopback OpenSSH. It checks the installed launcher without Qt, saved connection setup and selection, prompt modes, and basic slash commands. It uses a synthetic API key, checks that entry does not echo, and explicitly opts into plaintext storage only inside the disposable test profile. It does not send inference requests.
+The fixture installs dependencies in the disposable container, then uses a fresh non-root account and a throwaway key over loopback OpenSSH. It checks the installed launcher without Qt, connection setup, a reviewed file edit, and session resume without replay. It uses a synthetic API key, checks that entry does not echo, and explicitly opts into plaintext storage only inside the disposable test profile. Model responses are served by a loopback fixture. No live inference is used.
 
 ## Compatibility CLI
 
