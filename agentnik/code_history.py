@@ -3,6 +3,7 @@
 from contextlib import closing
 from dataclasses import dataclass
 from itertools import chain, islice
+import hashlib
 import os
 from pathlib import Path
 from uuid import UUID
@@ -95,6 +96,16 @@ class GoalContinuation:
     scope: str | None = None
     context: dict | None = None
     model: str | None = None
+    route: str | None = None
+
+
+def coding_route_digest(connection):
+    """Identify the request destination without storing the URL or credentials."""
+    from .core import endpoint
+
+    if not connection.get("url"):
+        return None
+    return hashlib.sha256(endpoint(connection).encode("utf-8")).hexdigest()
 
 
 def prepare_goal_continuation(record, connection, scope):
@@ -110,7 +121,7 @@ def prepare_goal_continuation(record, connection, scope):
     if saved_scope != scope:
         return GoalContinuation("scope_mismatch", scope=saved_scope)
     return GoalContinuation("ready", connection=saved_connection, scope=saved_scope, context=context,
-                            model=binding.get("model"))
+                            model=binding.get("model"), route=record.get("coding_goal_route"))
 
 
 def project_context_for_resume(records):
@@ -325,6 +336,9 @@ class CodeHistory:
                       coding_models={"model": {"connection": name, "model": connection["model"]}})
         if goal:
             record["coding_goal"] = {"objective": objective, "status": "active", "detail": ""}
+            route = coding_route_digest(connection)
+            if route is not None:
+                record["coding_goal_route"] = route
         if skill_pins:
             record.update(coding_skills=list(skill_pins), coding_skill_pins=dict(skill_pins))
         if session_id:

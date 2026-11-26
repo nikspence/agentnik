@@ -1,6 +1,7 @@
 """Versioned session shape checks without rewriting unreadable stored records."""
 import copy
 import math
+import re
 
 
 class SessionError(ValueError):
@@ -80,6 +81,9 @@ def validate_session(value, ident=None):
         try: chat_limits(options['limits'])
         except ValueError: require(False)
     if data['mode']=='code':
+        if 'coding_goal_route' in data:
+            route = data['coding_goal_route']
+            require('coding_goal' in data and isinstance(route, str) and bool(re.fullmatch('[0-9a-f]{64}', route)))
         if 'coding_file_scope' in data:
             require(data['coding_file_scope'] in ('project','machine') and 'coding_terminal_session' in data)
         if 'coding_terminal_session' in data:

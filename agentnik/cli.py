@@ -1022,7 +1022,7 @@ def terminal_session(options, root, lease, images):
                     print("Use /draft to edit the unsent task.")
                 continue
             from .code_agent import CodingRun
-            from .code_history import CodeHistory, Store, prepare_goal_continuation
+            from .code_history import CodeHistory, Store, coding_route_digest, prepare_goal_continuation
             from .code_terminal import drive_run, remember_terminal_subagent_rejection, terminal_text
 
             continuing = command == "/continue"
@@ -1054,6 +1054,9 @@ def terminal_session(options, root, lease, images):
                     approval_mode = "require" if require_approval else "allow-all"
                     print(terminal_text(f"Continue using connection {connection_name!r}, model {target_model!r}, "
                                         f"in {saved_scope} scope with permissions {approval_mode}."))
+                    if continuation.route and continuation.route != coding_route_digest(connection):
+                        print("The connection destination changed since this goal was saved. "
+                              "Confirmation sends the saved objective and evidence to the new destination.")
                     if continuation.model and continuation.model != target_model:
                         from .research import scrub
 

@@ -169,8 +169,8 @@ class TerminalRunTests(unittest.TestCase):
                 store.save_connection("Other", {"url": "https://example.org/v1", "model": "other"})
                 store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture", "stream": False})
                 history = CodeHistory(store, root)
-                record, task = history.start("Fixture", {"model": "fixture"}, "Review machine logs", session,
-                                             goal=True, machine_scope=True)
+                record, task = history.start("Fixture", {"model": "fixture", "url": "https://original.invalid/v1"},
+                                             "Review machine logs", session, goal=True, machine_scope=True)
                 history.finish(record, task, {"status": "cancelled", "text": "Stopped diagnostic."},
                                save_context=False)
                 self.assertEqual(history.list(session)[0]["coding_file_scope"], "machine")
@@ -201,6 +201,8 @@ class TerminalRunTests(unittest.TestCase):
                           output.getvalue())
             self.assertIn("The saved goal used model 'fixture'. Confirmation sends the saved objective and evidence to the new model.",
                           output.getvalue())
+            self.assertIn("The connection destination changed since this goal was saved.", output.getvalue())
+            self.assertNotIn("original.invalid", output.getvalue())
             self.assertIn("Run budgets · rounds: unlimited · requests: unlimited · tool calls: unlimited · seconds: unlimited",
                           output.getvalue())
             self.assertIn("Goal budgets · steps: unlimited · seconds: unlimited", output.getvalue())
