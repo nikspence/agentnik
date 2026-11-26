@@ -167,6 +167,11 @@ class CodingWorkspace(unittest.TestCase):
                 tab.receive({'run_id':run.run_id,'kind':'approval_invalidated','fingerprint':'pending'})
                 tab.receive(event)
                 self.assertIsNone(tab.pending_fingerprint);self.assertTrue(tab.approval_panel.isHidden())
+                run.pending=('pending',proposal);tab.receive(event)
+                run.pending=None
+                with patch.object(run,'decide') as decide:tab.decide(True);decide.assert_not_called()
+                self.assertIsNone(tab.pending_fingerprint);self.assertTrue(tab.approval_panel.isHidden())
+                self.assertIn('Your answer was not applied.',tab.activity.toPlainText())
             finally:
                 tab.job=None
                 with patch('agentnik.ui.confirm',return_value=True):window.close()

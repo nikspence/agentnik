@@ -1641,9 +1641,7 @@ class CodeTab(QWidget):
             if operation=='run_shell' and self.advice_connection:self.check_advice(proposal,self.pending_fingerprint)
         elif kind in ('shell_approval_resolved','approval_invalidated'):
             if self.pending_fingerprint==event.get('fingerprint'):
-                self.pending_fingerprint=None;self.advice_fingerprint=None
-                if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
-                self.approve.setEnabled(False);self.reject.setEnabled(False);self.approval_panel.hide();self.approval.clear();self.diff.clear();self.session['code_state']='running'
+                self.close_approval_review()
                 self.record('decision',self.tr('Pending approval invalidated by steering.') if kind=='approval_invalidated' else self.tr('Shell command allowed by the current switch.'))
         elif kind=='goal_status':
             if self.session.get('coding_goal'):
@@ -1709,8 +1707,24 @@ class CodeTab(QWidget):
         self.git_token.clear();self.git_remember_token.setChecked(False)
         QMessageBox.information(self,self.tr('Git credentials'),self.tr('The saved token for this destination and username was removed.'))
 
+    def close_approval_review(self):
+        self.pending_fingerprint=None;self.advice_fingerprint=None
+        if self.advice_job:self.advice_job.cancel.set();self.advice_job=None
+        self.git_username.clear();self.git_token.clear();self.git_remember_token.setChecked(False)
+        self.git_auth_row.hide();self._git_auth_pending=False;self._git_auth_url=''
+        for button in (self.approve,self.reject,self.approve_mcp_run):button.setEnabled(False)
+        self.approve_mcp_run.hide();self.approval_panel.hide();self.approval.clear();self.diff.clear()
+        self.session['code_state']='running'
+
     def decide(self,allowed,scope='once'):
         if self.advice_job or not self.job or not self.pending_fingerprint:return
+        from .code_worker import approval_event_is_live
+
+        proposal_event={'fingerprint':self.pending_fingerprint}
+        if not approval_event_is_live(self.job,proposal_event):
+            self.close_approval_review()
+            self.record('decision',self.tr('This approval is no longer active. Your answer was not applied.'))
+            return
         credentials=None
         if allowed and self._git_auth_pending:
             username=self.git_username.text();token=self.git_token.text()
@@ -1728,11 +1742,11 @@ class CodeTab(QWidget):
                     QMessageBox.warning(self,self.tr('Git credentials'),self.tr('Could not save the Git token in the OS credential store. Nothing was submitted.'));return
         accepted=self.job and self.pending_fingerprint and (self.job.decide(self.pending_fingerprint,allowed,git_credentials=credentials) if credentials else self.job.decide(self.pending_fingerprint,allowed,scope) if scope!='once' else self.job.decide(self.pending_fingerprint,allowed))
         if accepted:
-            self.git_username.clear();self.git_token.clear();self.git_remember_token.setChecked(False);self.git_auth_row.hide();self._git_auth_pending=False;self._git_auth_url=''
-            decision=self.pending_fingerprint;self.approve.setEnabled(False);self.reject.setEnabled(False);self.approve_mcp_run.setEnabled(False);self.approve_mcp_run.hide();self.pending_fingerprint=None
-            self.advice_fingerprint=None
-            self.approval_panel.hide();self.approval.clear();self.diff.clear()
-            self.session['code_state']='running';self.record('decision',('Allowed MCP server for this run' if scope=='mcp_server_run' else 'Approved' if allowed else 'Rejected')+' proposal '+decision)
+            decision=self.pending_fingerprint;self.close_approval_review()
+            self.record('decision',('Allowed MCP server for this run' if scope=='mcp_server_run' else 'Approved' if allowed else 'Rejected')+' proposal '+decision)
+        elif not approval_event_is_live(self.job,proposal_event):
+            self.close_approval_review()
+            self.record('decision',self.tr('This approval is no longer active. Your answer was not applied.'))
 
     def finish(self):
         self.goal_checkpoint_timer.stop()
