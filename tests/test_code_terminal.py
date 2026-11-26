@@ -2779,6 +2779,51 @@ class TerminalRunTests(unittest.TestCase):
                 release.set()
                 store.db.close()
 
+    def test_scope_change_at_approval_stops_without_applying_and_changes_next_run(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory, Store
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            target = base / "not-approved.txt"
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://fixture.invalid/v1",
+                                                  "model": "fixture", "stream": False})
+                composer = Mock()
+                composer.prompt.side_effect = ["/connection Fixture", "/scope machine", "Create a file.",
+                                               "Continue only in the project.", "/exit"]
+                argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+                turns = [
+                    Wire(chat(calls=[call("machine_create_file", {"path": str(target), "content": "no"})],
+                              finish="tool_calls"), False),
+                    Wire(chat("Project run complete."), False),
+                ]
+                with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                        patch("agentnik.code_composer.create_composer", return_value=composer), \
+                        patch("builtins.input", return_value="/scope project") as answer, \
+                        patch.object(core, "open_request", side_effect=turns) as requests, \
+                        contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(cli.main(), 0)
+                self.assertFalse(target.exists())
+                answer.assert_called_once()
+                self.assertEqual(requests.call_count, 2)
+                first, second = [item.args[2] for item in requests.call_args_list]
+                self.assertIn("machine_create_file", {item["function"]["name"] for item in first["tools"]})
+                self.assertNotIn("machine_create_file", {item["function"]["name"] for item in second["tools"]})
+                self.assertIn("Next run will use project file scope. No task was restarted.", out.getvalue())
+                records = CodeHistory(store, root).list()
+                self.assertEqual([record["code_state"] for record in records], ["completed", "cancelled"])
+                self.assertEqual(records[1]["coding_file_scope"], "machine")
+            finally:
+                store.db.close()
+
     def test_interrupt_at_machine_approval_never_applies_or_replays_edit(self):
         from unittest.mock import Mock
         from agentnik import cli, core

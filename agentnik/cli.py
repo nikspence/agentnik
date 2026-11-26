@@ -1224,6 +1224,9 @@ def terminal_session(options, root, lease, images):
                         context = record.get("coding_context")
                         context_model = connection["model"] if context else ""
                         context_route = record.get("coding_run_route") if context else None
+                    if result.get("next_scope") in ("project", "machine"):
+                        machine_scope = result["next_scope"] == "machine"
+                        print(f"Next run will use {result['next_scope']} file scope. No task was restarted.")
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:

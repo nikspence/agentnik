@@ -321,6 +321,11 @@ def remember_terminal_subagent_rejection(data_dir, name, connection):
         store.db.close()
 
 
+class _ScopeSwitch(Exception):
+    def __init__(self, scope):
+        self.scope = scope
+
+
 def drive_run(run, write=print, advice=None, checkpoint=None):
     from .code_agent import LOCAL_GIT_APPROVAL_OPERATIONS, MCP_APPROVAL_OPERATIONS
     from .code_worker import STEERING_OUTCOMES, start_code_worker
@@ -456,7 +461,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     if field in proposal:
                         label = "snapshot" if field == "diff" and proposal.get("operation") == "subagent_file_transfer" else field
                         write(f"{label}: {terminal_text(proposal[field])}")
-                write("Type /steer MESSAGE to redirect the run instead of deciding this proposal.")
+                write("Type /steer MESSAGE to redirect the run, or /scope project|machine to stop and change scope for the next run.")
                 mcp_scope = proposal.get("operation") in MCP_APPROVAL_OPERATIONS
                 git_scope = proposal.get("operation") in LOCAL_GIT_APPROVAL_OPERATIONS
                 approval_prompt = "Approve once? [y/N] "
@@ -481,8 +486,22 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                         response = input("Approve once? [y/N] ").strip()
                 else:
                     response = input(approval_prompt).strip()
-                while response == "/steer" or response.startswith("/steer "):
-                    message = response.removeprefix("/steer").strip()
+                while response.partition(" ")[0] in ("/steer", "/scope"):
+                    command, _, message = response.partition(" ")
+                    message = message.strip()
+                    if command == "/scope":
+                        if not worker.approval_pending(event["fingerprint"]):
+                            write("This approval prompt is no longer active. Use /scope at the session prompt.")
+                            response = None
+                            break
+                        if message not in ("project", "machine"):
+                            write("Use /scope project or /scope machine to stop this run and select the next scope.")
+                        elif (message == "machine") == (getattr(run, "machine_scope", False) is True):
+                            write("This run already uses that scope. The pending proposal is unchanged.")
+                        else:
+                            raise _ScopeSwitch(message)
+                        response = input(approval_prompt).strip()
+                        continue
                     if message and worker.steer(message, approval_fingerprint=event["fingerprint"]):
                         write("Steering queued. The pending proposal was not approved.")
                         response = None
@@ -537,7 +556,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 write(terminal_text(f"Goal {event['status']} (model reported): {event['detail']}"))
             elif kind == "goal_progress":
                 write(f"Goal progress: {event['steps']} steps · {event['seconds']:.0f}s")
-    except (KeyboardInterrupt, EOFError):
+    except (KeyboardInterrupt, EOFError, _ScopeSwitch) as exc:
         if result:
             # A late interrupt must not rewrite a result already delivered by the worker.
             return completed_result(result)
@@ -550,7 +569,10 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
         detail = ("Cancelled locally. A submitted request may still finish on its server. "
                   "Check the project before continuing. Agentnik will not replay the request.")
         write(detail)
-        return completed_result({"status": "cancelled", "text": detail, "last_goal_detail": goal_detail})
+        outcome = {"status": "cancelled", "text": detail, "last_goal_detail": goal_detail}
+        if isinstance(exc, _ScopeSwitch):
+            outcome["next_scope"] = exc.scope
+        return completed_result(outcome)
     finally:
         worker.stop()
         worker.join()
