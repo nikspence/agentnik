@@ -149,6 +149,11 @@ class CodeHistory:
             self.recover_interrupted(records[0], lease)
         return ident, records
 
+    def prepare_resume(self, selector, lease):
+        """Acquire the saved session and return its client-neutral resume state."""
+        ident, records = self.select_for_resume(selector, lease)
+        return ident, resume_snapshot(records) if records else None
+
     def recover_interrupted(self, record, lease):
         """Reconcile a terminal run only after exclusively reopening its session."""
         session_id = record.get("coding_terminal_session")

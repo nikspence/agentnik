@@ -681,7 +681,7 @@ def terminal_session(options, root, lease, images):
                 print(terminal_text(exc), file=sys.stderr)
         elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume")
               or command.startswith("/open ") or command in ("/plan", "/goal")):
-            from .code_history import CodeHistory, Store, activity_preview, resume_snapshot
+            from .code_history import CodeHistory, Store, activity_preview
             from .code_terminal import terminal_text
 
             action = command.split(" ", 1)[0]
@@ -701,7 +701,7 @@ def terminal_session(options, root, lease, images):
                     elif current_only:
                         records = history.list(session_id)
                     else:
-                        ident, records = history.select_for_resume(argument, lease)
+                        ident, snapshot = history.prepare_resume(argument, lease)
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
@@ -754,30 +754,28 @@ def terminal_session(options, root, lease, images):
                     if len(records) > offset + 20:
                         print(f"More saved turns are available under /history {page + 1}.")
                 continue
-            if not records:
+            if snapshot is None:
                 print("No saved session with that ID in this project. Sessions are saved when a task starts.")
                 if starting_resume:
                     return 1
                 continue
-            snapshot = resume_snapshot(records)
-            if command != "/history":
-                session_id = ident
-                use_context = True
-                web_enabled = False
-                vision_enabled = False
-                memory_enabled = False
-                mcp_selection = []
-                show_thinking = False
-                require_approval = True
-                machine_scope = False
-                documents.clear()
-                images.clear()
-                transcript.clear()
-                if composer:
-                    composer = open_composer()
-                    for text in snapshot.prompt_history:
-                        prompt = terminal_text(text)
-                        composer.history.append_string("/" + prompt if prompt.startswith("/") else prompt)
+            session_id = ident
+            use_context = True
+            web_enabled = False
+            vision_enabled = False
+            memory_enabled = False
+            mcp_selection = []
+            show_thinking = False
+            require_approval = True
+            machine_scope = False
+            documents.clear()
+            images.clear()
+            transcript.clear()
+            if composer:
+                composer = open_composer()
+                for text in snapshot.prompt_history:
+                    prompt = terminal_text(text)
+                    composer.history.append_string("/" + prompt if prompt.startswith("/") else prompt)
             for line in snapshot.activity:
                 write_activity(terminal_text(line))
             record = snapshot.record
