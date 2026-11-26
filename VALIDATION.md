@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- The hosted macOS installed-wheel PTY smoke test passed at `4d17df0`. It verified Ctrl+J multiline input, Enter submission, and Up history recall through a POSIX PTY. It does not qualify macOS terminal-app bindings or a physical keyboard. [Hosted macOS check](https://github.com/nikspence/agentnik/actions/runs/45882967881)
+
 - The hosted Ubuntu installed-wheel SSH smoke test passed at `8d3deb1`. It used a fresh non-root account to configure a connection, approve and verify a file edit, cancel while a loopback fixture withheld its response, and reopen saved history without replay. [Hosted SSH check](https://github.com/nikspence/agentnik/actions/runs/45882769651)
 
 - The build-only wheel from `bba5392` ran without Qt over authenticated loopback OpenSSH with an allocated terminal in a disposable Linux container. The installed launcher handled Enter, `/keys`, both machine-scope and allow-all prompt indicators, and the empty-session `/transcript` response. The SSH client exited successfully after `/exit`. No model request was sent.

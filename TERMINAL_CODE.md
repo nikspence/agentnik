@@ -77,6 +77,12 @@ Connect with a terminal attached. If you launch Agentnik as part of the SSH comm
 
 The [validation notes](VALIDATION.md) distinguish what was tested over OpenSSH from the separate live model checks.
 
+### Manage shared settings without the desktop
+
+Use `/connections` for saved endpoints and credentials, `/connection` and `/model` for the active session, and `/settings` for shared preferences. `/settings appearance` and `/settings chat-limits` can configure desktop behavior from SSH, even though the terminal does not display the desktop UI. Use `/permissions`, `/scope`, `/skills`, `/mcp`, and `/vision` for choices that apply to the current session.
+
+The desktop connection dialog's JSON import and export are not available in the terminal preview. For a new connection, use `/connections add`. To start from saved settings without duplicating a credential, use `/connections copy NAME`, then set the new credential with `/connections key NAME`.
+
 `/goal OBJECTIVE` starts an ongoing goal. Use `/goal` with no argument to see the most recent saved objective and outcome in this session without sending a request. To continue a stopped goal, use `/continue` and review the saved objective before starting a fresh run. The model receives saved evidence and is directed to inspect current state before acting.
 
 ## Generate and inspect a slide
