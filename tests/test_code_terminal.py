@@ -2070,6 +2070,50 @@ class TerminalRunTests(unittest.TestCase):
                 release.set()
                 store.db.close()
 
+    def test_interrupt_at_machine_approval_never_applies_or_replays_edit(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        for interrupt in (KeyboardInterrupt, EOFError):
+            with self.subTest(interrupt=interrupt), TemporaryDirectory() as directory:
+                base = Path(directory).resolve()
+                root, data, target = base / "project", base / "data", base / "outside.txt"
+                root.mkdir()
+                store = Store(data)
+                try:
+                    store.save_connection("Fixture", {"url": "https://example.org/v1",
+                                                       "model": "fixture", "stream": False})
+                    argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+                    composer = Mock()
+                    composer.prompt.side_effect = ["/connection Fixture", "/scope machine",
+                                                   "Create the outside file", "/exit"]
+                    proposal = call("machine_create_file", {"path": str(target), "content": "not approved"})
+                    output = io.StringIO()
+                    with patch("sys.stdin.isatty", return_value=True), \
+                            patch("agentnik.code_composer.create_composer", return_value=composer), \
+                            patch("builtins.input", side_effect=interrupt) as approval, \
+                            patch.object(core, "open_request", return_value=Wire(
+                                chat(calls=[proposal], finish="tool_calls"), False)) as transport, \
+                            contextlib.redirect_stdout(output):
+                        with patch("sys.argv", argv):
+                            self.assertEqual(cli.main(), 0)
+                        approval.assert_called_once_with("Approve once? [y/N] ")
+                        ident, record = next(iter(CodeHistory(store, root).sessions().items()))
+                        self.assertEqual(record["code_state"], "cancelled")
+                        composer.prompt.side_effect = ["/exit"]
+                        with patch("sys.argv", [*argv, "--resume", ident]):
+                            self.assertEqual(cli.main(), 0)
+                        transport.assert_called_once()
+                    self.assertFalse(target.exists())
+                    self.assertIn("will not replay the request", output.getvalue())
+                finally:
+                    store.db.close()
+
     def test_resume_rejects_ambiguous_session_prefix(self):
         from agentnik.code_history import resolve_session_id
 
