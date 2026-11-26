@@ -319,6 +319,20 @@ def terminal_session(options, root, lease, images):
     skill_pins = {}
     documents = []
     session_id = str(uuid4())
+    def reset_session_state():
+        nonlocal context, use_context, last_record, web_enabled, vision_enabled, memory_enabled
+        nonlocal mcp_selection, show_thinking, skill_pins, require_approval, machine_scope, composer
+        context = last_record = None
+        use_context = require_approval = True
+        web_enabled = vision_enabled = memory_enabled = show_thinking = machine_scope = False
+        mcp_selection = []
+        skill_pins = {}
+        documents.clear()
+        images.clear()
+        transcript.clear()
+        if composer:
+            composer = open_composer()
+
     pending_command = f"/resume {options.resume}" if options.resume else None
     while True:
         starting_resume = pending_command is not None
@@ -625,22 +639,7 @@ def terminal_session(options, root, lease, images):
         elif command == "/new":
             lease.close()
             session_id = str(uuid4())
-            context = None
-            use_context = True
-            last_record = None
-            web_enabled = False
-            vision_enabled = False
-            memory_enabled = False
-            mcp_selection = []
-            show_thinking = False
-            skill_pins = {}
-            documents.clear()
-            images.clear()
-            require_approval = True
-            machine_scope = False
-            transcript.clear()
-            if composer:
-                composer = open_composer()
+            reset_session_state()
             print(f"Started session {session_id}. Sessions with a submitted task are available under /sessions.")
         elif command == "/connections discover":
             from .core import discover
@@ -760,19 +759,8 @@ def terminal_session(options, root, lease, images):
                     return 1
                 continue
             session_id = ident
-            use_context = True
-            web_enabled = False
-            vision_enabled = False
-            memory_enabled = False
-            mcp_selection = []
-            show_thinking = False
-            require_approval = True
-            machine_scope = False
-            documents.clear()
-            images.clear()
-            transcript.clear()
+            reset_session_state()
             if composer:
-                composer = open_composer()
                 for text in snapshot.prompt_history:
                     prompt = terminal_text(text)
                     composer.history.append_string("/" + prompt if prompt.startswith("/") else prompt)
