@@ -282,6 +282,9 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 elif proposal.get("operation") == "image_gen":
                     fields = ("operation", "endpoint", "model", "prompt", "references",
                               "aspect_ratio", "background", "cwd", "path")
+                elif proposal.get("operation") == "subagent_file_transfer":
+                    write("Approval sends this file snapshot to the selected model for the subagent task.")
+                    fields = ("cwd", "path", "destination", "model", "child", "task", "payload_bytes", "diff")
                 elif proposal.get("operation") == "mcp_start":
                     fields = ("operation", "server", "command", "arguments", "working_directory", "environment")
                     write("The local server runs as your user and inherits the terminal environment.")
@@ -304,7 +307,8 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     continue
                 for field in fields:
                     if field in proposal:
-                        write(f"{field}: {terminal_text(proposal[field])}")
+                        label = "snapshot" if field == "diff" and proposal.get("operation") == "subagent_file_transfer" else field
+                        write(f"{label}: {terminal_text(proposal[field])}")
                 if advice and proposal.get("operation") == "run_shell":
                     response = input("Approve once? [y/N/a for System One advice] ").strip().lower()
                     if response == "a":

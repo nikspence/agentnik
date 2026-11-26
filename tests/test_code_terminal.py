@@ -1372,6 +1372,10 @@ class TerminalRunTests(unittest.TestCase):
                       "proposal": {"operation": "git_commit_staged", "paths": ["note.txt"],
                                    "identity": "Fixture <fixture@example.org>", "message": "Save note",
                                    "diff": "+Reviewed note"}})
+                emit({"kind": "operation_proposal", "fingerprint": "transfer",
+                      "proposal": {"operation": "subagent_file_transfer", "path": "note.txt",
+                                   "destination": "https://example.org/v1/responses", "model": "fixture",
+                                   "task": "Review note", "payload_bytes": 4, "diff": "Note"}})
 
             def decide(self, fingerprint, approved):
                 self.decisions.append((fingerprint, approved))
@@ -1381,10 +1385,12 @@ class TerminalRunTests(unittest.TestCase):
 
         output = io.StringIO()
         run = Run()
-        with contextlib.redirect_stdout(output), patch("builtins.input", return_value="y") as prompt:
+        with contextlib.redirect_stdout(output), patch("builtins.input", side_effect=["y", "y", ""]) as prompt:
             drive_run(run)
-        self.assertEqual(run.decisions, [("edit", True), ("push", False), ("commit", True)])
-        self.assertEqual(prompt.call_count, 2)
+        self.assertEqual(run.decisions, [("edit", True), ("push", False), ("commit", True), ("transfer", False)])
+        self.assertEqual(prompt.call_count, 3)
+        self.assertIn("destination: https://example.org/v1/responses", output.getvalue())
+        self.assertIn("snapshot: Note", output.getvalue())
         self.assertIn("identity: Fixture <fixture@example.org>", output.getvalue())
         self.assertIn("diff: +Reviewed note", output.getvalue())
         self.assertIn(r"+\x1b[2J", output.getvalue())
