@@ -34,6 +34,8 @@ assert find_spec("PySide6") is None
 requests = []
 waiting = Event()
 release = Event()
+scope_waiting = Event()
+scope_release = Event()
 project = Path("/home/agentnik-smoke/project")
 machine_folder = project.parent / "diagnostics"
 
@@ -45,6 +47,10 @@ class Fixture(BaseHTTPRequestHandler):
         if len(requests) == 6:
             waiting.set()
             release.wait(timeout=15)
+            return
+        if len(requests) == 7:
+            scope_waiting.set()
+            scope_release.wait(timeout=15)
             return
         message = {"role": "assistant", "content": "SSH fixture completed the edit."}
         finish = "stop"
@@ -199,6 +205,16 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding=
     session.expect_exact("Cancelled locally.")
     session.expect_exact("code>")
     release.set()
+    session.send("Wait while I change scope.\r")
+    assert scope_waiting.wait(timeout=8), "The fixture did not receive the scope-switch request"
+    session.send("\x1b[17~")  # xterm F6 across the authenticated SSH PTY
+    session.expect_exact("Cancelled locally.")
+    session.expect_exact("Next run file scope [project/machine, Enter to keep]:")
+    session.send("machine\r")
+    session.expect_exact("Next run will use machine file scope. No task was restarted.")
+    session.expect_exact("code [machine]>")
+    scope_release.set()
+    assert len(requests) == 7, "Changing scope replayed the interrupted task"
     session.send("/new\r")
     session.expect(r"Started session ([a-f0-9-]{36})")
     newer_session = session.match.group(1)
@@ -217,7 +233,7 @@ listed = json.loads(discovery.stdout)
 assert [(row["id"], row["status"]) for row in listed] == [
     (newer_session, "completed"), (original_session, "cancelled"),
 ]
-assert len(requests) == 7, "Session discovery sent an unexpected request"
+assert len(requests) == 8, "Session discovery sent an unexpected request"
 with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume " + original_session],
                    encoding="utf-8", timeout=12) as session:
     session.expect_exact("Cancelled locally.")
@@ -227,7 +243,7 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume " + original_sessio
     session.expect(pexpect.EOF)
     session.close()
     assert session.exitstatus == 0, session.exitstatus
-assert len(requests) == 7, "Reopening the cancelled session sent an unexpected request"
+assert len(requests) == 8, "Reopening the cancelled session sent an unexpected request"
 assert (project / "note.txt").read_bytes() == b"reviewed\n"
 portable = json.loads((project / "portable settings.json").read_text(encoding="utf-8"))
 assert "api_key" not in portable["connections"]["SSH Fixture"]
@@ -251,7 +267,7 @@ with pexpect.spawn("ssh", import_args, encoding="utf-8", timeout=12) as session:
 imported = json.loads((project.parent / "imported-data/connections.json").read_text(encoding="utf-8"))
 assert "api_key" not in imported["connections"]["SSH Fixture"]
 assert "credential_id" not in imported["connections"]["SSH Fixture"]
-assert len(requests) == 7, "Connection transfer sent an unexpected model request"
+assert len(requests) == 8, "Connection transfer sent an unexpected model request"
 assert "machine_create_directory" not in {tool["function"]["name"] for tool in requests[5][2]["tools"]}
-print("Qt-free preview passed SSH setup, steering, reviewed project and machine changes, cancellation, and no-replay resume.")
+print("Qt-free preview passed SSH setup, steering, reviewed project and machine changes, Ctrl+C cancellation, F6 scope switching, and no-replay resume.")
 PY
