@@ -9,13 +9,13 @@ from .code_terminal import terminal_text
 
 def manual_git(root, argument, *, prompt=None, write=print):
     usage = ("Use /git status, /git diff [--staged], /git stage PATH, /git unstage PATH, "
-             "/git commit MESSAGE, or /git push REMOTE BRANCH.")
+             "/git commit MESSAGE, /git remotes, or /git push REMOTE BRANCH.")
     action, _, value = argument.partition(" ")
     value = value.strip()
     if not action:
         write(usage)
         return
-    if action not in ("status", "diff", "stage", "unstage", "commit", "push"):
+    if action not in ("status", "diff", "stage", "unstage", "commit", "remotes", "push"):
         raise ValueError(usage)
     executable = shutil.which("git")
     if not executable:
@@ -34,6 +34,11 @@ def manual_git(root, argument, *, prompt=None, write=print):
 
     if action == "status" and not value:
         result = run("status", "--short", "--branch")
+    elif action == "remotes" and not value:
+        result = run("remote", capture=True)
+        if not result.returncode:
+            names = result.stdout.splitlines()
+            write("\n".join(terminal_text(name) for name in names) if names else "No Git remotes configured.")
     elif action == "diff" and value in ("", "--staged"):
         result = run("diff", "--no-ext-diff", "--no-textconv", *(["--staged"] if value else []), "--")
     elif action in ("stage", "unstage") and value:
@@ -56,7 +61,7 @@ def manual_git(root, argument, *, prompt=None, write=print):
         remote, branch = value.split()
         remotes = run("remote", capture=True)
         if remote.startswith("-") or remotes.returncode or remote not in remotes.stdout.splitlines():
-            raise ValueError("Choose an existing named Git remote.")
+            raise ValueError("Choose an existing named Git remote. Use /git remotes to list names.")
         ref = f"refs/heads/{branch}"
         if branch.startswith("-") or run("check-ref-format", ref, capture=True).returncode:
             raise ValueError("Choose a valid destination branch name.")

@@ -877,7 +877,12 @@ class TerminalRunTests(unittest.TestCase):
             manual_git(root, "unstage note draft.txt", prompt=lambda _: "y")
             self.assertEqual(run("diff", "--cached", "--name-only"), "")
             manual_git(root, "stage note draft.txt", prompt=lambda _: "y")
+            remotes = []
+            manual_git(root, "remotes", write=remotes.append)
+            self.assertEqual(remotes, ["No Git remotes configured."])
             run("remote", "add", "fixture", str(remote))
+            manual_git(root, "remotes", write=remotes.append)
+            self.assertEqual(remotes[-1], "fixture")
             nested = root / "nested"
             nested.mkdir()
             review = []

@@ -73,4 +73,6 @@ With Git installed, you can run `/git status`, `/git stage PATH`, `/git unstage 
 
 Use `/git diff` to review all unstaged tracked changes, or `/git diff --staged` to see what the next commit would contain. These read-only commands use Git's normal terminal output and pager.
 
+Use `/git remotes` to list the remote names you can pass to `/git push`. It does not display remote URLs or contact any remote.
+
 The terminal MCP preview supports tools, resources, resource templates, and prompts. Local stdio tries 2025 initialization and can probe for 2026 discovery when the server rejects the legacy envelope or stays silent. HTTPS tries 2026 discovery, with 2025 fallback for eligible protocol rejections. HTTPS profiles can use a saved bearer token or an active desktop OAuth sign-in. Use `/settings mcp signin NAME` to sign in with a registered public client that supports S256 PKCE and a loopback redirect at `http://127.0.0.1:<port>/callback`. Open the displayed link in a browser. Over SSH, run the displayed port-forwarding command on your browser machine first. Use `/settings mcp renew NAME` to renew a saved OAuth credential. Dynamic client registration, tasks, and interactive server requests remain desktop features. The [roadmap](AGENTNIK_PLAN.md) tracks the rest of the terminal work, native SSH and cross-platform validation, and later VS Code integration.
