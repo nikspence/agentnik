@@ -1200,22 +1200,15 @@ class CodeTab(QWidget):
                 if snapshot:context=coding_effective_context(context,snapshot)
                 elif self.coding_auto_compact.isChecked() and len(context['task'])+len(context['answer'])>=3000:
                     self.compact_coding_context(auto_start=True,connection=heavy);return
-            from .mcp_support import server_fingerprint
             refs=(([self.mcp_primary_ref] if self.mcp_primary_ref else [])+self.mcp_extra_refs) if self.window.mcp_access.isChecked() else []
-            from .code_setup import shared_run_options
+            from .code_setup import resolve_mcp_profiles, shared_run_options
             options=shared_run_options(
                 self.store,self.roles['heavy'][0].currentData(),heavy,
                 web_enabled=self.web_enabled.isChecked(),has_mcp=bool(refs),
                 capability_connection=self.subagent_capability_connection('heavy',heavy),
             )
             backends=options['web_backends']
-            if len(refs)>5:raise ValueError(self.tr('Select at most five MCP servers.'))
-            entries=self.store.config.get('mcp_servers',[]);servers=[]
-            for ref in refs:
-                server=next((item for item in entries if item.get('name')==ref['name'] and item.get('enabled')),None)
-                if not server or server_fingerprint(server)!=ref['sha256']:
-                    raise ValueError(self.tr('A selected MCP server changed or is unavailable. Reselect it or remove it from MCP servers.'))
-                servers.append(server)
+            servers=resolve_mcp_profiles(self.store.config,refs)
             from .mcp_code import CodingMCPBridge
             mcp_bridges=[CodingMCPBridge(server,self.store.config,self) for server in servers]
             from .project_memory import ProjectMemory

@@ -4,10 +4,24 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from agentnik.code_setup import CodeSelectionError, resolve_run_connection, shared_run_options
+from agentnik.code_setup import CodeSelectionError, resolve_mcp_profiles, resolve_run_connection, shared_run_options
 
 
 class CodeSetupTests(unittest.TestCase):
+    def test_mcp_profile_resolution_checks_revision_order_and_duplicates(self):
+        from agentnik.mcp_support import server_fingerprint
+
+        one = {"name": "One", "command": "fixture", "args": [], "enabled": True}
+        two = dict(one, name="Two")
+        refs = [{"name": profile["name"], "sha256": server_fingerprint(profile)} for profile in (two, one)]
+        config = {"mcp_servers": [one, two]}
+        self.assertEqual(resolve_mcp_profiles(config, refs), [two, one])
+        with self.assertRaisesRegex(ValueError, "distinct MCP servers"):
+            resolve_mcp_profiles(config, [refs[0], refs[0]])
+        for changed in (dict(two, enabled=False), dict(two, args=["different"])):
+            with self.assertRaisesRegex(ValueError, "changed or is unavailable"):
+                resolve_mcp_profiles({"mcp_servers": [one, changed]}, refs)
+
     def test_model_default_override_and_endpoint_are_validated_without_mutation(self):
         connection = {"url": "https://fixture.invalid/v1", "model": "default", "api_key": "fixture"}
         self.assertEqual(resolve_run_connection(connection), connection)

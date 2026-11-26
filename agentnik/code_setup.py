@@ -2,6 +2,7 @@
 
 from .core import base_url
 from .code_research import code_research_options
+from .mcp_support import server_fingerprint
 from .subagent_capabilities import unsupported
 
 
@@ -24,6 +25,20 @@ def resolve_run_connection(connection, model=None):
         raise CodeSelectionError("model")
     base_url(resolved.get("url", ""))
     return resolved
+
+
+def resolve_mcp_profiles(config, refs):
+    """Resolve ordered, enabled profiles only if their saved revisions still match."""
+    if len(refs) > 5 or len({ref["name"] for ref in refs}) != len(refs):
+        raise ValueError("Select at most five distinct MCP servers.")
+    enabled = {server["name"]: server for server in config.get("mcp_servers", []) if server.get("enabled")}
+    selected = []
+    for ref in refs:
+        profile = enabled.get(ref["name"])
+        if profile is None or server_fingerprint(profile) != ref["sha256"]:
+            raise ValueError("A selected MCP server changed or is unavailable. Reselect it or remove it.")
+        selected.append(profile)
+    return selected
 
 
 def shared_run_options(store, name, connection, *, web_enabled, has_mcp, capability_connection):
