@@ -913,7 +913,7 @@ class CodingRun:
                 instructions+=(' Machine file changes require user approval.' if self.review_project_edits
                                else ' Machine file changes do not require per-change approval in this run.')
             else:
-                instructions+='\nProject scope is active. Machine file tools are unavailable. Do not use shell commands to bypass the project file boundary. If the task requires files outside the project, explain the need and ask the user to enable machine scope in a client that supports it.'
+                instructions+='\nProject scope is active. Machine file tools are unavailable. Project commands such as builds, dependency checks, and tests may still use the normal user environment. Do not use shell commands as a substitute for directly inspecting or editing files outside the project. If direct access to those files is needed, explain why and ask the user to enable machine scope in a client that supports it.'
             if self.review_project_edits:
                 instructions=instructions.replace(
                     'Project file edits and deletions apply without per-file approval; report them accurately.',
