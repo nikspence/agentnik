@@ -150,13 +150,32 @@ def machine_new_path(value):
     return parent.st_dev, parent.st_ino
 
 
-def require_same_parent(path, observed):
+def require_same_parent(path, observed, parent_fd=None):
     try:
-        parent = path.parent.stat()
+        parent = os.fstat(parent_fd) if parent_fd is not None else path.parent.stat()
     except OSError:
         raise ValueError("The destination directory is no longer available. Nothing was created.") from None
     if not stat.S_ISDIR(parent.st_mode) or (parent.st_dev, parent.st_ino) != observed:
         raise ValueError("The destination directory changed during review. Nothing was created.")
+
+
+@contextmanager
+def creation_parent(path, observed, operation):
+    """Use a directory descriptor when supported without requiring extra read access."""
+    parent_fd = None
+    if operation in os.supports_dir_fd and hasattr(os, "O_DIRECTORY"):
+        try:
+            flags = getattr(os, "O_PATH", getattr(os, "O_SEARCH", os.O_RDONLY))
+            parent_fd = os.open(path.parent, flags | os.O_DIRECTORY)
+        except PermissionError:
+            # Some systems need directory read access just to obtain a descriptor.
+            pass
+    try:
+        require_same_parent(path, observed, parent_fd)
+        yield (path.name, parent_fd) if parent_fd is not None else (path, None)
+    finally:
+        if parent_fd is not None:
+            os.close(parent_fd)
 
 
 def machine_create_preview(value, text):
@@ -170,8 +189,9 @@ def machine_create_preview(value, text):
 def create_machine_file(value, data, parent, check):
     path = absolute_machine_path(value)
     check()
-    require_same_parent(path, parent)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o666)
+    with creation_parent(path, parent, os.open) as (target, parent_fd):
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
+                     0o666, dir_fd=parent_fd)
     with os.fdopen(fd, "wb", buffering=0) as stream:
         if stream.write(data) != len(data):
             raise OSError("Incomplete file write")
@@ -180,5 +200,5 @@ def create_machine_file(value, data, parent, check):
 def create_machine_directory(value, parent, check):
     path = absolute_machine_path(value)
     check()
-    require_same_parent(path, parent)
-    path.mkdir()
+    with creation_parent(path, parent, os.mkdir) as (target, parent_fd):
+        os.mkdir(target, dir_fd=parent_fd)
