@@ -39,6 +39,9 @@ class TerminalRunTests(unittest.TestCase):
             method = body["method"]
             if method == "notifications/initialized":
                 return Reply(status=202)
+            if method == "server/discover":
+                return Reply(json.dumps({"jsonrpc": "2.0", "id": 0,
+                                        "error": {"code": -32601, "message": "Method not found"}}).encode())
             if method == "initialize":
                 result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
                           "serverInfo": {"name": "fixture", "version": "1"}}
@@ -60,10 +63,57 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 bridge.close_from_worker()
         self.assertEqual(requests[-1][0], "DELETE")
-        self.assertNotIn("mcp-session-id", requests[0][2])
-        for _, _, headers in requests[1:]:
+        self.assertEqual(requests[0][1]["method"], "server/discover")
+        self.assertNotIn("mcp-session-id", requests[1][2])
+        for _, _, headers in requests[2:]:
             self.assertEqual(headers["mcp-session-id"], "fixture-session")
             self.assertEqual(headers["mcp-protocol-version"], "2025-06-18")
+
+    def test_remote_mcp_negotiates_2026_and_does_not_fallback_on_auth_errors(self):
+        from email.message import Message
+        import json
+        from urllib.error import HTTPError
+        from agentnik.mcp_terminal_http import TerminalHTTPMCPBridge
+        from agentnik.tools import Runtime
+
+        profile = {"name": "Remote", "url": "https://example.org/mcp"}
+        bridge = TerminalHTTPMCPBridge(profile)
+        requests = []
+
+        def reply(method, message, timeout, headers):
+            self.assertEqual(method, "POST")
+            requests.append(message["method"])
+            self.assertEqual(headers["MCP-Protocol-Version"], "2026-07-28")
+            self.assertEqual(headers["Mcp-Method"], message["method"])
+            if message["method"] == "server/discover":
+                result = {"supportedVersions": ["2026-07-28"], "capabilities": {"tools": {}}}
+            elif message["method"] == "tools/list":
+                result = {"tools": [{"name": "greet", "inputSchema": {
+                    "type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "region"}},
+                }}]}
+            else:
+                self.assertEqual(headers["Mcp-Name"], "greet")
+                self.assertEqual(headers["Mcp-Param-region"], "west")
+                result = {"resultType": "complete", "content": [{"type": "text", "text": "Modern hello"}]}
+            response = io.BytesIO(json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}).encode())
+            response.status = 200
+            response.headers = Message()
+            response.headers["Content-Type"] = "application/json"
+            return response
+
+        with patch.object(bridge, "_open", side_effect=reply):
+            try:
+                catalog = bridge.request("discover", {}, Runtime())
+                result = bridge.request("call", {"tool": catalog["tool_details"][0],
+                                                  "arguments": {"region": "west"}}, Runtime())
+            finally:
+                bridge.close_from_worker()
+        self.assertEqual(result["call_result"]["content"][0]["text"], "Modern hello")
+        self.assertEqual(requests, ["server/discover", "tools/list", "tools/list", "tools/call"])
+        bridge = TerminalHTTPMCPBridge(profile)
+        with patch.object(bridge, "_open", side_effect=HTTPError(profile["url"], 401, "", Message(), None)) as open_request:
+            self.assertIn("HTTP 401", bridge.request("discover", {}, Runtime())["error"])
+            open_request.assert_called_once()
 
     def test_headless_local_mcp_checks_approvals_for_tools_and_resources(self):
         import sys

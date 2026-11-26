@@ -130,6 +130,9 @@ class TerminalMCPBridge:
         self._send({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params})
         return self._reply(self.next_id, phase)
 
+    def _tool_call(self, tool, arguments):
+        return self._rpc("tools/call", {"name": tool["name"], "arguments": arguments}, "call")
+
     def _initialize(self):
         message = initialize_request()
         message["params"]["capabilities"] = {}
@@ -225,7 +228,7 @@ class TerminalMCPBridge:
             return {"error": "The MCP tool changed or requires unsupported task execution."}
         if action == "verify":
             return {"verified": True}
-        reply = self._rpc("tools/call", {"name": expected["name"], "arguments": payload["arguments"]}, "call")
+        reply = self._tool_call(expected, payload["arguments"])
         if "error" in reply:
             return {"error": scrub(rpc_error(reply), secrets)}
         return {"call_result": scrub(normalize_tool_result(reply.get("result")), secrets)}

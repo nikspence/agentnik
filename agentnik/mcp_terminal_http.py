@@ -7,6 +7,7 @@ from urllib.request import HTTPSHandler, Request, build_opener
 from . import tls
 from .core import NoRedirect
 from .mcp_http_response import response_message
+from .mcp_2026 import INPUT_REQUIRED_ERROR, PROTOCOL as MODERN_PROTOCOL, parse_discovery, prepare_request
 from .mcp_support import initialize_request, parse_initialize, response_limit, server_timeout
 from .mcp_terminal import TerminalMCPBridge
 from .tools import LimitError
@@ -45,7 +46,7 @@ class TerminalHTTPMCPBridge(TerminalMCPBridge):
             return {"error": "MCP HTTPS communication failed. No request was retried.",
                     "call_uncertain": action == "call"}
 
-    def _open(self, method, message, timeout):
+    def _open(self, method, message, timeout, routing_headers=None):
         headers = {"Accept": "application/json, text/event-stream"}
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
@@ -53,6 +54,8 @@ class TerminalHTTPMCPBridge(TerminalMCPBridge):
             headers["MCP-Session-Id"] = self.session_id
         if self.protocol:
             headers["MCP-Protocol-Version"] = self.protocol
+        if routing_headers:
+            headers.update(routing_headers)
         content = None
         if message is not None:
             headers["Content-Type"] = "application/json"
@@ -60,16 +63,18 @@ class TerminalHTTPMCPBridge(TerminalMCPBridge):
         request = Request(self.server["url"], data=content, headers=headers, method=method)
         return build_opener(NoRedirect(), HTTPSHandler(context=tls.context())).open(request, timeout=timeout)
 
-    def _post(self, message, phase):
+    def _post(self, message, phase, routing_headers=None):
         if self.closed:
             raise InterruptedError("MCP session is closed.")
         self.runtime.check()
         timeout = min(server_timeout(self.server), self.runtime.timeout())
-        with self._open("POST", message, timeout) as response:
+        with self._open("POST", message, timeout, routing_headers) as response:
             if "id" not in message:
                 if response.status != 202:
                     raise ValueError("MCP notification was not accepted")
                 return None
+            if response.status != 200:
+                raise ValueError("Unexpected MCP HTTP response status")
             limit = response_limit(phase)
             data = response.read(limit + 1)
             if len(data) > limit:
@@ -86,6 +91,31 @@ class TerminalHTTPMCPBridge(TerminalMCPBridge):
             return result
 
     def _initialize(self):
+        discovery, headers = prepare_request({"jsonrpc": "2.0", "id": 0, "method": "server/discover", "params": {}})
+        try:
+            reply = self._post(discovery, "modern_discovery", headers)
+        except HTTPError as exc:
+            if exc.code not in (400, 404, 405):
+                raise
+            if exc.code == 400:
+                raw = exc.read(response_limit("initialize") + 1)
+                if self.token and self.token.encode("ascii") in raw:
+                    exc.close()
+                    raise ValueError("MCP response reflected a credential")
+                try:
+                    candidate = response_message(raw, exc.headers.get_content_type(), 0)
+                except (AttributeError, ValueError, RecursionError):
+                    candidate = {}
+                error = candidate.get("error")
+                if isinstance(error, dict) and error.get("code") in (-32020, -32021, -32022):
+                    raise
+            exc.close()
+        else:
+            error = reply.get("error")
+            if not isinstance(error, dict) or error.get("code") not in (-32600, -32601, -32602):
+                info = parse_discovery(reply.get("result"))
+                self.protocol = MODERN_PROTOCOL
+                return info
         message = initialize_request()
         message["params"]["capabilities"] = {}
         reply = self._post(message, "initialize")
@@ -94,9 +124,23 @@ class TerminalHTTPMCPBridge(TerminalMCPBridge):
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, "initialize")
         return info
 
-    def _rpc(self, method, params, phase):
+    def _rpc(self, method, params, phase, schema=None):
         self.next_id += 1
-        return self._post({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params}, phase)
+        message = {"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params}
+        routing = None
+        if self.protocol == MODERN_PROTOCOL:
+            message, routing = prepare_request(message, schema)
+        reply = self._post(message, phase, routing)
+        result = reply.get("result")
+        if self.protocol == MODERN_PROTOCOL and isinstance(result, dict) and result.get("resultType", "complete") != "complete":
+            if result.get("resultType") == "input_required":
+                return {"jsonrpc": "2.0", "id": self.next_id,
+                        "error": {"code": -32000, "message": INPUT_REQUIRED_ERROR}}
+            raise ValueError("Unsupported MCP result type")
+        return reply
+
+    def _tool_call(self, tool, arguments):
+        return self._rpc("tools/call", {"name": tool["name"], "arguments": arguments}, "call", tool["schema"])
 
     def close_from_worker(self):
         if self.closed:
