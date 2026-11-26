@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- The preview at `7eddc81` passed the installed terminal-wheel jobs on hosted Windows, macOS, and Linux. The terminal suite exercised PDF text extraction and verified that the extracted attachment reaches only its intended task. This test used a mocked provider and did not exercise OCR or PDF page rendering. [Terminal wheel jobs](https://github.com/nikspence/agentnik/actions/runs/45866686939)
+
 - After switching prompt submission to plain Enter in `3f32b81`, an Ubuntu pseudoterminal with no display accepted `/status` and `/exit` using Enter. The [updated preview artifact](https://github.com/nikspence/agentnik/actions/runs/45865859442) passed the distribution build checks and skipped the PyPI publish job.
 
 - The downloadable `0.12.0rc1` build-only artifact at source revision `056895d` installed on Windows in a fresh virtual environment without Qt. From outside the checkout, the installed launcher showed `agentnik code --help` and passed all 31 terminal tests, including session paging and unique-prefix resume. The [artifact build](https://github.com/nikspence/agentnik/actions/runs/45864776589) skipped the PyPI publish job.

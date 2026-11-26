@@ -79,8 +79,12 @@ jobs:
       - name: Verify the installed launcher outside the checkout
         working-directory: ${{ runner.temp }}
         run: |
-          python -c "from importlib.util import find_spec; assert find_spec('PySide6') is None"
           agentnik code --help
+      - name: Verify terminal extras are present without Qt
+        working-directory: ${{ runner.temp }}
+        run: >-
+          python -c "from importlib.util import find_spec; import PIL, prompt_toolkit, pypdf;
+          assert find_spec('PySide6') is None"
       - name: Run offline terminal tests
         working-directory: ${{ runner.temp }}
         run: python -m unittest discover -s "${{ github.workspace }}/tests" -p test_code_terminal.py -v
