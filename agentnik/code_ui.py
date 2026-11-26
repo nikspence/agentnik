@@ -297,7 +297,7 @@ class CodeTab(QWidget):
         context=session.get('coding_context')
         self.use_context=QCheckBox(self.tr('Send previous context'));self.use_context.setToolTip(self.tr('Send the previous task and answer with the next run, up to 2,048 characters each.'));self.use_context.setEnabled(bool(context))
         self.coding_context_button=QPushButton(self.tr('Coding context…'));self.coding_context_button.clicked.connect(self.edit_coding_context)
-        self.coding_auto_compact=QCheckBox(self.tr('Auto compact context'),self);self.coding_auto_compact.setToolTip(self.tr('Before a follow-up run, summarize a long previous task and answer using the selected model. This uses an additional model request.'));self.coding_auto_compact.setChecked(session.get('coding_auto_compact',True));self.coding_auto_compact.toggled.connect(self.save_coding_auto_compact);self.coding_auto_compact.hide()
+        self.coding_auto_compact=QCheckBox(self.tr('Auto compact context'),self);self.coding_auto_compact.setToolTip(self.tr('Before a follow-up run, summarize a long previous task and answer using the selected model. This uses an additional model request.'));self.coding_auto_compact.setChecked(session.get('coding_auto_compact',self.store.config['settings'].get('desktop_code_auto_compact') is not False));self.coding_auto_compact.toggled.connect(self.save_coding_auto_compact);self.coding_auto_compact.hide()
         self.roles={}
         saved=coding_model_binding(session)
         model_row=QHBoxLayout();layout.insertLayout(1,model_row);model_row.addWidget(QLabel(self.tr('Model')))

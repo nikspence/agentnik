@@ -531,6 +531,7 @@ def configure_code(store, arguments, root=None):
             "Use /settings chat-limits to manage desktop Chat research budgets.",
             "Use /settings tls strict or /settings tls relaxed.",
             "Use /settings appearance to manage desktop appearance and layout.",
+            "Use /settings desktop-code auto-compact on|off to set the desktop Code default.",
             "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
             "Use /settings web providers to manage search provider credentials.",
             "Use /settings image to configure the image model.",
@@ -569,6 +570,17 @@ def configure_code(store, arguments, root=None):
             "priority provider|managed, or providers.",
             "Terminal web access is selected per session with /web on or /web off.",
         ])
+    if arguments[0] == "desktop-code":
+        key = "desktop_code_auto_compact"
+        if arguments in (["desktop-code"], ["desktop-code", "auto-compact"]):
+            state = "off" if settings.get(key) is False else "on"
+            return (f"Desktop Code auto-compaction default: {state}. "
+                    "Use /settings desktop-code auto-compact on|off.")
+        if arguments not in (["desktop-code", "auto-compact", "on"], ["desktop-code", "auto-compact", "off"]):
+            raise ValueError("Use /settings desktop-code auto-compact on|off.")
+        settings[key] = arguments[-1] == "on"
+        store.flush()
+        return "Saved the desktop Code auto-compaction default. Explicit session choices are unchanged."
     if arguments[0] == "chat-limits":
         saved_limits = dict(settings.get("chat_research_limits") or {})
         if len(arguments) == 1:

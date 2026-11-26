@@ -36,6 +36,28 @@ class CodingCompactionTests(unittest.TestCase):
                 saved=store.list_sessions()[0];self.assertFalse(saved['coding_auto_compact'])
             finally:window.close();self.app.processEvents();store.db.close()
 
+    def test_terminal_desktop_compaction_default_preserves_explicit_session_choice(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.ui import Window
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(core,'discover',return_value={}), patch.object(core,'environment_connections',return_value={}):
+            root=Path(directory);project=root/'project';project.mkdir();store=Store(root/'data')
+            configure_code(store,['desktop-code','auto-compact','off'])
+            self.assertIn('default: off',configure_code(store,['desktop-code']))
+            store.db.close()
+            store=Store(root/'data');window=Window(store)
+            try:
+                ident=window.repositories.put(project)
+                first=window.repositories.session(ident)
+                store.save(first);window.open_session(first)
+                self.assertFalse(window.tabs.currentWidget().coding_auto_compact.isChecked())
+                second=window.repositories.session(ident)
+                second['coding_auto_compact']=True
+                store.save(second);window.open_session(second)
+                self.assertTrue(window.tabs.currentWidget().coding_auto_compact.isChecked())
+            finally:
+                window.close();self.app.processEvents();store.db.close()
+
     def test_summary_is_bound_to_original(self):
         context={'task':'Original task','answer':'Original answer'};saved=copy.deepcopy(context);snap=coding_snapshot(context,'Summary')
         self.assertEqual(coding_effective_context(context,snap)['answer'],'Summary');self.assertEqual(context,saved)
