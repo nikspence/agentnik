@@ -124,7 +124,17 @@ class TerminalRunTests(unittest.TestCase):
         self.assertIsNone(project_context_for_resume([machine, dict(prior, code_state="failed"), prior]))
 
     def test_resumed_machine_goal_requires_machine_scope_before_continuing(self):
+        self.check_resumed_machine_goal(confirm=False)
+
+    def test_confirmed_machine_goal_sends_saved_evidence_without_replaying_actions(self):
+        self.check_resumed_machine_goal(confirm=True)
+
+    def check_resumed_machine_goal(self, confirm):
+        import json
         from unittest.mock import Mock
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
         from agentnik import cli, core
         from agentnik.code_history import CodeHistory
         from agentnik.storage import Store
@@ -137,7 +147,7 @@ class TerminalRunTests(unittest.TestCase):
             store = Store(data)
             try:
                 store.save_connection("Other", {"url": "https://example.org/v1", "model": "other"})
-                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture", "stream": False})
                 history = CodeHistory(store, root)
                 record, task = history.start("Fixture", {"model": "fixture"}, "Review machine logs", session,
                                              goal=True, machine_scope=True)
@@ -152,11 +162,13 @@ class TerminalRunTests(unittest.TestCase):
             composer = Mock()
             composer.prompt.side_effect = ["/sessions", "/continue", "/scope machine", "/connection Other",
                                            "/continue", "/connection Fixture", "/permissions allow-all", "/continue", "/exit"]
+            done = call("set_goal_status", {"status": "completed", "detail": "Current state reviewed."})
             argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", session]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
-                    patch("builtins.input", return_value="") as confirmation, \
-                    patch.object(core, "open_request") as request, \
+                    patch("builtins.input", return_value="y" if confirm else "") as confirmation, \
+                    patch.object(core, "open_request", side_effect=[Wire(chat(calls=[done], finish="tool_calls"), False),
+                                                                   Wire(chat("Current state reviewed."), False)]) as request, \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             self.assertIn("That goal ran in machine scope. Use /scope machine before continuing.", output.getvalue())
@@ -167,7 +179,17 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Continue using connection 'Fixture', model 'fixture', in machine scope with permissions allow-all.",
                           output.getvalue())
             confirmation.assert_called_once_with("Continue this goal with fresh limits? [y/N] ")
-            request.assert_not_called()
+            if confirm:
+                self.assertEqual(request.call_count, 2)
+                body = request.call_args_list[0].args[2]
+                messages = json.dumps(body["messages"])
+                self.assertIn("Review machine logs", messages)
+                self.assertIn("Stopped diagnostic.", messages)
+                self.assertIn("do not repeat uncertain actions", messages)
+                self.assertNotIn("Check project status", messages)
+                self.assertIn("machine_read_file", {tool["function"]["name"] for tool in body["tools"]})
+            else:
+                request.assert_not_called()
 
     def test_switching_scope_pauses_and_restores_project_context(self):
         import json
