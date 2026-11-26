@@ -11,6 +11,62 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_headless_local_mcp_checks_approvals_and_executes_a_fixture_tool(self):
+        import sys
+        from textwrap import dedent
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.storage import Store
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        server_code = dedent("""
+            import json, sys
+            for line in sys.stdin:
+                message = json.loads(line)
+                method = message["method"]
+                if method == "initialize":
+                    result = {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}},
+                              "serverInfo": {"name": "fixture", "version": "1"}}
+                elif method == "tools/list":
+                    result = {"tools": [{"name": "hello", "description": "Return a greeting",
+                                         "inputSchema": {"type": "object"}}]}
+                elif method == "tools/call":
+                    result = {"content": [{"type": "text", "text": "Hello from the local fixture"}]}
+                else:
+                    continue
+                print(json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}), flush=True)
+        """)
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            store = Store(root / "data")
+            try:
+                store.save_connection("Fixture", {"url": "https://gateway.example/v1", "model": "test",
+                                                  "protocol": "chat", "stream": False})
+                store.config["mcp_servers"] = [{"name": "Local Fixture", "command": sys.executable,
+                                                 "args": ["-u", "-c", server_code], "enabled": True}]
+                store.flush()
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ["/connection Fixture", "/mcp use Local Fixture", "Run greeting", "/exit"]
+            output = io.StringIO()
+            with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(root / "data")]), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("builtins.input", side_effect=["y", "y"]) as approval, \
+                    patch.object(core, "open_request", side_effect=[
+                        Wire(chat(calls=[call("mcp_discover", {})], finish="tool_calls"), False),
+                        Wire(chat(calls=[call("mcp_call", {"tool": "hello", "arguments": "{}"})],
+                                  finish="tool_calls"), False),
+                        Wire(chat("Done"), False),
+                    ]) as transport, contextlib.redirect_stdout(output):
+                self.assertEqual(cli.main(), 0)
+            self.assertEqual(approval.call_count, 2, output.getvalue())
+            self.assertEqual(transport.call_count, 3, output.getvalue())
+            self.assertIn("Hello from the local fixture", str(transport.call_args_list[2].args[2]))
+
     def test_only_lease_owner_can_recover_an_interrupted_goal(self):
         from agentnik.code_history import CodeHistory, goal_continuation
         from agentnik.code_lease import SessionLease

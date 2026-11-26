@@ -175,6 +175,7 @@ def terminal_session(options, root, lease, images):
         print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
     discovered = {}
+    mcp_selection = None
     context = None
     use_context = True
     last_record = None
@@ -218,6 +219,7 @@ def terminal_session(options, root, lease, images):
                   "/vision on|off    Allow the coding model to inspect project images\n"
                   "/thinking on|off  Show model-provided thinking when available\n"
                   "/skills           List, preview or select project and user skills\n"
+                  "/mcp              List local MCP servers or select one for this session\n"
                   "/permissions      Set project and shell approval for this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
@@ -225,6 +227,27 @@ def terminal_session(options, root, lease, images):
                   "/sessions         List saved sessions for the current project\n"
                   "/resume ID        Resume a saved session (or use latest)\n"
                   "/exit             Close Agentnik Code")
+        elif command == "/mcp off":
+            mcp_selection = None
+            print("MCP disabled in this session.")
+        elif command == "/mcp" or command.startswith("/mcp use "):
+            from .code_terminal import terminal_mcp_profiles, terminal_text
+
+            try:
+                profiles = terminal_mcp_profiles(options.data_dir)
+                if command == "/mcp":
+                    for profile in profiles:
+                        print(terminal_text(profile["name"]))
+                    print("Use /mcp use NAME or /mcp off. Manage enabled profiles under /settings mcp.")
+                else:
+                    name = command.removeprefix("/mcp use ").strip()
+                    selected = next((profile for profile in profiles if profile["name"] == name), None)
+                    if selected is None:
+                        raise ValueError("Choose an enabled local MCP server.")
+                    mcp_selection = selected
+                    print("Selected MCP server. Terminal Code will ask before starting it or calling a tool.")
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                print(terminal_text(exc), file=sys.stderr)
         elif command == "/attachments" or command == "/attachments clear":
             if command.endswith(" clear"):
                 documents.clear()
@@ -368,6 +391,7 @@ def terminal_session(options, root, lease, images):
             last_record = None
             web_enabled = False
             vision_enabled = False
+            mcp_selection = None
             show_thinking = False
             skill_pins = {}
             documents.clear()
@@ -453,6 +477,7 @@ def terminal_session(options, root, lease, images):
                 use_context = True
                 web_enabled = False
                 vision_enabled = False
+                mcp_selection = None
                 show_thinking = False
                 require_approval = True
                 documents.clear()
@@ -537,7 +562,8 @@ def terminal_session(options, root, lease, images):
                 if images.paths() and not vision_enabled:
                     raise ValueError("Enable /vision on or clear the queued image attachments first.")
                 connection, limits, goal_budget, research_options, advice = load_run_settings(
-                    options.data_dir, connection_name, model, web_enabled, discovered=discovered
+                    options.data_dir, connection_name, model, web_enabled,
+                    discovered=discovered, mcp_selection=mcp_selection,
                 )
                 run = CodingRun(connection, root, command, context=context if use_context and not resume else None,
                                 limits=limits,
@@ -566,6 +592,8 @@ def terminal_session(options, root, lease, images):
                             *(item.get("key") for item in research_options["web_backends"]),
                             research_options.get("image_config", {}).get("connection", {}).get("api_key"),
                             (advice or {}).get("api_key"),
+                            *(value for bridge in research_options.get("mcp_bridges", [])
+                              for value in bridge.environment_values.values()),
                         ],
                     )
                     transcript.append("Task: " + terminal_text(task) + "\n")

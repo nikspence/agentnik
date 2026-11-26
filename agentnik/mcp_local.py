@@ -9,7 +9,7 @@ from collections import deque
 from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 from .mcp_support import response_limit, initialize_request, parse_initialize, resolve_environment_references, rpc_error, server_timeout,progress_notice,created_task_id,validate_task_result,invalidate_server_list,MCPListChangedError,task_status_notice,server_log_notice
-from .mcp_remote import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
+from .mcp_tool_preview import MAX_PAGES, MAX_TOOLS, MAX_DETAILS, preview_tool, contains_secret
 from .mcp_resources import ResourcePages,TemplatePages,expand_template,parse_resource_contents,tool_resource_links,merge_resource_links
 from .mcp_prompts import PromptPages,parse_prompt_messages,validate_prompt_arguments
 from .mcp_2026 import prepare_request,parse_discovery,INPUT_REQUIRED_ERROR,LEGACY_ENVELOPE_ERRORS

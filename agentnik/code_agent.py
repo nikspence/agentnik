@@ -1204,6 +1204,8 @@ class CodingRun:
                             else:
                                 server=mcp_bridge.server
                                 proposal=({'operation':'mcp_connect','server':server['name'],'url':server['url']} if server.get('transport')=='http' else {'operation':'mcp_start','server':server['name'],'command':server['command'],'arguments':server['args'],'environment':server.get('env',{}),'working_directory':server.get('working_directory','')})
+                                if getattr(mcp_bridge,'review_required',False) is True and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                    raise ProjectToolError('MCP server start declined by the user')
                                 response=mcp_bridge.request('discover',{},runtime)
                                 if 'error' in response:raise ProjectToolError(response['error'])
                                 mcp_tools=response.get('tool_details',[]);mcp_state['task_capabilities']=response.get('task_capabilities',{});mcp_state['more_tools']=bool(response.get('more_tools',False))
@@ -1309,7 +1311,7 @@ class CodingRun:
                                 elif completion_request['kind']=='resource':target=next((item for item in (mcp_templates or []) if item['uriTemplate']==completion_request['target']),None)
                                 else:raise ValueError()
                                 from .mcp_completion import completion_params
-                                from .mcp_remote import contains_secret
+                                from .mcp_tool_preview import contains_secret
                                 completion_params(completion_request['kind'],target,completion_request['argument'],completion_request['value'],completion_request['context'])
                                 if any(secret and contains_secret(completion_request,secret) for secret in secrets):raise ValueError()
                             except (ValueError,TypeError,KeyError,UnicodeError,RecursionError):raise ProjectToolError('Choose a listed MCP prompt or resource template and valid completion arguments.') from None
@@ -1354,6 +1356,8 @@ class CodingRun:
                             response=search_cache.get(cache_key) if cacheable else None
                             cached=response is not None
                             if response is None:
+                                if getattr(mcp_bridge,'review_required',False) is True and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                    raise ProjectToolError('MCP tool call declined by the user')
                                 if self.latest_test_report is not None:self.test_report_may_be_stale=True
                                 response=mcp_bridge.request('call',{'tool':tool,'arguments':arguments},runtime)
                             else:

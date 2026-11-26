@@ -74,7 +74,18 @@ def choose_catalog_model(data_dir, name, match="", discovered=None):
     return shown[int(choice) - 1]
 
 
-def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None):
+def terminal_mcp_profiles(data_dir):
+    from .storage import Store
+
+    store = Store(data_dir)
+    try:
+        return [item for item in store.config.get("mcp_servers", [])
+                if item["enabled"] and item.get("transport") != "http"]
+    finally:
+        store.db.close()
+
+
+def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None, mcp_selection=None):
     from importlib.util import find_spec
     from . import core, tls
     from .code_research import code_research_options
@@ -95,7 +106,17 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None)
             raise ValueError("No model selected. Use /model to specify one.")
         settings = store.config["settings"]
         tls.configure(settings.get("relaxed_tls", False))
-        options = code_research_options(store, name, connection, web_enabled)
+        options = code_research_options(store, name, connection, web_enabled,
+                                        mcp_first=bool(mcp_selection) and settings.get("mcp_priority", "first") == "first")
+        if mcp_selection:
+            from .mcp_terminal import TerminalMCPBridge
+
+            if not settings.get("mcp_access_enabled", True):
+                raise ValueError("Shared MCP access is off. Use /settings mcp on or /mcp off.")
+            if mcp_selection not in store.config.get("mcp_servers", []):
+                raise ValueError("Selected MCP server changed. Select it again with /mcp use NAME.")
+            options.update(mcp_bridges=[TerminalMCPBridge(mcp_selection)],
+                           mcp_priority=settings.get("mcp_priority", "first"))
         image = validate_image_settings(settings.get("image_generation"))
         if image["enabled"]:
             if find_spec("PySide6") is None and find_spec("PIL") is None:
@@ -214,6 +235,11 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                 elif proposal.get("operation") == "image_gen":
                     fields = ("operation", "endpoint", "model", "prompt", "references",
                               "aspect_ratio", "background", "cwd", "path")
+                elif proposal.get("operation") == "mcp_start":
+                    fields = ("operation", "server", "command", "arguments", "working_directory", "environment")
+                    write("The local server runs as your user and inherits the terminal environment.")
+                elif proposal.get("operation") == "mcp_call":
+                    fields = ("operation", "server", "tool", "description", "arguments")
                 else:
                     write("This operation cannot be reviewed in the terminal preview. Rejected.")
                     run.decide(event["fingerprint"], False)
