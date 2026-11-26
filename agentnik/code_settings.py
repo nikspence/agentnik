@@ -486,6 +486,9 @@ def configure_code(store, arguments, root=None):
         ]
     run_help = "Use /settings limits NAME VALUE (or default, or unlimited where listed)."
     goal_help = "Use /settings goal steps|seconds VALUE (or default or unlimited)."
+    if arguments == ["tls"]:
+        mode = "relaxed" if settings.get("relaxed_tls") else "strict"
+        return f"TLS verification: {mode}\nUse /settings tls strict or /settings tls relaxed."
     if arguments == ["limits"]:
         return "\n".join([*run_lines, run_help])
     if arguments == ["goal"]:

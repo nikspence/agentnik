@@ -22,7 +22,7 @@ COMMANDS = (
     "/settings mcp on", "/settings mcp off", "/settings mcp priority", "/settings mcp remove",
     "/settings mcp renew", "/settings mcp signin", "/settings mcp timeout", "/settings mcp token",
     "/settings subagents", "/settings subagents reset",
-    "/settings tls strict", "/settings tls relaxed", "/settings web", "/settings web access",
+    "/settings tls", "/settings tls strict", "/settings tls relaxed", "/settings web", "/settings web access",
     "/settings web access public_fetch", "/settings web access strict_public",
     "/settings web desktop", "/settings web desktop on", "/settings web desktop off",
     "/settings web priority", "/settings web priority provider", "/settings web priority managed",

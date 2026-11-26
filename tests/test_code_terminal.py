@@ -29,6 +29,21 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_terminal_tls_status_reports_saved_mode_without_writing(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            store = Store(Path(directory))
+            try:
+                for mode in ("relaxed", "strict"):
+                    configure_code(store, ["tls", mode])
+                    with patch.object(store, "flush") as flush:
+                        self.assertIn(f"TLS verification: {mode}", configure_code(store, ["tls"]))
+                    flush.assert_not_called()
+            finally:
+                store.db.close()
+
     def test_show_saved_connection_is_read_only_and_omits_sensitive_fields(self):
         from agentnik.cli import connection_menu
         from agentnik.storage import Store
