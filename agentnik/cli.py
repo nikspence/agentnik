@@ -429,7 +429,7 @@ def terminal_session(options, root, lease, images):
             transcript.clear()
             if composer:
                 composer = open_composer()
-            print(f"Started session {session_id}. Previous sessions are available under /sessions.")
+            print(f"Started session {session_id}. Sessions with a submitted task are available under /sessions.")
         elif command == "/connections discover":
             from .core import discover
             from .code_terminal import terminal_text
@@ -499,7 +499,7 @@ def terminal_session(options, root, lease, images):
                 continue
             if not records:
                 print("No saved history for this session." if command == "/history"
-                      else "No saved session with that ID in this project.")
+                      else "No saved session with that ID in this project. Sessions are saved when a task starts.")
                 continue
             if command != "/history":
                 session_id = ident
@@ -514,12 +514,20 @@ def terminal_session(options, root, lease, images):
                 transcript.clear()
                 if composer:
                     composer = open_composer()
+                    # Keep keyboard recall independent of the shorter transcript preview.
+                    prompts = []
+                    for saved in records:
+                        for entry in reversed(saved.get("code_activity", [])):
+                            if entry["kind"] == "prompt":
+                                prompts.append(terminal_text(entry["text"]))
+                            if len(prompts) == 100:
+                                break
+                        if len(prompts) == 100:
+                            break
+                    for prompt in reversed(prompts):
+                        composer.history.append_string(prompt)
             for saved in reversed(records[:20]):
                 activity = saved.get("code_activity", [])
-                if command != "/history" and composer:
-                    for entry in activity:
-                        if entry["kind"] == "prompt":
-                            composer.history.append_string(terminal_text(entry["text"]))
                 for entry in activity[-20:]:
                     line = terminal_text(entry["text"])
                     if command == "/history":

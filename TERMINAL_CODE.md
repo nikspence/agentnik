@@ -17,7 +17,7 @@ From the folder you want to work in, run `agentnik code`. A Git repository is op
 
 ## Sessions and keyboard controls
 
-Each launch starts a separate session, even in the same project. `/new` starts another session without leaving the terminal. `/history` shows the current session and `/sessions` lists saved sessions for the project. Use `/resume ID`, or launch with `agentnik code --resume ID`. Use `latest` in place of an ID to pick the most recent session. Reopening a session sends no model request and does not replay tool actions.
+Each launch starts a separate session, even in the same project. `/new` starts another session without leaving the terminal. A session appears in `/sessions` after its first task starts. Connection and shared settings changes are saved separately, so they are still available if you exit during setup. Use `/history` to view the current session. Use `/resume ID`, or launch with `agentnik code --resume ID`. Use `latest` in place of an ID to pick the most recent saved session. Reopening a session sends no model request and does not replay tool actions. The Up key can recall up to 100 saved prompts from the reopened session, independent of the shorter transcript preview.
 
 At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T opens the transcript, and PageUp opens it and moves back. In the transcript, PageUp/PageDown or Ctrl+B/Ctrl+F move by a page, and Ctrl+U/Ctrl+D move by half a page. Ctrl+T or Q returns to the draft.
 
