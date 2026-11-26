@@ -24,6 +24,8 @@ class TerminalRunTests(unittest.TestCase):
             base = Path(directory).resolve()
             root, data = base / "project", base / "data"
             root.mkdir()
+            preserved = root / "keep.txt"
+            preserved.write_text("Keep me")
             connection = {"url": "https://gateway.example/v1", "model": "test",
                           "protocol": "chat", "stream": False}
             store = Store(data)
@@ -33,6 +35,7 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
             argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
             edit = call("write_file", {"path": "note.txt", "content": "reviewed\n"})
+            delete = call("delete_file", {"path": "keep.txt"}, ident="call-2")
             first = Mock()
             first.prompt.side_effect = ["/connection Fixture",
                                         *[f"/settings limits {key} 0" for key in
@@ -41,15 +44,16 @@ class TerminalRunTests(unittest.TestCase):
             output = io.StringIO()
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=first), \
-                    patch("builtins.input", return_value="y") as approval, \
+                    patch("builtins.input", side_effect=["y", "n"]) as approval, \
                     patch.object(core, "open_request", side_effect=[
-                        Wire(chat(calls=[edit], finish="tool_calls"), False),
+                        Wire(chat(calls=[edit, delete], finish="tool_calls"), False),
                         Wire(chat("Created the note."), False),
                     ]) as transport, contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 2, output.getvalue())
-            self.assertEqual(approval.call_count, 1, output.getvalue())
+            self.assertEqual(approval.call_count, 2, output.getvalue())
             self.assertEqual((root / "note.txt").read_text(), "reviewed\n")
+            self.assertEqual(preserved.read_text(), "Keep me")
             store = Store(data)
             try:
                 session_id, record = next(iter(CodeHistory(store, root).sessions().items()))

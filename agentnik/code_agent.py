@@ -640,7 +640,7 @@ class CodingRun:
         self.usage={role:self._empty_usage() for role in ('Model','Subagent')}
         self.show_thinking=False
         self.stream_activity=False
-        self.review_text_edits=False
+        self.review_project_edits=False
 
     @staticmethod
     def _empty_usage():
@@ -1862,7 +1862,7 @@ class CodingRun:
                         elif call.name=='read_file_range':result=project.read_range(args['path'],args['start_line'],args['end_line'])
                         elif call.name=='apply_patch':
                             proposal=project.patch(args['path'],args['old_text'],args['new_text'])
-                            if self.review_text_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'edit_proposal'):
+                            if self.review_project_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'edit_proposal'):
                                 raise ProjectToolError('File patch declined by the user')
                             event('output',text='Applying project patch: '+args['path']);check_project_mutation()
                             files.apply(proposal,check_project_mutation);applied_event('patch',args['path'],proposal['diff'])
@@ -1886,6 +1886,8 @@ class CodingRun:
                         elif call.name=='search_project':result=files.search_project(args['path'],args['query'],runtime.check)
                         elif call.name in ('delete_file','create_directory'):
                             proposal=files.delete_proposal(args['path']) if call.name=='delete_file' else files.directory_proposal(args['path'])
+                            if self.review_project_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                raise ProjectToolError('File operation declined by the user')
                             event('output',text='Applying project '+call.name+': '+args['path']);check_project_mutation()
                             files.apply_operation(proposal,check_project_mutation);applied_event(call.name,args['path'],proposal['diff'])
                             result={'applied':True,'operation':call.name,'path':args['path']}
@@ -1896,6 +1898,8 @@ class CodingRun:
                                 destination=(Path(args['path']).parent/name).as_posix()
                             else:destination=args['destination']
                             proposal=files.move_proposal(args['path'],destination)
+                            if self.review_project_edits and not review(dict(proposal,cwd=str(files.root)),lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                raise ProjectToolError('File move declined by the user')
                             event('output',text='Moving project file: '+args['path']+' -> '+destination);check_project_mutation()
                             files.apply_move(proposal,check_project_mutation);applied_event('file move',args['path']+' -> '+destination)
                             result={'applied':True,'operation':call.name,'path':args['path'],'destination':destination}
@@ -1910,6 +1914,8 @@ class CodingRun:
                             for guide in proposal['snapshot']['guides']:guidance.discover(guide)
                             if scrub(guidance.render(),secrets)!=seen_guidance:
                                 sync_guidance();raise GuidanceError('New directory guidance was loaded. Review the scoped instructions and reconsider the move before reissuing it.')
+                            if self.review_project_edits and not review(dict(proposal,operation='move_directory',cwd=str(files.root),entries=proposal['snapshot']['entries']),lambda e:event(e.pop('kind'),**e),runtime,'operation_proposal'):
+                                raise ProjectToolError('Directory move declined by the user')
                             event('output',text='Moving project directory: '+args['path']+' -> '+destination);check_project_mutation()
                             files.apply_directory_move(proposal,check_project_mutation);project.views.clear()
                             applied_event('directory move',args['path']+' -> '+destination)
@@ -1943,7 +1949,7 @@ class CodingRun:
                             else:result={'approved':False,'operation':'run_shell'}
                         else:
                             proposal=files.proposal(args['path'],args['content'])
-                            if self.review_text_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'edit_proposal'):
+                            if self.review_project_edits and not review(proposal,lambda e:event(e.pop('kind'),**e),runtime,'edit_proposal'):
                                 raise ProjectToolError('File edit declined by the user')
                             event('output',text='Applying project edit: '+args['path']);check_project_mutation()
                             files.apply(proposal,check_project_mutation);applied_event('edit',args['path'],proposal['diff'])

@@ -88,12 +88,15 @@ def drive_run(run, write=print):
                     fields = ("cwd", "path", "diff")
                 elif proposal.get("operation") == "run_shell":
                     fields = ("cwd", "shell", "command", "max_seconds")
+                elif proposal.get("operation") in ("delete_file", "create_directory", "move_file", "move_directory"):
+                    fields = ("operation", "cwd", "path", "destination", "entries")
                 else:
                     write("This operation cannot be reviewed in the terminal preview. Rejected.")
                     run.decide(event["fingerprint"], False)
                     continue
                 for field in fields:
-                    write(f"{field}: {terminal_text(proposal[field])}")
+                    if field in proposal:
+                        write(f"{field}: {terminal_text(proposal[field])}")
                 approved = input("Approve once? [y/N] ").strip().lower() == "y"
                 run.decide(event["fingerprint"], approved)
             elif kind in ("output", "model_response", "finished"):
