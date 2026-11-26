@@ -427,10 +427,12 @@ class TerminalRunTests(unittest.TestCase):
             create = call("machine_create_file", {"path": str(report), "content": "Diagnostic report\n"}, ident="create")
             declined = base / "declined.txt"
             decline = call("machine_create_file", {"path": str(declined), "content": "Not approved"}, ident="decline")
-            directory = base / "diagnostics"
-            mkdir = call("machine_create_directory", {"path": str(directory)}, ident="mkdir")
+            diagnostics = base / "diagnostics"
+            mkdir = call("machine_create_directory", {"path": str(diagnostics)}, ident="mkdir")
+            declined_directory = base / "declined-directory"
+            decline_directory = call("machine_create_directory", {"path": str(declined_directory)}, ident="decline-dir")
             replies = iter([Wire(chat(calls=reads, finish="tool_calls"), False),
-                            Wire(chat(calls=[edit, create, mkdir, decline], finish="tool_calls"), False),
+                            Wire(chat(calls=[edit, create, mkdir, decline, decline_directory], finish="tool_calls"), False),
                             Wire(chat("Outside fixture evidence"), False),
                             Wire(chat("Project response"), False),
                             Wire(chat(calls=[create], finish="tool_calls"), False),
@@ -446,7 +448,7 @@ class TerminalRunTests(unittest.TestCase):
                     patch.object(cli, "uuid4", return_value=session), \
                     patch("agentnik.code_composer.create_composer", side_effect=open_composer), \
                     patch("agentnik.code_composer.transcript_pager") as pager, \
-                    patch("builtins.input", side_effect=["y", "y", "y", ""]) as approval, \
+                    patch("builtins.input", side_effect=["y", "y", "y", "", ""]) as approval, \
                     patch.object(core, "open_request", side_effect=send), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
@@ -456,15 +458,17 @@ class TerminalRunTests(unittest.TestCase):
             pager.assert_called_once()
             self.assertIn("Created machine file", pager.call_args.args[0])
             pager.return_value.run.assert_called_once()
-            self.assertEqual(approval.call_count, 4, output.getvalue())
+            self.assertEqual(approval.call_count, 5, output.getvalue())
             self.assertIn("operation: machine_patch_file", output.getvalue())
             self.assertIn("operation: machine_create_file", output.getvalue())
             self.assertIn("operation: machine_create_directory", output.getvalue())
             self.assertEqual(outside.read_text(encoding="utf-8"), "Outside reviewed evidence")
             self.assertEqual(report.read_bytes(), b"Diagnostic report\n")
             self.assertFalse(declined.exists())
-            self.assertTrue(directory.is_dir())
+            self.assertTrue(diagnostics.is_dir())
+            self.assertFalse(declined_directory.exists())
             self.assertIn("Machine file creation declined by the user", json.dumps(bodies[2]["messages"]))
+            self.assertIn("Machine directory creation declined by the user", json.dumps(bodies[2]["messages"]))
             self.assertIn("Permissions: require", output.getvalue())
             self.assertIn("File edits in the current scope and ordinary shell commands normally skip approval",
                           output.getvalue())
@@ -512,6 +516,20 @@ class TerminalRunTests(unittest.TestCase):
                 absolute_machine_path(path)
         for path in (r"C:\work\report.txt", r"\\server\share\report.txt"):
             self.assertEqual(absolute_machine_path(path), Path(path))
+
+    def test_machine_mkdir_does_not_replace_a_destination_created_during_review(self):
+        from agentnik.machine_files import create_machine_directory, machine_new_path
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            target = root / "diagnostics"
+            self.assertEqual(machine_new_path(str(target)), target)
+            target.write_bytes(b"other writer")
+            with self.assertRaises(FileExistsError):
+                create_machine_directory(str(target), lambda: None)
+            self.assertEqual(target.read_bytes(), b"other writer")
+            with self.assertRaisesRegex(ValueError, "existing directory"):
+                machine_new_path(str(root / "absent" / "diagnostics"))
 
     def test_machine_create_does_not_overwrite_a_file_created_after_preview(self):
         from agentnik.machine_files import create_machine_file, machine_create_preview
