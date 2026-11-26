@@ -686,6 +686,7 @@ def terminal_session(options, root, lease, images):
                     print("No stopped goal is available to continue in this session.")
                     continue
                 print(terminal_text(resume["task"]))
+                print(terminal_text(resume["evidence"]))
                 try:
                     if input("Continue this goal with fresh limits? [y/N] ").strip().lower() != "y":
                         continue

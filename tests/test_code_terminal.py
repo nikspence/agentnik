@@ -423,6 +423,7 @@ class TerminalRunTests(unittest.TestCase):
                     history.checkpoint_goal(record, {"kind": "goal_status", "status": "active",
                                                      "detail": "Draft was created."})
                     history.checkpoint_goal(record, {"kind": "goal_progress", "steps": 2, "seconds": 3.0})
+                    history.checkpoint(record, {"kind": "project_change", "label": "edit", "path": "draft.md"})
                     record = history.list(session)[0]
                     history.recover_interrupted(record, lease)
                     self.assertEqual(record["code_state"], "running")
@@ -433,6 +434,7 @@ class TerminalRunTests(unittest.TestCase):
                     self.assertEqual(goal_continuation(saved)["task"], "Finish project")
                     self.assertIn("Draft was created.", goal_continuation(saved)["evidence"])
                     self.assertIn("Recorded goal steps: 2.", goal_continuation(saved)["evidence"])
+                    self.assertIn("Applied project edit: draft.md", goal_continuation(saved)["evidence"])
             finally:
                 store.db.close()
 
