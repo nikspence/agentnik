@@ -74,7 +74,8 @@ server = ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
 Thread(target=server.serve_forever, daemon=True).start()
 args = ["-tt", "-p", "2222", "-i", "/tmp/agentnik-smoke-key", "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=accept-new", "agentnik-smoke@127.0.0.1",
-        "cd project && export TERM=xterm && exec /opt/agentnik-smoke/bin/agentnik code --data-dir ../test-data"]
+        "cd project && export TERM=xterm PYTHON_KEYRING_BACKEND=keyring.backends.fail.Keyring && "
+        "exec /opt/agentnik-smoke/bin/agentnik code --data-dir ../test-data"]
 with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.expect_exact("code>")
     session.send("/connections add SSH Fixture\r")
@@ -86,6 +87,9 @@ with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.send("synthetic-ssh-key\r")
     session.expect_exact("Store API key as plaintext")
     assert "synthetic-ssh-key" not in session.before
+    session.send("\r")
+    session.expect_exact("Credential store unavailable.")
+    session.expect_exact("without encryption?")
     session.send("y\r")
     session.expect_exact("Saved connection 'SSH Fixture'.")
     session.expect_exact("code>")
