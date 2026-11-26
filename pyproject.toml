@@ -1,15 +1,17 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentnik"
-version = "0.11.1"
+version = "0.12.0rc1"
 authors = [{name = "Nikolaus Spence"}]
-description = "Cross-platform LLM chat and System One decision desktop client"
-readme = "README.md"
+description = "Agentnik desktop chat and terminal coding with your chosen model"
+readme = "PYPI.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+classifiers = ["Development Status :: 4 - Beta", "Programming Language :: Python :: 3 :: Only", "Operating System :: OS Independent"]
 dependencies = ["keyring>=25,<26", "dulwich>=0.25,<0.26", "PyYAML>=6.0.3,<7", "regex>=2024.11.6,<2027", "jsonschema>=4.23,<5", "tree-sitter>=0.25,<0.27", "tree-sitter-javascript>=0.23,<0.26", "tree-sitter-typescript>=0.23,<0.24", "tree-sitter-go>=0.23,<0.26", "tree-sitter-rust>=0.23,<0.25", "tree-sitter-c-sharp>=0.23,<0.24", "tree-sitter-java>=0.23,<0.24"]
 
 [project.optional-dependencies]
@@ -21,6 +23,12 @@ agentnik = "agentnik.cli:main"
 
 [project.gui-scripts]
 agentnik-desktop = "agentnik.cli:desktop_main"
+
+[project.urls]
+Homepage = "https://github.com/nikspence/agentnik"
+Documentation = "https://github.com/nikspence/agentnik/blob/master/TERMINAL_CODE.md"
+Issues = "https://github.com/nikspence/agentnik/issues"
+Changelog = "https://github.com/nikspence/agentnik/blob/master/RELEASE_NOTES.md"
 
 [tool.setuptools.packages.find]
 include = ["agentnik*"]
