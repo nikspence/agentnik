@@ -3692,7 +3692,12 @@ class TerminalRunTests(unittest.TestCase):
     def test_f6_stops_stream_and_restores_input_before_scope_choice(self):
         from threading import Event
         from unittest.mock import Mock
-        from prompt_toolkit.keys import Keys
+        try:
+            from prompt_toolkit.keys import Keys
+        except ModuleNotFoundError as exc:
+            if exc.name != "prompt_toolkit":
+                raise
+            self.skipTest("prompt_toolkit is not installed")
 
         run = Mock()
         stopped = Event()

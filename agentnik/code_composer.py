@@ -49,7 +49,12 @@ def interactive_run_input(composer):
 
     if composer is None or not sys.stdin.isatty():
         return None
-    from prompt_toolkit.input import Input
+    try:
+        from prompt_toolkit.input import Input
+    except ModuleNotFoundError as exc:
+        if exc.name != "prompt_toolkit":
+            raise
+        return None
 
     source = composer.app.input
     return source if isinstance(source, Input) else None
