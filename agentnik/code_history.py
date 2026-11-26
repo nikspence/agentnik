@@ -248,6 +248,9 @@ class CodeHistory:
             record["coding_goal"].update(status=state, detail=detail[:4000])
             if "goal_progress" in result:
                 record["coding_goal_progress"] = result["goal_progress"]
+        partial = result.get("partial_response")
+        if state != "completed" and isinstance(partial, str) and partial:
+            append_code_activity(record, "output", "[Incomplete model response]\n" + partial[:2000])
         if answer:
             append_code_activity(record, "finished", answer)
         if save_context and state == "completed" and result.get("response_shown") and answer:

@@ -290,6 +290,15 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
     partial_line = False
     result = {}
     goal_detail = ""
+
+    def completed_result(result):
+        result = dict(result)
+        if goal_detail:
+            result["last_goal_detail"] = goal_detail
+        if result.get("status") in ("cancelled", "interrupted", "failed", "limited") and streamed:
+            result["partial_response"] = next(reversed(streamed.values()))[:2000]
+        return result
+
     try:
         while True:
             try:
@@ -299,7 +308,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
             if event is done:
                 if partial_line:
                     write()
-                return dict(result, last_goal_detail=goal_detail) if goal_detail else result
+                return completed_result(result)
             kind = event["kind"]
             if checkpoint and kind in ("goal_status", "goal_progress"):
                 try:
@@ -428,7 +437,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
         detail = ("Cancelled locally. A submitted request may still finish on its server. "
                   "Check the project before continuing. Agentnik will not replay the request.")
         write(detail)
-        return {"status": "cancelled", "text": detail, "last_goal_detail": goal_detail}
+        return completed_result({"status": "cancelled", "text": detail, "last_goal_detail": goal_detail})
     finally:
         run.stop()
         thread.join()

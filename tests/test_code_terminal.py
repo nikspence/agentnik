@@ -2727,6 +2727,32 @@ class TerminalRunTests(unittest.TestCase):
             drive_run(run)
         self.assertEqual(output.getvalue(), "Already shown.\nTool activity\n New ending.\n")
 
+    def test_interrupted_stream_is_saved_as_activity_not_context(self):
+        from unittest.mock import Mock
+        from agentnik.code_history import CodeHistory, activity_preview, goal_continuation
+        from agentnik.storage import Store
+
+        run = Mock()
+        run.run.side_effect = lambda emit: emit(
+            {"kind": "model_delta", "stream_id": "partial", "text": "Partial fixture answer."})
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = drive_run(run)
+        self.assertEqual(result["status"], "interrupted")
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            store = Store(root / "data")
+            try:
+                history = CodeHistory(store, root)
+                ident = str(uuid4())
+                record, task = history.start("Fixture", {"model": "fixture"}, "Run a goal", ident, goal=True)
+                history.finish(record, task, result)
+                saved, = history.list(ident)
+                self.assertIn("[Incomplete model response]\nPartial fixture answer.", activity_preview(saved))
+                self.assertNotIn("coding_context", saved)
+                self.assertNotIn("Partial fixture answer.", goal_continuation(saved)["evidence"])
+            finally:
+                store.db.close()
+
     def test_terminal_reports_missing_worker_result_without_echoing_exception(self):
         from unittest.mock import Mock
 
