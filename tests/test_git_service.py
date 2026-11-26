@@ -23,6 +23,29 @@ class GitServiceTests(unittest.TestCase):
                 self.assertNotIn('secret',str(result));self.assertNotIn('private-token',str(result));self.assertNotIn('example.invalid',str(result))
             finally:repo.close()
 
+    def test_terminal_diff_shows_a_mode_only_change_staged_in_the_index(self):
+        from dataclasses import replace
+        from agentnik.code_terminal import project_diff
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            with porcelain.init(root) as repo:
+                path = root / "sample.sh"
+                path.write_bytes(b"echo fixture\n")
+                porcelain.add(repo, [path.name])
+                porcelain.commit(repo, message=b"Initial", author=b"Test <test@example.invalid>",
+                                 committer=b"Test <test@example.invalid>", no_verify=True, sign=False)
+                index = repo.open_index()
+                entry = index[b"sample.sh"]
+                index[b"sample.sh"] = replace(entry, mode=0o100755 if entry.mode == 0o100644 else 0o100644)
+                index.write()
+
+                self.assertIn("Staged: 'sample.sh'", project_diff(root, ""))
+                staged = project_diff(root, "--staged sample.sh")
+                self.assertEqual(staged.splitlines(), [
+                    f"old mode {entry.mode:o}", f"new mode {index[b'sample.sh'].mode:o}",
+                ])
+
     def test_review_commit_and_conflicts(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);repo=porcelain.init(folder)

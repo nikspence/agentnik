@@ -336,7 +336,17 @@ class GitService:
                 head = None
             if action == 'git_diff_staged':
                 key=self.key(path);index=repo.open_index()
-                return {'path':path,'diff':self.diff(self.base(repo,path),self.index_text(repo,index,key),path)}
+                diff = self.diff(self.base(repo,path),self.index_text(repo,index,key),path)
+                if head is not None and key in index:
+                    try:
+                        old_mode, _ = repo[repo[head].tree].lookup_path(repo.object_store.__getitem__, key)
+                    except KeyError:
+                        pass
+                    else:
+                        new_mode = index[key].mode
+                        if old_mode != new_mode:
+                            diff = f'old mode {old_mode:o}\nnew mode {new_mode:o}\n' + diff
+                return {'path':path,'diff':diff}
             if action == 'git_log':
                 return {'commits': [{'id': e.commit.id.decode(), 'message': e.commit.message.decode('utf-8', 'replace')[:1000]} for e in repo.get_walker(max_entries=20)]}
             if action == 'git_branches':
@@ -344,8 +354,9 @@ class GitService:
             if action == 'git_status':
                 index=repo.open_index()
                 from dulwich.object_store import iter_tree_contents
-                base={e.path:e.sha for e in iter_tree_contents(repo.object_store,repo[head].tree)} if head is not None else {}
-                staged=[p for p in set(base)|set(index) if base.get(p)!=(index[p].sha if p in index else None)]
+                base={e.path:(e.mode,e.sha) for e in iter_tree_contents(repo.object_store,repo[head].tree)} if head is not None else {}
+                staged=[p for p in sorted(set(base)|set(index))
+                        if base.get(p)!=((index[p].mode,index[p].sha) if p in index else None)]
                 unstaged=[]
                 for key in list(index)[:128]:
                     try:
