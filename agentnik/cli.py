@@ -175,7 +175,7 @@ def terminal_session(options, root, lease, images):
         print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
     discovered = {}
-    mcp_selection = None
+    mcp_selection = []
     context = None
     use_context = True
     last_record = None
@@ -219,7 +219,7 @@ def terminal_session(options, root, lease, images):
                   "/vision on|off    Allow the coding model to inspect project images\n"
                   "/thinking on|off  Show model-provided thinking when available\n"
                   "/skills           List, preview or select project and user skills\n"
-                  "/mcp              List MCP servers or select one for this session\n"
+                  "/mcp              List or select MCP servers for this session\n"
                   "/permissions      Set project and shell approval for this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
@@ -228,23 +228,39 @@ def terminal_session(options, root, lease, images):
                   "/resume ID        Resume a saved session (or use latest)\n"
                   "/exit             Close Agentnik Code")
         elif command == "/mcp off":
-            mcp_selection = None
+            mcp_selection.clear()
             print("MCP disabled in this session.")
-        elif command == "/mcp" or command.startswith("/mcp use "):
+        elif command.startswith("/mcp remove "):
+            name = command.removeprefix("/mcp remove ").strip()
+            mcp_selection = [profile for profile in mcp_selection if profile["name"] != name]
+            print("Updated the session’s MCP selection.")
+        elif command == "/mcp" or command.startswith(("/mcp use ", "/mcp add ")):
             from .code_terminal import terminal_mcp_profiles, terminal_text
 
             try:
                 profiles = terminal_mcp_profiles(options.data_dir)
                 if command == "/mcp":
+                    for index, profile in enumerate(mcp_selection, 1):
+                        print(terminal_text(f"Selected {index}: {profile['name']}"))
                     for profile in profiles:
-                        print(terminal_text(profile["name"]))
-                    print("Use /mcp use NAME or /mcp off. Manage enabled profiles under /settings mcp.")
+                        print(terminal_text(f"Available: {profile['name']}"))
+                    print("Use /mcp use NAME to replace the selection, /mcp add NAME, /mcp remove NAME, or /mcp off.")
                 else:
-                    name = command.removeprefix("/mcp use ").strip()
+                    action, _, name = command.removeprefix("/mcp ").partition(" ")
+                    name = name.strip()
                     selected = next((profile for profile in profiles if profile["name"] == name), None)
                     if selected is None:
                         raise ValueError("Choose an enabled local or HTTPS MCP server without OAuth.")
-                    mcp_selection = selected
+                    if action == "use":
+                        mcp_selection = [selected]
+                    else:
+                        existing = [profile for profile in mcp_selection if profile["name"] != name]
+                        if len(existing) >= 5:
+                            raise ValueError("Select at most five MCP servers.")
+                        if len(existing) < len(mcp_selection):
+                            mcp_selection = [selected if profile["name"] == name else profile for profile in mcp_selection]
+                        else:
+                            mcp_selection.append(selected)
                     print("Selected MCP server. Terminal Code will ask before connecting or calling a tool.")
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
@@ -391,7 +407,7 @@ def terminal_session(options, root, lease, images):
             last_record = None
             web_enabled = False
             vision_enabled = False
-            mcp_selection = None
+            mcp_selection = []
             show_thinking = False
             skill_pins = {}
             documents.clear()
@@ -477,7 +493,7 @@ def terminal_session(options, root, lease, images):
                 use_context = True
                 web_enabled = False
                 vision_enabled = False
-                mcp_selection = None
+                mcp_selection = []
                 show_thinking = False
                 require_approval = True
                 documents.clear()

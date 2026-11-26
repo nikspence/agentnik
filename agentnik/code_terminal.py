@@ -85,7 +85,37 @@ def terminal_mcp_profiles(data_dir):
         store.db.close()
 
 
-def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None, mcp_selection=None):
+def terminal_mcp_bridges(config, selection):
+    from .mcp_terminal import TerminalMCPBridge
+    from .mcp_terminal_http import TerminalHTTPMCPBridge
+
+    if not config["settings"].get("mcp_access_enabled", True):
+        raise ValueError("Shared MCP access is off. Use /settings mcp on or /mcp off.")
+    if len(selection) > 5 or len({profile["name"] for profile in selection}) != len(selection):
+        raise ValueError("Select at most five distinct MCP servers.")
+    bridges = []
+    saved = config.get("mcp_servers", [])
+    for profile in selection:
+        if profile not in saved or not profile["enabled"] or profile.get("auth_type") == "oauth":
+            raise ValueError("A selected MCP server changed or is unavailable. Reselect it or remove it.")
+        if profile.get("transport") != "http":
+            bridges.append(TerminalMCPBridge(profile))
+            continue
+        token = ""
+        if profile.get("credential_id"):
+            import keyring
+
+            try:
+                token = keyring.get_password("Agentnik", profile["credential_id"]) or ""
+            except Exception:
+                token = ""
+            if not token or len(token) > 4096 or any(not 33 <= ord(ch) <= 126 for ch in token):
+                raise ValueError("A selected MCP bearer token is unavailable or invalid.")
+        bridges.append(TerminalHTTPMCPBridge(profile, token))
+    return bridges
+
+
+def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None, mcp_selection=()):
     from importlib.util import find_spec
     from . import core, tls
     from .code_research import code_research_options
@@ -109,29 +139,7 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
         options = code_research_options(store, name, connection, web_enabled,
                                         mcp_first=bool(mcp_selection) and settings.get("mcp_priority", "first") == "first")
         if mcp_selection:
-            from .mcp_terminal import TerminalMCPBridge
-
-            if not settings.get("mcp_access_enabled", True):
-                raise ValueError("Shared MCP access is off. Use /settings mcp on or /mcp off.")
-            if mcp_selection not in store.config.get("mcp_servers", []):
-                raise ValueError("Selected MCP server changed. Select it again with /mcp use NAME.")
-            if mcp_selection.get("transport") == "http":
-                from .mcp_terminal_http import TerminalHTTPMCPBridge
-
-                token = ""
-                if mcp_selection.get("credential_id"):
-                    import keyring
-
-                    try:
-                        token = keyring.get_password("Agentnik", mcp_selection["credential_id"]) or ""
-                    except Exception:
-                        token = ""
-                    if not token or len(token) > 4096 or any(not 33 <= ord(ch) <= 126 for ch in token):
-                        raise ValueError("The selected MCP bearer token is unavailable or invalid.")
-                bridge = TerminalHTTPMCPBridge(mcp_selection, token)
-            else:
-                bridge = TerminalMCPBridge(mcp_selection)
-            options.update(mcp_bridges=[bridge],
+            options.update(mcp_bridges=terminal_mcp_bridges(store.config, mcp_selection),
                            mcp_priority=settings.get("mcp_priority", "first"))
         image = validate_image_settings(settings.get("image_generation"))
         if image["enabled"]:

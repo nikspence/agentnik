@@ -41,7 +41,7 @@ At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T
 | `/thinking on` | Show thinking returned by the provider, when available. |
 | `/settings decision set` / `/settings decision on` | Configure optional System One advice. At a shell approval prompt, press `a` to review and send the proposal for advice. You still approve or decline the command. |
 | `/settings mcp` | Manage desktop MCP profiles, access, tool priority, timeouts, and HTTPS bearer tokens. Setup does not start or contact a server. |
-| `/mcp` / `/mcp use NAME` / `/mcp off` | List enabled local and HTTPS profiles, select one for the session, or disable it. Code asks before starting or connecting to a server, and before tool and resource requests. |
+| `/mcp` / `/mcp use NAME` / `/mcp add NAME` | List enabled local and HTTPS profiles and select up to five in priority order. Use `/mcp remove NAME` or `/mcp off` to deselect. Code asks before starting or connecting to a server and before tool and resource requests. |
 | `/status` | Show the project, session, model selection, and active switches. |
 | `/context` | Inspect, clear, or toggle the previous task and answer carried into new turns. Explicit goal continuation uses its own saved evidence. |
 | `/attach PATH` | Queue extracted text from a project text file, DOCX, XLSX, or PPTX for the next task. With `/vision on`, you can also queue PNG, JPEG, or WebP images. Use `/attachments` to inspect the queue and `/attachments clear` to empty it. |

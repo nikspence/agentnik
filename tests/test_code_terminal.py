@@ -11,6 +11,21 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_terminal_mcp_keeps_selection_order_and_rejects_stale_profiles(self):
+        from agentnik.code_terminal import terminal_mcp_bridges
+
+        local = {"name": "Local", "command": "fixture", "args": [], "enabled": True}
+        https = {"name": "HTTPS", "transport": "http", "url": "https://example.org/mcp",
+                 "credential_id": "", "enabled": True}
+        config = {"settings": {}, "mcp_servers": [local, https]}
+        bridges = terminal_mcp_bridges(config, [https, local])
+        self.assertEqual([bridge.server["name"] for bridge in bridges], ["HTTPS", "Local"])
+        for bridge in bridges:
+            bridge.close_from_worker()
+        config["mcp_servers"] = [local, dict(https, enabled=False)]
+        with self.assertRaisesRegex(ValueError, "changed or is unavailable"):
+            terminal_mcp_bridges(config, [https, local])
+
     def test_stdio_probe_handles_silent_modern_and_delayed_legacy_servers(self):
         import sys
         from textwrap import dedent
