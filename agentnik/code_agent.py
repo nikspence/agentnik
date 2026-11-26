@@ -1020,6 +1020,16 @@ class CodingRun:
                 else:body['messages'][0]['content']=combined
             def discover_arguments(args):
                 guidance.discover('.')
+                def discover_target(path):
+                    try:
+                        guidance.discover(path)
+                    except GuidanceError:
+                        # Unreadable or oversized repository guidance still fails closed.
+                        raise
+                    except ValueError:
+                        # The tool validates its target and returns a correlated error.
+                        # Invalid paths cannot be used to load repository guidance.
+                        pass
                 if 'tasks' in args:
                     try:delegated=json.loads(args['tasks'])
                     except (ValueError,TypeError,RecursionError):delegated=[]
@@ -1028,19 +1038,19 @@ class CodingRun:
                             paths=item.get('paths',[]) if isinstance(item,dict) else []
                             images=item.get('images',[]) if isinstance(item,dict) else []
                             output_dir=item.get('output_dir','') if isinstance(item,dict) else ''
-                            if isinstance(output_dir,str) and output_dir:guidance.discover(output_dir)
+                            if isinstance(output_dir,str) and output_dir:discover_target(output_dir)
                             for group,maximum in ((paths,8),(images,4)):
                                 if isinstance(group,list) and len(group)<=maximum:
                                     for path in group:
-                                        if isinstance(path,str):guidance.discover(path)
-                if 'path' in args:guidance.discover(args['path'])
-                if 'destination' in args:guidance.discover(args['destination'])
+                                        if isinstance(path,str):discover_target(path)
+                if 'path' in args:discover_target(args['path'])
+                if 'destination' in args:discover_target(args['destination'])
                 if 'paths' in args:
                     try:paths=json.loads(args['paths'])
                     except (ValueError,TypeError):return
                     if isinstance(paths,list):
                         for path in paths:
-                            if isinstance(path,str):guidance.discover(path)
+                            if isinstance(path,str):discover_target(path)
             def review(*review_args):
                 proposal,emit,runtime,kind=review_args
                 project_arguments={} if proposal.get('operation') in ('machine_patch_file','machine_create_file','machine_create_directory') else args

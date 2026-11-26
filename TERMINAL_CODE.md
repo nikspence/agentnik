@@ -9,7 +9,7 @@ agentnik code --version
 
 For development, install from a checkout with `python -m pip install ".[terminal]"`. For a build-only wheel, dispatch the [distribution workflow](https://github.com/nikspence/agentnik/actions/workflows/publish-to-pypi.yml) with both options unchecked and use the wheel and checksums from its artifact.
 
-From the folder you want to work in, run `agentnik code`. A Git repository is optional. To work somewhere else, pass the folder as an argument. On a machine where you also use the desktop app, install `".[desktop,terminal]"` to use both. The clients share saved connections and application data. Use `--data-dir PATH` or `AGENTNIK_HOME` if you want a separate data store.
+From the folder you want to work in, run `agentnik code`. A Git repository is optional. Launching from a subfolder keeps the Code session rooted there. Native `/git` commands can still discover the enclosing Git repository. To work somewhere else, pass the folder as an argument. On a machine where you also use the desktop app, install `".[desktop,terminal]"` to use both. The clients share saved connections and application data. Use `--data-dir PATH` or `AGENTNIK_HOME` if you want a separate data store.
 
 This guide follows the current checkout. For the commands and behavior in the published v0.13.0 wheel, use the [v0.13.0 terminal guide](https://github.com/nikspence/agentnik/blob/v0.13.0/TERMINAL_CODE.md).
 

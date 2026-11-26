@@ -1485,6 +1485,57 @@ class TerminalRunTests(unittest.TestCase):
                           [call.kwargs for call in composer.prompt.call_args_list])
             request.assert_not_called()
 
+    def test_invoking_from_subfolder_keeps_file_tools_and_history_project_scoped(self):
+        from unittest.mock import Mock
+        from dulwich import porcelain
+        from agentnik import cli, core
+        from agentnik.code_history import saved_session_metadata
+        from agentnik.storage import Store
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        with TemporaryDirectory() as directory:
+            parent = Path(directory).resolve()
+            child, data = parent / "child", parent / "data"
+            child.mkdir()
+            (parent / "outside.txt").write_text("Parent-only fixture.", encoding="utf-8")
+            porcelain.init(parent).close()
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://fixture.invalid/v1",
+                                                  "model": "fixture", "protocol": "chat", "stream": False})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ["/connection Fixture", "Create the child note.", "/exit"]
+            turns = [
+                Wire(chat(calls=[call("read_file", {"path": "outside.txt"}),
+                                 call("read_file", {"path": "../outside.txt"}, ident="outside-parent")],
+                          finish="tool_calls"), False),
+                Wire(chat(calls=[call("write_file", {"path": "note.txt", "content": "Child only."}, ident="write")],
+                          finish="tool_calls"), False),
+                Wire(chat("Done."), False),
+            ]
+            argv = ["agentnik", "code", "--data-dir", str(data)]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch.object(Path, "cwd", return_value=child), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch("builtins.input", return_value="y") as approval, \
+                    patch.object(core, "open_request", side_effect=turns) as requests, \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 0)
+            self.assertEqual(approval.call_count, 1, output.getvalue())
+            self.assertEqual((child / "note.txt").read_text(encoding="utf-8"), "Child only.")
+            self.assertFalse((parent / "note.txt").exists())
+            self.assertNotIn("Parent-only fixture.", str(requests.call_args_list))
+            followup = requests.call_args_list[1].args[2]["messages"]
+            rejected = next(message for message in followup if message.get("tool_call_id") == "outside-parent")
+            self.assertIn("File operation unavailable", rejected["content"])
+            self.assertEqual(saved_session_metadata(data, parent), [])
+            session, = saved_session_metadata(data, child)
+            self.assertEqual(session["status"], "completed")
+
     def test_project_diff_can_review_first_commit_without_native_git(self):
         from dulwich import porcelain
         from agentnik.code_terminal import project_diff
