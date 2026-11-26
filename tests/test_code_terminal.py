@@ -182,7 +182,7 @@ class TerminalRunTests(unittest.TestCase):
             composer = Mock()
             composer.prompt.side_effect = ["/sessions", "/continue", "/scope machine", "/connection Other",
                                            "/continue", "/connection Fixture", "/permissions allow-all",
-                                           "/settings limits all unlimited", "/continue", "/exit"]
+                                           "/settings limits all unlimited", "/model replacement", "/continue", "/exit"]
             done = call("set_goal_status", {"status": "completed", "detail": "Current state reviewed."})
             argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", session]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
@@ -197,7 +197,9 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn(f"{session}  completed [current] [goal: cancelled]", output.getvalue())
             self.assertIn("Review machine logs", output.getvalue())
             self.assertIn("That goal used connection 'Fixture'.", output.getvalue())
-            self.assertIn("Continue using connection 'Fixture', model 'fixture', in machine scope with permissions allow-all.",
+            self.assertIn("Continue using connection 'Fixture', model 'replacement', in machine scope with permissions allow-all.",
+                          output.getvalue())
+            self.assertIn("The saved goal used model 'fixture'. Confirmation sends the saved objective and evidence to the new model.",
                           output.getvalue())
             self.assertIn("Run budgets · rounds: unlimited · requests: unlimited · tool calls: unlimited · seconds: unlimited",
                           output.getvalue())
@@ -206,6 +208,7 @@ class TerminalRunTests(unittest.TestCase):
             if confirm:
                 self.assertEqual(request.call_count, 2)
                 body = request.call_args_list[0].args[2]
+                self.assertEqual(body["model"], "replacement")
                 messages = json.dumps(body["messages"])
                 self.assertIn("Review machine logs", messages)
                 self.assertIn("Stopped diagnostic.", messages)

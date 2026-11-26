@@ -1054,6 +1054,12 @@ def terminal_session(options, root, lease, images):
                     approval_mode = "require" if require_approval else "allow-all"
                     print(terminal_text(f"Continue using connection {connection_name!r}, model {target_model!r}, "
                                         f"in {saved_scope} scope with permissions {approval_mode}."))
+                    if continuation.model and continuation.model != target_model:
+                        from .research import scrub
+
+                        prior_model = scrub(continuation.model, [connection.get("api_key")])
+                        print(terminal_text(f"The saved goal used model {prior_model!r}. "
+                                            "Confirmation sends the saved objective and evidence to the new model."))
                     from .code_limits import coding_limits, goal_limits
 
                     run_caps, goal_caps = coding_limits(limits), goal_limits(goal_budget)
