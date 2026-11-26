@@ -168,6 +168,7 @@ def main():
     connection_name = model = ""
     context = None
     web_enabled = False
+    vision_enabled = False
     require_approval = True
     session_id = str(uuid4())
     pending_command = f"/resume {options.resume}" if options.resume else None
@@ -193,6 +194,7 @@ def main():
                   "/model NAME       Override the connection model\n"
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/web on|off       Enable or disable web research for this session\n"
+                  "/vision on|off    Allow the coding model to inspect project images\n"
                   "/permissions      Set project and shell approval for this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
@@ -203,6 +205,7 @@ def main():
         elif command == "/status":
             print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
                   f" · Model: {model or '(connection default)'!r} · Web: {'on' if web_enabled else 'off'}"
+                  f" · Vision: {'on' if vision_enabled else 'off'}"
                   f" · Permissions: {'require' if require_approval else 'allow-all'}")
         elif command == "/permissions" or command.startswith("/permissions "):
             mode = command.partition(" ")[2].strip()
@@ -227,10 +230,21 @@ def main():
             web_enabled = command.endswith(" on")
             print("Web research enabled for next task. Queries may go to configured or fallback services."
                   if web_enabled else "Web research disabled.")
+        elif command in ("/vision on", "/vision off"):
+            if command == "/vision on":
+                from importlib.util import find_spec
+
+                if find_spec("PySide6") is None and find_spec("PIL") is None:
+                    print("Install the Agentnik terminal extra for headless image inspection.")
+                    continue
+            vision_enabled = command == "/vision on"
+            print("Image inspection enabled. Requested project images may be sent to the selected model."
+                  if vision_enabled else "Image inspection disabled.")
         elif command == "/new":
             session_id = str(uuid4())
             context = None
             web_enabled = False
+            vision_enabled = False
             require_approval = True
             transcript.clear()
             if composer:
@@ -289,6 +303,7 @@ def main():
             if command != "/history":
                 session_id = ident
                 web_enabled = False
+                vision_enabled = False
                 require_approval = True
                 transcript.clear()
                 if composer:
@@ -314,8 +329,10 @@ def main():
             connection_name = command.removeprefix("/connection ").strip()
             model = ""
             context = None
+            vision_enabled = False
         elif command == "/model" or command.startswith("/model "):
             model = command[6:].strip()
+            vision_enabled = False
         elif command == "/goal":
             print("Enter /goal followed by an objective.")
         elif command.startswith("/") and not command.startswith("/goal "):
@@ -336,7 +353,8 @@ def main():
                     options.data_dir, connection_name, model, web_enabled
                 )
                 run = CodingRun(connection, root, command, context=context, limits=limits,
-                                goal=goal, goal_budget=goal_budget, **research_options)
+                                goal=goal, goal_budget=goal_budget, vision_enabled=vision_enabled,
+                                **research_options)
                 run.stream_activity = True
                 run.review_project_edits = require_approval
                 run.set_shell_without_approval(not require_approval)

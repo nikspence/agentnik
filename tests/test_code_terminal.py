@@ -20,6 +20,8 @@ class TerminalRunTests(unittest.TestCase):
         from PIL import Image
         from agentnik.code_image import convert
         from agentnik.image_generation import image_bytes
+        from agentnik.code_agent import ProjectFiles
+        from agentnik.code_vision import read_image, image_message
 
         raw = io.BytesIO()
         Image.new("RGBA", (32, 18), (255, 40, 0, 80)).save(raw, "PNG")
@@ -38,6 +40,11 @@ class TerminalRunTests(unittest.TestCase):
         with Image.open(io.BytesIO(result)) as asset:
             self.assertEqual(asset.size, (32, 18))
             self.assertEqual(asset.getpixel((0, 0))[3], 80)
+        with TemporaryDirectory() as directory, patch("builtins.__import__", side_effect=no_qt):
+            (Path(directory) / "asset.webp").write_bytes(result)
+            data, mime = read_image(ProjectFiles(directory), "asset.webp")
+            message = image_message([("asset.webp", data, mime)], "chat")
+            self.assertTrue(message["content"][1]["image_url"]["url"].startswith("data:image/webp;base64,"))
 
     def test_image_settings_reject_an_override_on_another_host(self):
         from agentnik.code_settings import configure_code
