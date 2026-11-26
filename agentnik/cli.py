@@ -184,7 +184,8 @@ def terminal_session(options, root, lease, images):
         composer = None
         print("Install agentnik[terminal] for multiline editing and prompt recall.")
     else:
-        print("Enter adds a line. Alt+Enter submits. Use Up/Down to recall input and Tab for commands.")
+        print("Enter submits. Ctrl+Enter (where supported) or Ctrl+J adds a line. "
+              "Use Up/Down to recall input and Tab for commands.")
         print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
     discovered = {}

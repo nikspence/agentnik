@@ -33,6 +33,16 @@ def create_composer(transcript=lambda: "", **options):
 
     bindings = KeyBindings()
 
+    @bindings.add("enter")
+    def submit(event):
+        event.current_buffer.validate_and_handle()
+
+    @bindings.add("c-j")
+    @bindings.add("escape", "c-j")
+    def insert_newline(event):
+        # The native Windows console adapter can deliver Ctrl+Enter as Esc LF.
+        event.current_buffer.newline()
+
     @bindings.add("c-t")
     @bindings.add("pageup")
     @bindings.add("pagedown")

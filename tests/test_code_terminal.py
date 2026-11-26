@@ -603,12 +603,12 @@ class TerminalRunTests(unittest.TestCase):
 
             with create_pipe_input() as pipe:
                 composer = create_composer(input=pipe, output=DummyOutput())
-                pipe.send_text("first line\rsecond line\x1b\r")
+                pipe.send_text("first line\nsecond line\x1b\nthird line\r")
                 task = composer.prompt()
-                assert task == "first line\nsecond line"
+                assert task == "first line\nsecond line\nthird line"
                 assert composer.history.get_strings() == [task]
-                for keys, expected in (("\x1b[A\x1b\r", task),
-                                       ("draft\x1b[A\x1b[B\x1b\r", "draft")):
+                for keys, expected in (("\x1b[A\r", task),
+                                       ("draft\x1b[A\x1b[B\r", "draft")):
                     timer = Timer(0.2, pipe.send_text, args=(keys,))
                     timer.start()
                     actual = composer.prompt()
