@@ -271,22 +271,16 @@ def main():
         parser.error("application data path must be a directory")
 
     if options.list_sessions:
-        from .code_history import CodeHistory, Store
+        from .code_history import saved_session_summaries
         from .code_terminal import terminal_text
 
-        sessions = []
         try:
-            if (options.data_dir / "history.sqlite3").exists():
-                store = Store(options.data_dir, read_only_history=True)
-                try:
-                    sessions = [
-                        {"id": ident, "status": record.get("code_state", "idle"),
-                         "scope": record.get("coding_file_scope", "project"), "goal_status": goal,
-                         "updated_at": record["updated"]}
-                        for ident, (record, goal) in CodeHistory(store, root).session_summaries().items()
-                    ]
-                finally:
-                    store.db.close()
+            sessions = [
+                {"id": ident, "status": record.get("code_state", "idle"),
+                 "scope": record.get("coding_file_scope", "project"), "goal_status": goal,
+                 "updated_at": record["updated"]}
+                for ident, (record, goal) in saved_session_summaries(options.data_dir, root).items()
+            ]
         except (OSError, ValueError, sqlite3.Error) as exc:
             print(terminal_text(exc), file=sys.stderr)
             return 1
@@ -319,16 +313,10 @@ def terminal_session(options, root, lease, images):
         return f"code [{', '.join(modes)}]> " if modes else "code> "
 
     def saved_session_ids():
-        from .code_history import CodeHistory, Store
+        from .code_history import saved_session_summaries
 
         try:
-            if not (options.data_dir / "history.sqlite3").exists():
-                return ()
-            store = Store(options.data_dir, read_only_history=True)
-            try:
-                return tuple(CodeHistory(store, root).sessions())
-            finally:
-                store.db.close()
+            return tuple(saved_session_summaries(options.data_dir, root))
         except (OSError, ValueError, sqlite3.Error):
             return ()
 

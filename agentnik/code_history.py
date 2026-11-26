@@ -11,6 +11,17 @@ from .sessions import append_code_activity, coding_model_binding
 from .storage import Store
 
 
+def saved_session_summaries(data_dir, root):
+    """Read project session metadata without initializing or leasing the profile."""
+    if not (Path(data_dir) / "history.sqlite3").exists():
+        return {}
+    store = Store(data_dir, read_only_history=True)
+    try:
+        return CodeHistory(store, root).session_summaries()
+    finally:
+        store.db.close()
+
+
 def same_project(path, root):
     return os.path.normcase(str(Path(path).resolve())) == os.path.normcase(str(Path(root).resolve()))
 
