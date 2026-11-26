@@ -6,6 +6,18 @@ Run `python tools/run_offline_tests.py` with the project dependencies installed.
 
 For an optional real-server interoperability check, run `python tools/mcp_sdk_smoke.py` in an environment with MCP Python SDK 2.x installed separately. It starts a disposable SDK stdio server with synthetic in-memory data and checks discovery, a structured tool call, standalone and request-scoped server pings, a resource, a resource template, and a prompt. Add `--https` to exercise a loopback Streamable HTTP server over TLS 1.2 or newer with a temporary certificate trusted only by the test process, `--https-cancel` to check a stopped call's cancellation notification and server-side termination, `--https-resume` to verify response resumption after SDK-initiated stream closure without repeating the call, or `--https-standalone-resume` to verify standalone stream reconnection and notification replay. Use --https-oauth-discovery for metadata, --https-oauth-flow for the internal PKCE exchange, --https-oauth-refresh for token rotation, and --https-oauth-ui for the settings-to-MCP path, and --https-oauth-dynamic for dynamic registration, using a simulated browser callback and mocked credential store over verified loopback HTTPS. HTTPS also requires `cryptography` and `uvicorn`. These modes make no inference or Internet requests, and these packages are not Agentnik runtime dependencies. The check is separate from the hermetic test suite and does not qualify arbitrary servers or Internet deployments.
 
+## Code client boundary
+
+The supported VS Code workflow launches `agentnik code` in the integrated terminal. An editor can use `agentnik code --list-sessions` for project-scoped JSON metadata and launch `agentnik code --resume ID` for an explicit reopen. Pass the workspace as the working directory or a project argument. On Remote SSH, invoke the launcher on the remote host. Do not pass connection credentials as process arguments. See the [terminal guide](TERMINAL_CODE.md#launch-from-vs-code).
+
+For work on an in-process client, the following Python interfaces are internal and do not import Qt:
+
+- `code_setup` validates the selected connection and model, checks MCP profile revisions, and resolves shared policy and budgets. The client still chooses its connection and builds the appropriate MCP bridge.
+- `start_code_worker` accepts a configured Code runner and an event callback. The callback runs on the worker thread. Marshal events to the UI thread or an output queue. Use the returned worker for approval checks and decisions, steering, cancellation, and waiting for cleanup. A final result closes approval and steering controls before cleanup completes. A stale fingerprint cannot approve a different proposal.
+- `CodeHistory.prepare_resume` obtains the terminal session lease and reconstructs bounded prompt recall, context, and activity. Reopen is local and does not start a model request. Desktop Code panes still own their tab and draft lifecycle. The worker by itself does not save new turns.
+
+There is no native VS Code extension or supported cross-process protocol for rich run events yet. Treat the Python interfaces as implementation boundaries, not as a public SDK. Keep approval and cancellation decisions in the user-facing client. Do not replay actions when reconnecting.
+
 ## Qt-free SSH smoke test
 
 From the checkout, set `PREVIEW_DIR` to the absolute directory containing the extracted preview wheel and run the following in a POSIX shell. Use the fixture from the wheel's source revision, or build a wheel from the current checkout before running the current fixture. Substitute the wheel filename if it differs.
@@ -14,10 +26,10 @@ From the checkout, set `PREVIEW_DIR` to the absolute directory containing the ex
 docker run --rm \
   --mount "type=bind,src=$PREVIEW_DIR,dst=/preview,readonly" \
   --mount "type=bind,src=$PWD/tools,dst=/tools,readonly" \
-  python:3.12-slim sh -c 'tr -d "\015" </tools/ssh_terminal_smoke.sh | sh -s -- /preview/agentnik-0.12.0rc8-py3-none-any.whl'
+  python:3.12-slim sh -c 'tr -d "\015" </tools/ssh_terminal_smoke.sh | sh -s -- /preview/agentnik-0.13.0-py3-none-any.whl'
 ```
 
-The fixture installs dependencies in the disposable container, then uses a fresh non-root account and a throwaway key over loopback OpenSSH. It checks the installed launcher without Qt, credential-free connection transfer, bulk run-budget changes, a CSI-u Ctrl+Enter sequence producing one multiline request, a reviewed project edit and machine-scope directory creation, Ctrl+C cancellation, noninteractive session discovery, and exact-ID resume without replay. Reopening a machine-scope session starts in project scope. It checks that a synthetic API key does not echo and opts into plaintext storage only inside the disposable test profile. Model responses come from a loopback fixture. No live inference is used.
+The fixture installs dependencies in the disposable container, then uses a fresh non-root account and a throwaway key over loopback OpenSSH. It checks the installed launcher without Qt, credential-free connection transfer, bulk run-budget changes, a CSI-u Ctrl+Enter sequence producing one multiline request, draft recovery before connection setup, steering at an approval prompt, a reviewed project edit and machine-scope directory creation, Ctrl+C cancellation, noninteractive session discovery, and exact-ID resume without replay. Reopening a machine-scope session starts in project scope. It checks that a synthetic API key does not echo and opts into plaintext storage only inside the disposable test profile. Model responses come from a loopback fixture. No live inference is used.
 
 ## Compatibility CLI
 
