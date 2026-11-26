@@ -96,6 +96,15 @@ def _endpoint(url):
 def valid_public_client_id(value):
     return isinstance(value, str) and 0 < len(value) <= 1024 and all(33 <= ord(ch) <= 126 for ch in value)
 
+def public_registration_body(redirect, refresh_supported):
+    """Build the JSON request for a public loopback client."""
+    grants = ["authorization_code"] + (["refresh_token"] if refresh_supported is True else [])
+    return json.dumps({
+        "client_name": "Agentnik", "application_type": "native", "redirect_uris": [redirect],
+        "grant_types": grants, "response_types": ["code"], "token_endpoint_auth_method": "none",
+    }, separators=(",", ":")).encode("utf-8")
+
+
 def parse_public_registration(raw, redirect):
     """Validate the issuer response for a public loopback client."""
     result = json.loads(raw.decode("utf-8"), object_pairs_hook=_object_pairs)

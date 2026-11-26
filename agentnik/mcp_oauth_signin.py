@@ -15,7 +15,8 @@ from . import tls
 from .core import NoRedirect
 from .mcp_oauth import (
     _MAX_RESPONSE, _endpoint, _object_pairs, authorization_server_metadata_urls,
-    parse_public_registration, parse_token_response, protected_resource_metadata_urls, valid_public_client_id,
+    parse_public_registration, parse_token_response, protected_resource_metadata_urls,
+    public_registration_body, valid_public_client_id,
 )
 from .mcp_oauth_metadata import MAX_METADATA, parse_authorization_metadata, parse_resource_metadata
 from .mcp_oauth_record import make_record
@@ -126,11 +127,7 @@ def register_public_client(metadata, redirect):
     endpoint = metadata.get("registration_endpoint")
     if not endpoint:
         raise ValueError("This issuer requires a registered public OAuth client ID.")
-    body = json.dumps({
-        "client_name": "Agentnik", "application_type": "native", "redirect_uris": [redirect],
-        "grant_types": ["authorization_code"] + (["refresh_token"] if metadata.get("refresh_grant_supported") else []),
-        "response_types": ["code"], "token_endpoint_auth_method": "none",
-    }).encode("utf-8")
+    body = public_registration_body(redirect, metadata.get("refresh_grant_supported"))
     runtime = Runtime(limits=Limits(request_seconds=15, turn_seconds=15))
     try:
         url = _endpoint(endpoint).geturl()

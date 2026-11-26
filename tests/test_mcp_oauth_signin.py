@@ -29,6 +29,7 @@ class TerminalSignInTests(unittest.TestCase):
             "registration_endpoint": self.issuer + "/register",
             "pkce_s256": True,
             "public_client_supported": True,
+            "refresh_grant_supported": True,
             "authorization_response_iss_parameter_supported": True,
         }
 
@@ -56,6 +57,7 @@ class TerminalSignInTests(unittest.TestCase):
             registration_body = json.loads(registration.args[2])
             self.assertEqual(registration_body["redirect_uris"], observed["redirect_uri"])
             self.assertEqual(registration_body["token_endpoint_auth_method"], "none")
+            self.assertEqual(registration_body["grant_types"], ["authorization_code", "refresh_token"])
         self.assertEqual(observed["client_id"], ["public-client"])
         _, endpoint, body, _ = exchange.call_args.args
         form = parse_qs(body.decode())
