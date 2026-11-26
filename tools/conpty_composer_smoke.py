@@ -70,18 +70,19 @@ def main():
     try:
         expect("READY-0\r\n")
         seen = seen.split("READY-0\r\n", 1)[1]
-        expect("code> ")
+        # VT output may reset formatting between the label and its trailing space.
+        expect("code>")
         terminal.write("first line\nsecond line\r")
         draft = b"first line\nsecond line".hex()
         expect(f"SUBMITTED-0:{draft}:END")
         expect("READY-1\r\n")
         seen = seen.split("READY-1\r\n", 1)[1]
-        expect("code> ")
+        expect("code>")
         terminal.write("\x1b[A\r")
         expect(f"SUBMITTED-1:{draft}:END")
         expect("READY-2\r\n")
         seen = seen.split("READY-2\r\n", 1)[1]
-        expect("code> ")
+        expect("code>")
         # Space out the history keys as separate gestures on the console.
         terminal.write("current draft")
         sleep(0.15)
