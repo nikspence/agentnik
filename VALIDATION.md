@@ -4,7 +4,7 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
-- The build-only `0.12.0rc8` distributions from `30c5406` matched their SHA-256 checksums. The downloaded wheel passed 91 terminal tests outside the checkout in a fresh Qt-free Windows environment, with two POSIX-only skips. Publishing was skipped. [rc8 preview](https://github.com/nikspence/agentnik/actions/runs/45899455231)
+- The build-only `0.12.0rc8` distributions from `30c5406` matched their SHA-256 checksums. The downloaded wheel passed 91 terminal tests outside the checkout in a fresh Qt-free Windows environment, with two POSIX-only skips. The installed `--check-keys` command accepted a simulated two-line draft in Windows ConPTY without creating a profile. All four hosted Qt-free jobs passed. Publishing was skipped. [rc8 preview](https://github.com/nikspence/agentnik/actions/runs/45899455231) · [Hosted wheel checks](https://github.com/nikspence/agentnik/actions/runs/45899454105)
 
 - The user reported that Agentnik Code worked with their physical keyboard. The tested build and terminal emulator were not specified. This is user-reported evidence for their setup, separate from the automated PTY checks.
 
