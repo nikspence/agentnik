@@ -2459,7 +2459,7 @@ class TerminalRunTests(unittest.TestCase):
             root = Path(directory)
             ident = str(uuid4())
             composer = Mock()
-            composer.prompt.side_effect = ["/status", "/sessions", "/exit"]
+            composer.prompt.side_effect = ["/status", "/sessions", "/resume", "/open", "/exit"]
             argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.cli.uuid4", return_value=ident), \
@@ -2467,7 +2467,7 @@ class TerminalRunTests(unittest.TestCase):
                     patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             self.assertIn(f"Session: {ident}", output.getvalue())
-            self.assertIn("Your current session is saved when its first task starts.", output.getvalue())
+            self.assertEqual(output.getvalue().count("Your current session is saved when its first task starts."), 3)
             self.assertEqual(output.getvalue().count(ident), 1)
             request.assert_not_called()
 

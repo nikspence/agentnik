@@ -424,7 +424,7 @@ def terminal_session(options, root, lease, images):
                   "/history [PAGE]   Show saved turns for this session\n"
                   "/new              Start a fresh session in this project\n"
                   "/sessions [PAGE]  List saved sessions for the current project\n"
-                  "/resume ID        Resume by ID, unique prefix, or latest\n"
+                  "/resume [ID]      List sessions or resume by ID, unique prefix, or latest\n"
                   "/exit             Close Agentnik Code")
         elif command == "/mcp off":
             mcp_selection.clear()
@@ -703,13 +703,12 @@ def terminal_session(options, root, lease, images):
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
-        elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume")
-              or command.startswith("/open ") or command in ("/plan", "/goal")):
+        elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume", "/open") or command in ("/plan", "/goal")):
             from .code_history import CodeHistory, Store, activity_preview
             from .code_terminal import terminal_text
 
             action = command.split(" ", 1)[0]
-            listing = command == "/resume" or action == "/sessions"
+            listing = command in ("/resume", "/open") or action == "/sessions"
             current_only = action in ("/history", "/plan", "/goal")
             argument = command.partition(" ")[2].strip()
             if (listing or action == "/history") and argument and (
