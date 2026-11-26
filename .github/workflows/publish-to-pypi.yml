@@ -60,7 +60,7 @@ jobs:
         run: |
           git rev-parse HEAD > SOURCE-COMMIT.txt
           sha256sum -- *.whl *.tar.gz > SHA256SUMS
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: python-distributions
           path: dist/pypi/
