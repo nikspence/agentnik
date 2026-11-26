@@ -1328,6 +1328,50 @@ class TerminalRunTests(unittest.TestCase):
             composer.prompt.assert_not_called()
             self.assertIn("No saved session with that ID in this project", output.getvalue())
 
+    def test_terminal_keeps_current_session_when_a_settings_file_is_invalid(self):
+        import re
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            data = root / "data"
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
+                config_path = store.config_path
+                valid = config_path.read_bytes()
+            finally:
+                store.db.close()
+            invalid = b"{invalid fixture"
+            commands = iter(["/connection Fixture", "/status", "/settings", "/status", "/settings limits", "/exit"])
+
+            def next_command():
+                command = next(commands)
+                if command == "/settings":
+                    config_path.write_bytes(invalid)
+                elif command == "/settings limits":
+                    self.assertEqual(config_path.read_bytes(), invalid)
+                    config_path.write_bytes(valid)
+                return command
+
+            composer = Mock()
+            composer.prompt.side_effect = next_command
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request") as transport, \
+                    contextlib.redirect_stdout(io.StringIO()) as output, \
+                    contextlib.redirect_stderr(io.StringIO()) as errors:
+                self.assertEqual(cli.main(), 0)
+            transport.assert_not_called()
+            ids = re.findall(r"Session: ([a-f0-9-]+) · Connection: 'Fixture'", output.getvalue())
+            self.assertEqual(len(ids), 2)
+            self.assertEqual(ids[0], ids[1])
+            self.assertIn("model_seconds:", output.getvalue())
+            self.assertTrue(errors.getvalue())
+
     def test_history_paging_is_scoped_and_does_not_load_prompt_recall(self):
         from unittest.mock import Mock
         from agentnik import cli
