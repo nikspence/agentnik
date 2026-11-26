@@ -32,7 +32,7 @@ COMMANDS = (
     "/settings web priority", "/settings web priority provider", "/settings web priority managed",
     "/settings web providers",
     "/settings web providers set", "/settings web providers remove",
-    "/history", "/history turn ", "/plan", "/memory", "/memory show", "/memory on", "/memory off", "/new", "/sessions", "/resume", "/resume latest", "/open", "/open latest", "/exit",
+    "/draft", "/history", "/history turn ", "/plan", "/memory", "/memory show", "/memory on", "/memory off", "/new", "/sessions", "/resume", "/resume latest", "/open", "/open latest", "/exit",
 )
 
 COMPOSER_KEYS = (

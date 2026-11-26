@@ -369,9 +369,13 @@ def terminal_session(options, root, lease, images):
     skill_pins = {}
     documents = []
     session_id = str(uuid4())
+    rejected_draft = draft_to_edit = ""
+
     def reset_session_state():
         nonlocal context, use_context, last_goal_turn, web_enabled, vision_enabled, memory_enabled
         nonlocal mcp_selection, show_thinking, skill_pins, require_approval, machine_scope, composer
+        nonlocal rejected_draft, draft_to_edit
+        rejected_draft = draft_to_edit = ""
         context = last_goal_turn = None
         use_context = require_approval = True
         web_enabled = vision_enabled = memory_enabled = show_thinking = machine_scope = False
@@ -390,7 +394,11 @@ def terminal_session(options, root, lease, images):
             if pending_command:
                 command, pending_command = pending_command, None
             else:
-                command = (composer.prompt() if composer else input(prompt_label())).strip()
+                if composer and draft_to_edit:
+                    draft, draft_to_edit = draft_to_edit, ""
+                    command = composer.prompt(default=draft).strip()
+                else:
+                    command = (composer.prompt() if composer else input(prompt_label())).strip()
         except KeyboardInterrupt:
             print()
             continue
@@ -447,6 +455,7 @@ def terminal_session(options, root, lease, images):
                   "/permissions      Set project and shell approval for this session\n"
                   "/scope [MODE]     Show or set file scope for the next run (project or machine)\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
+                  "/draft           Edit a task rejected before its run started\n"
                   "/history [PAGE]   Show saved turns for this session\n"
                   "/history turn N   Show the full saved activity for turn N\n"
                   "/new              Start a fresh session in this project\n"
@@ -721,6 +730,15 @@ def terminal_session(options, root, lease, images):
                     print("Use /skills to see available actions.")
             except (OSError, ValueError) as exc:
                 print(terminal_text(exc), file=sys.stderr)
+        elif command == "/draft":
+            from .code_terminal import terminal_text
+
+            if not rejected_draft:
+                print("No rejected task draft in this session.")
+            elif composer:
+                draft_to_edit = rejected_draft
+            else:
+                print(terminal_text(rejected_draft))
         elif command == "/new":
             lease.close()
             session_id = str(uuid4())
@@ -953,8 +971,12 @@ def terminal_session(options, root, lease, images):
             if command == "//":
                 print("Enter a prompt after the escape slash.")
                 continue
+            submitted = command if command != "/continue" else ""
             if not connection_name:
                 print("Select a connection with /connection NAME first.")
+                if submitted:
+                    rejected_draft = submitted
+                    print("Use /draft to edit the unsent task.")
                 continue
             from .code_agent import CodingRun
             from .code_history import CodeHistory, Store, prepare_goal_continuation
@@ -1027,7 +1049,11 @@ def terminal_session(options, root, lease, images):
                                           show_thinking=show_thinking, machine_scope=machine_scope)
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
+                if submitted:
+                    rejected_draft = submitted
+                    print("Use /draft to edit the unsent task.")
                 continue
+            started = False
             try:
                 store = Store(options.data_dir)
                 try:
@@ -1044,6 +1070,9 @@ def terminal_session(options, root, lease, images):
                               for value in bridge.environment_values.values()),
                         ],
                     )
+                    started = True
+                    if submitted == rejected_draft:
+                        rejected_draft = ""
                     transcript.append("Task: " + terminal_text(task) + "\n")
                     documents.clear()
                     def checkpoint(event):
@@ -1066,6 +1095,9 @@ def terminal_session(options, root, lease, images):
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
+                if submitted and not started:
+                    rejected_draft = submitted
+                    print("Use /draft to edit the unsent task.")
 
 
 if __name__ == "__main__":

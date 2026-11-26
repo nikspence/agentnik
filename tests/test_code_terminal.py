@@ -2682,6 +2682,27 @@ class TerminalRunTests(unittest.TestCase):
                 finally:
                     store.db.close()
 
+    def test_terminal_can_edit_an_unsent_draft_after_startup_validation_fails(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            composer = Mock()
+            replacement = Mock()
+            draft = "//first line\nsecond line"
+            composer.prompt.side_effect = [draft, "/draft", "/new"]
+            replacement.prompt.side_effect = ["/draft", "/exit"]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", side_effect=[composer, replacement]), \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            self.assertEqual(composer.prompt.call_args.kwargs, {"default": draft})
+            self.assertIn("Use /draft to edit the unsent task.", out.getvalue())
+            self.assertIn("No rejected task draft in this session.", out.getvalue())
+            request.assert_not_called()
+
     def test_latest_resume_stops_at_first_project_turn(self):
         from unittest.mock import Mock
         from agentnik.code_history import CodeHistory
