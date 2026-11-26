@@ -447,6 +447,7 @@ def terminal_session(options, root, lease, images):
                   "/scope [MODE]     Show or set file scope for the next run (project or machine)\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history [PAGE]   Show saved turns for this session\n"
+                  "/history turn N   Show the full saved activity for turn N\n"
                   "/new              Start a fresh session in this project\n"
                   "/sessions [PAGE]  List saved sessions for the current project\n"
                   "/resume [ID]      List sessions or resume by ID, unique prefix, or latest\n"
@@ -742,9 +743,13 @@ def terminal_session(options, root, lease, images):
             listing = command in ("/resume", "/open") or action == "/sessions"
             current_only = action in ("/history", "/plan", "/goal")
             argument = command.partition(" ")[2].strip()
-            if (listing or action == "/history") and argument and (
+            detail = action == "/history" and argument.split()[:1] == ["turn"]
+            if detail:
+                argument = argument[4:].strip()
+            if (listing or action == "/history") and (argument or detail) and (
                     not argument.isascii() or not argument.isdecimal() or len(argument) > 9 or int(argument) < 1):
-                print(f"Use {action} PAGE with a positive whole page number.")
+                print("Use /history turn N with a positive whole turn number." if detail else
+                      f"Use {action} PAGE with a positive whole page number.")
                 continue
             try:
                 store = Store(options.data_dir)
@@ -799,13 +804,26 @@ def terminal_session(options, root, lease, images):
             if action == "/history":
                 page = int(argument or 1)
                 offset = (page - 1) * 20
+                if detail:
+                    if page > len(records):
+                        print("No saved turn with that number.")
+                    else:
+                        saved = records[page - 1]
+                        print(f"Saved turn {page} (newest is 1).")
+                        if saved.get("coding_file_scope") == "machine":
+                            print("[Saved turn used machine scope]")
+                        for entry in saved.get("code_activity", []):
+                            print(terminal_text(entry["text"]))
+                    continue
                 if not records:
                     print("No saved history for this session.")
                 elif offset >= len(records):
                     print("No saved turns on that page.")
                 else:
-                    for saved in reversed(records[offset:offset + 20]):
-                        for line in activity_preview(saved):
+                    end = min(offset + 20, len(records))
+                    for index in range(end - 1, offset - 1, -1):
+                        print(f"Saved turn {index + 1} (details: /history turn {index + 1})")
+                        for line in activity_preview(records[index]):
                             print(terminal_text(line))
                     if len(records) > offset + 20:
                         print(f"More saved turns are available under /history {page + 1}.")

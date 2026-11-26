@@ -2619,10 +2619,13 @@ class TerminalRunTests(unittest.TestCase):
         from agentnik import cli
 
         records = [{"code_activity": [{"kind": "prompt", "text": f"Turn {i:02d}"}]} for i in range(21)]
+        records[0]["coding_file_scope"] = "machine"
+        records[0]["code_activity"] += [{"kind": "tool", "text": f"Entry {i:02d}"} for i in range(21)]
         with TemporaryDirectory() as directory:
             root = Path(directory)
             composer = Mock()
-            composer.prompt.side_effect = ["/history", "/history 2", "/history 3", "/history 0", "/exit"]
+            composer.prompt.side_effect = ["/history", "/history 2", "/history 3", "/history 0",
+                                           "/history turn 1", "/history turn 22", "/history turn", "/exit"]
             argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
@@ -2635,7 +2638,12 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Turn 20", second)
             self.assertIn("No saved turns on that page.", second)
             self.assertIn("positive whole page number", second)
-            self.assertEqual(read.call_count, 3)
+            self.assertNotIn("Entry 00", first)
+            self.assertIn("details: /history turn 1", first)
+            self.assertIn("Saved turn 1 (newest is 1).\n[Saved turn used machine scope]\nTurn 00\nEntry 00", second)
+            self.assertIn("No saved turn with that number.", second)
+            self.assertIn("positive whole turn number", second)
+            self.assertEqual(read.call_count, 5)
             self.assertEqual(len({args.args[0] for args in read.call_args_list}), 1)
             self.assertTrue(read.call_args.args[0])
             composer.history.append_string.assert_not_called()
