@@ -44,10 +44,10 @@ TRANSCRIPT_KEYS = (
 )
 
 
-def create_composer(transcript=lambda: "", *, message="code> ", **options):
+def create_composer(transcript=lambda: "", *, message="code> ", session_ids=None, **options):
     from prompt_toolkit import PromptSession
     from prompt_toolkit.application import in_terminal
-    from prompt_toolkit.completion import WordCompleter
+    from prompt_toolkit.completion import Completer, Completion, WordCompleter
     from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
@@ -103,13 +103,31 @@ def create_composer(transcript=lambda: "", *, message="code> ", **options):
 
             event.app.create_background_task(show())
 
+    commands = WordCompleter((*COMMANDS, *setting_names, *unlimited,
+                              *(f"{name} default" for name in setting_names)), sentence=True)
+
+    class CodeCompleter(Completer):
+        def get_completions(self, document, complete_event):
+            yield from commands.get_completions(document, complete_event)
+            if session_ids is None or not complete_event.completion_requested or document.text_after_cursor:
+                return
+            action, separator, prefix = document.text_before_cursor.partition(" ")
+            if action not in ("/resume", "/open") or not separator or not prefix:
+                return
+            if any(char not in "0123456789abcdef-" for char in prefix.lower()):
+                return
+            matches = (ident for ident in session_ids() if ident.startswith(prefix.lower()))
+            for index, ident in enumerate(matches):
+                if index == 20:
+                    break
+                yield Completion(ident, start_position=-len(prefix), display_meta="saved session")
+
     return PromptSession(
         message,
         multiline=True,
         prompt_continuation=" ...> ",
         history=InMemoryHistory(),
-        completer=WordCompleter((*COMMANDS, *setting_names, *unlimited,
-                                 *(f"{name} default" for name in setting_names)), sentence=True),
+        completer=CodeCompleter(),
         complete_while_typing=False,
         key_bindings=bindings,
         enable_open_in_editor=False,

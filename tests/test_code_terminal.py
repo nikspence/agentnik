@@ -465,7 +465,7 @@ class TerminalRunTests(unittest.TestCase):
                              "/status", "Resumed task", "/exit"])
             labels = {}
 
-            def open_composer(*, transcript, message):
+            def open_composer(*, transcript, message, session_ids):
                 def prompt():
                     command = next(commands)
                     labels[command] = message()
@@ -1541,6 +1541,28 @@ class TerminalRunTests(unittest.TestCase):
                     completions = composer.completer.get_completions(
                         Document(partial), CompleteEvent(completion_requested=True))
                     self.assertIn(expected, [item.text for item in completions])
+
+    def test_terminal_completes_saved_session_prefix_only_on_request(self):
+        from importlib.util import find_spec
+        if find_spec("prompt_toolkit") is None:
+            self.skipTest("Terminal composer extra is not installed")
+        from unittest.mock import Mock
+        from agentnik.code_composer import create_composer
+        from prompt_toolkit.completion import CompleteEvent
+        from prompt_toolkit.document import Document
+        from prompt_toolkit.input import create_pipe_input
+        from prompt_toolkit.output import DummyOutput
+
+        ident = "abcd1234-0000-4000-a000-123456789abc"
+        lookup = Mock(return_value=[ident, "ffff1234-0000-4000-a000-123456789abc"])
+        with create_pipe_input() as pipe:
+            composer = create_composer(input=pipe, output=DummyOutput(), session_ids=lookup)
+            for command in ("/resume", "/open"):
+                draft = Document(command + " ABCD")
+                list(composer.completer.get_completions(draft, CompleteEvent(text_inserted=True)))
+                matches = list(composer.completer.get_completions(draft, CompleteEvent(completion_requested=True)))
+                self.assertEqual([(item.text, item.start_position) for item in matches], [(ident, -4)])
+        self.assertEqual(lookup.call_count, 2)
 
     def test_terminal_composer_keeps_newlines_and_records_submitted_input(self):
         from importlib.util import find_spec

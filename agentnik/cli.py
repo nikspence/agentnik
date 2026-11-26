@@ -318,8 +318,22 @@ def terminal_session(options, root, lease, images):
                  if enabled]
         return f"code [{', '.join(modes)}]> " if modes else "code> "
 
+    def saved_session_ids():
+        from .code_history import CodeHistory, Store
+
+        try:
+            if not (options.data_dir / "history.sqlite3").exists():
+                return ()
+            store = Store(options.data_dir, read_only_history=True)
+            try:
+                return tuple(CodeHistory(store, root).sessions())
+            finally:
+                store.db.close()
+        except (OSError, ValueError, sqlite3.Error):
+            return ()
+
     def open_composer():
-        return create_composer(transcript=lambda: "".join(transcript), message=prompt_label)
+        return create_composer(transcript=lambda: "".join(transcript), message=prompt_label, session_ids=saved_session_ids)
 
     try:
         composer = open_composer()
