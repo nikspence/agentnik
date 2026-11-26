@@ -8,6 +8,7 @@ COMMANDS = (
     "/permissions", "/permissions require",
     "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove",
     "/context", "/context on", "/context off", "/context clear", "/attach", "/attachments", "/attachments clear",
+    "/attachments remove",
     "/settings", "/settings appearance", "/settings chat-limits", "/settings decision",
     "/settings decision set", "/settings decision on", "/settings decision off",
     "/settings git-author", "/settings git-author set", "/settings git-author clear",

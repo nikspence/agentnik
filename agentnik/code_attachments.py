@@ -52,6 +52,12 @@ class ImageQueue:
     def names(self):
         return [name for name, _, _ in self.items]
 
+    def remove(self, index):
+        name, path, _ = self.items[index]
+        path.unlink(missing_ok=True)
+        del self.items[index]
+        return name
+
     def add(self, path):
         if len(self.items) >= 4:
             raise ValueError("Attach up to four images per task.")

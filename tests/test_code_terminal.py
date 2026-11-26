@@ -794,6 +794,7 @@ class TerminalRunTests(unittest.TestCase):
             root.mkdir()
             asset = Path(cli.__file__).parent / "assets" / "agentnik-icon.png"
             (root / "visual.png").write_bytes(asset.read_bytes())
+            (root / "discard.png").write_bytes(asset.read_bytes())
             from zipfile import ZipFile
 
             brief = root / "slide brief.pptx"
@@ -822,7 +823,8 @@ class TerminalRunTests(unittest.TestCase):
             first = Mock()
             first.prompt.side_effect = ["/connection Fixture", "/connection Fxture", "/skills add notes",
                                         f'/attach "{base / "outside.txt"}"', f'/attach "{brief}"',
-                                        "/vision on", "/attach visual.png",
+                                        "/vision on", "/attach visual.png", "/attach discard.png",
+                                        "/attachments", "/attachments remove 3",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
                                         "/settngs", "//notes is an example path. Create a note.", "/context", "/context clear",
@@ -854,6 +856,8 @@ class TerminalRunTests(unittest.TestCase):
             self.assertNotIn("Outside project fixture", str(transport.call_args_list[0].args[2]))
             self.assertNotIn("Presentation fixture brief.", str(transport.call_args_list[2].args[2]))
             self.assertIn("data:image/png;base64,", str(transport.call_args_list[0].args[2]))
+            self.assertEqual(str(transport.call_args_list[0].args[2]).count("data:image/png;base64,"), 1)
+            self.assertIn("Removed queued attachment 'discard.png'.", output.getvalue())
             self.assertNotIn("data:image/png;base64,", str(transport.call_args_list[2].args[2]))
             self.assertIn("Answer:\nCreated the note.", output.getvalue())
             self.assertNotIn("Created the note.", str(transport.call_args_list[2].args[2]))

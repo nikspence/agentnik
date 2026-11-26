@@ -228,7 +228,7 @@ def terminal_session(options, root, lease, images):
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/context          Inspect, clear, or toggle previous-turn context\n"
                   "/attach PATH      Include a project image or document in the next task\n"
-                  "/attachments      List queued files; /attachments clear removes them\n"
+                  "/attachments      List queued files; remove NUMBER or clear\n"
                   "/web on|off       Enable or disable web research for this session\n"
                   "/vision on|off    Allow the coding model to inspect project images\n"
                   "/thinking on|off  Show model-provided thinking when available\n"
@@ -278,14 +278,32 @@ def terminal_session(options, root, lease, images):
                     print("Selected MCP server. Terminal Code will ask before connecting or calling a tool.")
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
-        elif command == "/attachments" or command == "/attachments clear":
-            if command.endswith(" clear"):
+        elif command == "/attachments" or command.startswith("/attachments "):
+            from .code_terminal import terminal_text
+
+            if command == "/attachments clear":
                 documents.clear()
                 images.clear()
                 print("Cleared queued attachments.")
-            else:
+            elif command == "/attachments":
                 names = [item["name"] for item in documents] + images.names()
-                print(", ".join(map(repr, names)) or "No queued attachments.")
+                print("\n".join(f"{index}. {terminal_text(name)!r}" for index, name in enumerate(names, 1))
+                      or "No queued attachments.")
+            else:
+                parts = command.split()
+                if len(parts) != 3 or parts[1] != "remove" or parts[2] not in "12345678" or len(parts[2]) != 1:
+                    print("Use /attachments remove NUMBER or /attachments clear.")
+                    continue
+                index = int(parts[2]) - 1
+                if index >= len(documents) + len(images.names()):
+                    print("No queued attachment with that number. Use /attachments to see the queue.")
+                    continue
+                try:
+                    name = documents.pop(index)["name"] if index < len(documents) else images.remove(index - len(documents))
+                except OSError:
+                    print("Could not remove the queued image.", file=sys.stderr)
+                    continue
+                print(f"Removed queued attachment {terminal_text(name)!r}.")
         elif command.startswith("/attach "):
             from xml.etree.ElementTree import ParseError
             from zipfile import BadZipFile
