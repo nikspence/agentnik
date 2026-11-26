@@ -243,6 +243,7 @@ def terminal_session(options, root, lease, images):
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/context          Inspect, clear, or toggle previous-turn context\n"
                   "/plan             Show the latest saved plan for this session\n"
+                  "/memory [show ID] Read shared project memory locally\n"
                   "/attach PATH      Include a project image or document in the next task\n"
                   "/attachments      List queued files; remove NUMBER or clear\n"
                   "/web on|off       Enable or disable web research for this session\n"
@@ -361,6 +362,13 @@ def terminal_session(options, root, lease, images):
                 print("Use /context on, /context off, or /context clear.")
             else:
                 print("Use /context to see available actions.")
+        elif command == "/memory" or command.startswith("/memory "):
+            from .code_terminal import terminal_project_memory, terminal_text
+
+            try:
+                print(terminal_project_memory(options.data_dir, root, command.partition(" ")[2].strip()))
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                print(terminal_text(exc), file=sys.stderr)
         elif command == "/git" or command.startswith("/git "):
             from .code_git_commands import manual_git
             from .code_terminal import terminal_text

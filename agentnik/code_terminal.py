@@ -25,6 +25,35 @@ def terminal_plan(value, heading="Plan update (model reported):"):
     return terminal_text("\n".join(lines))
 
 
+def terminal_project_memory(data_dir, root, argument):
+    from .code_history import same_project
+    from .project_memory import ProjectMemory
+    from .repositories import RepositoryRegistry
+    from .storage import Store
+
+    action, _, ident = argument.partition(" ")
+    if argument and (action != "show" or not ident.strip()):
+        raise ValueError("Use /memory to list project entries or /memory show ID to read one.")
+    store = Store(data_dir)
+    try:
+        registry = RepositoryRegistry(store)
+        project = next((row["id"] for row in registry.list() if same_project(row["path"], root)), None)
+        if not project:
+            return "No saved memory for this project."
+        memory = ProjectMemory(store.root / "history.sqlite3", project)
+        if action == "show":
+            item = memory.read(ident.strip())
+            if item is None:
+                raise ValueError("No memory entry with that ID in this project.")
+            header = item["title"] + (" [stale]" if item["stale"] else "")
+            source = f"\nSource: {item['source']}" if item["source"] else ""
+            return terminal_text(f"{header}\n{item['text']}{source}")
+        lines = [f"{item['id']}  {item['title']}" + (" [stale]" if item["stale"] else "") for item in memory.list()]
+        return terminal_text("\n".join(lines)) or "No saved memory for this project."
+    finally:
+        store.db.close()
+
+
 def project_diff(root, argument):
     from .code_agent import ProjectFiles
     from .git_service import GitService

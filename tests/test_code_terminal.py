@@ -1509,6 +1509,34 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_terminal_project_memory_reads_desktop_entries_without_crossing_projects(self):
+        from agentnik.code_terminal import terminal_project_memory
+        from agentnik.project_memory import ProjectMemory
+        from agentnik.repositories import RepositoryRegistry
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, other, data = (base / name for name in ("project", "other", "data"))
+            root.mkdir()
+            other.mkdir()
+            store = Store(data)
+            try:
+                registry = RepositoryRegistry(store)
+                memory = ProjectMemory(store.root / "history.sqlite3", registry.put(root))
+                saved = memory.save({"title": "Fixture", "text": "Use the local fixture.\x1b[2J",
+                                     "source": "README.md", "stale": True})
+                self.assertIn(f"{saved['id']}  Fixture [stale]", terminal_project_memory(data, root, ""))
+                detail = terminal_project_memory(data, root, f"show {saved['id']}")
+                self.assertIn("Source: README.md", detail)
+                self.assertNotIn("\x1b", detail)
+                self.assertEqual(terminal_project_memory(data, other, ""), "No saved memory for this project.")
+                registry.put(other)
+                with self.assertRaisesRegex(ValueError, "No memory entry with that ID"):
+                    terminal_project_memory(data, other, f"show {saved['id']}")
+            finally:
+                store.db.close()
+
     def test_connection_keyring_fallback_requires_explicit_consent(self):
         from keyring.errors import NoKeyringError
         from agentnik.cli import connection_menu
