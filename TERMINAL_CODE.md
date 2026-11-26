@@ -46,7 +46,7 @@ Two terminals can work in the same project using separate sessions. If another t
 | `/connections options NAME` | Change reasoning effort, service tier, context limit, or streaming. |
 | `/connections discover` | Check known loopback ports for local model services. Discovered connections last until the terminal exits. |
 | `/connections key NAME` / `/connections remove NAME` | Rotate or clear a credential, or remove a connection. |
-| `/permissions require` / `/permissions allow-all` | Require review or skip prompts for project edits and shell commands in this session. New and resumed sessions default to review. |
+| `/permissions require` / `/permissions allow-all` | Require review or skip prompts for project edits and ordinary shell commands in this session. MCP requests and commands that need separate review still prompt. New and resumed sessions default to review. |
 | `/settings` | Manage run and goal limits, TLS, desktop appearance, and other shared settings. Use `unlimited` or `0` for rounds, requests, calls, turn time, goal steps, or goal time. Model request timeouts and retained context remain bounded. |
 | `/settings limits` / `/settings goal` | Show effective run or goal limits without changing them. |
 | `/skills` | List and preview available skills, then pin the ones you want to use. |

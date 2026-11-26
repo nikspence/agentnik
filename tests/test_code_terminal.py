@@ -930,6 +930,7 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("No saved history for this session.", output.getvalue())
             self.assertIn("Permissions: require", output.getvalue())
             self.assertEqual(approval.call_count, 2, output.getvalue())
+            self.assertIn("MCP requests and shell commands that need separate review still prompt.", output.getvalue())
             self.assertEqual((root / "note.txt").read_text(), "reviewed\n")
             self.assertEqual((root / "auto.txt").read_text(), "automatic\n")
             self.assertEqual(preserved.read_text(), "Keep me")

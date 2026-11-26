@@ -367,7 +367,8 @@ def terminal_session(options, root, lease, images):
             mode = command.partition(" ")[2].strip()
             if not mode:
                 current = "require" if require_approval else "allow-all"
-                print(f"Current mode: {current}. Applies to project edits and shell commands.")
+                print(f"Current mode: {current}. Applies to project edits and ordinary shell commands. "
+                      "MCP requests still require review.")
                 try:
                     mode = input("Choose require or allow-all [Enter to keep]: ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
@@ -381,7 +382,8 @@ def terminal_session(options, root, lease, images):
             require_approval = mode == "require"
             print("Project edits and shell commands require approval for this session."
                   if require_approval else
-                  "Project edits and shell commands will run without approval for this session.")
+                  "Project edits and ordinary shell commands skip approval for this session. "
+                  "MCP requests and shell commands that need separate review still prompt.")
         elif command in ("/web on", "/web off"):
             web_enabled = command.endswith(" on")
             print("Web research enabled for next task. Queries may go to configured or fallback services."
