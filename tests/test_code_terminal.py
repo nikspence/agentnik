@@ -1696,6 +1696,55 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_terminal_responses_view_image_sends_render_only_after_tool_call(self):
+        import base64
+        import json
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.storage import Store
+        from test_routing import Wire, function_call, message, response
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Terminal image extra is not installed")
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            slide = root / "render.png"
+            Image.new("RGB", (160, 90), "blue").save(slide)
+            url = "data:image/png;base64," + base64.b64encode(slide.read_bytes()).decode()
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "vision",
+                                                   "protocol": "responses", "stream": False})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ["/connection Fixture", "/vision on", "Review the rendered slide.", "/exit"]
+            call = dict(function_call("inspect", '{"path":"render.png"}'), name="view_image")
+            replies = iter([Wire(response([call]), False), Wire(response([message("Slide reviewed.")]), False)])
+            bodies = []
+            def send(connection, endpoint, body, timeout):
+                bodies.append(json.loads(json.dumps(body)))
+                return next(replies)
+
+            with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(data)]), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request", side_effect=send), contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            initial, continuation = bodies
+            self.assertNotIn(url, json.dumps(initial))
+            self.assertIn("view_image", {tool.get("name") for tool in initial["tools"]})
+            self.assertTrue(any(item.get("type") == "function_call_output" and item.get("call_id") == "inspect"
+                                for item in continuation["input"]))
+            self.assertEqual([part["image_url"] for item in continuation["input"]
+                              if isinstance(item.get("content"), list)
+                              for part in item["content"] if part.get("type") == "input_image"], [url])
+            self.assertIn("Slide reviewed.", out.getvalue())
+
     def test_image_settings_reject_an_override_on_another_host(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store, load_config
