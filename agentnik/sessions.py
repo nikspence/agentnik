@@ -74,6 +74,11 @@ def validate_session(value, ident=None):
         try: chat_limits(options['limits'])
         except ValueError: require(False)
     if data['mode']=='code':
+        if 'coding_terminal_session' in data:
+            from uuid import UUID
+            session_id=data['coding_terminal_session']
+            try:require(isinstance(session_id,str) and str(UUID(session_id))==session_id)
+            except (ValueError,TypeError,AttributeError):require(False)
         if 'coding_vision_enabled' in data:require(type(data['coding_vision_enabled']) is bool)
         require(data.get('version') in (4,5))
         for field in ('project_id','project_name','path_snapshot'): require(isinstance(data.get(field),str) and bool(data[field]))

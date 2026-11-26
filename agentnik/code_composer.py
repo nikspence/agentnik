@@ -2,7 +2,7 @@
 
 COMMANDS = (
     "/help", "/status", "/connections", "/connections add", "/connection",
-    "/model", "/history", "/open", "/exit",
+    "/model", "/history", "/sessions", "/resume", "/exit",
 )
 
 

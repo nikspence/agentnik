@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+from uuid import uuid4
 
 from agentnik.code_terminal import drive_run
 from agentnik.code_stream import visible_prefix
@@ -21,14 +22,19 @@ class TerminalRunTests(unittest.TestCase):
             store = Store(base / "settings")
             history = CodeHistory(store, root)
             connection = {"model": "model", "api_key": "synthetic-secret"}
-            record, task = history.start("example", connection, "Find synthetic-secret")
+            first, second = str(uuid4()), str(uuid4())
+            record, task = history.start("example", connection, "Find synthetic-secret", first)
             self.assertNotIn("coding_context", history.list()[0])
             history.finish(record, task, {"status": "completed", "response_shown": True, "text": "Done"})
+            history.start("example", connection, "Different task", second)
             store.db.close()
             store = Store(base / "settings")
             try:
-                restored = CodeHistory(store, root).list()[0]
+                history = CodeHistory(store, root)
+                restored = history.list(first)[0]
                 self.assertEqual(restored["coding_context"], {"task": "Find [redacted]", "answer": "Done"})
+                self.assertEqual(set(history.sessions()), {first, second})
+                self.assertNotIn("coding_context", history.list(second)[0])
                 self.assertEqual(CodeHistory(store, base).list(), [])
             finally:
                 store.db.close()

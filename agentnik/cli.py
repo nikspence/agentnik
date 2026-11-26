@@ -6,6 +6,7 @@ from getpass import GetPassWarning, getpass
 from pathlib import Path
 import sqlite3
 import sys
+from uuid import uuid4
 import warnings
 
 
@@ -60,6 +61,8 @@ def main():
 
     parser = argparse.ArgumentParser(prog="agentnik code")
     parser.add_argument("--data-dir", type=Path, help="Override the application data directory")
+    parser.add_argument("--resume", nargs="?", const="latest", metavar="ID",
+                        help="Resume a session in this project (default: latest)")
     parser.add_argument("project", nargs="?", type=Path, default=Path.cwd(),
                         help="Project folder (default: current directory)")
     options = parser.parse_args(args[1:])
@@ -94,9 +97,14 @@ def main():
         print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
     context = None
+    session_id = str(uuid4())
+    pending_command = f"/resume {options.resume}" if options.resume else None
     while True:
         try:
-            command = (composer.prompt() if composer else input("code> ")).strip()
+            if pending_command:
+                command, pending_command = pending_command, None
+            else:
+                command = (composer.prompt() if composer else input("code> ")).strip()
         except KeyboardInterrupt:
             print()
             continue
@@ -111,45 +119,67 @@ def main():
                   "/connections add  Configure a new connection\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
-                  "/history          List saved turns for the current project\n"
-                  "/open ID          Open a saved turn and select its context\n"
+                  "/history          Show history for this session\n"
+                  "/sessions         List saved sessions for the current project\n"
+                  "/resume ID        Resume a saved session (or use latest)\n"
                   "/exit             Close Agentnik Code")
         elif command == "/status":
-            print(f"Project: {str(root)!r} · Connection: {connection_name or '(none)'!r}"
+            print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
                   f" · Model: {model or '(connection default)'!r}")
         elif command in ("/connections", "/connections add"):
             connection_menu(options.data_dir, command.endswith(" add"))
-        elif command == "/history" or command.startswith("/open "):
+        elif command in ("/history", "/sessions", "/resume") or command.startswith(("/open ", "/resume ")):
             from .code_history import CodeHistory, Store
             from .code_terminal import terminal_text
 
             try:
                 store = Store(options.data_dir)
                 try:
-                    records = CodeHistory(store, root).list()
+                    history = CodeHistory(store, root)
+                    sessions = history.sessions() if command != "/history" else {}
+                    ident = command.partition(" ")[2].strip()
+                    if ident == "latest":
+                        ident = next(iter(sessions), "")
+                    records = history.list(session_id if command == "/history" else ident)
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 continue
+            if command in ("/sessions", "/resume"):
+                for ident, record in list(sessions.items())[:20]:
+                    label = next((e["text"].split("\n")[0][:80] for e in record.get("code_activity", [])
+                                  if e["kind"] == "prompt"), record["title"])
+                    print(terminal_text(f"{ident}  {record.get('code_state', 'idle')}  {label}"))
+                if not sessions:
+                    print("No saved sessions for this project.")
+                continue
+            if not records:
+                print("No saved history for this session." if command == "/history"
+                      else "No saved session with that ID in this project.")
+                continue
+            if command != "/history":
+                session_id = ident
+                transcript.clear()
+                if composer:
+                    composer = create_composer(transcript=lambda: "".join(transcript))
+            for saved in reversed(records[:20]):
+                for entry in saved.get("code_activity", [])[-20:]:
+                    line = terminal_text(entry["text"])
+                    if command == "/history":
+                        print(line)
+                    else:
+                        write_activity(line)
+                        if composer and entry["kind"] == "prompt":
+                            composer.history.append_string(line)
             if command == "/history":
-                for record in records[:20]:
-                    print(terminal_text(f"{record['id']}  {record.get('code_state', 'idle')}  {record['title']}"))
-                if not records:
-                    print("No saved turns for this project.")
                 continue
-            ident = command.removeprefix("/open ").strip()
-            record = next((item for item in records if item["id"] == ident), None)
-            if record is None:
-                print("No saved turn with that ID in this project.")
-                continue
-            for entry in record.get("code_activity", [])[-20:]:
-                write_activity(terminal_text(entry["text"]))
+            record = records[0]
             context = record.get("coding_context") if record.get("code_state") == "completed" else None
             binding = record.get("coding_models", {}).get("model", {})
             connection_name = binding.get("connection", "")
             model = binding.get("model", "")
-            print("Opened saved turn. Enter a new task when ready. Nothing was restarted.")
+            print(f"Resumed session {session_id}. Enter a new task when ready. Nothing was restarted.")
         elif command.startswith("/connection "):
             connection_name = command.removeprefix("/connection ").strip()
             model = ""
@@ -180,7 +210,7 @@ def main():
                 store = Store(options.data_dir)
                 try:
                     history = CodeHistory(store, root)
-                    record, task = history.start(connection_name, connection, command)
+                    record, task = history.start(connection_name, connection, command, session_id)
                     result = drive_run(run, write_activity)
                     history.finish(record, task, result)
                     context = record.get("coding_context")

@@ -1,4 +1,4 @@
-"""Project-scoped terminal history backed by the desktop session store."""
+"""Independent terminal sessions backed by the shared Code history store."""
 
 import os
 from pathlib import Path
@@ -18,11 +18,22 @@ class CodeHistory:
         self.store = store
         self.root = root
 
-    def list(self):
+    def list(self, session_id=None):
         return [item for item in self.store.list_sessions()
-                if item["mode"] == "code" and same_project(item["path_snapshot"], self.root)]
+                if item["mode"] == "code" and same_project(item["path_snapshot"], self.root)
+                and (session_id is None or self.session_id(item) == session_id)]
 
-    def start(self, name, connection, task):
+    @staticmethod
+    def session_id(record):
+        return record.get("coding_terminal_session", record["id"])
+
+    def sessions(self):
+        latest = {}
+        for record in self.list():
+            latest.setdefault(self.session_id(record), record)
+        return latest
+
+    def start(self, name, connection, task, session_id=None):
         registry = RepositoryRegistry(self.store)
         project = next((row["id"] for row in registry.list() if same_project(row["path"], self.root)), None)
         if project is None:
@@ -32,6 +43,8 @@ class CodeHistory:
         task = scrub(task, [key])[:2048]
         record.update(code_state="running", coding_last_run_goal=False,
                       coding_models={"model": {"connection": name, "model": connection["model"]}})
+        if session_id:
+            record["coding_terminal_session"] = session_id
         append_code_activity(record, "prompt", task)
         self.store.save(record)
         return record, task
