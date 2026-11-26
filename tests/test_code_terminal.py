@@ -542,6 +542,22 @@ class TerminalRunTests(unittest.TestCase):
                 create_machine_file(str(path), data, parent, lambda: None)
             self.assertEqual(path.read_bytes(), b"other writer")
 
+    @unittest.skipUnless(os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY"),
+                         "Directory handles for relative file creation")
+    def test_machine_creation_parent_uses_and_closes_the_verified_handle(self):
+        from agentnik.machine_files import creation_parent, machine_new_path
+
+        with TemporaryDirectory() as directory:
+            target = Path(directory).resolve() / "report.txt"
+            observed = machine_new_path(str(target))
+            with creation_parent(target, observed, os.open) as (name, handle):
+                self.assertEqual(name, "report.txt")
+                self.assertIsNotNone(handle)
+                parent = os.fstat(handle)
+                self.assertEqual((parent.st_dev, parent.st_ino), observed)
+            with self.assertRaises(OSError):
+                os.fstat(handle)
+
     def test_machine_creation_stops_if_the_reviewed_parent_is_replaced(self):
         from agentnik.machine_files import create_machine_directory, create_machine_file, machine_create_preview, machine_new_path
 
