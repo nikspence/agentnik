@@ -2700,6 +2700,36 @@ class TerminalRunTests(unittest.TestCase):
                 finally:
                     store.db.close()
 
+    def test_terminal_model_change_clears_automatic_context_without_changing_history(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_history import CodeHistory
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "data"
+            ident = str(uuid4())
+            store = Store(data)
+            try:
+                history = CodeHistory(store, root)
+                record, task = history.start("Fixture", {"model": "old"}, "Saved task", ident)
+                history.finish(record, task, {"status": "completed", "text": "Saved answer", "response_shown": True})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ["/model new", "/context", "/history", "/exit"]
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", ident]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            self.assertIn("Previous project context restored.", out.getvalue())
+            self.assertIn("Previous-turn context cleared for the new model.", out.getvalue())
+            self.assertIn("No previous-turn context is available.", out.getvalue())
+            self.assertIn("Saved answer", out.getvalue().split("No previous-turn context is available.", 1)[1])
+            request.assert_not_called()
+
     def test_terminal_check_summary_only_exposes_selected_local_fields(self):
         from agentnik.code_terminal import run_settings_summary
 

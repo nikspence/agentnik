@@ -360,6 +360,7 @@ def terminal_session(options, root, lease, images):
     discovered = {}
     mcp_selection = []
     context = None
+    context_model = ""
     use_context = True
     last_goal_turn = None
     web_enabled = False
@@ -391,12 +392,23 @@ def terminal_session(options, root, lease, images):
             mcp_selection=mcp_selection, root=root, memory_enabled=memory_enabled,
         )
 
+    def change_model(selected):
+        nonlocal model, context, context_model, vision_enabled, memory_enabled
+        if selected != model:
+            model = selected
+            if context:
+                print("Previous-turn context cleared for the new model. Saved history is unchanged.")
+            context = None
+            context_model = ""
+            vision_enabled = memory_enabled = False
+
     def reset_session_state():
-        nonlocal context, use_context, last_goal_turn, web_enabled, vision_enabled, memory_enabled
+        nonlocal context, context_model, use_context, last_goal_turn, web_enabled, vision_enabled, memory_enabled
         nonlocal mcp_selection, show_thinking, skill_pins, require_approval, machine_scope, composer
         nonlocal rejected_draft, draft_to_edit
         rejected_draft = draft_to_edit = ""
         context = last_goal_turn = None
+        context_model = ""
         use_context = require_approval = True
         web_enabled = vision_enabled = memory_enabled = show_thinking = machine_scope = False
         mcp_selection = []
@@ -933,6 +945,7 @@ def terminal_session(options, root, lease, images):
             skill_pins = snapshot.skill_pins
             context = snapshot.project_context
             connection_name, model = snapshot.connection, snapshot.model
+            context_model = model if context else ""
             if "coding_plan" in record:
                 from .code_terminal import terminal_plan
 
@@ -972,6 +985,7 @@ def terminal_session(options, root, lease, images):
                 connection_name = name
                 model = ""
                 context = None
+                context_model = ""
                 vision_enabled = False
                 memory_enabled = False
             print(f"Selected connection {name!r}.")
@@ -988,17 +1002,11 @@ def terminal_session(options, root, lease, images):
                 print(terminal_text(exc), file=sys.stderr)
                 continue
             if selected is not None:
-                if selected != model:
-                    model = selected
-                    vision_enabled = False
-                    memory_enabled = False
+                change_model(selected)
                 print(f"Selected model {model!r}. Catalog entries do not establish tool or vision support.")
         elif command == "/model" or command.startswith("/model "):
             selected = command[6:].strip()
-            if selected != model:
-                model = selected
-                vision_enabled = False
-                memory_enabled = False
+            change_model(selected)
             print(f"Selected model {model!r}." if model else "Using the connection's default model.")
         elif command.startswith("/") and not command.startswith(("//", "/goal ")) and command != "/continue":
             print("Unknown command. Type /help, or start with // to send a prompt that begins with /.")
@@ -1065,6 +1073,10 @@ def terminal_session(options, root, lease, images):
                     except (EOFError, KeyboardInterrupt):
                         print()
                         continue
+                if context and connection["model"] != context_model:
+                    context = None
+                    context_model = ""
+                    print("Previous-turn context cleared because the effective model changed. Saved history is unchanged.")
                 run = CodingRun(connection, root, command,
                                 context=context if use_context and not resume and not machine_scope else None,
                                 limits=limits,
@@ -1121,6 +1133,7 @@ def terminal_session(options, root, lease, images):
                         last_goal_turn = record
                     if not machine_scope:
                         context = record.get("coding_context")
+                        context_model = connection["model"] if context else ""
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
