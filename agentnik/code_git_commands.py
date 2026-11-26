@@ -94,9 +94,20 @@ def manual_git(root, argument, *, prompt=None, write=print):
         if head.returncode:
             raise ValueError("There is no local commit to push.")
         commit = head.stdout.strip()
-        write(f"Push {commit} from {repository()!r} to {terminal_text(remote)!r}, branch {terminal_text(branch)!r}.")
+        location = repository()
+
+        def destinations():
+            return run("remote", "get-url", "--push", "--all", remote, capture=True, text=False)
+
+        before = destinations()
+        if before.returncode or not before.stdout:
+            raise ValueError("Git could not resolve the push destination for this remote.")
+        write(f"Push {commit} from {location!r} to {terminal_text(remote)!r}, branch {terminal_text(branch)!r}.")
         if prompt("Push this commit? [y/N] ").strip().lower() != "y":
             return
+        after = destinations()
+        if repository() != location or after.returncode or after.stdout != before.stdout:
+            raise ValueError("The Git push destination changed during confirmation. Review the remote before retrying.")
         result = run("-c", f"remote.{remote}.mirror=false", "push", "--no-follow-tags",
                      "--recurse-submodules=no", "--", remote, f"{commit}:{ref}")
     else:

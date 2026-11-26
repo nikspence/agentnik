@@ -2075,6 +2075,18 @@ class TerminalRunTests(unittest.TestCase):
             self.assertEqual(run("log", "-1", "--format=%s"), "Save fixture")
             manual_git(nested, "log", write=commits.append)
             self.assertEqual(commits[-1], run("log", "-1", "--format=%h %s"))
+            changed_remote = Path(directory) / "changed.git"
+            run("init", "--bare", "--quiet", str(changed_remote))
+
+            def approve_changed_destination(_):
+                run("remote", "set-url", "--push", "fixture", str(changed_remote))
+                return "y"
+
+            with self.assertRaisesRegex(ValueError, "push destination changed during confirmation"):
+                manual_git(root, "push fixture release-smoke", prompt=approve_changed_destination, write=lambda _: None)
+            self.assertEqual(run("for-each-ref", cwd=changed_remote), "")
+            self.assertEqual(run("for-each-ref", cwd=remote), "")
+            run("remote", "set-url", "--push", "fixture", str(remote))
             manual_git(root, "push fixture release-smoke", prompt=lambda _: "", write=lambda _: None)
             self.assertEqual(run("for-each-ref", cwd=remote), "")
             manual_git(root, "push fixture release-smoke", prompt=lambda _: "y", write=lambda _: None)
