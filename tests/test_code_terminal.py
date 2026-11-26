@@ -346,6 +346,24 @@ class TerminalRunTests(unittest.TestCase):
                 apply_machine_patch(str(path), observed, replacement, lambda: None)
             self.assertEqual(path.read_bytes(), b"concurrent edit")
 
+    @unittest.skipUnless(os.name == "posix", "POSIX symlinks and modes")
+    def test_machine_metadata_reports_dangling_link_and_binary_file_without_reading(self):
+        from agentnik.machine_files import inspect_machine_path
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            link = root / "broken"
+            link.symlink_to(root / "missing")
+            binary = root / "payload.bin"
+            binary.write_bytes(b"\x00\xff")
+            binary.chmod(0o640)
+            with patch.object(Path, "open", side_effect=AssertionError("unexpected content read")):
+                self.assertEqual(inspect_machine_path(str(link))["kind"], "link")
+                details = inspect_machine_path(str(binary))
+                self.assertEqual(details["kind"], "file")
+                self.assertEqual(details["size_bytes"], 2)
+                self.assertEqual(details["mode_octal"], "0640")
+
     def test_machine_directory_listing_is_bounded_and_rejects_relative_paths(self):
         from agentnik.machine_files import list_machine_directory
 
