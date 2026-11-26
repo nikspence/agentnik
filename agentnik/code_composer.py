@@ -41,7 +41,8 @@ def create_composer(transcript=lambda: "", **options):
 
             async def show():
                 async with in_terminal():
-                    await transcript_pager(text, page_up).run_async()
+                    await transcript_pager(text, page_up, input=event.app.input,
+                                           output=event.app.output).run_async()
 
             event.app.create_background_task(show())
 
@@ -58,7 +59,7 @@ def create_composer(transcript=lambda: "", **options):
     )
 
 
-def transcript_pager(text, page_up=False):
+def transcript_pager(text, page_up=False, **terminal):
     from prompt_toolkit.application import Application
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.document import Document
@@ -102,7 +103,7 @@ def transcript_pager(text, page_up=False):
 
     footer = Window(FormattedTextControl("Transcript · PageUp/PageDown · Ctrl+T or Q to return"), height=1)
     app = Application(layout=Layout(HSplit([window, footer]), focused_element=window),
-                      key_bindings=bindings, full_screen=True)
+                      key_bindings=bindings, full_screen=True, **terminal)
     if page_up:
         def first_render(app):
             app.after_render -= first_render

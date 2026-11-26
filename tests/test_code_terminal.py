@@ -533,9 +533,10 @@ class TerminalRunTests(unittest.TestCase):
         if find_spec("prompt_toolkit") is None:
             self.skipTest("Terminal composer extra is not installed")
         script = dedent(r"""
+            from threading import Timer
             from prompt_toolkit.input import create_pipe_input
             from prompt_toolkit.output import DummyOutput
-            from agentnik.code_composer import create_composer
+            from agentnik.code_composer import create_composer, transcript_pager
 
             with create_pipe_input() as pipe:
                 composer = create_composer(input=pipe, output=DummyOutput())
@@ -543,6 +544,22 @@ class TerminalRunTests(unittest.TestCase):
                 task = composer.prompt()
                 assert task == "first line\nsecond line"
                 assert composer.history.get_strings() == [task]
+                for keys, expected in (("\x1b[A\x1b\r", task),
+                                       ("draft\x1b[A\x1b[B\x1b\r", "draft")):
+                    timer = Timer(0.2, pipe.send_text, args=(keys,))
+                    timer.start()
+                    actual = composer.prompt()
+                    timer.join()
+                    assert actual == expected, repr(actual)
+
+            transcript = "\n".join(f"line {i}" for i in range(100))
+            for keys, at_end in (("\x1b[5~q", False), ("\x1b[5~\x1b[6~q", True),
+                                 ("\x02\x06\x14", True)):
+                with create_pipe_input() as pipe:
+                    pager = transcript_pager(transcript, input=pipe, output=DummyOutput())
+                    pipe.send_text(keys)
+                    pager.run()
+                    assert (pager.current_buffer.cursor_position == len(transcript)) == at_end
         """)
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
