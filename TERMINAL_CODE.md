@@ -36,12 +36,21 @@ If you want a launcher in **Terminal → Run Task**, add this example to the wor
       "options": {"cwd": "${workspaceFolder}"},
       "presentation": {"reveal": "always", "focus": true, "panel": "new"},
       "problemMatcher": []
+    },
+    {
+      "label": "Agentnik Code: Resume Latest",
+      "type": "process",
+      "command": "agentnik",
+      "args": ["code", "--resume", "latest"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "presentation": {"reveal": "always", "focus": true, "panel": "new"},
+      "problemMatcher": []
     }
   ]
 }
 ```
 
-This launches the existing TUI on demand. It does not install an extension or provide editor-native diffs. [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks)
+The first task starts a fresh session. The second reopens the latest saved session for the workspace without sending a model request. If it is already open in another terminal, use that terminal or close it before resuming. It does not install an extension or provide editor-native diffs. [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks)
 
 ## First task
 
