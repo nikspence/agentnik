@@ -2411,9 +2411,11 @@ class TerminalRunTests(unittest.TestCase):
                         listed = discover()
                     self.assertEqual(owner.session_id, ident)
                 self.assertFalse((data / "attachments").exists())
+                saved, = history.list(ident)
                 self.assertEqual(listed, [{"id": ident, "status": "running", "scope": "project",
-                                               "goal_status": "active"}])
-                self.assertEqual(history.list(ident)[0]["code_state"], "running")
+                                           "goal_status": "active", "updated_at": saved["updated"]}])
+                self.assertGreater(listed[0]["updated_at"], 0)
+                self.assertEqual(saved["code_state"], "running")
             finally:
                 store.db.close()
 

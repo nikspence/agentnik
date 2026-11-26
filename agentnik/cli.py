@@ -281,7 +281,8 @@ def main():
                 try:
                     sessions = [
                         {"id": ident, "status": record.get("code_state", "idle"),
-                         "scope": record.get("coding_file_scope", "project"), "goal_status": goal}
+                         "scope": record.get("coding_file_scope", "project"), "goal_status": goal,
+                         "updated_at": record["updated"]}
                         for ident, (record, goal) in CodeHistory(store, root).session_summaries().items()
                     ]
                 finally:
