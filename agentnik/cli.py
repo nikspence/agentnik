@@ -188,7 +188,7 @@ def main():
 def terminal_session(options, root, lease, images):
     print(f"Agentnik Code preview · {str(root)!r}")
     print("Select a connection with /connection NAME, then enter a task. Type /help.")
-    from .code_composer import create_composer
+    from .code_composer import COMPOSER_KEYS, TRANSCRIPT_KEYS, create_composer
 
     transcript = deque(maxlen=2048)
 
@@ -215,9 +215,8 @@ def terminal_session(options, root, lease, images):
         composer = None
         print("Install agentnik[terminal] for multiline editing and prompt recall.")
     else:
-        print("Enter submits. Ctrl+Enter (where supported) or Ctrl+J adds a line. "
-              "Use Up/Down to recall input and Tab for commands.")
-        print("Ctrl+T or PageUp opens the transcript.")
+        print(" ".join(COMPOSER_KEYS[:2]))
+        print(f"{COMPOSER_KEYS[2]} Use /keys for the full list.")
     connection_name = model = ""
     discovered = {}
     mcp_selection = []
@@ -247,8 +246,16 @@ def terminal_session(options, root, lease, images):
             return 0
         if command == "/exit":
             return 0
+        if command == "/keys":
+            if composer:
+                print("\n".join((*COMPOSER_KEYS, *TRANSCRIPT_KEYS)))
+            else:
+                print("Enter submits. Install agentnik[terminal] for multiline editing, history and transcript shortcuts.")
+            print("Ctrl+C cancels the current input or run.")
+            continue
         if command == "/help":
-            print("/status           Show the project folder\n"
+            print("/keys             Show keyboard shortcuts\n"
+                  "/status           Show the project folder\n"
                   "/diff [--staged] PATH  Review a file against HEAD\n"
                   "/git              Run manual Git status, log, diff, stage, unstage, commit, or push\n"
                   "/connections      List saved and environment connections\n"

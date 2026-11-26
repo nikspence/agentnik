@@ -99,7 +99,7 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
             composer = Mock()
             session = uuid4()
-            commands = iter(["/connection Fixture", "/scope machine", "/status", "Read diagnostics",
+            commands = iter(["/keys", "/connection Fixture", "/scope machine", "/status", "Read diagnostics",
                              "/scope project", "Continue project work",
                              "/permissions allow-all", "/scope machine", f"/resume {session}",
                              "/status", "Resumed task", "/exit"])
@@ -142,6 +142,7 @@ class TerminalRunTests(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(len(bodies), 6, output.getvalue())
+            self.assertIn("Ctrl+U/Ctrl+D scroll by half a page", output.getvalue())
             self.assertEqual(approval.call_count, 3, output.getvalue())
             self.assertIn("operation: machine_patch_file", output.getvalue())
             self.assertIn("operation: machine_create_file", output.getvalue())

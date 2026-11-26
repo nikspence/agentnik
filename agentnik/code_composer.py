@@ -3,7 +3,7 @@
 COMMANDS = (
     "/git", "/git status", "/git stage", "/git unstage", "/git commit", "/git push",
     "/git diff", "/git diff --staged", "/git log", "/git remotes",
-    "/help", "/status", "/diff", "/diff --staged", "/connections", "/connections add", "/connections edit",
+    "/help", "/keys", "/status", "/diff", "/diff --staged", "/connections", "/connections add", "/connections edit",
     "/connections show", "/connections options", "/connections key", "/connections remove", "/connections discover", "/connection",
     "/model", "/models", "/goal", "/continue", "/web on", "/web off", "/vision", "/vision on", "/vision off",
     "/thinking on", "/thinking off", "/mcp", "/mcp use", "/mcp add", "/mcp remove", "/mcp off",
@@ -29,6 +29,17 @@ COMMANDS = (
     "/settings web providers",
     "/settings web providers set", "/settings web providers remove",
     "/history", "/plan", "/memory", "/memory show", "/memory on", "/memory off", "/new", "/sessions", "/resume", "/exit",
+)
+
+COMPOSER_KEYS = (
+    "Enter submits. Ctrl+Enter (where supported) or Ctrl+J adds a line.",
+    "Use Up/Down to recall input and Tab for slash commands.",
+    "Ctrl+T or PageUp opens the transcript.",
+)
+
+TRANSCRIPT_KEYS = (
+    "PageUp/PageDown or Ctrl+B/Ctrl+F scroll by a page.",
+    "Ctrl+U/Ctrl+D scroll by half a page. Ctrl+T or Q returns to the draft.",
 )
 
 
