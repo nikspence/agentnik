@@ -122,6 +122,8 @@ def create_composer(transcript=lambda: "", *, message="code> ", session_ids=None
                     break
                 yield Completion(ident, start_position=-len(prefix), display_meta="saved session")
 
+    # Tab may read SQLite history. Keep that work off the input event loop.
+    options.setdefault("complete_in_thread", session_ids is not None)
     return PromptSession(
         message,
         multiline=True,

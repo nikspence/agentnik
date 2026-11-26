@@ -1557,6 +1557,7 @@ class TerminalRunTests(unittest.TestCase):
         lookup = Mock(return_value=[ident, "ffff1234-0000-4000-a000-123456789abc"])
         with create_pipe_input() as pipe:
             composer = create_composer(input=pipe, output=DummyOutput(), session_ids=lookup)
+            self.assertTrue(composer.complete_in_thread)
             for command in ("/resume", "/open"):
                 draft = Document(command + " ABCD")
                 list(composer.completer.get_completions(draft, CompleteEvent(text_inserted=True)))
