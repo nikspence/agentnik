@@ -3,7 +3,7 @@
 COMMANDS = (
     "/help", "/status", "/connections", "/connections add", "/connections edit",
     "/connections options", "/connections key", "/connections remove", "/connection",
-    "/model", "/goal", "/settings", "/history", "/sessions", "/resume", "/exit",
+    "/model", "/goal", "/settings", "/history", "/new", "/sessions", "/resume", "/exit",
 )
 
 

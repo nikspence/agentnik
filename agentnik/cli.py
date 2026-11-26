@@ -152,8 +152,11 @@ def main():
         transcript.append(text + end)
         print(text, end=end, flush=flush)
 
+    def open_composer():
+        return create_composer(transcript=lambda: "".join(transcript))
+
     try:
-        composer = create_composer(transcript=lambda: "".join(transcript))
+        composer = open_composer()
     except ModuleNotFoundError as exc:
         if exc.name != "prompt_toolkit":
             raise
@@ -189,12 +192,20 @@ def main():
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history          Show history for this session\n"
+                  "/new              Start a fresh session in this project\n"
                   "/sessions         List saved sessions for the current project\n"
                   "/resume ID        Resume a saved session (or use latest)\n"
                   "/exit             Close Agentnik Code")
         elif command == "/status":
             print(f"Project: {str(root)!r} · Session: {session_id} · Connection: {connection_name or '(none)'!r}"
                   f" · Model: {model or '(connection default)'!r}")
+        elif command == "/new":
+            session_id = str(uuid4())
+            context = None
+            transcript.clear()
+            if composer:
+                composer = open_composer()
+            print(f"Started session {session_id}. Previous sessions are available under /sessions.")
         elif command == "/connections" or command.startswith("/connections "):
             _, _, operation = command.partition(" ")
             action, _, name = operation.strip().partition(" ")
@@ -249,7 +260,7 @@ def main():
                 session_id = ident
                 transcript.clear()
                 if composer:
-                    composer = create_composer(transcript=lambda: "".join(transcript))
+                    composer = open_composer()
             for saved in reversed(records[:20]):
                 for entry in saved.get("code_activity", [])[-20:]:
                     line = terminal_text(entry["text"])

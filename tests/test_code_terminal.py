@@ -40,7 +40,7 @@ class TerminalRunTests(unittest.TestCase):
             first.prompt.side_effect = ["/connection Fixture",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
-                                        "Create a note", "/exit"]
+                                        "Create a note", "/new", "/history", "/exit"]
             output = io.StringIO()
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=first), \
@@ -51,6 +51,7 @@ class TerminalRunTests(unittest.TestCase):
                     ]) as transport, contextlib.redirect_stdout(output):
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 2, output.getvalue())
+            self.assertIn("No saved history for this session.", output.getvalue())
             self.assertEqual(approval.call_count, 2, output.getvalue())
             self.assertEqual((root / "note.txt").read_text(), "reviewed\n")
             self.assertEqual(preserved.read_text(), "Keep me")
