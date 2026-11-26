@@ -734,6 +734,13 @@ class TerminalRunTests(unittest.TestCase):
                     pipe.send_text(keys)
                     pager.run()
                     assert (pager.current_buffer.cursor_position == len(transcript)) == at_end
+
+            long_line = "x" * 5000
+            with create_pipe_input() as pipe:
+                pager = transcript_pager(long_line, input=pipe, output=DummyOutput())
+                pipe.send_text("\x1b[5~q")
+                pager.run()
+                assert 0 < pager.current_buffer.cursor_position < len(long_line)
         """)
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)

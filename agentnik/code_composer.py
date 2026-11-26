@@ -75,21 +75,57 @@ def create_composer(transcript=lambda: "", **options):
 
 
 def transcript_pager(text, page_up=False, **terminal):
+    from bisect import bisect_right
     from prompt_toolkit.application import Application
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.document import Document
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.layout import BufferControl, HSplit, Layout, Window
     from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.utils import get_cwidth
 
     buffer = Buffer(document=Document(text, len(text)), read_only=True)
     window = Window(BufferControl(buffer=buffer), wrap_lines=True)
     bindings = KeyBindings()
 
     def move(direction, fraction):
-        height = window.render_info.window_height if window.render_info else 1
+        info = window.render_info
+        if not info or info.window_width < 2:
+            return
+        height = info.window_height
         count = max(1, int(height * fraction))
-        (buffer.cursor_up if direction < 0 else buffer.cursor_down)(count)
+        doc = buffer.document
+        row = doc.cursor_position_row
+        width = info.window_width
+
+        def wrapped_starts(line):
+            starts, cells = [0], 0
+            for column, character in enumerate(line):
+                size = get_cwidth(character)
+                if size and cells + size > width:
+                    starts.append(column)
+                    cells = 0
+                cells += size
+            return starts
+
+        starts = wrapped_starts(doc.lines[row])
+        segment = bisect_right(starts, doc.cursor_position_col) - 1
+        for _ in range(count):
+            segment += direction
+            if segment < 0 or segment >= len(starts):
+                row += direction
+                if row < 0:
+                    buffer.cursor_position = 0
+                    return
+                if row >= len(doc.lines):
+                    buffer.cursor_position = len(text)
+                    return
+                starts = wrapped_starts(doc.lines[row])
+                segment = len(starts) - 1 if direction < 0 else 0
+        if direction > 0 and row == len(doc.lines) - 1 and segment == len(starts) - 1:
+            buffer.cursor_position = len(text)
+        else:
+            buffer.cursor_position = doc.translate_row_col_to_index(row, starts[segment])
 
     for keys, direction, fraction in (
         (("up", "k"), -1, 0), (("down", "j"), 1, 0),
