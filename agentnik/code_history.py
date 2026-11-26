@@ -47,6 +47,20 @@ class CodeHistory:
             latest.setdefault(self.session_id(record), record)
         return latest
 
+    def recover_interrupted(self, record, lease):
+        """Reconcile a terminal run only after exclusively reopening its session."""
+        session_id = record.get("coding_terminal_session")
+        if not session_id or lease.session_id != session_id or record.get("code_state") not in (
+            "running", "awaiting_approval",
+        ):
+            return
+        detail = "The previous terminal run ended without a saved result. Check the project before continuing."
+        record["code_state"] = "interrupted"
+        if record.get("coding_last_run_goal") and record.get("coding_goal", {}).get("status") == "active":
+            record["coding_goal"].update(status="interrupted", detail=detail)
+        append_code_activity(record, "interrupted", detail)
+        self.store.save(record)
+
     def start(self, name, connection, task, session_id=None, *, goal=False, extra_secrets=(), skill_pins=None):
         registry = RepositoryRegistry(self.store)
         project = next((row["id"] for row in registry.list() if same_project(row["path"], self.root)), None)

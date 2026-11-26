@@ -390,6 +390,8 @@ def terminal_session(options, root, lease):
                     if ident in sessions and command not in ("/history", "/sessions", "/resume"):
                         lease.select(ident)
                     records = history.list(session_id if command == "/history" else ident)
+                    if records and command not in ("/history", "/sessions", "/resume"):
+                        history.recover_interrupted(records[0], lease)
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:

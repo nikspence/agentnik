@@ -11,6 +11,31 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_only_lease_owner_can_recover_an_interrupted_goal(self):
+        from agentnik.code_history import CodeHistory, goal_continuation
+        from agentnik.code_lease import SessionLease
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            data = root / "data"
+            store = Store(data)
+            try:
+                history = CodeHistory(store, root)
+                session = str(uuid4())
+                history.start("fixture", {"model": "test"}, "Finish project", session, goal=True)
+                with SessionLease(data) as lease:
+                    record = history.list(session)[0]
+                    history.recover_interrupted(record, lease)
+                    self.assertEqual(record["code_state"], "running")
+                    lease.select(session)
+                    history.recover_interrupted(record, lease)
+                    saved = history.list(session)[0]
+                    self.assertEqual(saved["coding_goal"]["status"], "interrupted")
+                    self.assertEqual(goal_continuation(saved)["task"], "Finish project")
+            finally:
+                store.db.close()
+
     def test_session_lease_rejects_duplicate_attachment_and_releases_on_close(self):
         from agentnik.code_lease import SessionLease
 
