@@ -1420,6 +1420,26 @@ class ModelCoding(unittest.TestCase):
             self.assertNotIn('model-secret',json.dumps(events)+json.dumps(bodies))
             self.assertIn('[redacted]',json.dumps(bodies[1]))
 
+    def test_unlimited_turn_keeps_per_command_timeout_in_shell_review(self):
+        from agentnik.code_limits import coding_limits
+        from agentnik.shell import MAX_SECONDS
+
+        with tempfile.TemporaryDirectory() as directory:
+            proposal = call('run_shell', {'path': '.', 'command': 'echo fixture'})
+            replies = [Wire(chat(calls=[proposal], finish='tool_calls'), False), Wire(chat('Declined.'), False)]
+            run = CodingRun(dict(C, stream=False), directory, 'Run fixture', limits=dict(coding_limits(), turn_seconds=0))
+            proposals = []
+
+            def emit(event):
+                if event['kind'] == 'operation_proposal':
+                    proposals.append(event['proposal'])
+                    run.decide(event['fingerprint'], False)
+
+            with patch.object(core, 'open_request', side_effect=replies), patch('agentnik.shell.execute') as execute:
+                run.run(emit)
+                execute.assert_not_called()
+            self.assertEqual([item['max_seconds'] for item in proposals], [MAX_SECONDS])
+
     def test_shell_switch_applies_before_and_during_approval(self):
         for goal,initial,tool in ((False,True,'run_shell'),(False,False,'run_tests'),(True,True,'run_shell'),(True,False,'run_tests')):
             with self.subTest(goal=goal,initial=initial,tool=tool), tempfile.TemporaryDirectory() as directory:
