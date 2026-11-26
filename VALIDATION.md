@@ -11,6 +11,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- At `1c5845e`, all four installed Qt-free jobs passed. Windows ConPTY verified that F6 cancels an active run and restores input for the scope prompt. Authenticated Linux SSH verified Ctrl+C separately, changed to machine scope with F6, and confirmed by request count that neither the scope switch nor explicit resume replayed the cancelled task. These are fixture checks on a post-release revision, not physical keyboard checks or changes to the published v0.13.0 build. [Hosted checks](https://github.com/nikspence/agentnik/actions/runs/45912265679)
+
 - At `fb97ef7`, the four hosted Qt-free jobs passed, including Windows ConPTY, macOS and Linux PTYs, and authenticated Linux SSH. The SSH run verifies a rejected multiline draft can be recovered, steering declines a pending edit and reaches the next request, a later edit can be approved, and a reopened session shows the saved steering without replay. A separate local Qt-free Windows check at `898e0df` reopened a profile seeded by the public v0.13.0 wheel and preserved the saved goal and prompt recall. These checks did not publish or modify v0.13.0. [Hosted checks](https://github.com/nikspence/agentnik/actions/runs/45907841844)
 
 
