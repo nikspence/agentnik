@@ -2070,6 +2070,8 @@ class TerminalRunTests(unittest.TestCase):
             manual_git(nested, "commit Save fixture", prompt=lambda _: "", write=review.append)
             self.assertIn(f"{run('rev-parse', '--show-toplevel')!r}", review[0])
             self.assertIn("all staged changes", review[0])
+            self.assertEqual(review[1:], ["  'note draft.txt'"])
+            self.assertNotIn("other.txt", "\n".join(review))
             self.assertEqual(run("diff", "--cached", "--name-only"), "note draft.txt")
             manual_git(root, "commit Save fixture", prompt=lambda _: "y", write=lambda _: None)
             self.assertEqual(run("log", "-1", "--format=%s"), "Save fixture")

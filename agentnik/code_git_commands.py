@@ -1,5 +1,6 @@
 """User-issued Git commands for the terminal client."""
 
+from os import fsdecode
 from pathlib import Path
 import shutil
 import subprocess
@@ -66,8 +67,8 @@ def manual_git(root, argument, *, prompt=None, write=print):
         result = run("--literal-pathspecs", "add" if action == "stage" else "reset", "--", value)
     elif action == "commit" and value:
         def staged_snapshot():
-            staged = run("diff", "--cached", "--raw", "--no-abbrev", "--no-renames", "-z", capture=True,
-                         text=False)
+            staged = run("diff", "--cached", "--raw", "--no-abbrev", "--no-renames", "--no-relative",
+                         "--ignore-submodules=none", "-z", capture=True, text=False)
             if staged.returncode:
                 raise ValueError("Git could not inspect the staged changes.")
             head = run("rev-parse", "--verify", "HEAD", capture=True)
@@ -77,6 +78,11 @@ def manual_git(root, argument, *, prompt=None, write=print):
         location = repository()
         snapshot = staged_snapshot()
         write(f"Commit all staged changes in {location!r} with message {terminal_text(value)!r}.")
+        paths = snapshot[2].split(b"\0")[1::2]
+        for path in paths[:12]:
+            write(f"  {terminal_text(fsdecode(path))!r}")
+        if len(paths) > 12:
+            write(f"  … and {len(paths) - 12} more. Use /git diff --staged to review.")
         if prompt("Create commit? [y/N] ").strip().lower() != "y":
             return
         if repository() != location or staged_snapshot() != snapshot:
