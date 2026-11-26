@@ -501,6 +501,29 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_terminal_composer_completes_nested_settings_commands(self):
+        from importlib.util import find_spec
+
+        if find_spec("prompt_toolkit") is None:
+            self.skipTest("Terminal composer extra is not installed")
+        from prompt_toolkit.completion import CompleteEvent
+        from prompt_toolkit.document import Document
+        from prompt_toolkit.input import create_pipe_input
+        from prompt_toolkit.output import DummyOutput
+        from agentnik.code_composer import create_composer
+
+        with create_pipe_input() as pipe:
+            composer = create_composer(input=pipe, output=DummyOutput())
+            for partial, expected in (
+                ("/settings mcp sig", "/settings mcp signin"),
+                ("/settings web providers s", "/settings web providers set"),
+                ("/settings image s", "/settings image set"),
+            ):
+                with self.subTest(partial=partial):
+                    completions = composer.completer.get_completions(
+                        Document(partial), CompleteEvent(completion_requested=True))
+                    self.assertIn(expected, [item.text for item in completions])
+
     def test_terminal_composer_keeps_newlines_and_records_submitted_input(self):
         from importlib.util import find_spec
         import subprocess

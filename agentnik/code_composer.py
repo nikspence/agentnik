@@ -8,7 +8,17 @@ COMMANDS = (
     "/permissions", "/permissions require",
     "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove",
     "/context", "/context on", "/context off", "/context clear", "/attach", "/attachments", "/attachments clear",
-    "/settings", "/history", "/new", "/sessions", "/resume", "/exit",
+    "/settings", "/settings appearance", "/settings chat-limits", "/settings decision",
+    "/settings decision set", "/settings decision on", "/settings decision off",
+    "/settings goal", "/settings image", "/settings image set", "/settings image on",
+    "/settings image off", "/settings limits", "/settings mcp", "/settings mcp add-https",
+    "/settings mcp add-local", "/settings mcp enable", "/settings mcp disable",
+    "/settings mcp on", "/settings mcp off", "/settings mcp priority", "/settings mcp remove",
+    "/settings mcp renew", "/settings mcp signin", "/settings mcp timeout", "/settings mcp token",
+    "/settings tls strict", "/settings tls relaxed", "/settings web access",
+    "/settings web desktop", "/settings web priority", "/settings web providers",
+    "/settings web providers set", "/settings web providers remove",
+    "/history", "/new", "/sessions", "/resume", "/exit",
 )
 
 
