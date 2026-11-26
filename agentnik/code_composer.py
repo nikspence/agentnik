@@ -9,6 +9,7 @@ COMMANDS = (
     "/thinking on", "/thinking off", "/mcp", "/mcp use", "/mcp add", "/mcp remove", "/mcp off",
     "/permissions", "/permissions require",
     "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove",
+    "/scope", "/scope project", "/scope machine",
     "/context", "/context on", "/context off", "/context clear", "/attach", "/attachments", "/attachments clear",
     "/attachments remove",
     "/settings", "/settings appearance", "/settings chat-limits", "/settings decision",

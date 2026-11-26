@@ -28,6 +28,57 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_machine_scope_uses_absolute_reads_without_widening_project_tools(self):
+        import json
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.storage import Store
+        from test_code_agent import call
+        from test_compat_tools import chat
+        from test_routing import Wire
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, data = base / "project", base / "data"
+            root.mkdir()
+            outside = base / "diagnostic.txt"
+            outside.write_text("Outside fixture evidence", encoding="utf-8")
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture", "stream": False})
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ["/connection Fixture", "/scope machine", "/status", "Read diagnostics",
+                                           "/scope project", "Continue project work", "/exit"]
+            reads = [call("machine_read_file", {"path": str(outside)})]
+            replies = iter([Wire(chat(calls=reads, finish="tool_calls"), False),
+                            Wire(chat("Outside fixture evidence"), False),
+                            Wire(chat("Project response"), False)])
+            bodies = []
+
+            def send(connection, url, body, timeout):
+                bodies.append(json.loads(json.dumps(body)))
+                return next(replies)
+
+            argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
+            with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request", side_effect=send), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(cli.main(), 0)
+            self.assertEqual(len(bodies), 3, output.getvalue())
+            self.assertIn("Permissions: require", output.getvalue())
+            self.assertIn("Scope: machine", output.getvalue())
+            self.assertIn("machine_read_file", {t["function"]["name"] for t in bodies[0]["tools"]})
+            self.assertNotIn("machine_read_file", {t["function"]["name"] for t in bodies[2]["tools"]})
+            self.assertIn("Outside fixture evidence", json.dumps(bodies[1]["messages"]))
+            from agentnik.code_agent import ProjectFiles
+
+            with self.assertRaisesRegex(ValueError, "project-relative path"):
+                ProjectFiles(root).path(str(outside))
+            self.assertNotIn("Outside fixture evidence", json.dumps(bodies[2]["messages"]))
+
     def test_terminal_resolves_tilde_data_directory_for_session_and_lock(self):
         from agentnik import cli
 

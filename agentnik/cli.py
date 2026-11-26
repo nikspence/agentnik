@@ -213,6 +213,7 @@ def terminal_session(options, root, lease, images):
     skill_pins = {}
     documents = []
     require_approval = True
+    machine_scope = False
     session_id = str(uuid4())
     pending_command = f"/resume {options.resume}" if options.resume else None
     while True:
@@ -253,6 +254,7 @@ def terminal_session(options, root, lease, images):
                   "/skills           List, preview or select project and user skills\n"
                   "/mcp              List or select MCP servers for this session\n"
                   "/permissions      Set project and shell approval for this session\n"
+                  "/scope [MODE]     Show or set project or machine file scope\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
                   "/history [PAGE]   Show saved turns for this session\n"
                   "/new              Start a fresh session in this project\n"
@@ -399,7 +401,21 @@ def terminal_session(options, root, lease, images):
                   f" · Vision: {'on' if vision_enabled else 'off'}"
                   f" · Thinking: {'on' if show_thinking else 'off'}"
                   f" · Permissions: {'require' if require_approval else 'allow-all'}")
-            print(f"Data directory: {str(options.data_dir)!r} · Model memory reads: {'on' if memory_enabled else 'off'}")
+            print(f"Data directory: {str(options.data_dir)!r} · Model memory reads: {'on' if memory_enabled else 'off'}"
+                  f" · Scope: {'machine' if machine_scope else 'project'}")
+        elif command == "/scope" or command.startswith("/scope "):
+            mode = command.partition(" ")[2].strip()
+            if mode in ("project", "machine"):
+                selected_scope = mode == "machine"
+                if machine_scope != selected_scope:
+                    machine_scope = selected_scope
+                    context = None
+            elif mode:
+                print("Use /scope project or /scope machine.")
+                continue
+            print(f"File scope: {'machine' if machine_scope else 'project'}. "
+                  "Machine scope adds absolute-path text reads. Approval and OS permissions are unchanged. "
+                  "Shell commands are not sandboxed.")
         elif command == "/permissions" or command.startswith("/permissions "):
             mode = command.partition(" ")[2].strip()
             if not mode:
@@ -488,6 +504,7 @@ def terminal_session(options, root, lease, images):
             documents.clear()
             images.clear()
             require_approval = True
+            machine_scope = False
             transcript.clear()
             if composer:
                 composer = open_composer()
@@ -619,6 +636,7 @@ def terminal_session(options, root, lease, images):
                 mcp_selection = []
                 show_thinking = False
                 require_approval = True
+                machine_scope = False
                 documents.clear()
                 images.clear()
                 transcript.clear()
@@ -758,6 +776,7 @@ def terminal_session(options, root, lease, images):
                 run.stream_activity = True
                 run.show_thinking = show_thinking
                 run.review_project_edits = require_approval
+                run.machine_scope = machine_scope
                 run.set_shell_without_approval(not require_approval)
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
@@ -791,7 +810,7 @@ def terminal_session(options, root, lease, images):
                         result = drive_run(run, write_activity, advice=advice, checkpoint=checkpoint)
                     finally:
                         images.clear()
-                    history.finish(record, task, result)
+                    history.finish(record, task, result, save_context=not machine_scope)
                     last_record = record
                     context = record.get("coding_context")
                 finally:

@@ -149,7 +149,7 @@ class CodeHistory:
         self.store.save(record)
         return record, task
 
-    def finish(self, record, task, result):
+    def finish(self, record, task, result, *, save_context=True):
         state = "limited" if result.get("limited") else result.get("status")
         if state not in ("completed", "failed", "blocked", "limited", "cancelled"):
             state = "interrupted"
@@ -162,6 +162,6 @@ class CodeHistory:
                 record["coding_goal_progress"] = result["goal_progress"]
         if answer:
             append_code_activity(record, "finished", answer)
-        if state == "completed" and result.get("response_shown") and answer:
+        if save_context and state == "completed" and result.get("response_shown") and answer:
             record["coding_context"] = {"task": task, "answer": answer}
         self.store.save(record)
