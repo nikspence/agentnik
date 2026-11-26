@@ -593,6 +593,10 @@ def terminal_session(options, root, lease, images):
             binding = coding_model_binding(record)
             connection_name = binding.get("connection", "")
             model = binding.get("model", "")
+            if "coding_plan" in record:
+                from .code_terminal import terminal_plan
+
+                write_activity(terminal_plan(record["coding_plan"], "Saved plan (model reported):"))
             print(f"Resumed session {session_id}. Enter a new task when ready. Nothing was restarted.")
         elif command == "/connection" or command.startswith("/connection "):
             from .core import environment_connections
@@ -719,7 +723,7 @@ def terminal_session(options, root, lease, images):
                     documents.clear()
                     try:
                         result = drive_run(run, write_activity, advice=advice,
-                                           checkpoint=lambda event: history.checkpoint_goal(record, event))
+                                           checkpoint=lambda event: history.checkpoint(record, event))
                     finally:
                         images.clear()
                     history.finish(record, task, result)

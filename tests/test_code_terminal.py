@@ -472,6 +472,9 @@ class TerminalRunTests(unittest.TestCase):
                     if ident == current:
                         record["coding_models"] = {"heavy": record["coding_models"]["model"]}
                         store.save(record)
+                        history.checkpoint(record, {"kind": "plan", "plan": {"explanation": "", "steps": [
+                            {"step": "Current checklist", "status": "pending"},
+                        ]}})
                 composer = Mock()
                 composer.prompt.side_effect = [f"/resume {busy}", "/status", "/exit"]
                 argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", current]
@@ -487,6 +490,7 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertIn("already open in another terminal", errors.getvalue())
                 self.assertIn(f"Session: {current}", output.getvalue())
                 self.assertIn("Connection: 'Fixture' · Model: 'fixture'", output.getvalue())
+                self.assertIn("[pending] Current checklist", output.getvalue())
                 self.assertNotIn("Other terminal task", output.getvalue())
                 composer.history.append_string.assert_called_once_with("Current task")
             finally:
@@ -1456,8 +1460,8 @@ class TerminalRunTests(unittest.TestCase):
         run.run.side_effect = work
         lines = []
         drive_run(run, write=lines.append)
-        self.assertEqual(lines, ["Plan update (model reported):", "Review visual content.",
-                                 "  [completed] Render the slide", "  [in progress] Inspect the slide"])
+        self.assertEqual("\n".join(lines).splitlines(), ["Plan update (model reported):", "Review visual content.",
+                                                        "  [completed] Render the slide", "  [in progress] Inspect the slide"])
         run.decide.assert_not_called()
 
     def test_review_requires_explicit_input_and_escapes_terminal_controls(self):

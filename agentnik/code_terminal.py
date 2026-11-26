@@ -16,6 +16,15 @@ def terminal_text(text):
     )
 
 
+def terminal_plan(value, heading="Plan update (model reported):"):
+    plan = validate_plan(value)
+    lines = [heading]
+    if plan["explanation"]:
+        lines.append(plan["explanation"])
+    lines.extend(f"  [{step['status'].replace('_', ' ')}] {step['step']}" for step in plan["steps"])
+    return terminal_text("\n".join(lines))
+
+
 def project_diff(root, argument):
     from .code_agent import ProjectFiles
     from .git_service import GitService
@@ -328,14 +337,15 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                     write(terminal_text(event["usage"]))
             elif kind == "plan":
                 try:
-                    plan = validate_plan(event.get("plan"))
+                    rendered = terminal_plan(event.get("plan"))
                 except ValueError:
                     continue
-                write("Plan update (model reported):")
-                if plan["explanation"]:
-                    write(terminal_text(plan["explanation"]))
-                for step in plan["steps"]:
-                    write(terminal_text(f"  [{step['status'].replace('_', ' ')}] {step['step']}"))
+                write(rendered)
+                if checkpoint:
+                    try:
+                        checkpoint(event)
+                    except (OSError, ValueError, sqlite3.Error):
+                        write("Could not save the plan update. The active run will continue.")
             elif kind == "goal_status":
                 goal_detail = event["detail"]
                 write(terminal_text(f"Goal {event['status']} (model reported): {event['detail']}"))

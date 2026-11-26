@@ -91,6 +91,15 @@ class CodeHistory:
             return
         self.store.save(record)
 
+    def checkpoint(self, record, event):
+        if event["kind"] == "plan":
+            from .task_plan import validate_plan
+
+            record["coding_plan"] = validate_plan(event.get("plan"))
+            self.store.save(record)
+        else:
+            self.checkpoint_goal(record, event)
+
     def start(self, name, connection, task, session_id=None, *, goal=False, extra_secrets=(), skill_pins=None):
         registry = RepositoryRegistry(self.store)
         project = next((row["id"] for row in registry.list() if same_project(row["path"], self.root)), None)
