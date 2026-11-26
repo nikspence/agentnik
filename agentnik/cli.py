@@ -675,7 +675,7 @@ def terminal_session(options, root, lease, images):
                 print(terminal_text(exc), file=sys.stderr)
         elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume")
               or command.startswith("/open ") or command in ("/plan", "/goal")):
-            from .code_history import CodeHistory, Store, activity_preview
+            from .code_history import CodeHistory, Store, activity_preview, resume_snapshot
             from .code_terminal import terminal_text
 
             action = command.split(" ", 1)[0]
@@ -753,6 +753,7 @@ def terminal_session(options, root, lease, images):
                 if starting_resume:
                     return 1
                 continue
+            snapshot = resume_snapshot(records)
             if command != "/history":
                 session_id = ident
                 use_context = True
@@ -768,32 +769,16 @@ def terminal_session(options, root, lease, images):
                 transcript.clear()
                 if composer:
                     composer = open_composer()
-                    # Keep keyboard recall independent of the shorter transcript preview.
-                    prompts = []
-                    for saved in records:
-                        for entry in reversed(saved.get("code_activity", [])):
-                            if entry["kind"] == "prompt":
-                                prompt = terminal_text(entry["text"])
-                                prompts.append("/" + prompt if prompt.startswith("/") else prompt)
-                            if len(prompts) == 100:
-                                break
-                        if len(prompts) == 100:
-                            break
-                    for prompt in reversed(prompts):
-                        composer.history.append_string(prompt)
-            for saved in reversed(records[:20]):
-                for line in activity_preview(saved):
-                    write_activity(terminal_text(line))
-            record = records[0]
+                    for text in snapshot.prompt_history:
+                        prompt = terminal_text(text)
+                        composer.history.append_string("/" + prompt if prompt.startswith("/") else prompt)
+            for line in snapshot.activity:
+                write_activity(terminal_text(line))
+            record = snapshot.record
             last_record = record
-            skill_pins = dict(record.get("coding_skill_pins", {}))
-            from .code_history import project_context_for_resume
-            from .sessions import coding_model_binding
-
-            context = project_context_for_resume(records)
-            binding = coding_model_binding(record)
-            connection_name = binding.get("connection", "")
-            model = binding.get("model", "")
+            skill_pins = snapshot.skill_pins
+            context = snapshot.project_context
+            connection_name, model = snapshot.connection, snapshot.model
             if "coding_plan" in record:
                 from .code_terminal import terminal_plan
 

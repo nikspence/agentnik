@@ -1,5 +1,6 @@
 """Independent terminal sessions backed by the shared Code history store."""
 
+from dataclasses import dataclass
 import os
 from pathlib import Path
 from uuid import UUID
@@ -75,6 +76,38 @@ def project_context_for_resume(records):
             return record.get("coding_context")
         break
     return None
+
+
+@dataclass(frozen=True)
+class ResumeSnapshot:
+    record: dict
+    connection: str
+    model: str
+    project_context: dict | None
+    skill_pins: dict
+    prompt_history: tuple[str, ...]
+    activity: tuple[str, ...]
+
+
+def resume_snapshot(records):
+    """Prepare saved state without starting a run or applying UI formatting."""
+    record = records[0]
+    binding = coding_model_binding(record)
+    prompts = []
+    for saved in records:
+        for entry in reversed(saved.get("code_activity", [])):
+            if entry["kind"] == "prompt":
+                prompts.append(entry["text"])
+                if len(prompts) == 100:
+                    break
+        if len(prompts) == 100:
+            break
+    return ResumeSnapshot(
+        record, binding.get("connection", ""), binding.get("model", ""),
+        project_context_for_resume(records), dict(record.get("coding_skill_pins", {})),
+        tuple(reversed(prompts)),
+        tuple(line for saved in reversed(records[:20]) for line in activity_preview(saved)),
+    )
 
 
 class CodeHistory:
