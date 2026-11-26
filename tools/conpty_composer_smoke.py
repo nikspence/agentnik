@@ -11,7 +11,7 @@ CHILD = """
 from agentnik.code_composer import create_composer
 
 composer = create_composer()
-for index in range(2):
+for index in range(3):
     print(f"READY-{index}", flush=True)
     draft = composer.prompt()
     print(f"SUBMITTED-{index}:{draft.encode().hex()}:END", flush=True)
@@ -66,9 +66,14 @@ def main():
         expect("code> ")
         terminal.write("\x1b[A\r")
         expect(f"SUBMITTED-1:{draft}:END")
+        expect("READY-2\r\n")
+        seen = seen.split("READY-2\r\n", 1)[1]
+        expect("code> ")
+        terminal.write("current draft\x1b[A\x1b[B\r")
+        expect(f"SUBMITTED-2:{b'current draft'.hex()}:END")
     finally:
         terminal.close()
-    print("ConPTY verified Ctrl+J multiline input, Enter submission, and Up history recall.")
+    print("ConPTY verified Ctrl+J, Enter, Up history recall, and Down draft restoration.")
 
 
 if __name__ == "__main__":
