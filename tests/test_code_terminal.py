@@ -836,6 +836,9 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             image_api.assert_called_once()
             self.assertIn("Approve once?", approval.call_args.args[0])
+            self.assertIn("Approval sends the prompt and any listed reference images", out.getvalue())
+            self.assertLess(out.getvalue().index("Approval sends the prompt"),
+                            out.getvalue().index("Generating image with the configured image model"))
             self.assertEqual(model_api.call_count, 3, out.getvalue())
             encoded = base64.b64encode((root / "slide.png").read_bytes()).decode()
             self.assertNotIn(encoded, requests[1])

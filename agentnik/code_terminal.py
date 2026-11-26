@@ -280,6 +280,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
                                                    "git_commit", "git_commit_staged"):
                     fields = ("operation", "cwd", "reference", "head", "paths", "name", "identity", "message", "diff")
                 elif proposal.get("operation") == "image_gen":
+                    write("Approval sends the prompt and any listed reference images to the configured image provider.")
                     fields = ("operation", "endpoint", "model", "prompt", "references",
                               "aspect_ratio", "background", "cwd", "path")
                 elif proposal.get("operation") == "subagent_file_transfer":
