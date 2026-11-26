@@ -873,27 +873,26 @@ def terminal_session(options, root, lease, images):
                 print("Select a connection with /connection NAME first.")
                 continue
             from .code_agent import CodingRun
-            from .code_history import CodeHistory, Store, goal_continuation
+            from .code_history import CodeHistory, Store, prepare_goal_continuation
             from .code_terminal import drive_run, load_run_settings, remember_terminal_subagent_rejection, terminal_text
 
             continuing = command == "/continue"
             goal = continuing or command.startswith("/goal ")
-            resume = goal_continuation(last_goal_turn) if continuing else None
+            resume = None
             if continuing:
-                if resume is None:
+                continuation = prepare_goal_continuation(
+                    last_goal_turn, connection_name, "machine" if machine_scope else "project")
+                if continuation.status == "unavailable":
                     print("No stopped goal is available to continue in this session.")
                     continue
-                from .sessions import coding_model_binding
-
-                saved_connection = coding_model_binding(last_goal_turn).get("connection")
-                if saved_connection != connection_name:
-                    print(terminal_text(f"That goal used connection {saved_connection!r}. "
+                if continuation.status == "connection_mismatch":
+                    print(terminal_text(f"That goal used connection {continuation.connection!r}. "
                                         "Select it with /connection before continuing."))
                     continue
-                saved_scope = last_goal_turn.get("coding_file_scope", "project")
-                if saved_scope != ("machine" if machine_scope else "project"):
-                    print(f"That goal ran in {saved_scope} scope. Use /scope {saved_scope} before continuing.")
+                if continuation.status == "scope_mismatch":
+                    print(f"That goal ran in {continuation.scope} scope. Use /scope {continuation.scope} before continuing.")
                     continue
+                saved_scope, resume = continuation.scope, continuation.context
                 command = "Continue the saved objective. Inspect current state first and do not repeat uncertain actions."
             elif goal:
                 command = command.removeprefix("/goal ").strip()

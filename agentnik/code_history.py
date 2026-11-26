@@ -86,6 +86,28 @@ def goal_continuation(record):
     }
 
 
+@dataclass(frozen=True)
+class GoalContinuation:
+    status: str
+    connection: str | None = None
+    scope: str | None = None
+    context: dict | None = None
+
+
+def prepare_goal_continuation(record, connection, scope):
+    """Check a stopped goal's binding without exposing evidence on a mismatch."""
+    context = goal_continuation(record)
+    if context is None:
+        return GoalContinuation("unavailable")
+    saved_connection = coding_model_binding(record).get("connection")
+    saved_scope = record.get("coding_file_scope", "project")
+    if saved_connection != connection:
+        return GoalContinuation("connection_mismatch", connection=saved_connection)
+    if saved_scope != scope:
+        return GoalContinuation("scope_mismatch", scope=saved_scope)
+    return GoalContinuation("ready", connection=saved_connection, scope=saved_scope, context=context)
+
+
 def project_context_for_resume(records):
     """Restore the latest project turn only for the resumed model binding."""
     if not records:
