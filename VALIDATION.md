@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- The `40560aa` preview wheel passed the installed OpenSSH smoke test locally in a disposable Linux container and all four hosted Qt-free jobs. The smoke test verified connection setup, a reviewed edit, cancellation, and resume without replay with a loopback model fixture. [Preview build](https://github.com/nikspence/agentnik/actions/runs/45885111713) · [Hosted wheel checks](https://github.com/nikspence/agentnik/actions/runs/45885087325)
+
 - The build-only `0.12.0rc1` wheel from `91e2264` passed all 65 terminal tests when installed outside the checkout on Windows Python 3.11 without Qt. Coverage includes connection export/import without API keys, refusal to overwrite, and rejection of duplicate JSON fields. The four hosted Qt-free jobs also passed, including Windows ConPTY, macOS PTY, and Ubuntu SSH. [Preview build](https://github.com/nikspence/agentnik/actions/runs/45883569420) · [Hosted matrix](https://github.com/nikspence/agentnik/actions/runs/45883548161)
 
 - The hosted macOS installed-wheel PTY smoke test passed at `4d17df0`. It verified Ctrl+J multiline input, Enter submission, and Up history recall through a POSIX PTY. It does not qualify macOS terminal-app bindings or a physical keyboard. [Hosted macOS check](https://github.com/nikspence/agentnik/actions/runs/45882967881)
