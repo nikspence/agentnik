@@ -10,7 +10,7 @@ From the folder you want to work in, run `agentnik code`. A Git repository is op
 
 ## First task
 
-1. Run `/connections` to list saved and environment connections. Use `/connections add` to create one if needed. API keys are entered without echo and use the OS credential store by default. Plaintext storage is an explicit fallback.
+1. Run `/connections` to list saved and environment connections. Use `/connections add` to create one if needed. API keys are entered without echo and use the OS credential store by default. If that store is unavailable, the terminal offers to save the key unencrypted in the local Agentnik config. Declining leaves the connection unchanged.
 2. Choose a connection with `/connection NAME`. Use `/models` to fetch its catalog and choose a model, or `/model NAME` to enter an ID manually.
 3. Type a task. Enter inserts a new line with the terminal extra installed, and Alt+Enter submits. Use Ctrl+C to request cancellation.
 4. In the default approval mode, review proposed changes and commands before allowing them. Enter without an affirmative response declines.

@@ -91,7 +91,20 @@ def connection_menu(data_dir, action="", selected_name=""):
             "Store API key as plaintext on this machine? [y/N, default: credential store] "
         ).strip().lower() == "y"
         try:
-            store.save_connection(name, connection, plaintext=plaintext)
+            from keyring.errors import KeyringError
+
+            try:
+                store.save_connection(name, connection, plaintext=plaintext)
+            except KeyringError:
+                if not key or plaintext:
+                    raise
+                if input("Credential store unavailable. Save the API key in the local config "
+                         "without encryption? [y/N] ").strip().lower() != "y":
+                    print("Connection not saved.")
+                    return
+                store.save_connection(name, connection, plaintext=True)
+        except (EOFError, KeyboardInterrupt):
+            raise
         except Exception:
             print("Could not save the connection. Check storage and credential store availability.",
                   file=sys.stderr)

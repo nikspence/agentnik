@@ -808,6 +808,31 @@ class TerminalRunTests(unittest.TestCase):
             transport.assert_not_called()
             self.assertIn(f"Resumed session {session_id}", output.getvalue())
 
+    def test_connection_keyring_fallback_requires_explicit_consent(self):
+        from keyring.errors import NoKeyringError
+        from agentnik.cli import connection_menu
+        from agentnik.storage import Store, load_config
+
+        for answer in ("", "y"):
+            with self.subTest(answer=answer), TemporaryDirectory() as directory:
+                with patch("builtins.input", side_effect=["https://example.org/v1", "", "fixture-model", "", answer]) as prompt, \
+                        patch("agentnik.cli.getpass", return_value="fixture-secret"), \
+                        patch("keyring.set_password", side_effect=NoKeyringError()) as keyring, \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    connection_menu(directory, "add", "Fixture")
+                keyring.assert_called_once()
+                self.assertIn("without encryption", prompt.call_args.args[0])
+                self.assertNotIn("fixture-secret", output.getvalue())
+                store = Store(directory)
+                try:
+                    saved = load_config(store.config_path)["connections"]
+                    if answer:
+                        self.assertEqual(saved["Fixture"]["api_key"], "fixture-secret")
+                    else:
+                        self.assertNotIn("Fixture", saved)
+                finally:
+                    store.db.close()
+
     def test_connection_edit_preserves_credential_and_refuses_to_move_it(self):
         from agentnik.cli import connection_menu
         from agentnik.storage import Store, load_config
