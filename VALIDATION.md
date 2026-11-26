@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- A disposable Linux container with Python 3.12 and OpenSSH ran the Qt-free terminal install through an authenticated loopback SSH connection with a real remote PTY. Plain Enter submitted `/status`, `/permissions allow-all`, and `/exit`. Agentnik reported the current non-Git directory, the same session ID across commands, and the permission change. This smoke test did not exercise provider credentials, model turns, cancellation, or saved-session resume over SSH.
+
 - The preview at `7eddc81` passed the installed terminal-wheel jobs on hosted Windows, macOS, and Linux. The terminal suite exercised PDF text extraction and verified that the extracted attachment reaches only its intended task. This test used a mocked provider and did not exercise OCR or PDF page rendering. [Terminal wheel jobs](https://github.com/nikspence/agentnik/actions/runs/45866686939)
 
 - After switching prompt submission to plain Enter in `3f32b81`, an Ubuntu pseudoterminal with no display accepted `/status` and `/exit` using Enter. The [updated preview artifact](https://github.com/nikspence/agentnik/actions/runs/45865859442) passed the distribution build checks and skipped the PyPI publish job.
