@@ -1166,7 +1166,7 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
             reopened = Mock()
-            reopened.prompt.return_value = "/exit"
+            reopened.prompt.side_effect = ["/history", "/exit"]
             with patch("sys.argv", [*argv, "--resume", session_id[:8]]), \
                     patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=reopened), \
@@ -1174,6 +1174,8 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             transport.assert_not_called()
             self.assertIn(f"Resumed session {session_id}", output.getvalue())
+            self.assertIn("earlier activity entries omitted", output.getvalue())
+            self.assertEqual(output.getvalue().splitlines().count("Create another note"), 2)
             reopened.history.append_string.assert_any_call("Create another note")
             reopened.history.append_string.assert_any_call("//notes is an example path. Create a note.")
 

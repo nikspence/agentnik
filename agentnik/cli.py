@@ -502,7 +502,7 @@ def terminal_session(options, root, lease, images):
                 print(terminal_text(exc), file=sys.stderr)
         elif (command.split(" ", 1)[0] in ("/history", "/sessions", "/resume")
               or command.startswith("/open ") or command in ("/plan", "/goal")):
-            from .code_history import CodeHistory, Store, resolve_session_id
+            from .code_history import CodeHistory, Store, activity_preview, resolve_session_id
             from .code_terminal import terminal_text
 
             action = command.split(" ", 1)[0]
@@ -571,8 +571,8 @@ def terminal_session(options, root, lease, images):
                     print("No saved turns on that page.")
                 else:
                     for saved in reversed(records[offset:offset + 20]):
-                        for entry in saved.get("code_activity", [])[-20:]:
-                            print(terminal_text(entry["text"]))
+                        for line in activity_preview(saved):
+                            print(terminal_text(line))
                     if len(records) > offset + 20:
                         print(f"More saved turns are available under /history {page + 1}.")
                 continue
@@ -608,10 +608,8 @@ def terminal_session(options, root, lease, images):
                     for prompt in reversed(prompts):
                         composer.history.append_string(prompt)
             for saved in reversed(records[:20]):
-                activity = saved.get("code_activity", [])
-                for entry in activity[-20:]:
-                    line = terminal_text(entry["text"])
-                    write_activity(line)
+                for line in activity_preview(saved):
+                    write_activity(terminal_text(line))
             record = records[0]
             last_record = record
             skill_pins = dict(record.get("coding_skill_pins", {}))

@@ -27,6 +27,20 @@ def resolve_session_id(sessions, selector):
     return matches[0] if matches else ""
 
 
+def activity_preview(record):
+    """Keep the saved task visible alongside a bounded tail of run activity."""
+    activity = record.get("code_activity", [])
+    if len(activity) <= 20:
+        return [entry["text"] for entry in activity]
+    earlier, tail = activity[:-20], activity[-20:]
+    prompt = next((entry["text"] for entry in earlier if entry["kind"] == "prompt"), None)
+    omitted = len(earlier) - (prompt is not None)
+    lines = [prompt] if prompt is not None else []
+    if omitted:
+        lines.append(f"[{omitted} earlier activity entries omitted from this preview.]")
+    return [*lines, *(entry["text"] for entry in tail)]
+
+
 def goal_continuation(record):
     if not record or record.get("code_state") not in ("limited", "blocked", "cancelled", "interrupted", "failed"):
         return None
