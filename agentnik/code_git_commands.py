@@ -26,6 +26,12 @@ def manual_git(root, argument, *, prompt=None, write=print):
         return subprocess.run([executable, *args], cwd=root, check=False, text=True,
                               capture_output=capture)
 
+    def repository():
+        result = run("rev-parse", "--show-toplevel", capture=True)
+        if result.returncode:
+            raise ValueError("This folder is not inside a Git working tree.")
+        return terminal_text(result.stdout.rstrip("\r\n"))
+
     if action == "status" and not value:
         result = run("status", "--short", "--branch")
     elif action == "diff" and value in ("", "--staged"):
@@ -42,7 +48,7 @@ def manual_git(root, argument, *, prompt=None, write=print):
             return
         result = run("--literal-pathspecs", "add" if action == "stage" else "reset", "--", value)
     elif action == "commit" and value:
-        write(f"Commit the staged changes in {terminal_text(root)} with message {terminal_text(value)!r}.")
+        write(f"Commit all staged changes in {repository()!r} with message {terminal_text(value)!r}.")
         if prompt("Create commit? [y/N] ").strip().lower() != "y":
             return
         result = run("commit", "-m", value)
@@ -58,7 +64,7 @@ def manual_git(root, argument, *, prompt=None, write=print):
         if head.returncode:
             raise ValueError("There is no local commit to push.")
         commit = head.stdout.strip()
-        write(f"Push {commit} to {terminal_text(remote)!r}, branch {terminal_text(branch)!r}.")
+        write(f"Push {commit} from {repository()!r} to {terminal_text(remote)!r}, branch {terminal_text(branch)!r}.")
         if prompt("Push this commit? [y/N] ").strip().lower() != "y":
             return
         result = run("-c", f"remote.{remote}.mirror=false", "push", "--no-follow-tags",

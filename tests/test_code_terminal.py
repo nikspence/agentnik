@@ -878,7 +878,12 @@ class TerminalRunTests(unittest.TestCase):
             self.assertEqual(run("diff", "--cached", "--name-only"), "")
             manual_git(root, "stage note draft.txt", prompt=lambda _: "y")
             run("remote", "add", "fixture", str(remote))
-            manual_git(root, "commit Save fixture", prompt=lambda _: "", write=lambda _: None)
+            nested = root / "nested"
+            nested.mkdir()
+            review = []
+            manual_git(nested, "commit Save fixture", prompt=lambda _: "", write=review.append)
+            self.assertIn(f"{run('rev-parse', '--show-toplevel')!r}", review[0])
+            self.assertIn("all staged changes", review[0])
             self.assertEqual(run("diff", "--cached", "--name-only"), "note draft.txt")
             manual_git(root, "commit Save fixture", prompt=lambda _: "y", write=lambda _: None)
             self.assertEqual(run("log", "-1", "--format=%s"), "Save fixture")
