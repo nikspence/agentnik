@@ -21,6 +21,7 @@ from . import core,compat_tools,responses_tools,ollama_tools
 from .tools import Limits,Runtime,Registry,DEFINITIONS,ToolCall,ToolResult,Source,ResearchError,LimitError,AccessError
 from .code_limits import coding_limits,FULL_TEXT_BYTES
 from .mcp_fallback import mcp_fetch_fallback_urls,mcp_fetch_fallback_url
+from .mcp_bridge import CodeMCPBridge
 from .web import OrderedSearch,GoogleWeb,PublicWeb
 from .page_fetch import PageFetcher
 from .research import scrub
@@ -611,7 +612,7 @@ class CodingRun:
         if resume_context is not None and (not isinstance(resume_context,dict) or set(resume_context)!={'task','evidence'} or not isinstance(resume_context['task'],str) or len(resume_context['task'])>16000 or not isinstance(resume_context['evidence'],str) or len(resume_context['evidence'])>24000):raise ValueError('Invalid coding continuation context')
         self.resume_context=dict(resume_context) if resume_context else None
         if mcp_bridge is not None and mcp_bridges is not None:raise ValueError('Choose one MCP bridge configuration')
-        self.mcp_bridges=list(mcp_bridges or ([mcp_bridge] if mcp_bridge else []))
+        self.mcp_bridges: list[CodeMCPBridge]=list(mcp_bridges or ([mcp_bridge] if mcp_bridge else []))
         if len(self.mcp_bridges)>5 or len({bridge.server['name'].casefold() for bridge in self.mcp_bridges})!=len(self.mcp_bridges):raise ValueError('Select at most five distinct MCP servers')
         self.mcp_bridge=self.mcp_bridges[0] if self.mcp_bridges else None
         self.skills=list(skills or [])
@@ -2054,6 +2055,6 @@ class CodingRun:
                 reason=('Web research' if research_action else 'Coding')+' stopped ('+detail+'). Project changes already applied are retained.'
                 event('finished',status='failed',limited=isinstance(exc,LimitError),text=reason,usage=usage_text())
         finally:
-            for bridge in self.mcp_bridges:bridge.close_signal.emit()
+            for bridge in self.mcp_bridges:bridge.close_from_worker()
             runtime.closed=True
             with self.lock:self.accepting_steering=False;self.pending=None;self._git_credentials=None;self.mcp_run_allowed.clear()

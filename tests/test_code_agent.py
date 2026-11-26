@@ -960,7 +960,7 @@ class ModelCoding(unittest.TestCase):
             self.assertFalse(any(e['kind']=='operation_proposal' for e in events))
             self.assertEqual([entry.args[0] for entry in bridge.request.call_args_list],['discover','call'])
             self.assertEqual(bridge.request.call_args_list[1].args[1]['arguments'],{'sql':'SELECT 1'})
-            self.assertEqual(events[-1]['status'],'completed');bridge.close_signal.emit.assert_called_once()
+            self.assertEqual(events[-1]['status'],'completed');bridge.close_from_worker.assert_called_once()
 
     def test_large_mcp_result_reaches_coding_model(self):
         from unittest.mock import Mock
@@ -1160,7 +1160,7 @@ class ModelCoding(unittest.TestCase):
             approvals=[e['proposal'] for e in events if e['kind']=='operation_proposal'];self.assertEqual(approvals,[])
             self.assertEqual([entry.args[0] for entry in first.request.call_args_list],['discover','call']);self.assertEqual([entry.args[0] for entry in second.request.call_args_list],['discover'])
             self.assertIn('higher-priority server Database',json.dumps(bodies[-1]));self.assertTrue(any('exact selected MCP server' in m.get('content','') for m in bodies[-1]['messages'] if m.get('role')=='tool'));self.assertEqual(events[-1]['status'],'completed')
-            first.close_signal.emit.assert_called_once();second.close_signal.emit.assert_called_once()
+            first.close_from_worker.assert_called_once();second.close_from_worker.assert_called_once()
             schemas={tool['function']['name']:tool['function']['parameters']['required'] for tool in bodies[0]['tools'] if tool['function']['name'].startswith('mcp_')};self.assertTrue(all('server' in fields for fields in schemas.values()))
 
     def test_mcp_run_approval_is_scoped_to_one_server_and_expires(self):

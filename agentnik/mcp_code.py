@@ -24,6 +24,9 @@ class CodingMCPBridge(QObject):
         self.session = None; self.pending = None; self.closed = False; self.identity = None; self.uncertain = False;self.elicitation_dialog=None
         self.request_signal.connect(self._dispatch); self.close_signal.connect(self.close)
 
+    def close_from_worker(self):
+        self.close_signal.emit()
+
     def request(self, action, payload, runtime):
         request = {'action': action, 'payload': payload, 'done': threading.Event(), 'cancelled': threading.Event(),'progress':queue.Queue(maxsize=40)}
         self.request_signal.emit(request)
@@ -42,7 +45,7 @@ class CodingMCPBridge(QObject):
             runtime.check()
             return request['result']
         except BaseException:
-            request['cancelled'].set(); self.close_signal.emit(); raise
+            request['cancelled'].set(); self.close_from_worker(); raise
 
     @Slot(object)
     def _dispatch(self, request):
