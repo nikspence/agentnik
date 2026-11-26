@@ -29,6 +29,18 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_project_context_resume_skips_machine_records_but_not_failed_project_turns(self):
+        from agentnik.code_history import project_context_for_resume
+
+        binding = {"model": {"connection": "Fixture", "model": "first"}}
+        context = {"task": "Project task", "answer": "Project result"}
+        prior = {"coding_models": binding, "code_state": "completed", "coding_context": context}
+        machine = {"coding_models": binding, "coding_file_scope": "machine", "code_state": "completed"}
+        other = dict(machine, coding_models={"model": {"connection": "Other", "model": "second"}})
+        self.assertEqual(project_context_for_resume([machine, prior]), context)
+        self.assertIsNone(project_context_for_resume([other, prior]))
+        self.assertIsNone(project_context_for_resume([machine, dict(prior, code_state="failed"), prior]))
+
     def test_resumed_machine_goal_requires_machine_scope_before_continuing(self):
         from unittest.mock import Mock
         from agentnik import cli, core

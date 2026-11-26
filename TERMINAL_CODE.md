@@ -132,7 +132,7 @@ Run `/skills` to find installed skills. A user-installed skill at `~/.agents/ski
 
 For large UTF-8 logs, machine scope can inspect up to 200 recent lines from a bounded window at the end of an absolute path. Reading the tail does not make the file eligible for an edit.
 
-Within the open session, switching to machine scope pauses automatic project context. Switching back restores the previous project turn if context is enabled. Machine turns remain visible in history, but their answers are not used as automatic previous-turn context.
+Switching to machine scope pauses automatic project context. Switching back restores the previous project turn if context is enabled. Resuming after a machine turn also restores a completed project turn when its connection and model match the resumed session. Machine turns remain visible in history, but their answers are not used as automatic previous-turn context.
 
 To continue a goal recorded in machine scope, reselect `/scope machine` before running `/continue`. Resuming the session itself does not re-enable machine scope.
 

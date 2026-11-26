@@ -783,9 +783,10 @@ def terminal_session(options, root, lease, images):
             record = records[0]
             last_record = record
             skill_pins = dict(record.get("coding_skill_pins", {}))
-            context = record.get("coding_context") if record.get("code_state") == "completed" else None
+            from .code_history import project_context_for_resume
             from .sessions import coding_model_binding
 
+            context = project_context_for_resume(records)
             binding = coding_model_binding(record)
             connection_name = binding.get("connection", "")
             model = binding.get("model", "")

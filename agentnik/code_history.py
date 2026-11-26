@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .repositories import RepositoryRegistry
 from .research import scrub
-from .sessions import append_code_activity
+from .sessions import append_code_activity, coding_model_binding
 from .storage import Store
 
 
@@ -59,6 +59,20 @@ def goal_continuation(record):
                     + ("\nRecent confirmed project changes from the previous run:\n"
                        + "\n".join(f"- {change}" for change in changes) if changes else ""),
     }
+
+
+def project_context_for_resume(records):
+    """Restore the latest project turn only for the resumed model binding."""
+    if not records:
+        return None
+    binding = coding_model_binding(records[0])
+    for record in records:
+        if record.get("coding_file_scope") == "machine":
+            continue
+        if record.get("code_state") == "completed" and coding_model_binding(record) == binding:
+            return record.get("coding_context")
+        break
+    return None
 
 
 class CodeHistory:
