@@ -22,7 +22,7 @@ From the folder you want to work in, run `agentnik code`. A Git repository is op
 
 Open the project folder in VS Code and run `agentnik code` in its integrated terminal. For Remote SSH, install Agentnik on the remote host and run it from the remote terminal.
 
-If you want a launcher in **Terminal → Run Task**, add this example to the workspace's `.vscode/tasks.json` or merge the task into the existing `tasks` array. This assumes `agentnik` is available on the task's PATH. For a virtual environment that isn't on PATH, use its Agentnik executable as `command`.
+If you want a launcher in **Terminal → Run Task**, add this example to the workspace's `.vscode/tasks.json` or merge the `tasks` and `inputs` entries into the existing file. This assumes `agentnik` is available on the task's PATH. For a virtual environment that isn't on PATH, use its Agentnik executable as `command`.
 
 ```json
 {
@@ -38,19 +38,27 @@ If you want a launcher in **Terminal → Run Task**, add this example to the wor
       "problemMatcher": []
     },
     {
-      "label": "Agentnik Code: Resume Latest",
+      "label": "Agentnik Code: Resume Session",
       "type": "process",
       "command": "agentnik",
-      "args": ["code", "--resume", "latest"],
+      "args": ["code", "--resume", "${input:agentnikSession}"],
       "options": {"cwd": "${workspaceFolder}"},
       "presentation": {"reveal": "always", "focus": true, "panel": "new"},
       "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "agentnikSession",
+      "type": "promptString",
+      "description": "Saved Agentnik session ID, unique prefix, or latest",
+      "default": "latest"
     }
   ]
 }
 ```
 
-The first task starts a fresh session. The second reopens the latest saved session for the workspace without sending a model request. If it is already open in another terminal, use that terminal or close it before resuming. It does not install an extension or provide editor-native diffs. [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks)
+The first task starts a fresh session. The second asks for a saved session ID or unique prefix and defaults to `latest`. It reopens the selected workspace session without sending a model request. If it is already open in another terminal, use that terminal or close it before resuming. It does not install an extension or provide editor-native diffs. [VS Code task input variables](https://code.visualstudio.com/docs/reference/variables-reference#_input-variables)
 
 For editor integrations or scripts, `agentnik code --list-sessions` prints a JSON array of saved sessions in the current project, newest first. It returns the session ID, saved turn status, file scope, goal status, and last update time (`updated_at` in Unix seconds) without opening the composer or resuming a run. Pass a project folder to list sessions for a different workspace.
 
