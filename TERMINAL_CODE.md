@@ -13,6 +13,8 @@ From the folder you want to work in, run `agentnik code`. A Git repository is op
 
 This guide follows the current checkout. For the commands and behavior in the published v0.13.0 wheel, use the [v0.13.0 terminal guide](https://github.com/nikspence/agentnik/blob/v0.13.0/TERMINAL_CODE.md).
 
+On Windows, the [verified build-only onedir preview](https://github.com/nikspence/agentnik/actions/runs/45913137527) also lets you try the terminal without installing Python. Download the `agentnik-windows-onedir-preview` artifact, extract the inner ZIP, and keep both launchers alongside the `_internal` folder. From your project directory, run `& "C:\path\to\Agentnik\Agentnik-Terminal.exe" code` in PowerShell. The original v0.13.0 Windows ZIP has only the desktop launcher.
+
 While a run is waiting for an approval, enter `/steer MESSAGE` at the approval prompt to redirect it without approving the proposed action. Delivery outcomes reported by the coding engine appear in `/history` and are never replayed as steering commands. The terminal does not accept steering while the model is streaming.
 
 ## Launch from VS Code
