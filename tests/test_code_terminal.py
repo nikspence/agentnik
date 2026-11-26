@@ -96,9 +96,11 @@ class TerminalRunTests(unittest.TestCase):
             composer = Mock()
             composer.prompt.side_effect = [
                 "/connection Fixture", "Initial project task", "/scope machine", "/context",
-                "Machine diagnostic task", "/scope project", "Follow up on project", "/exit",
+                "Machine diagnostic task", "/scope project", "Follow up on project",
+                "/scope machine", "Last machine task", "/exit",
             ]
-            answers = iter(("Prior project answer fixture", "Machine-only answer fixture", "Project follow-up"))
+            answers = iter(("Prior project answer fixture", "Machine-only answer fixture", "Project follow-up",
+                            "Last machine answer fixture", "Resumed project answer"))
             bodies = []
 
             def send(connection, url, body, timeout):
@@ -111,11 +113,24 @@ class TerminalRunTests(unittest.TestCase):
                     patch.object(core, "open_request", side_effect=send), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
+                self.assertEqual(len(bodies), 4)
+                argv.extend(("--resume", "latest"))
+
+                def resumed_prompt():
+                    self.assertEqual(len(bodies), 4, "Reopening a session must not replay a request")
+                    composer.prompt.side_effect = ["/exit"]
+                    return "Continue after reopening"
+
+                composer.prompt.side_effect = resumed_prompt
+                self.assertEqual(cli.main(), 0)
             self.assertIn("Project context is paused in machine scope.", output.getvalue())
-            self.assertEqual(len(bodies), 3)
+            self.assertEqual(len(bodies), 5)
             self.assertNotIn("Prior project answer fixture", bodies[1])
             self.assertNotIn("Machine-only answer fixture", bodies[2])
             self.assertIn("Prior project answer fixture", bodies[2])
+            self.assertIn("Project follow-up", bodies[4])
+            self.assertNotIn("Last machine answer fixture", bodies[4])
+            self.assertNotIn("machine_read_file", bodies[4])
 
     def test_connection_export_is_portable_and_refuses_to_overwrite(self):
         from agentnik.cli import export_connection_settings, import_connection_settings
