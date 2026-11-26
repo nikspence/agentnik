@@ -715,7 +715,10 @@ def terminal_session(options, root, lease, images):
                     label = next((e["text"].split("\n")[0][:80] for e in record.get("code_activity", [])
                                   if e["kind"] == "prompt"), record["title"])
                     scope = " [machine]" if record.get("coding_file_scope") == "machine" else ""
-                    print(terminal_text(f"{ident}  {record.get('code_state', 'idle')}{scope}  {label}"))
+                    current = " [current]" if ident == session_id else ""
+                    goal_status = record.get("coding_goal", {}).get("status")
+                    goal = f" [goal: {goal_status}]" if goal_status else ""
+                    print(terminal_text(f"{ident}  {record.get('code_state', 'idle')}{scope}{current}{goal}  {label}"))
                 if not sessions:
                     print("No saved sessions for this project.")
                 elif offset >= len(sessions):

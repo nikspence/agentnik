@@ -2329,12 +2329,14 @@ class TerminalRunTests(unittest.TestCase):
         from agentnik import cli
 
         saved = {f"fixture-{i:02d}": {"title": f"Saved {i}", "code_state": "completed"} for i in range(21)}
+        saved["fixture-00"]["coding_goal"] = {"status": "completed"}
         with TemporaryDirectory() as directory:
             base = Path(directory)
             composer = Mock()
             composer.prompt.side_effect = ["/sessions", "/sessions 2", "/sessions 3", "/sessions 0", "/exit"]
             argv = ["agentnik", "code", str(base), "--data-dir", str(base / "data")]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.cli.uuid4", return_value="fixture-00"), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
                     patch("agentnik.code_history.CodeHistory.sessions", return_value=saved), \
                     patch("agentnik.code_history.CodeHistory.list") as read_records, \
@@ -2342,7 +2344,9 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             read_records.assert_not_called()
             first, second = output.getvalue().split("More saved sessions are available under /sessions 2.")
+            self.assertIn("fixture-00  completed [current] [goal: completed]  Saved 0", first)
             self.assertIn("fixture-19", first)
+            self.assertEqual(first.count("[current]"), 1)
             self.assertNotIn("fixture-20", first)
             self.assertIn("fixture-20", second)
             self.assertNotIn("fixture-19", second)
