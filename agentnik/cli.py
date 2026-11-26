@@ -52,11 +52,21 @@ def connection_menu(data_dir, add=False):
         store.db.close()
 
 
+def desktop_main():
+    try:
+        from .ui import main as launch
+    except ModuleNotFoundError as exc:
+        if exc.name != "PySide6":
+            raise
+        print('Desktop support requires PySide6. Install "agentnik[desktop]" or run agentnik code.',
+              file=sys.stderr)
+        return 1
+    return launch()
+
+
 def main():
     args = sys.argv[1:]
     if args[:1] != ["code"]:
-        from .ui import main as desktop_main
-
         return desktop_main()
 
     parser = argparse.ArgumentParser(prog="agentnik code")
