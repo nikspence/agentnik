@@ -6,6 +6,7 @@ COMMANDS = (
     "/model", "/models", "/goal", "/continue", "/web on", "/web off", "/vision on", "/vision off",
     "/thinking on", "/thinking off", "/permissions", "/permissions require",
     "/permissions allow-all", "/skills", "/skills show", "/skills add", "/skills remove",
+    "/context", "/context on", "/context off", "/context clear",
     "/settings", "/history", "/new", "/sessions", "/resume", "/exit",
 )
 

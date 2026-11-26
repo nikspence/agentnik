@@ -167,6 +167,7 @@ def main():
         print("Ctrl+T or PageUp opens the transcript.")
     connection_name = model = ""
     context = None
+    use_context = True
     last_record = None
     web_enabled = False
     vision_enabled = False
@@ -199,6 +200,7 @@ def main():
                   "/models [FILTER]  Fetch the selected connection's catalog and choose a model\n"
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/continue         Continue the last stopped goal with fresh limits\n"
+                  "/context          Inspect, clear, or toggle previous-turn context\n"
                   "/web on|off       Enable or disable web research for this session\n"
                   "/vision on|off    Allow the coding model to inspect project images\n"
                   "/thinking on|off  Show model-provided thinking when available\n"
@@ -210,6 +212,25 @@ def main():
                   "/sessions         List saved sessions for the current project\n"
                   "/resume ID        Resume a saved session (or use latest)\n"
                   "/exit             Close Agentnik Code")
+        elif command == "/context" or command.startswith("/context "):
+            from .code_terminal import terminal_text
+
+            action = command.partition(" ")[2].strip()
+            if action == "clear":
+                context = None
+                print("Cleared context for the next turn. Saved history remains available.")
+            elif action in ("on", "off"):
+                use_context = action == "on"
+                print(f"Previous-turn context {'enabled' if use_context else 'disabled'} for this session.")
+            elif not action:
+                print(f"Previous-turn context: {'on' if use_context else 'off'}.")
+                if context:
+                    print(terminal_text(f"Task:\n{context['task']}\n\nAnswer:\n{context['answer']}"))
+                else:
+                    print("No previous-turn context is available.")
+                print("Use /context on, /context off, or /context clear.")
+            else:
+                print("Use /context to see available actions.")
         elif command == "/diff" or command.startswith("/diff "):
             from .code_terminal import project_diff, terminal_text
 
@@ -296,6 +317,7 @@ def main():
         elif command == "/new":
             session_id = str(uuid4())
             context = None
+            use_context = True
             last_record = None
             web_enabled = False
             vision_enabled = False
@@ -358,6 +380,7 @@ def main():
                 continue
             if command != "/history":
                 session_id = ident
+                use_context = True
                 web_enabled = False
                 vision_enabled = False
                 show_thinking = False
@@ -441,7 +464,8 @@ def main():
                 connection, limits, goal_budget, research_options, advice = load_run_settings(
                     options.data_dir, connection_name, model, web_enabled
                 )
-                run = CodingRun(connection, root, command, context=context, limits=limits,
+                run = CodingRun(connection, root, command, context=context if use_context and not resume else None,
+                                limits=limits,
                                 goal=goal, goal_budget=goal_budget, vision_enabled=vision_enabled,
                                 resume_context=resume,
                                 skills=list(skill_pins), skill_pins=skill_pins,

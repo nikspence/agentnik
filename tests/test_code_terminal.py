@@ -278,7 +278,8 @@ class TerminalRunTests(unittest.TestCase):
             first.prompt.side_effect = ["/connection Fixture", "/skills add notes",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
-                                        "Create a note", "/permissions allow-all", "Create another note",
+                                        "Create a note", "/context", "/context clear",
+                                        "/permissions allow-all", "Create another note",
                                         "/new", "/status", "/history", "/exit"]
             output = io.StringIO()
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
@@ -296,6 +297,8 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 4, output.getvalue())
             self.assertIn("Fixture note style.", str(transport.call_args_list[0].args[2]))
+            self.assertIn("Answer:\nCreated the note.", output.getvalue())
+            self.assertNotIn("Created the note.", str(transport.call_args_list[2].args[2]))
             execute.assert_called_once()
             self.assertIn("No saved history for this session.", output.getvalue())
             self.assertIn("Permissions: require", output.getvalue())
