@@ -323,8 +323,10 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
             if kind == "model_response":
                 prefix = streamed.pop(event.get("stream_id"), "")
                 response = event.get("text", "")
-                if partial_line and prefix and response.startswith(prefix):
-                    write(terminal_text(response[len(prefix):]))
+                if prefix and response.startswith(prefix):
+                    suffix = response[len(prefix):]
+                    if suffix or partial_line:
+                        write(terminal_text(suffix))
                     partial_line = False
                 else:
                     if partial_line:

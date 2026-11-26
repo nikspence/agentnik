@@ -2710,6 +2710,23 @@ class TerminalRunTests(unittest.TestCase):
             drive_run(Run())
         self.assertEqual(output.getvalue(), second + "\nModel thinking:\nProvider detail\n")
 
+    def test_interleaved_activity_does_not_repeat_streamed_response(self):
+        from unittest.mock import Mock
+
+        run = Mock()
+
+        def work(emit):
+            emit({"kind": "model_delta", "stream_id": "answer", "text": "Already shown."})
+            emit({"kind": "output", "text": "Tool activity"})
+            emit({"kind": "model_response", "stream_id": "answer", "text": "Already shown. New ending."})
+            emit({"kind": "finished", "status": "completed"})
+
+        run.run.side_effect = work
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            drive_run(run)
+        self.assertEqual(output.getvalue(), "Already shown.\nTool activity\n New ending.\n")
+
     def test_terminal_reports_missing_worker_result_without_echoing_exception(self):
         from unittest.mock import Mock
 
