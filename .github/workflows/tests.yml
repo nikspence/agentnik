@@ -111,3 +111,9 @@ jobs:
             --mount "type=bind,src=$PWD/dist/pypi-check,dst=/preview,readonly" \
             --mount "type=bind,src=$PWD/tools,dst=/tools,readonly" \
             python:3.12-slim sh /tools/ssh_terminal_smoke.sh "/preview/${1##*/}"
+      - name: Exercise installed terminal composer through a macOS PTY
+        if: runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -m pip install pexpect
+          python "${{ github.workspace }}/tools/posix_composer_smoke.py"

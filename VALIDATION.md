@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- The hosted Ubuntu installed-wheel SSH smoke test passed at `8d3deb1`. It used a fresh non-root account to configure a connection, approve and verify a file edit, cancel while a loopback fixture withheld its response, and reopen saved history without replay. [Hosted SSH check](https://github.com/nikspence/agentnik/actions/runs/45882769651)
+
 - The build-only wheel from `bba5392` ran without Qt over authenticated loopback OpenSSH with an allocated terminal in a disposable Linux container. The installed launcher handled Enter, `/keys`, both machine-scope and allow-all prompt indicators, and the empty-session `/transcript` response. The SSH client exited successfully after `/exit`. No model request was sent.
 
 - The build-only `0.12.0rc1` artifact from `bba5392` matched its recorded SHA-256 checksums. Installed outside the checkout in a fresh Windows Python 3.11 environment without Qt, the launcher handled `/keys` and the empty-session `/transcript` case over ConPTY without using a model. The publish job was skipped. [Build-only artifact](https://github.com/nikspence/agentnik/actions/runs/45881078424)
