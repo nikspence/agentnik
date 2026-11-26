@@ -33,6 +33,14 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(updated["model"], "after")
                 self.assertEqual(updated["credential_id"], "test-item")
                 self.assertEqual(updated["url"], "http://localhost:11434/v1")
+                with patch("builtins.input", side_effect=["high", "flex", "8192", "off"]):
+                    connection_menu(directory, "options", "Local")
+                updated = load_config(store.config_path)["connections"]["Local"]
+                self.assertEqual(updated["reasoning"], "high")
+                self.assertEqual(updated["service_tier"], "flex")
+                self.assertEqual(updated["context_limit"], 8192)
+                self.assertFalse(updated["stream"])
+                self.assertEqual(updated["credential_id"], "test-item")
             finally:
                 store.db.close()
 

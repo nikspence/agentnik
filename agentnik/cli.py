@@ -50,10 +50,33 @@ def connection_menu(data_dir, action="", selected_name=""):
             ):
                 current = previous.get(field, default)
                 connection[field] = input(f"{label} [{current!r}]: ").strip() or current
+        if action == "options":
+            for field, label in (
+                ("reasoning", "Reasoning effort"),
+                ("service_tier", "Service tier (auto/default/flex/priority/fast/ultrafast/scale)"),
+            ):
+                value = input(f"{label} [{previous.get(field, '')!r}] (none clears): ").strip()
+                if value:
+                    connection[field] = "" if value == "none" else value
+            value = input(f"Context tokens [{previous.get('context_limit', 0)}] (0 for unknown): ").strip()
+            if value:
+                try:
+                    limit = int(value)
+                except ValueError:
+                    raise ValueError("Context tokens must be a whole number.") from None
+                if not 0 <= limit <= 100_000_000:
+                    raise ValueError("Context tokens must be between 0 and 100000000.")
+                connection["context_limit"] = limit
+            streaming = "on" if previous.get("stream", True) else "off"
+            value = input(f"Streaming (on/off) [{streaming}]: ").strip().lower()
+            if value:
+                if value not in ("on", "off"):
+                    raise ValueError("Streaming must be on or off.")
+                connection["stream"] = value == "on"
         connection = validate_connections({"connections": {
             name: connection,
         }})[name]
-        if action == "edit":
+        if action in ("edit", "options"):
             store.update_connection_settings(name, connection)
             print(f"Saved connection {name!r}.")
             return
@@ -160,7 +183,7 @@ def main():
         if command == "/help":
             print("/status           Show the project folder\n"
                   "/connections      List saved and environment connections\n"
-                  "/connections add|edit|key|remove [NAME]\n"
+                  "/connections add|edit|options|key|remove [NAME]\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model NAME       Override the connection model\n"
                   "/settings         Manage coding limits, TLS and desktop appearance\n"
@@ -174,8 +197,8 @@ def main():
         elif command == "/connections" or command.startswith("/connections "):
             _, _, operation = command.partition(" ")
             action, _, name = operation.strip().partition(" ")
-            if action not in ("", "add", "edit", "key", "remove"):
-                print("Use /connections, or /connections add|edit|key|remove [NAME].")
+            if action not in ("", "add", "edit", "options", "key", "remove"):
+                print("Use /connections, or /connections add|edit|options|key|remove [NAME].")
                 continue
             connection_menu(options.data_dir, action, name.strip())
         elif command == "/settings" or command.startswith("/settings "):
