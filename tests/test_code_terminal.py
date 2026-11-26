@@ -49,8 +49,10 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
             composer = Mock()
+            session = uuid4()
             composer.prompt.side_effect = ["/connection Fixture", "/scope machine", "/status", "Read diagnostics",
-                                           "/scope project", "Continue project work", "/exit"]
+                                           "/scope project", "Continue project work",
+                                           "/scope machine", f"/resume {session}", "/status", "Resumed task", "/exit"]
             reads = [call("machine_list_directory", {"path": str(base)}, ident="list"),
                      call("machine_read_file", {"path": str(outside)})]
             edit = call("machine_patch_file", {"path": str(outside), "old_text": "fixture", "new_text": "reviewed"},
@@ -60,7 +62,9 @@ class TerminalRunTests(unittest.TestCase):
             replies = iter([Wire(chat(calls=reads, finish="tool_calls"), False),
                             Wire(chat(calls=[edit, create], finish="tool_calls"), False),
                             Wire(chat("Outside fixture evidence"), False),
-                            Wire(chat("Project response"), False)])
+                            Wire(chat("Project response"), False),
+                            Wire(chat(calls=[create], finish="tool_calls"), False),
+                            Wire(chat("Resumed response"), False)])
             bodies = []
 
             def send(connection, url, body, timeout):
@@ -69,12 +73,13 @@ class TerminalRunTests(unittest.TestCase):
 
             argv = ["agentnik", "code", str(root), "--data-dir", str(data)]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
+                    patch.object(cli, "uuid4", return_value=session), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
                     patch("builtins.input", return_value="y") as approval, \
                     patch.object(core, "open_request", side_effect=send), \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
-            self.assertEqual(len(bodies), 4, output.getvalue())
+            self.assertEqual(len(bodies), 6, output.getvalue())
             self.assertEqual(approval.call_count, 2, output.getvalue())
             self.assertIn("operation: machine_patch_file", output.getvalue())
             self.assertIn("operation: machine_create_file", output.getvalue())
@@ -92,6 +97,9 @@ class TerminalRunTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "project-relative path"):
                 ProjectFiles(root).path(str(outside))
             self.assertNotIn("Outside fixture evidence", json.dumps(bodies[3]["messages"]))
+            self.assertIn("Scope: project", output.getvalue())
+            self.assertFalse(any(t["function"]["name"].startswith("machine_") for t in bodies[4]["tools"]))
+            self.assertIn("Unknown or unavailable tool", json.dumps(bodies[5]["messages"]))
 
     def test_machine_create_does_not_overwrite_a_file_created_after_preview(self):
         from agentnik.machine_files import create_machine_file, machine_create_preview
