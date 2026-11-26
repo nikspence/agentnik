@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- A Windows ConPTY smoke test at `f0a9a97` sent simulated input to the real terminal composer. Ctrl+J inserted a newline, Enter submitted the two-line draft, and Up recalled the exact draft for resubmission. This verifies the Windows pseudoconsole path, not shortcuts intercepted by a specific terminal application or physical keyboard.
+
 - Machine-scope terminal tests passed on native Windows and on Linux under WSL at `37b2ce0` (56 and 55 passing respectively, with the Windows-only path test skipped on Linux). Mocked requests verified absolute-path reads and writes, a declined write leaving no file, return to project scope on resume, and rejection of a machine tool call after resume. This does not qualify macOS or live model behavior.
 
 - A live terminal Code run with scripted input on Windows used GPT-6.1 Terra through OpenRouter Chat Completions to call `view_image` on a synthetic 16:9 PNG. The first request contained no image. The continuation carried the PNG and correctly identified both shapes and their positions. This qualifies inspection for that model and route, not live image generation or the full presentation-skill workflow.
