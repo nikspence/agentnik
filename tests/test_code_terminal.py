@@ -857,6 +857,9 @@ class TerminalRunTests(unittest.TestCase):
                 ("/settings mcp sig", "/settings mcp signin"),
                 ("/settings web providers s", "/settings web providers set"),
                 ("/settings image s", "/settings image set"),
+                ("/settings appearance th", "/settings appearance theme"),
+                ("/settings goal steps u", "/settings goal steps unlimited"),
+                ("/settings web access str", "/settings web access strict_public"),
             ):
                 with self.subTest(partial=partial):
                     completions = composer.completer.get_completions(

@@ -22,8 +22,11 @@ COMMANDS = (
     "/settings mcp on", "/settings mcp off", "/settings mcp priority", "/settings mcp remove",
     "/settings mcp renew", "/settings mcp signin", "/settings mcp timeout", "/settings mcp token",
     "/settings subagents", "/settings subagents reset",
-    "/settings tls strict", "/settings tls relaxed", "/settings web access",
-    "/settings web desktop", "/settings web priority", "/settings web providers",
+    "/settings tls strict", "/settings tls relaxed", "/settings web", "/settings web access",
+    "/settings web access public_fetch", "/settings web access strict_public",
+    "/settings web desktop", "/settings web desktop on", "/settings web desktop off",
+    "/settings web priority", "/settings web priority provider", "/settings web priority managed",
+    "/settings web providers",
     "/settings web providers set", "/settings web providers remove",
     "/history", "/plan", "/memory", "/memory show", "/memory on", "/memory off", "/new", "/sessions", "/resume", "/exit",
 )
@@ -35,6 +38,20 @@ def create_composer(transcript=lambda: "", *, message="code> ", **options):
     from prompt_toolkit.completion import WordCompleter
     from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
+    from .code_settings import APPEARANCE, CHAT_LIMIT_FIELDS, FIELDS, GOAL_FIELDS, UNLIMITED_FIELDS
+
+    setting_names = tuple(
+        f"/settings {group} {name}"
+        for group, fields in (("appearance", APPEARANCE), ("chat-limits", CHAT_LIMIT_FIELDS),
+                              ("limits", FIELDS), ("goal", GOAL_FIELDS))
+        for name in fields
+    )
+    unlimited = tuple(
+        f"/settings {group} {name} unlimited"
+        for group, fields, allowed in (("limits", FIELDS, UNLIMITED_FIELDS),
+                                       ("goal", GOAL_FIELDS, GOAL_FIELDS))
+        for name in fields if name in allowed
+    )
 
     bindings = KeyBindings()
 
@@ -68,7 +85,7 @@ def create_composer(transcript=lambda: "", *, message="code> ", **options):
         multiline=True,
         prompt_continuation=" ...> ",
         history=InMemoryHistory(),
-        completer=WordCompleter(COMMANDS, sentence=True),
+        completer=WordCompleter((*COMMANDS, *setting_names, *unlimited), sentence=True),
         complete_while_typing=False,
         key_bindings=bindings,
         enable_open_in_editor=False,
