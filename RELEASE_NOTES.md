@@ -11,7 +11,7 @@ Run it from the folder you want to work in. Git and Qt are not required to start
 
 - **Independent sessions:** recall prompts, inspect saved activity, and explicitly reopen a session without replaying work.
 - **Review and scope:** choose when to approve project edits and commands, and switch between project and machine file scope. Shell commands run as your account and are not sandboxed.
-- **Coding tools:** steer or cancel runs, pursue goals, review changes, run manual Git commands, and optionally inspect or generate images with compatible connections.
+- **Coding tools:** cancel runs, pursue goals, review changes, run manual Git commands, and optionally inspect or generate images with compatible connections.
 
 The [terminal guide](https://github.com/nikspence/agentnik/blob/v0.13.0/TERMINAL_CODE.md) covers SSH setup, keyboard shortcuts, and the VS Code integrated terminal. This is not a native VS Code extension.
 
