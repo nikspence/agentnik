@@ -2546,6 +2546,15 @@ class TerminalRunTests(unittest.TestCase):
                             patch.object(SessionLease, "select", side_effect=AssertionError("listing must not lease")):
                         listed = discover()
                     self.assertEqual(owner.session_id, ident)
+                resolve = Path.resolve
+
+                def resolve_fixture(path, *args, **kwargs):
+                    if path == other:
+                        raise RuntimeError("Saved workspace symlink loop")
+                    return resolve(path, *args, **kwargs)
+
+                with patch.object(Path, "resolve", autospec=True, side_effect=resolve_fixture):
+                    self.assertEqual(discover(), listed)
                 self.assertFalse((data / "attachments").exists())
                 saved, = history.list(ident)
                 self.assertEqual(listed, [{"id": ident, "status": "running", "scope": "project",

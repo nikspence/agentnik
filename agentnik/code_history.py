@@ -28,7 +28,12 @@ def saved_session_metadata(data_dir, root):
 
 
 def same_project(path, root):
-    return os.path.normcase(str(Path(path).resolve())) == os.path.normcase(str(Path(root).resolve()))
+    try:
+        saved_root = Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        # One stale project path must not hide sessions for other projects.
+        return False
+    return os.path.normcase(str(saved_root)) == os.path.normcase(str(Path(root).resolve()))
 
 
 def resolve_session_id(sessions, selector):
