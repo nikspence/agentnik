@@ -832,6 +832,39 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(options["search_provider"], "managed")
         self.assertEqual(options["web_backends"], [{"kind": "brave"}])
 
+    def test_manual_git_commit_and_push_use_explicit_confirmation_and_destination(self):
+        import shutil
+        import subprocess
+        from agentnik.code_git_commands import manual_git
+
+        git = shutil.which("git")
+        if not git:
+            self.skipTest("Native Git is not installed")
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / "project"
+            root.mkdir()
+            remote = Path(directory) / "remote.git"
+
+            def run(*args, cwd=root):
+                return subprocess.check_output([git, *args], cwd=cwd, text=True).strip()
+
+            run("init", "--quiet")
+            run("init", "--bare", "--quiet", str(remote))
+            run("config", "user.name", "Fixture")
+            run("config", "user.email", "fixture@example.org")
+            run("config", "commit.gpgsign", "false")
+            (root / "note.txt").write_text("Fixture")
+            run("add", "note.txt")
+            run("remote", "add", "fixture", str(remote))
+            manual_git(root, "commit Save fixture", prompt=lambda _: "", write=lambda _: None)
+            self.assertEqual(run("diff", "--cached", "--name-only"), "note.txt")
+            manual_git(root, "commit Save fixture", prompt=lambda _: "y", write=lambda _: None)
+            self.assertEqual(run("log", "-1", "--format=%s"), "Save fixture")
+            manual_git(root, "push fixture release-smoke", prompt=lambda _: "", write=lambda _: None)
+            self.assertEqual(run("for-each-ref", cwd=remote), "")
+            manual_git(root, "push fixture release-smoke", prompt=lambda _: "y", write=lambda _: None)
+            self.assertEqual(run("rev-parse", "refs/heads/release-smoke", cwd=remote), run("rev-parse", "HEAD"))
+
     def test_terminal_reviews_real_local_git_commit_even_in_allow_all(self):
         from unittest.mock import Mock
         from dulwich import porcelain

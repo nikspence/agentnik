@@ -1,6 +1,7 @@
 """Interactive prompt editing for the terminal Code client."""
 
 COMMANDS = (
+    "/git", "/git status", "/git commit", "/git push",
     "/help", "/status", "/diff", "/diff --staged", "/connections", "/connections add", "/connections edit",
     "/connections options", "/connections key", "/connections remove", "/connections discover", "/connection",
     "/model", "/models", "/goal", "/continue", "/web on", "/web off", "/vision on", "/vision off",

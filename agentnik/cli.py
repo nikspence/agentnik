@@ -221,6 +221,7 @@ def terminal_session(options, root, lease, images):
         if command == "/help":
             print("/status           Show the project folder\n"
                   "/diff [--staged] PATH  Review a file against HEAD\n"
+                  "/git              Run manual Git status, commit, or push\n"
                   "/connections      List saved and environment connections\n"
                   "/connections add|edit|options|key|remove [NAME]\n"
                   "/connections discover  Look for supported services on this machine\n"
@@ -348,6 +349,16 @@ def terminal_session(options, root, lease, images):
                 print("Use /context on, /context off, or /context clear.")
             else:
                 print("Use /context to see available actions.")
+        elif command == "/git" or command.startswith("/git "):
+            from .code_git_commands import manual_git
+            from .code_terminal import terminal_text
+
+            try:
+                manual_git(root, command.partition(" ")[2])
+            except (EOFError, KeyboardInterrupt):
+                print("Git command interrupted. Check Git state before retrying.")
+            except (OSError, ValueError) as exc:
+                print(terminal_text(exc), file=sys.stderr)
         elif command == "/diff" or command.startswith("/diff "):
             from .code_terminal import project_diff, terminal_text
 
