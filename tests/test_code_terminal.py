@@ -1369,11 +1369,11 @@ class TerminalRunTests(unittest.TestCase):
                 path.write_text("working\n")
                 with patch("subprocess.Popen", side_effect=AssertionError("Native Git must not run")):
                     self.assertIn("+working", project_diff(root, path.name))
-                    self.assertIn("+staged", project_diff(root, "--staged " + path.name))
+                    self.assertIn("+staged", project_diff(root, f"--staged '{path.name}'"))
                     self.assertIn("Unstaged", project_diff(root, ""))
 
                     composer = Mock()
-                    composer.prompt.side_effect = ["/diff", f"/diff {path.name}", "/exit"]
+                    composer.prompt.side_effect = ["/diff", f'/diff "{path.name}"', "/exit"]
                     argv = ["agentnik", "code", str(root), "--data-dir", str(root / "data")]
                     with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                             patch("agentnik.code_composer.create_composer", return_value=composer), \

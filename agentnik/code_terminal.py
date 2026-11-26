@@ -68,8 +68,11 @@ def project_diff(root, argument):
         ])
     staged = argument == "--staged" or argument.startswith("--staged ")
     path = argument.partition(" ")[2].strip() if staged else argument
+    if len(path) >= 2 and path[0] == path[-1] and path[0] in ("'", '"'):
+        path = path[1:-1]
     if not path:
-        raise ValueError("Provide a project-relative file after --staged.")
+        raise ValueError("Provide a project-relative file after --staged." if staged
+                         else "Provide a project-relative file path.")
     result = git.inspect("git_diff_staged" if staged else "git_diff", path)
     return result["diff"] or "No textual changes for this file."
 
