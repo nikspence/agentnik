@@ -1463,6 +1463,7 @@ class TerminalRunTests(unittest.TestCase):
             store = Store(data)
             try:
                 store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "vision", "stream": False})
+                store.save_connection("Images", {"url": "https://images.example/v1", "model": "image-default"})
             finally:
                 store.db.close()
             composer = Mock()
@@ -1489,13 +1490,16 @@ class TerminalRunTests(unittest.TestCase):
 
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
-                    patch("builtins.input", side_effect=["Fixture", "image-model", "", "y"]) as approval, \
+                    patch("builtins.input", side_effect=["Images", "image-model", "", "y"]) as approval, \
                     patch("agentnik.image_generation.generate", return_value={
                         "data": pixels.getvalue(), "mime": "image/png", "suffix": ".png", "cost": None,
                     }) as image_api, \
                     patch.object(core, "open_request", side_effect=send) as model_api, contextlib.redirect_stdout(out):
                 self.assertEqual(cli.main(), 0)
             image_api.assert_called_once()
+            self.assertEqual(image_api.call_args.args[0]["url"], "https://images.example/v1")
+            self.assertEqual(image_api.call_args.args[1], "image-model")
+            self.assertTrue(all(call.args[0]["url"] == "https://example.org/v1" for call in model_api.call_args_list))
             self.assertIn("Image inspection is off for this session.", out.getvalue())
             self.assertIn("Image inspection is on for this session.", out.getvalue())
             self.assertIn("Approve once?", approval.call_args.args[0])
