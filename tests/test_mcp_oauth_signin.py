@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import socket
+import time
 import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -20,6 +21,7 @@ class TerminalSignInTests(unittest.TestCase):
 
     def check_signin(self, dynamic):
         observed = {}
+        client_expiry = int(time.time()) + 7200
         metadata = {
             "issuer": self.issuer,
             "authorization_endpoint": self.issuer + "/authorize",
@@ -40,10 +42,12 @@ class TerminalSignInTests(unittest.TestCase):
 
         with patch("agentnik.mcp_oauth_signin.discover_authorization", return_value=metadata), patch(
             "agentnik.mcp_oauth_signin._read",
-            side_effect=([b'{"client_id":"public-client","token_endpoint_auth_method":"none"}'] if dynamic else []) +
+            side_effect=([json.dumps({"client_id": "public-client", "token_endpoint_auth_method": "none",
+                                     "client_id_expires_at": client_expiry}).encode()] if dynamic else []) +
                         [b'{"access_token":"example-token","token_type":"Bearer","expires_in":3600}'],
         ) as exchange:
-            sign_in(self.resource, "" if dynamic else "public-client", "read", present)
+            record = sign_in(self.resource, "" if dynamic else "public-client", "read", present)
+        self.assertEqual(record.get("client_id_expires_at"), client_expiry if dynamic else None)
         self.assertEqual(exchange.call_count, 2 if dynamic else 1)
         if dynamic:
             registration = exchange.call_args_list[0]

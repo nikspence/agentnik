@@ -151,7 +151,7 @@ def register_public_client(metadata, redirect):
             choices = result.get(field, [required])
             if not isinstance(choices, list) or required not in choices:
                 raise ValueError()
-        return result["client_id"]
+        return result["client_id"], expires or None
     except Exception:
         raise ValueError("OAuth client registration did not finish safely. It was not retried.") from None
     finally:
@@ -171,11 +171,12 @@ def sign_in(resource, client_id, scope, present):
     verifier = secrets.token_urlsafe(64)
     state = secrets.token_urlsafe(32)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+    client_expiry = None
     with socket.create_server(("127.0.0.1", 0)) as listener:
         port = listener.getsockname()[1]
         redirect = f"http://127.0.0.1:{port}/callback"
         if not client_id:
-            client_id = register_public_client(metadata, redirect)
+            client_id, client_expiry = register_public_client(metadata, redirect)
         params = {"response_type": "code", "client_id": client_id, "redirect_uri": redirect, "state": state,
                   "code_challenge": challenge, "code_challenge_method": "S256", "resource": resource}
         if scope:
@@ -191,7 +192,8 @@ def sign_in(resource, client_id, scope, present):
     try:
         raw = runtime.wait(lambda: _read(runtime, token_endpoint, form, _MAX_RESPONSE))
         result = parse_token_response(raw, 200, "application/json")
-        return make_record(resource, metadata["issuer"], token_endpoint, client_id, result)
+        return make_record(resource, metadata["issuer"], token_endpoint, client_id, result,
+                           client_id_expires_at=client_expiry)
     except Exception:
         raise ValueError("OAuth token exchange did not finish safely. It was not retried.") from None
     finally:
