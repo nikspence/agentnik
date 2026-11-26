@@ -139,19 +139,26 @@ class TerminalRunTests(unittest.TestCase):
 
     def test_terminal_composer_keeps_newlines_and_records_submitted_input(self):
         from importlib.util import find_spec
+        import subprocess
+        import sys
+        from textwrap import dedent
 
         if find_spec("prompt_toolkit") is None:
             self.skipTest("Terminal composer extra is not installed")
-        from prompt_toolkit.input import create_pipe_input
-        from prompt_toolkit.output import DummyOutput
-        from agentnik.code_composer import create_composer
+        script = dedent(r"""
+            from prompt_toolkit.input import create_pipe_input
+            from prompt_toolkit.output import DummyOutput
+            from agentnik.code_composer import create_composer
 
-        with create_pipe_input() as pipe:
-            composer = create_composer(input=pipe, output=DummyOutput())
-            pipe.send_text("first line\rsecond line\x1b\r")
-            task = composer.prompt()
-            self.assertEqual(task, "first line\nsecond line")
-            self.assertEqual(composer.history.get_strings(), [task])
+            with create_pipe_input() as pipe:
+                composer = create_composer(input=pipe, output=DummyOutput())
+                pipe.send_text("first line\rsecond line\x1b\r")
+                task = composer.prompt()
+                assert task == "first line\nsecond line"
+                assert composer.history.get_strings() == [task]
+        """)
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_shell_advice_requires_disclosure_consent_and_skips_credentials(self):
         from threading import Event
@@ -193,40 +200,55 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
 
     def test_headless_image_codec_preserves_transparency_without_qt(self):
-        import builtins
         from importlib.util import find_spec
+        import subprocess
+        import sys
+        from textwrap import dedent
 
         if find_spec("PIL") is None:
             self.skipTest("Terminal image extra is not installed")
-        from PIL import Image
-        from agentnik.code_image import convert
-        from agentnik.image_generation import image_bytes
-        from agentnik.code_agent import ProjectFiles
-        from agentnik.code_vision import read_image, image_message
+        script = dedent("""
+            import io
+            from importlib.abc import MetaPathFinder
+            from pathlib import Path
+            import sys
+            from tempfile import TemporaryDirectory
 
-        raw = io.BytesIO()
-        Image.new("RGBA", (32, 18), (255, 40, 0, 80)).save(raw, "PNG")
-        real_import = builtins.__import__
+            class NoQt(MetaPathFinder):
+                def find_spec(self, fullname, path, target=None):
+                    if fullname == "PySide6":
+                        raise ModuleNotFoundError(name=fullname)
+                    return None
 
-        def no_qt(name, *args, **kwargs):
-            if name.startswith("PySide6"):
-                raise ModuleNotFoundError(name="PySide6")
-            return real_import(name, *args, **kwargs)
+            sys.meta_path.insert(0, NoQt())
+            from PIL import Image
+            from agentnik.code_image import convert
+            from agentnik.image_generation import image_bytes
+            from agentnik.code_agent import ProjectFiles
+            from agentnik.code_vision import read_image, image_message
 
-        with patch("builtins.__import__", side_effect=no_qt):
-            self.assertEqual(image_bytes(raw.getvalue()), ("image/png", ".png"))
+            raw = io.BytesIO()
+            Image.new("RGBA", (32, 18), (255, 40, 0, 80)).save(raw, "PNG")
+            assert image_bytes(raw.getvalue()) == ("image/png", ".png")
             result = convert(raw.getvalue(), ".webp")
-            with self.assertRaisesRegex(ValueError, "transparency"):
+            try:
                 convert(raw.getvalue(), ".jpg")
-        with Image.open(io.BytesIO(result)) as asset:
-            self.assertEqual(asset.size, (32, 18))
-            self.assertEqual(asset.getpixel((0, 0))[3], 80)
-        with TemporaryDirectory() as directory, patch("builtins.__import__", side_effect=no_qt):
-            root = Path(directory).resolve()
-            (root / "asset.webp").write_bytes(result)
-            data, mime = read_image(ProjectFiles(root), "asset.webp")
-            message = image_message([("asset.webp", data, mime)], "chat")
-            self.assertTrue(message["content"][1]["image_url"]["url"].startswith("data:image/webp;base64,"))
+            except ValueError as exc:
+                assert "transparency" in str(exc)
+            else:
+                raise AssertionError("JPEG conversion discarded transparency")
+            with Image.open(io.BytesIO(result)) as asset:
+                assert asset.size == (32, 18)
+                assert asset.getpixel((0, 0))[3] == 80
+            with TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                (root / "asset.webp").write_bytes(result)
+                data, mime = read_image(ProjectFiles(root), "asset.webp")
+                message = image_message([("asset.webp", data, mime)], "chat")
+                assert message["content"][1]["image_url"]["url"].startswith("data:image/webp;base64,")
+        """)
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_image_settings_reject_an_override_on_another_host(self):
         from agentnik.code_settings import configure_code
@@ -303,6 +325,8 @@ class TerminalRunTests(unittest.TestCase):
             base = Path(directory).resolve()
             root, data = base / "project", base / "data"
             root.mkdir()
+            asset = Path(cli.__file__).parent / "assets" / "agentnik-icon.png"
+            (root / "visual.png").write_bytes(asset.read_bytes())
             from zipfile import ZipFile
 
             with ZipFile(root / "brief.pptx", "w") as archive:
@@ -328,6 +352,7 @@ class TerminalRunTests(unittest.TestCase):
             shell = call("run_shell", {"path": ".", "command": "echo fixture"}, ident="call-shell")
             first = Mock()
             first.prompt.side_effect = ["/connection Fixture", "/skills add notes", "/attach brief.pptx",
+                                        "/vision on", "/attach visual.png",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
                                         "Create a note", "/context", "/context clear",
@@ -351,6 +376,8 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("Fixture note style.", str(transport.call_args_list[0].args[2]))
             self.assertIn("Presentation fixture brief.", str(transport.call_args_list[0].args[2]))
             self.assertNotIn("Presentation fixture brief.", str(transport.call_args_list[2].args[2]))
+            self.assertIn("data:image/png;base64,", str(transport.call_args_list[0].args[2]))
+            self.assertNotIn("data:image/png;base64,", str(transport.call_args_list[2].args[2]))
             self.assertIn("Answer:\nCreated the note.", output.getvalue())
             self.assertNotIn("Created the note.", str(transport.call_args_list[2].args[2]))
             execute.assert_called_once()

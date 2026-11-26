@@ -143,12 +143,13 @@ def main():
     if not sys.stdin.isatty():
         parser.error("an interactive terminal is required")
     from .code_lease import SessionLease
+    from .code_attachments import ImageQueue
 
-    with SessionLease(options.data_dir) as lease:
-        return terminal_session(options, root, lease)
+    with SessionLease(options.data_dir) as lease, ImageQueue() as images:
+        return terminal_session(options, root, lease, images)
 
 
-def terminal_session(options, root, lease):
+def terminal_session(options, root, lease, images):
     print(f"Agentnik Code preview · {str(root)!r}")
     print("Select a connection with /connection NAME, then enter a task. Type /help.")
     from .code_composer import create_composer
@@ -211,8 +212,8 @@ def terminal_session(options, root, lease):
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/context          Inspect, clear, or toggle previous-turn context\n"
-                  "/attach PATH      Include a project document in the next task\n"
-                  "/attachments      List queued documents; /attachments clear removes them\n"
+                  "/attach PATH      Include a project image or document in the next task\n"
+                  "/attachments      List queued files; /attachments clear removes them\n"
                   "/web on|off       Enable or disable web research for this session\n"
                   "/vision on|off    Allow the coding model to inspect project images\n"
                   "/thinking on|off  Show model-provided thinking when available\n"
@@ -227,20 +228,29 @@ def terminal_session(options, root, lease):
         elif command == "/attachments" or command == "/attachments clear":
             if command.endswith(" clear"):
                 documents.clear()
-                print("Cleared queued documents.")
+                images.clear()
+                print("Cleared queued attachments.")
             else:
-                print(", ".join(repr(item["name"]) for item in documents) or "No queued documents.")
+                names = [item["name"] for item in documents] + images.names()
+                print(", ".join(map(repr, names)) or "No queued attachments.")
         elif command.startswith("/attach "):
             from xml.etree.ElementTree import ParseError
             from zipfile import BadZipFile
             from .code_agent import ProjectFiles
+            from .code_attachments import IMAGE_SUFFIXES
             from .code_terminal import terminal_text
             from .document_reader import read_document, validate_documents
 
             try:
+                path = ProjectFiles(root).path(command.partition(" ")[2].strip())
+                if path.suffix.lower() in IMAGE_SUFFIXES:
+                    if not vision_enabled:
+                        raise ValueError("Use /vision on with a vision-capable model before attaching images.")
+                    images.add(path)
+                    print(f"Queued {path.name!r}. The image will be sent with the next task.")
+                    continue
                 if len(documents) >= 4:
                     raise ValueError("Attach up to four documents per prompt.")
-                path = ProjectFiles(root).path(command.partition(" ")[2].strip())
                 if path.suffix.lower() == ".pdf":
                     raise ValueError("PDF extraction is available in the desktop app. Attach a text export here.")
                 document = {"name": path.name, "text": read_document(path)}
@@ -361,6 +371,7 @@ def terminal_session(options, root, lease):
             show_thinking = False
             skill_pins = {}
             documents.clear()
+            images.clear()
             require_approval = True
             transcript.clear()
             if composer:
@@ -445,6 +456,7 @@ def terminal_session(options, root, lease):
                 show_thinking = False
                 require_approval = True
                 documents.clear()
+                images.clear()
                 transcript.clear()
                 if composer:
                     composer = open_composer()
@@ -522,6 +534,8 @@ def terminal_session(options, root, lease):
             elif goal:
                 command = command.removeprefix("/goal ").strip()
             try:
+                if images.paths() and not vision_enabled:
+                    raise ValueError("Enable /vision on or clear the queued image attachments first.")
                 connection, limits, goal_budget, research_options, advice = load_run_settings(
                     options.data_dir, connection_name, model, web_enabled, discovered=discovered
                 )
@@ -530,6 +544,7 @@ def terminal_session(options, root, lease):
                                 goal=goal, goal_budget=goal_budget, vision_enabled=vision_enabled,
                                 resume_context=resume,
                                 documents=documents,
+                                images=images.paths(),
                                 skills=list(skill_pins), skill_pins=skill_pins,
                                 **research_options)
                 run.stream_activity = True
@@ -555,8 +570,11 @@ def terminal_session(options, root, lease):
                     )
                     transcript.append("Task: " + terminal_text(task) + "\n")
                     documents.clear()
-                    result = drive_run(run, write_activity, advice=advice,
-                                       checkpoint=lambda event: history.checkpoint_goal(record, event))
+                    try:
+                        result = drive_run(run, write_activity, advice=advice,
+                                           checkpoint=lambda event: history.checkpoint_goal(record, event))
+                    finally:
+                        images.clear()
                     history.finish(record, task, result)
                     last_record = record
                     context = record.get("coding_context")

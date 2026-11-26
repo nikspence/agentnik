@@ -43,7 +43,7 @@ At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T
 | `/settings mcp` | Manage desktop MCP profiles, access, tool priority, timeouts, and HTTPS bearer tokens. Setup does not start or contact a server. |
 | `/status` | Show the project, session, model selection, and active switches. |
 | `/context` | Inspect, clear, or toggle the previous task and answer carried into new turns. Explicit goal continuation uses its own saved evidence. |
-| `/attach PATH` | Queue extracted text from a project text file, DOCX, XLSX, or PPTX for the next task. Use `/attachments` to inspect the queue and `/attachments clear` to empty it. |
+| `/attach PATH` | Queue extracted text from a project text file, DOCX, XLSX, or PPTX for the next task. With `/vision on`, you can also queue PNG, JPEG, or WebP images. Use `/attachments` to inspect the queue and `/attachments clear` to empty it. |
 | `/diff` / `/diff PATH` / `/diff --staged PATH` | List tracked changes or compare a file in the working tree or index against HEAD. |
 
 The terminal preview does not yet cover all desktop settings and tools. The [roadmap](AGENTNIK_PLAN.md) tracks remaining work, including native SSH and cross-platform validation and a later VS Code integration.
