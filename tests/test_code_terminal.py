@@ -11,6 +11,20 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_session_lease_rejects_duplicate_attachment_and_releases_on_close(self):
+        from agentnik.code_lease import SessionLease
+
+        with TemporaryDirectory() as directory, SessionLease(directory) as left, SessionLease(directory) as right:
+            first, second = str(uuid4()), str(uuid4())
+            left.select(first)
+            right.select(second)
+            with self.assertRaisesRegex(ValueError, "already open"):
+                right.select(first)
+            self.assertEqual(right.session_id, second)
+            left.close()
+            right.select(first)
+            self.assertEqual(right.session_id, first)
+
     def test_model_picker_filters_catalog_and_does_not_echo_reflected_credentials(self):
         from agentnik.code_terminal import choose_catalog_model, load_run_settings
 

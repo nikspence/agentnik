@@ -142,6 +142,13 @@ def main():
 
     if not sys.stdin.isatty():
         parser.error("an interactive terminal is required")
+    from .code_lease import SessionLease
+
+    with SessionLease(options.data_dir) as lease:
+        return terminal_session(options, root, lease)
+
+
+def terminal_session(options, root, lease):
     print(f"Agentnik Code preview · {str(root)!r}")
     print("Select a connection with /connection NAME, then enter a task. Type /help.")
     from .code_composer import create_composer
@@ -317,6 +324,7 @@ def main():
             except (OSError, ValueError) as exc:
                 print(terminal_text(exc), file=sys.stderr)
         elif command == "/new":
+            lease.close()
             session_id = str(uuid4())
             context = None
             use_context = True
@@ -379,6 +387,8 @@ def main():
                     ident = command.partition(" ")[2].strip()
                     if ident == "latest":
                         ident = next(iter(sessions), "")
+                    if ident in sessions and command not in ("/history", "/sessions", "/resume"):
+                        lease.select(ident)
                     records = history.list(session_id if command == "/history" else ident)
                 finally:
                     store.db.close()
@@ -500,6 +510,7 @@ def main():
             try:
                 store = Store(options.data_dir)
                 try:
+                    lease.select(session_id)
                     history = CodeHistory(store, root)
                     record, task = history.start(
                         connection_name, connection, resume["task"] if resume else command, session_id, goal=goal,
