@@ -26,8 +26,7 @@ def main():
     except ImportError:
         raise SystemExit("Install pywinpty in the smoke-test environment first.") from None
 
-    root = Path(__file__).resolve().parents[1]
-    terminal = PtyProcess.spawn([sys.executable, "-u", "-c", CHILD], cwd=str(root), backend=Backend.ConPTY)
+    terminal = PtyProcess.spawn([sys.executable, "-u", "-c", CHILD], cwd=str(Path.cwd()), backend=Backend.ConPTY)
     output = Queue()
     seen = ""
 
