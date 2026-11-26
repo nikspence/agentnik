@@ -59,7 +59,7 @@ def configure_mcp_token(store, servers, name):
 
 
 def configure_mcp(store, arguments):
-    from .mcp_support import validate_servers
+    from .mcp_support import DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, server_timeout, validate_servers
 
     settings = store.config["settings"]
     servers = store.config.get("mcp_servers", [])
@@ -68,11 +68,12 @@ def configure_mcp(store, arguments):
             f"Desktop MCP access: {'on' if settings.get('mcp_access_enabled', True) else 'off'}",
             f"Conflicting tools: MCP {settings.get('mcp_priority', 'first')}",
             *(f"{item['name']!r} · {'HTTPS' if item.get('transport') == 'http' else 'local'}"
-              f" · {'enabled' if item['enabled'] else 'disabled'}" for item in servers),
+              f" · {'enabled' if item['enabled'] else 'disabled'} · {server_timeout(item)}s timeout" for item in servers),
             "Use /settings mcp on|off, priority first|last, or enable|disable NAME.",
             "Use /settings mcp add-https to save an HTTPS server without credentials.",
             "Use /settings mcp add-local to save a local executable or remove NAME to remove a server.",
             "Use /settings mcp token NAME to set, rotate, or clear an HTTPS bearer token.",
+            f"Use /settings mcp timeout SECONDS NAME (1–{MAX_TIMEOUT_SECONDS}, or default).",
         ])
     if len(arguments) >= 2 and arguments[0] == "token":
         return configure_mcp_token(store, servers, " ".join(arguments[1:]))
@@ -80,6 +81,18 @@ def configure_mcp(store, arguments):
         settings["mcp_access_enabled"] = arguments == ["on"]
     elif arguments in (["priority", "first"], ["priority", "last"]):
         settings["mcp_priority"] = arguments[1]
+    elif len(arguments) >= 3 and arguments[0] == "timeout":
+        name = " ".join(arguments[2:])
+        if not any(item["name"] == name for item in servers):
+            raise ValueError("No saved MCP server with that name.")
+        try:
+            seconds = DEFAULT_TIMEOUT_SECONDS if arguments[1] == "default" else int(arguments[1])
+        except ValueError:
+            raise ValueError("Use whole seconds or default.") from None
+        if not 1 <= seconds <= MAX_TIMEOUT_SECONDS:
+            raise ValueError(f"MCP timeout must be between 1 and {MAX_TIMEOUT_SECONDS} seconds.")
+        updated = [dict(item, timeout_seconds=seconds) if item["name"] == name else item for item in servers]
+        store.config["mcp_servers"] = validate_servers(updated)
     elif len(arguments) >= 2 and arguments[0] in ("enable", "disable", "remove"):
         name = " ".join(arguments[1:])
         selected = next((item for item in servers if item["name"] == name), None)

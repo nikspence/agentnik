@@ -37,6 +37,7 @@ At the prompt, Up and Down recall input and Tab completes slash commands. Ctrl+T
 | `/settings image set` / `/settings image on` | Configure and enable generation or editing of PNG, JPEG, and WebP assets. Pillow handles raster files when Qt is absent. |
 | `/vision on` | Let the selected vision-capable model inspect supported project images. |
 | `/settings decision set` / `/settings decision on` | Configure optional System One advice. At a shell approval prompt, press `a` to review and send the proposal for advice. You still approve or decline the command. |
+| `/settings mcp` | Manage desktop MCP profiles, access, tool priority, timeouts, and HTTPS bearer tokens. Setup does not start or contact a server. |
 | `/status` | Show the project, session, model selection, and active switches. |
 
 The terminal preview does not yet cover all desktop settings and tools. The [roadmap](AGENTNIK_PLAN.md) tracks remaining work, including native SSH and cross-platform validation and a later VS Code integration.

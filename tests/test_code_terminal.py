@@ -34,9 +34,13 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(load_config(store.config_path)["mcp_servers"][0]["credential_id"], "")
                 configure_code(store, ["mcp", "enable", "Fixture", "Server"])
                 configure_code(store, ["mcp", "priority", "last"])
+                configure_code(store, ["mcp", "timeout", "120", "Fixture", "Server"])
+                with self.assertRaises(ValueError):
+                    configure_code(store, ["mcp", "timeout", "0", "Fixture", "Server"])
                 configure_code(store, ["mcp", "off"])
                 saved = load_config(store.config_path)
                 self.assertTrue(saved["mcp_servers"][0]["enabled"])
+                self.assertEqual(saved["mcp_servers"][0]["timeout_seconds"], 120)
                 self.assertEqual(saved["settings"]["mcp_priority"], "last")
                 self.assertFalse(saved["settings"]["mcp_access_enabled"])
                 with patch("builtins.input", side_effect=[
