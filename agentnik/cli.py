@@ -524,7 +524,8 @@ def terminal_session(options, root, lease):
                         ],
                     )
                     transcript.append("Task: " + terminal_text(task) + "\n")
-                    result = drive_run(run, write_activity, advice=advice)
+                    result = drive_run(run, write_activity, advice=advice,
+                                       checkpoint=lambda event: history.checkpoint_goal(record, event))
                     history.finish(record, task, result)
                     last_record = record
                     context = record.get("coding_context")

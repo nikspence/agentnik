@@ -1,6 +1,7 @@
 """Terminal adapter for Agentnik's existing Code run and approval contract."""
 
 from queue import Empty, Queue
+import sqlite3
 from threading import Thread
 import unicodedata
 
@@ -141,7 +142,7 @@ def show_shell_advice(connection, proposal, cancel, write):
     write(f"System One advice: {result['category'].upper()}{suffix}. You still decide.")
 
 
-def drive_run(run, write=print, advice=None):
+def drive_run(run, write=print, advice=None, checkpoint=None):
     events = Queue()
     done = object()
 
@@ -170,6 +171,12 @@ def drive_run(run, write=print, advice=None):
                     write()
                 return dict(result, last_goal_detail=goal_detail) if goal_detail else result
             kind = event["kind"]
+            if checkpoint and kind in ("goal_status", "goal_progress"):
+                try:
+                    checkpoint(event)
+                except (OSError, ValueError, sqlite3.Error):
+                    write("Could not save goal progress. The active run will continue.")
+                    checkpoint = None
             if kind == "finished":
                 result = event
             if kind == "model_delta":

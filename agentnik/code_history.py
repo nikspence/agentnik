@@ -23,7 +23,9 @@ def goal_continuation(record):
         "task": goal["objective"],
         "evidence": f"Previous run status: {record['code_state']}. "
                     "Inspect the project before taking action. Some actions may already have happened.\n"
-                    + goal["detail"],
+                    + goal["detail"]
+                    + (f"\nRecorded goal steps: {record['coding_goal_progress']['steps']}."
+                       if "coding_goal_progress" in record else ""),
     }
 
 
@@ -57,8 +59,22 @@ class CodeHistory:
         detail = "The previous terminal run ended without a saved result. Check the project before continuing."
         record["code_state"] = "interrupted"
         if record.get("coding_last_run_goal") and record.get("coding_goal", {}).get("status") == "active":
-            record["coding_goal"].update(status="interrupted", detail=detail)
+            goal = record["coding_goal"]
+            previous = goal.get("detail")
+            goal.update(status="interrupted", detail=(detail + ("\n" + previous if previous else ""))[:4000])
         append_code_activity(record, "interrupted", detail)
+        self.store.save(record)
+
+    def checkpoint_goal(self, record, event):
+        goal = record.get("coding_goal")
+        if not goal or record.get("code_state") != "running":
+            return
+        if event["kind"] == "goal_status":
+            goal["detail"] = event["detail"][:4000]
+        elif event["kind"] == "goal_progress":
+            record["coding_goal_progress"] = {"steps": event["steps"], "seconds": event["seconds"]}
+        else:
+            return
         self.store.save(record)
 
     def start(self, name, connection, task, session_id=None, *, goal=False, extra_secrets=(), skill_pins=None):

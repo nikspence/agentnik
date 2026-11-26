@@ -26,6 +26,10 @@ class TerminalRunTests(unittest.TestCase):
                 history.start("fixture", {"model": "test"}, "Finish project", session, goal=True)
                 with SessionLease(data) as lease:
                     record = history.list(session)[0]
+                    history.checkpoint_goal(record, {"kind": "goal_status", "status": "active",
+                                                     "detail": "Draft was created."})
+                    history.checkpoint_goal(record, {"kind": "goal_progress", "steps": 2, "seconds": 3.0})
+                    record = history.list(session)[0]
                     history.recover_interrupted(record, lease)
                     self.assertEqual(record["code_state"], "running")
                     lease.select(session)
@@ -33,6 +37,8 @@ class TerminalRunTests(unittest.TestCase):
                     saved = history.list(session)[0]
                     self.assertEqual(saved["coding_goal"]["status"], "interrupted")
                     self.assertEqual(goal_continuation(saved)["task"], "Finish project")
+                    self.assertIn("Draft was created.", goal_continuation(saved)["evidence"])
+                    self.assertIn("Recorded goal steps: 2.", goal_continuation(saved)["evidence"])
             finally:
                 store.db.close()
 
