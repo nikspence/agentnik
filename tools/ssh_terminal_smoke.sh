@@ -93,6 +93,9 @@ with pexpect.spawn("ssh", args, encoding="utf-8", timeout=12) as session:
     session.send("off\r")
     session.expect_exact("Saved connection 'SSH Fixture'.")
     session.expect_exact("code>")
+    session.send('/connections export "portable settings.json"\r')
+    session.expect_exact("Exported 1 saved connection(s) without API keys.")
+    session.expect_exact("code>")
     session.send("/connection SSH Fixture\r")
     session.expect_exact("Selected connection 'SSH Fixture'.")
     session.expect_exact("code>")
@@ -149,5 +152,28 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding=
     assert session.exitstatus == 0, session.exitstatus
 assert len(requests) == 3, "Reopening the cancelled session sent an unexpected request"
 assert (project / "note.txt").read_bytes() == b"reviewed\n"
-print("Qt-free preview passed SSH connection setup, reviewed edit, cancellation, and resume without replay.")
+portable = json.loads((project / "portable settings.json").read_text(encoding="utf-8"))
+assert "api_key" not in portable["connections"]["SSH Fixture"]
+assert "credential_id" not in portable["connections"]["SSH Fixture"]
+import_args = [*args[:-1], args[-1].replace("../test-data", "../imported-data")]
+with pexpect.spawn("ssh", import_args, encoding="utf-8", timeout=12) as session:
+    session.expect_exact("code>")
+    session.send('/connections import "portable settings.json"\r')
+    session.expect_exact("Import these settings?")
+    session.send("y\r")
+    session.expect_exact("Imported 1 connection(s).")
+    session.expect_exact("code>")
+    session.send("/connections show SSH Fixture\r")
+    session.expect_exact("Model: 'fixture-model'")
+    session.expect_exact("Streaming: False")
+    session.expect_exact("code>")
+    session.send("/exit\r")
+    session.expect(pexpect.EOF)
+    session.close()
+    assert session.exitstatus == 0, session.exitstatus
+imported = json.loads((project.parent / "imported-data/connections.json").read_text(encoding="utf-8"))
+assert "api_key" not in imported["connections"]["SSH Fixture"]
+assert "credential_id" not in imported["connections"]["SSH Fixture"]
+assert len(requests) == 3, "Connection transfer sent an unexpected model request"
+print("Qt-free preview passed SSH connection setup and transfer, reviewed edit, cancellation, and resume without replay.")
 PY
