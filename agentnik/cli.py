@@ -704,7 +704,8 @@ def terminal_session(options, root, lease, images):
                 for ident, record in list(sessions.items())[offset:offset + 20]:
                     label = next((e["text"].split("\n")[0][:80] for e in record.get("code_activity", [])
                                   if e["kind"] == "prompt"), record["title"])
-                    print(terminal_text(f"{ident}  {record.get('code_state', 'idle')}  {label}"))
+                    scope = " [machine]" if record.get("coding_file_scope") == "machine" else ""
+                    print(terminal_text(f"{ident}  {record.get('code_state', 'idle')}{scope}  {label}"))
                 if not sessions:
                     print("No saved sessions for this project.")
                 elif offset >= len(sessions):
@@ -793,6 +794,8 @@ def terminal_session(options, root, lease, images):
 
                 write_activity(terminal_plan(record["coding_plan"], "Saved plan (model reported):"))
             print(f"Resumed session {session_id}. Enter a new task when ready. Nothing was restarted.")
+            if record.get("coding_file_scope") == "machine":
+                print("The last saved turn used machine scope. New tasks start in project scope.")
         elif command == "/connection" or command.startswith("/connection "):
             from .core import environment_connections
             from .storage import ConfigurationError, Store

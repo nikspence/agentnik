@@ -31,12 +31,13 @@ def resolve_session_id(sessions, selector):
 def activity_preview(record):
     """Keep the saved task visible alongside a bounded tail of run activity."""
     activity = record.get("code_activity", [])
+    scope = ["[Saved turn used machine scope]"] if record.get("coding_file_scope") == "machine" else []
     if len(activity) <= 20:
-        return [entry["text"] for entry in activity]
+        return [*scope, *(entry["text"] for entry in activity)]
     earlier, tail = activity[:-20], activity[-20:]
     prompt = next((entry["text"] for entry in earlier if entry["kind"] == "prompt"), None)
     omitted = len(earlier) - (prompt is not None)
-    lines = [prompt] if prompt is not None else []
+    lines = [*scope, prompt] if prompt is not None else scope
     if omitted:
         lines.append(f"[{omitted} earlier activity entries omitted from this preview.]")
     return [*lines, *(entry["text"] for entry in tail)]

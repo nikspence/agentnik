@@ -64,7 +64,7 @@ class TerminalRunTests(unittest.TestCase):
                 store.db.close()
 
             composer = Mock()
-            composer.prompt.side_effect = ["/continue", "/scope machine", "/continue", "/exit"]
+            composer.prompt.side_effect = ["/sessions", "/continue", "/scope machine", "/continue", "/exit"]
             argv = ["agentnik", "code", str(root), "--data-dir", str(data), "--resume", session]
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
@@ -73,6 +73,9 @@ class TerminalRunTests(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)
             self.assertIn("That goal ran in machine scope. Use /scope machine before continuing.", output.getvalue())
+            self.assertIn("[Saved turn used machine scope]", output.getvalue())
+            self.assertIn(f"{session}  cancelled [machine]", output.getvalue())
+            self.assertIn("New tasks start in project scope.", output.getvalue())
             confirmation.assert_called_once_with("Continue this goal with fresh limits? [y/N] ")
             request.assert_not_called()
 
