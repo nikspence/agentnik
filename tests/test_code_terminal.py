@@ -3611,6 +3611,38 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(result["status"], "limited")
         self.assertIn("This approval prompt is no longer active. Your answer was not applied.", lines)
 
+    def test_terminal_approval_allows_mcp_server_for_run_only_when_explicitly_selected(self):
+        from threading import Event
+        from unittest.mock import Mock
+
+        run = Mock()
+        done = Event()
+
+        def work(emit):
+            emit({"kind": "operation_proposal", "fingerprint": "mcp",
+                  "proposal": {"operation": "mcp_connect", "server": "Fixture",
+                               "url": "https://fixture.invalid/mcp"}})
+            emit({"kind": "edit_proposal", "fingerprint": "edit",
+                  "proposal": {"path": "note.txt", "diff": "+fixture"}})
+            done.wait(3)
+            emit({"kind": "finished", "status": "completed"})
+
+        def decision(fingerprint, *_):
+            if fingerprint == "edit":
+                done.set()
+            return True
+
+        run.run.side_effect = work
+        run.decide.side_effect = decision
+        lines = []
+        with patch("builtins.input", side_effect=["r", "r"]) as prompt:
+            drive_run(run, write=lines.append)
+        self.assertEqual([call.args for call in run.decide.call_args_list],
+                         [("mcp", True, "mcp_server_run"), ("edit", False)])
+        self.assertIn("including writes and data access", "\n".join(lines))
+        self.assertIn("[y/N/r]", prompt.call_args_list[0].args[0])
+        self.assertEqual(prompt.call_args_list[1].args[0], "Approve once? [y/N] ")
+
     def test_terminal_steering_declines_pending_edit_and_reaches_the_next_request(self):
         from agentnik import core
         from agentnik.code_agent import CodingRun
