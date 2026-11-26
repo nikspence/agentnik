@@ -802,6 +802,10 @@ def terminal_session(options, root, lease, images):
 
                 write_activity(terminal_plan(record["coding_plan"], "Saved plan (model reported):"))
             print(f"Resumed session {session_id}. Enter a new task when ready. Nothing was restarted.")
+            if context:
+                print("Previous project context restored. Use /context to inspect it.")
+            elif record.get("code_state") in ("cancelled", "interrupted", "failed", "limited", "blocked"):
+                print("No previous project context restored. Saved activity is available through /history.")
             if record.get("coding_file_scope") == "machine":
                 print("The last saved turn used machine scope. New tasks start in project scope.")
         elif command == "/connection" or command.startswith("/connection "):

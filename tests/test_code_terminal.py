@@ -2258,6 +2258,8 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertIn("Stopping Code run", output.getvalue())
                 self.assertGreaterEqual(output.getvalue().count("will not replay the request"), 2)
                 self.assertIn(f"Resumed session {ident}", output.getvalue())
+                self.assertIn("No previous project context restored. Saved activity is available through /history.",
+                              output.getvalue())
                 self.assertEqual(list(root.iterdir()), [])
             finally:
                 release.set()
