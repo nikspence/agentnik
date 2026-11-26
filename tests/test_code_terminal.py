@@ -29,6 +29,34 @@ def pdf_fixture():
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_connection_export_is_portable_and_refuses_to_overwrite(self):
+        from agentnik.cli import export_connection_settings, import_connection_settings
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, destination = Store(root / "source"), Store(root / "destination")
+            try:
+                source.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture",
+                                                    "stream": False, "api_key": "synthetic"}, plaintext=True)
+                path = root / "portable settings.json"
+                with contextlib.redirect_stdout(io.StringIO()), patch("builtins.input", return_value="y"):
+                    export_connection_settings(source, f'"{path}"')
+                    content = path.read_bytes()
+                    self.assertNotIn(b"synthetic", content)
+                    self.assertNotIn(b"_capability_scope", content)
+                    with self.assertRaisesRegex(ValueError, "already exists"):
+                        export_connection_settings(source, str(path))
+                    self.assertEqual(path.read_bytes(), content)
+                    import_connection_settings(destination, str(path))
+                imported = destination.config["connections"]["Fixture"]
+                self.assertEqual(imported["model"], "fixture")
+                self.assertFalse(imported["stream"])
+                self.assertNotIn("api_key", imported)
+            finally:
+                source.db.close()
+                destination.db.close()
+
     def test_connection_import_previews_and_skips_existing_connections_and_keys(self):
         import json
         from agentnik.cli import connection_menu

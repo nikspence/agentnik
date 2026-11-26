@@ -11,13 +11,41 @@ from uuid import uuid4
 import warnings
 
 
-def import_connection_settings(store, filename):
-    from .core import validate_connections
-
+def connection_settings_path(filename):
     filename = filename.strip()
     if len(filename) >= 2 and filename[0] == filename[-1] and filename[0] in ("'", '"'):
         filename = filename[1:-1]
-    path = Path(filename).expanduser()
+    return Path(filename).expanduser()
+
+
+def portable_connection(settings):
+    return {field: settings[field] for field in
+            ("url", "protocol", "model", "reasoning", "service_tier", "context_limit", "stream")
+            if field in settings}
+
+
+def export_connection_settings(store, filename):
+    saved = store.config["connections"]
+    if not saved:
+        print("No saved connections to export.")
+        return
+    path = connection_settings_path(filename)
+    settings = {name: portable_connection(connection) for name, connection in saved.items()}
+    content = json.dumps({"connections": settings}, indent=2) + "\n"
+    if len(settings) > 100 or len(content.encode("utf-8")) > 1_048_576:
+        raise ValueError("The saved connections exceed the portable file limit of 100 connections and 1 MiB.")
+    try:
+        with path.open("x", encoding="utf-8") as stream:
+            stream.write(content)
+    except FileExistsError:
+        raise ValueError("The export destination already exists. Choose a new file.") from None
+    print(f"Exported {len(saved)} saved connection(s) without API keys.")
+
+
+def import_connection_settings(store, filename):
+    from .core import validate_connections
+
+    path = connection_settings_path(filename)
     if not path.is_file():
         raise ValueError("Choose an existing connections JSON file.")
     with path.open("rb") as stream:
@@ -39,8 +67,7 @@ def import_connection_settings(store, filename):
     if input("Import these settings? [y/N] ").strip().lower() != "y":
         return
     for name, settings in new.items():
-        settings.pop("api_key", None)
-        store.save_connection(name, settings)
+        store.save_connection(name, portable_connection(settings))
     print(f"Imported {len(new)} connection(s). Use /connections key NAME to add credentials.")
 
 
@@ -56,6 +83,9 @@ def connection_menu(data_dir, action="", selected_name=""):
     try:
         if action == "import":
             import_connection_settings(store, selected_name or input("Connections JSON file: "))
+            return
+        if action == "export":
+            export_connection_settings(store, selected_name or input("New connections JSON file: "))
             return
         if not action:
             saved = store.config["connections"]
@@ -87,9 +117,7 @@ def connection_menu(data_dir, action="", selected_name=""):
             if not target or target in store.config["connections"]:
                 print("Choose a new, nonempty connection name.")
                 return
-            source = {field: old[field] for field in
-                      ("url", "protocol", "model", "reasoning", "service_tier", "context_limit", "stream")
-                      if field in old}
+            source = portable_connection(old)
             store.save_connection(target, validate_connections({"connections": {target: source}})[target])
             print(f"Saved connection {target!r} without an API key. Use /connections key to add one.")
             return
@@ -321,7 +349,7 @@ def terminal_session(options, root, lease, images):
                   "/git              Run manual Git status, log, diff, stage, unstage, commit, or push\n"
                   "/connections      List saved and environment connections\n"
                   "/connections show|add|edit|copy|options|key|remove [NAME]\n"
-                  "/connections import PATH   Import connection settings without API keys\n"
+                  "/connections import|export PATH   Transfer saved settings without API keys\n"
                   "/connections discover  Look for supported services on this machine\n"
                   "/connection NAME  Select a connection for this session\n"
                   "/model [NAME]     Override the model, or reset to the connection default\n"
@@ -613,8 +641,8 @@ def terminal_session(options, root, lease, images):
         elif command == "/connections" or command.startswith("/connections "):
             _, _, operation = command.partition(" ")
             action, _, name = operation.strip().partition(" ")
-            if action not in ("", "show", "add", "edit", "copy", "options", "key", "remove", "import"):
-                print("Use /connections, /connections import PATH, or /connections show|add|edit|copy|options|key|remove [NAME].")
+            if action not in ("", "show", "add", "edit", "copy", "options", "key", "remove", "import", "export"):
+                print("Use /connections, /connections import|export PATH, or /connections show|add|edit|copy|options|key|remove [NAME].")
                 continue
             connection_menu(options.data_dir, action, name.strip())
             if not action:
