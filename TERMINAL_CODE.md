@@ -130,6 +130,8 @@ Run `/skills` to find installed skills. A user-installed skill at `~/.agents/ski
 | `/diff` / `/diff PATH` / `/diff --staged PATH` | List tracked changes or compare a file in the working tree or index against HEAD. |
 | `/attachments remove NUMBER` | Remove one queued file by its number in `/attachments`. The original file stays in the project. |
 
+For large UTF-8 logs, machine scope can inspect up to 200 recent lines from a bounded window at the end of an absolute path. Reading the tail does not make the file eligible for an edit.
+
 To change scope during a running task, press Ctrl+C to return to the prompt, check for changes that already took effect, then set the scope and submit a new task. Scope changes do not alter a request already sent to the model or undo an applied edit.
 
 Structured local Git operations such as staging, creating a branch, and committing always require review. The terminal shows the branch or files, diff, and commit identity and message where applicable. Structured remote Git operations are not available in this preview.

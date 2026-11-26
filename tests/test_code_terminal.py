@@ -220,6 +220,7 @@ class TerminalRunTests(unittest.TestCase):
                 return composer
             reads = [call("machine_list_directory", {"path": str(base)}, ident="list"),
                      call("machine_inspect_path", {"path": str(outside)}, ident="metadata"),
+                     call("machine_tail_file", {"path": str(outside), "lines": "1"}, ident="tail"),
                      call("machine_read_file", {"path": str(outside)})]
             edit = call("machine_patch_file", {"path": str(outside), "old_text": "fixture", "new_text": "reviewed"},
                         ident="change")
@@ -278,6 +279,9 @@ class TerminalRunTests(unittest.TestCase):
             self.assertEqual(metadata["size_bytes"], len(b"Outside fixture evidence"))
             self.assertIsInstance(metadata["modified_unix_ns"], int)
             self.assertNotIn("text", metadata)
+            tail = next(m for m in bodies[1]["messages"] if m.get("tool_call_id") == "tail")
+            self.assertEqual(json.loads(tail["content"]),
+                             {"text": "Outside fixture evidence", "truncated": False})
             from agentnik.code_agent import ProjectFiles
 
             with self.assertRaisesRegex(ValueError, "project-relative path"):
@@ -363,6 +367,23 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(details["kind"], "file")
                 self.assertEqual(details["size_bytes"], 2)
                 self.assertEqual(details["mode_octal"], "0640")
+
+    def test_machine_tail_reads_recent_lines_from_an_oversized_log(self):
+        from agentnik.code_limits import FULL_TEXT_BYTES
+        from agentnik.machine_files import tail_machine_text
+
+        with TemporaryDirectory() as directory:
+            log = Path(directory).resolve() / "service.log"
+            log.write_bytes(("é" * FULL_TEXT_BYTES).encode("utf-8") + b"\nold\r\nnew\r\nlatest")
+            self.assertEqual(tail_machine_text(str(log), "2"),
+                             {"text": "new\r\nlatest", "truncated": True})
+            log.write_bytes(b"one\ntwo\n")
+            self.assertEqual(tail_machine_text(str(log), "3"),
+                             {"text": "one\ntwo\n", "truncated": False})
+            with self.assertRaisesRegex(ValueError, "between 1 and 200"):
+                tail_machine_text(str(log), "201")
+            with self.assertRaisesRegex(ValueError, "absolute path"):
+                tail_machine_text("service.log", "2")
 
     def test_machine_directory_listing_is_bounded_and_rejects_relative_paths(self):
         from agentnik.machine_files import list_machine_directory

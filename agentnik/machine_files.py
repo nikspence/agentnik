@@ -56,6 +56,36 @@ def list_machine_directory(value):
     return {"entries": sorted(entries, key=lambda item: item["name"]), "truncated": truncated}
 
 
+def tail_machine_text(value, lines):
+    """Read a bounded window at the end of a regular UTF-8 file."""
+    if not lines.isascii() or not lines.isdecimal() or len(lines) > 3 or not 1 <= int(lines) <= 200:
+        raise ValueError("Choose a line count between 1 and 200.")
+    path = absolute_machine_path(value)
+    if not path.is_file():
+        raise ValueError("Choose a readable regular file.")
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
+    with os.fdopen(fd, "rb", buffering=0) as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("Choose a readable regular file.")
+        offset = max(0, info.st_size - FULL_TEXT_BYTES)
+        if offset:
+            stream.seek(offset - 1)
+            boundary = stream.read(1) == b"\n"
+        else:
+            boundary = True
+        data = stream.read(min(info.st_size, FULL_TEXT_BYTES))
+    if b"\x00" in data:
+        raise ValueError("The file tail is not UTF-8 text.")
+    if not boundary:
+        _, separator, data = data.partition(b"\n")
+        if not separator:
+            raise ValueError("The byte window contains no complete lines.")
+    rows = data.decode("utf-8").splitlines(keepends=True)
+    count = int(lines)
+    return {"text": "".join(rows[-count:]), "truncated": bool(offset) or len(rows) > count}
+
+
 @contextmanager
 def open_machine_text(value, write=False):
     path = absolute_machine_path(value)
