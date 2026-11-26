@@ -1597,7 +1597,7 @@ class TerminalRunTests(unittest.TestCase):
         if find_spec("prompt_toolkit") is None:
             self.skipTest("Terminal composer extra is not installed")
         script = dedent(r"""
-            from threading import Timer
+            from threading import Event, Timer
             from unittest.mock import patch
             from prompt_toolkit.input import create_pipe_input
             from prompt_toolkit.output import DummyOutput
@@ -1631,6 +1631,31 @@ class TerminalRunTests(unittest.TestCase):
                 pipe.send_text("\x1b[200~" + brief.replace("\n", "\r\n") + "\x1b[201~")
                 assert composer.prompt() == brief
                 assert observed == [brief]
+
+            with create_pipe_input() as pipe:
+                typed_while_lookup_waited = Event()
+                lookup_done = Event()
+                responsive = []
+
+                def lookup():
+                    if lookup_done.is_set() or typed_while_lookup_waited.is_set():
+                        return ()
+                    pipe.send_text("0")
+                    responsive.append(typed_while_lookup_waited.wait(3))
+                    lookup_done.set()
+                    return ()
+
+                composer = create_composer(input=pipe, output=DummyOutput(), session_ids=lookup)
+
+                def observe_typing(buffer):
+                    if buffer.text == "/resume abcd0":
+                        typed_while_lookup_waited.set()
+                        pipe.send_text("\r")
+
+                composer.default_buffer.on_text_changed += observe_typing
+                pipe.send_text("/resume abcd\t")
+                assert composer.prompt() == "/resume abcd0"
+                assert lookup_done.wait(3) and responsive == [True], responsive
 
             transcript = "\n".join(f"line {i}" for i in range(100))
             with create_pipe_input() as pipe:
