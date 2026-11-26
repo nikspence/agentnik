@@ -504,12 +504,22 @@ def configure_code(store, arguments, root=None):
             "Use /settings image to configure the image model.",
             "Use /settings decision to configure System One shell advice.",
             "Use /settings git-author to manage the current project's Git author override.",
+            "Use /settings subagents to inspect or reset remembered tool rejections.",
             "Use /settings mcp to manage desktop MCP preferences and saved servers.",
         ))
         return "\n".join(lines)
 
     if arguments[0] == "git-author":
         return configure_git_author(store, root, arguments[1:])
+    if arguments == ["subagents"]:
+        count = len(store.config.get("subagent_tool_capabilities", {}))
+        return (f"Remembered subagent tool rejections: {count}.\n"
+                "Use /settings subagents reset to clear them for desktop and terminal Code.")
+    if arguments == ["subagents", "reset"]:
+        if "subagent_tool_capabilities" in store.config:
+            store.config.pop("subagent_tool_capabilities")
+            store.flush()
+        return "Cleared remembered subagent tool rejections for future runs."
     if arguments[0] == "appearance":
         lines = appearance(settings, arguments[1:])
         if lines is not None:

@@ -97,6 +97,8 @@ Structured local Git operations such as staging, creating a branch, and committi
 
 When a subagent needs a project file, the terminal shows the destination model and endpoint, the task, and the text snapshot or image summary. Each transfer needs explicit approval, even in `allow-all` mode.
 
+Use `/settings subagents` to see how many explicit tool rejections Agentnik remembers. After a provider or model upgrade, `/settings subagents reset` clears those records for future desktop and terminal runs. It does not change connections or session history.
+
 With Git installed, you can run `/git status`, `/git stage PATH`, `/git unstage PATH`, `/git commit MESSAGE`, and `/git push REMOTE BRANCH` yourself without turning the command into a model prompt. Stage and unstage take one project-relative file at a time. Commit uses the staged changes and your native Git identity. Push sends the current commit to the named branch on a configured remote without force. Changes ask for confirmation and use your normal Git configuration, hooks, and credential helpers.
 
 Use `/git diff` to review all unstaged tracked changes, or `/git diff --staged` to see what the next commit would contain. These read-only commands use Git's normal terminal output and pager.
