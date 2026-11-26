@@ -18,7 +18,7 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 - The terminal image workflow test at `6fc7ab1` used distinct mocked connections for generation and coding. It verified an approved image was written to the project and supplied to the coding model only on `view_image`. After `/vision off`, the tool disappeared and a forced inspection call sent no image bytes.
 
-- At `1433cab`, all seven hosted jobs passed. The full offline suite ran on Windows, macOS, and Ubuntu with Python 3.12. The Qt-free installed-wheel suite ran on those platforms and on Ubuntu with Python 3.11. An earlier fresh Windows Python 3.11 install also passed the terminal suite outside the checkout. The tests include PDF text attachments, not OCR or page rendering. [Hosted checks](https://github.com/nikspence/agentnik/actions/runs/45875895397)
+- At `760ccd7`, all seven hosted jobs passed. The full offline suite ran on Windows, macOS, and Ubuntu with Python 3.12, alongside the Qt-free installed-wheel checks. Attachment tests cover PDF text extraction, not OCR or page rendering. [Hosted checks](https://github.com/nikspence/agentnik/actions/runs/45886458751)
 
 - The build-only `0.12.0rc1` artifact from `d4ebe7f` includes terminal MCP OAuth client registration. Both downloaded distributions matched the recorded SHA-256 checksums. The wheel launched in a fresh Windows Python 3.11 environment without Qt, and all four hosted Qt-free jobs passed. The publish job was skipped. [Build-only artifact](https://github.com/nikspence/agentnik/actions/runs/45877438432) · [Hosted checks](https://github.com/nikspence/agentnik/actions/runs/45877393749)
 
