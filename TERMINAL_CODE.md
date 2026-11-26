@@ -18,6 +18,31 @@ Use the wheel filename from the artifact if its version differs. Build-only arti
 
 From the folder you want to work in, run `agentnik code`. A Git repository is optional. To work somewhere else, pass the folder as an argument. On a machine where you also use the desktop app, install `".[desktop,terminal]"` to use both. The clients share saved connections and application data. Use `--data-dir PATH` or `AGENTNIK_HOME` if you want a separate data store.
 
+## Launch from VS Code
+
+Open the project folder in VS Code and run `agentnik code` in its integrated terminal. For Remote SSH, install Agentnik on the remote host and run it from the remote terminal.
+
+If you want a launcher in **Terminal → Run Task**, add this example to the workspace's `.vscode/tasks.json` or merge the task into the existing `tasks` array. This assumes `agentnik` is available on the task's PATH. For a virtual environment that isn't on PATH, use its Agentnik executable as `command`.
+
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Agentnik Code",
+      "type": "process",
+      "command": "agentnik",
+      "args": ["code"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "presentation": {"reveal": "always", "focus": true, "panel": "new"},
+      "problemMatcher": []
+    }
+  ]
+}
+```
+
+This launches the existing TUI on demand. It does not install an extension or provide editor-native diffs. [VS Code task documentation](https://code.visualstudio.com/docs/debugtest/tasks)
+
 ## First task
 
 1. Run `/connections` to list saved and environment connections. Use `/connections add` to create one if needed. API keys are entered without echo and use the OS credential store by default. If that store is unavailable, the terminal offers to save the key unencrypted in the local Agentnik config. Declining leaves the connection unchanged.
