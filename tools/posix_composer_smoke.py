@@ -7,6 +7,13 @@ CHILD = """
 from agentnik.code_composer import create_composer
 
 composer = create_composer()
+print("CANCEL-READY", flush=True)
+try:
+    composer.prompt()
+except KeyboardInterrupt:
+    print("DRAFT-CANCELLED", flush=True)
+else:
+    raise AssertionError("Ctrl+C did not cancel the draft")
 for index in range(2):
     print(f"READY-{index}", flush=True)
     draft = composer.prompt()
@@ -20,6 +27,11 @@ def main():
     except ImportError:
         raise SystemExit("Install pexpect in the smoke-test environment first.") from None
     with pexpect.spawn(sys.executable, ["-u", "-c", CHILD], encoding="utf-8", timeout=10) as terminal:
+        terminal.expect_exact("CANCEL-READY")
+        terminal.expect_exact("code>")
+        terminal.send("discard this draft")
+        terminal.sendcontrol("c")
+        terminal.expect_exact("DRAFT-CANCELLED")
         terminal.expect_exact("READY-0")
         terminal.expect_exact("code>")
         terminal.send("first line\nsecond line\r")
@@ -33,7 +45,7 @@ def main():
         terminal.close()
         if terminal.exitstatus != 0:
             raise SystemExit(f"Composer exited unexpectedly (status {terminal.exitstatus}).")
-    print("POSIX PTY verified Ctrl+J multiline input, Enter submission, and Up history recall.")
+    print("POSIX PTY verified Ctrl+C draft cancellation, Ctrl+J, Enter, and Up history recall.")
 
 
 if __name__ == "__main__":
