@@ -59,6 +59,61 @@ def configure_mcp_token(store, servers, name):
     return "Updated MCP credential. No server was contacted."
 
 
+def configure_mcp_signin(store, name):
+    from . import tls
+    from .code_terminal import terminal_text
+    from .mcp_oauth_record import write_record
+    from .mcp_oauth_signin import sign_in
+    from .mcp_support import validate_servers
+    from .storage import load_config
+    import keyring
+
+    profiles = store.config.get("mcp_servers", [])
+    server = next((item for item in profiles if item["name"] == name and item.get("transport") == "http"), None)
+    if server is None:
+        raise ValueError("Choose a saved HTTPS MCP profile.")
+    tls.configure(store.config["settings"].get("relaxed_tls", False))
+
+    def present(url, port):
+        print(f"On SSH, forward this port from your browser machine: ssh -N -L 127.0.0.1:{port}:127.0.0.1:{port} HOST")
+        print("Open this link in your browser within three minutes:")
+        print(terminal_text(url), flush=True)
+
+    try:
+        client_id = input("Registered public OAuth client ID: ").strip()
+        scope = input("Scopes (optional, space separated): ").strip()
+        record = sign_in(server["url"], client_id, scope, present)
+    except (EOFError, KeyboardInterrupt):
+        return "OAuth sign-in stopped. No credential was changed."
+    config = load_config(store.config_path)
+    current = config.get("mcp_servers", [])
+    if server not in current:
+        raise ValueError("The selected MCP profile changed during sign-in. No credential was saved.")
+    credential = uuid4().hex
+    replacement = dict(server, credential_id=credential, auth_type="oauth")
+    config["mcp_servers"] = validate_servers([replacement if item == server else item for item in current])
+    try:
+        write_record(credential, record)
+    except Exception:
+        raise ValueError("Could not save the OAuth sign-in in the OS credential store.") from None
+    before, store.config = store.config, config
+    try:
+        store.flush()
+    except OSError:
+        store.config = before
+        try:
+            keyring.delete_password("Agentnik", credential)
+        except Exception:
+            pass
+        raise
+    if server.get("credential_id"):
+        try:
+            keyring.delete_password("Agentnik", server["credential_id"])
+        except Exception:
+            return "Saved OAuth sign-in. The old credential could not be removed from the OS store."
+    return "Saved MCP OAuth sign-in in the OS credential store."
+
+
 def configure_mcp(store, arguments):
     from .mcp_support import DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, server_timeout, validate_servers
 
@@ -75,10 +130,13 @@ def configure_mcp(store, arguments):
             "Use /settings mcp add-local to save a local executable or remove NAME to remove a server.",
             "Use /settings mcp token NAME to set, rotate, or clear an HTTPS bearer token.",
             "Use /settings mcp renew NAME to renew an existing OAuth sign-in.",
+            "Use /settings mcp signin NAME with a registered public OAuth client.",
             f"Use /settings mcp timeout SECONDS NAME (1–{MAX_TIMEOUT_SECONDS}, or default).",
         ])
     if len(arguments) >= 2 and arguments[0] == "token":
         return configure_mcp_token(store, servers, " ".join(arguments[1:]))
+    if len(arguments) >= 2 and arguments[0] == "signin":
+        return configure_mcp_signin(store, " ".join(arguments[1:]))
     if len(arguments) >= 2 and arguments[0] == "renew":
         from . import tls
         from .code_terminal import terminal_text
