@@ -1524,7 +1524,7 @@ class TerminalRunTests(unittest.TestCase):
             return {"diff": "x" * 2500}
 
         with TemporaryDirectory() as directory, patch("agentnik.git_service.GitService.inspect", side_effect=inspect) as read:
-            output = project_diff(Path(directory), "--staged")
+            output = project_diff(Path(directory).resolve(), "--staged")
         self.assertIn("Patch unavailable: Binary fixture", output)
         self.assertIn("Patch preview shortened.", output)
         self.assertIn("Unresolved merge entries are excluded.", output)
@@ -3613,7 +3613,7 @@ class TerminalRunTests(unittest.TestCase):
         from test_routing import Wire
 
         with TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             connection = {"url": "https://example.invalid/v1", "model": "fixture",
                           "stream": False, "api_key": "fixture-secret"}
             run = CodingRun(connection, root, "Write the note.")
