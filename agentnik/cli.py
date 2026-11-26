@@ -458,7 +458,8 @@ def terminal_session(options, root, lease, images):
                 profiles = terminal_mcp_profiles(options.data_dir)
                 if command == "/mcp":
                     for index, profile in enumerate(mcp_selection, 1):
-                        print(terminal_text(f"Selected {index}: {profile['name']}"))
+                        stale = " [changed or unavailable; reselect or remove]" if profile not in profiles else ""
+                        print(terminal_text(f"Selected {index}: {profile['name']}{stale}"))
                     for profile in profiles:
                         print(terminal_text(f"Available: {profile['name']}"))
                     print("Use /mcp use NAME to replace the selection, /mcp add NAME, /mcp remove NAME, or /mcp off.")

@@ -1490,6 +1490,37 @@ class TerminalRunTests(unittest.TestCase):
             finally:
                 store.db.close()
 
+    def test_mcp_list_marks_a_changed_selected_profile_until_reselected(self):
+        from unittest.mock import Mock
+        from agentnik import cli, core
+        from agentnik.code_settings import configure_code
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "profile"
+            store = Store(data)
+            try:
+                with patch("builtins.input", side_effect=["Fixture Server", "https://example.org/mcp"]):
+                    configure_code(store, ["mcp", "add-https"])
+                configure_code(store, ["mcp", "enable", "Fixture Server"])
+            finally:
+                store.db.close()
+            composer = Mock()
+            composer.prompt.side_effect = ["/mcp use Fixture Server", "/settings mcp timeout 42 Fixture Server",
+                                           "/mcp", "/mcp use Fixture Server", "/mcp", "/exit"]
+            with patch("sys.argv", ["agentnik", "code", str(root), "--data-dir", str(data)]), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch("agentnik.code_composer.create_composer", return_value=composer), \
+                    patch.object(core, "open_request") as request, contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(), 0)
+            selected = [line for line in out.getvalue().splitlines() if line.startswith("Selected 1:")]
+            self.assertEqual(selected, [
+                "Selected 1: Fixture Server [changed or unavailable; reselect or remove]",
+                "Selected 1: Fixture Server",
+            ])
+            request.assert_not_called()
+
     def test_mcp_settings_keep_significant_spaces_in_profile_names(self):
         from agentnik.cli import terminal_settings_arguments
         from agentnik.code_settings import configure_code
