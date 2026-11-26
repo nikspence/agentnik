@@ -692,6 +692,15 @@ class CodingRun:
                 self.decision.set()
             return True
 
+    def configure_interaction(self, *, shell_without_approval=False, review_project_edits=False,
+                              stream_activity=False, show_thinking=False, machine_scope=False):
+        """Set a client's initial review, scope and display policies before starting."""
+        self.review_project_edits = review_project_edits
+        self.stream_activity = stream_activity
+        self.show_thinking = show_thinking
+        self.machine_scope = machine_scope
+        self.set_shell_without_approval(shell_without_approval)
+
     def set_shell_without_approval(self,enabled):
         if type(enabled) is not bool:raise ValueError('Invalid shell approval setting')
         with self.lock:

@@ -1312,8 +1312,8 @@ class CodeTab(QWidget):
     def launch(self,run,notice):
         if isinstance(run,CodingRun):
             self.session.pop('coding_resume_reviewed',None)
-            run.set_shell_without_approval(self.shell_auto.isChecked())
-            run.show_thinking=self.show_thinking.isChecked()
+            run.configure_interaction(shell_without_approval=self.shell_auto.isChecked(),
+                                      show_thinking=self.show_thinking.isChecked())
             self.session['coding_subagents']=[];self.refresh_subagents()
             history=self.session.setdefault('coding_skill_history',[])
             history.append({'run_id':run.run_id,'skills':[]});self.session['coding_skill_history']=history[-32:]

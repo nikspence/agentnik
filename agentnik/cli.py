@@ -787,11 +787,9 @@ def terminal_session(options, root, lease, images):
                                 images=images.paths(),
                                 skills=list(skill_pins), skill_pins=skill_pins,
                                 **research_options)
-                run.stream_activity = True
-                run.show_thinking = show_thinking
-                run.review_project_edits = require_approval
-                run.machine_scope = machine_scope
-                run.set_shell_without_approval(not require_approval)
+                run.configure_interaction(shell_without_approval=not require_approval,
+                                          review_project_edits=require_approval, stream_activity=True,
+                                          show_thinking=show_thinking, machine_scope=machine_scope)
             except (OSError, ValueError, sqlite3.Error) as exc:
                 print(terminal_text(exc), file=sys.stderr)
                 continue
