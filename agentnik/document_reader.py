@@ -1,13 +1,14 @@
 """Bounded local document extraction. Never follows links or executes document content."""
 import io
 from pathlib import Path
+import re
 import zipfile
 import xml.etree.ElementTree as ET
 
 MAX_FILE = 10 * 1024 * 1024
 MAX_XML = 20 * 1024 * 1024
 MAX_TEXT = 48000
-SUPPORTED = {'.txt', '.md', '.csv', '.json', '.log', '.rst', '.pdf', '.docx', '.xlsx'}
+SUPPORTED = {'.txt', '.md', '.csv', '.json', '.log', '.rst', '.pdf', '.docx', '.xlsx', '.pptx'}
 
 
 def read_document(path, data=None):
@@ -46,7 +47,7 @@ def read_document(path, data=None):
             truncated |= count > 100
         finally:
             doc.close(); buffer.close()
-    elif suffix in ('.docx', '.xlsx'):
+    elif suffix in ('.docx', '.xlsx', '.pptx'):
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             infos = archive.infolist()
             if len(infos) > 2000 or sum(i.file_size for i in infos) > MAX_XML:
@@ -60,6 +61,14 @@ def read_document(path, data=None):
                 ns = {'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
                 for n, paragraph in enumerate(xml('word/document.xml').findall('.//w:p', ns), 1):
                     add(f'Paragraph {n}', ''.join(paragraph.itertext()))
+                    if truncated: break
+            elif suffix == '.pptx':
+                namespace = {'a':'http://schemas.openxmlformats.org/drawingml/2006/main'}
+                slides = [(int(match[1]), item.filename) for item in infos
+                          if (match := re.fullmatch(r'ppt/slides/slide([0-9]{1,6})\.xml', item.filename))]
+                for number, filename in sorted(slides):
+                    paragraphs = [''.join(node.itertext()) for node in xml(filename).findall('.//a:t', namespace)]
+                    add(f'Slide {number}', '\n'.join(paragraphs))
                     if truncated: break
             else:
                 ns = {'s':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}

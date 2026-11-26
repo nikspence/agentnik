@@ -303,6 +303,12 @@ class TerminalRunTests(unittest.TestCase):
             base = Path(directory).resolve()
             root, data = base / "project", base / "data"
             root.mkdir()
+            from zipfile import ZipFile
+
+            with ZipFile(root / "brief.pptx", "w") as archive:
+                archive.writestr("ppt/slides/slide1.xml",
+                                 '<a:root xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+                                 '<a:t>Presentation fixture brief.</a:t></a:root>')
             skill = root / ".agents" / "skills" / "notes" / "SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_text("---\nname: notes\ndescription: Note formatting\n---\nFixture note style.\n")
@@ -321,7 +327,7 @@ class TerminalRunTests(unittest.TestCase):
             auto_edit = call("write_file", {"path": "auto.txt", "content": "automatic\n"})
             shell = call("run_shell", {"path": ".", "command": "echo fixture"}, ident="call-shell")
             first = Mock()
-            first.prompt.side_effect = ["/connection Fixture", "/skills add notes",
+            first.prompt.side_effect = ["/connection Fixture", "/skills add notes", "/attach brief.pptx",
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
                                         "Create a note", "/context", "/context clear",
@@ -343,6 +349,8 @@ class TerminalRunTests(unittest.TestCase):
                 self.assertEqual(cli.main(), 0)
             self.assertEqual(transport.call_count, 4, output.getvalue())
             self.assertIn("Fixture note style.", str(transport.call_args_list[0].args[2]))
+            self.assertIn("Presentation fixture brief.", str(transport.call_args_list[0].args[2]))
+            self.assertNotIn("Presentation fixture brief.", str(transport.call_args_list[2].args[2]))
             self.assertIn("Answer:\nCreated the note.", output.getvalue())
             self.assertNotIn("Created the note.", str(transport.call_args_list[2].args[2]))
             execute.assert_called_once()

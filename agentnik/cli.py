@@ -181,6 +181,7 @@ def terminal_session(options, root, lease):
     vision_enabled = False
     show_thinking = False
     skill_pins = {}
+    documents = []
     require_approval = True
     session_id = str(uuid4())
     pending_command = f"/resume {options.resume}" if options.resume else None
@@ -210,6 +211,8 @@ def terminal_session(options, root, lease):
                   "/goal OBJECTIVE   Start an ongoing goal in this session\n"
                   "/continue         Continue the last stopped goal with fresh limits\n"
                   "/context          Inspect, clear, or toggle previous-turn context\n"
+                  "/attach PATH      Include a project document in the next task\n"
+                  "/attachments      List queued documents; /attachments clear removes them\n"
                   "/web on|off       Enable or disable web research for this session\n"
                   "/vision on|off    Allow the coding model to inspect project images\n"
                   "/thinking on|off  Show model-provided thinking when available\n"
@@ -221,6 +224,30 @@ def terminal_session(options, root, lease):
                   "/sessions         List saved sessions for the current project\n"
                   "/resume ID        Resume a saved session (or use latest)\n"
                   "/exit             Close Agentnik Code")
+        elif command == "/attachments" or command == "/attachments clear":
+            if command.endswith(" clear"):
+                documents.clear()
+                print("Cleared queued documents.")
+            else:
+                print(", ".join(repr(item["name"]) for item in documents) or "No queued documents.")
+        elif command.startswith("/attach "):
+            from xml.etree.ElementTree import ParseError
+            from zipfile import BadZipFile
+            from .code_agent import ProjectFiles
+            from .code_terminal import terminal_text
+            from .document_reader import read_document, validate_documents
+
+            try:
+                if len(documents) >= 4:
+                    raise ValueError("Attach up to four documents per prompt.")
+                path = ProjectFiles(root).path(command.partition(" ")[2].strip())
+                if path.suffix.lower() == ".pdf":
+                    raise ValueError("PDF extraction is available in the desktop app. Attach a text export here.")
+                document = {"name": path.name, "text": read_document(path)}
+                documents = validate_documents([*documents, document])
+                print(f"Queued {path.name!r}. Its extracted text will be sent with the next task.")
+            except (OSError, ValueError, KeyError, IndexError, ParseError, BadZipFile) as exc:
+                print(terminal_text(exc), file=sys.stderr)
         elif command == "/context" or command.startswith("/context "):
             from .code_terminal import terminal_text
 
@@ -333,6 +360,7 @@ def terminal_session(options, root, lease):
             vision_enabled = False
             show_thinking = False
             skill_pins = {}
+            documents.clear()
             require_approval = True
             transcript.clear()
             if composer:
@@ -416,6 +444,7 @@ def terminal_session(options, root, lease):
                 vision_enabled = False
                 show_thinking = False
                 require_approval = True
+                documents.clear()
                 transcript.clear()
                 if composer:
                     composer = open_composer()
@@ -500,6 +529,7 @@ def terminal_session(options, root, lease):
                                 limits=limits,
                                 goal=goal, goal_budget=goal_budget, vision_enabled=vision_enabled,
                                 resume_context=resume,
+                                documents=documents,
                                 skills=list(skill_pins), skill_pins=skill_pins,
                                 **research_options)
                 run.stream_activity = True
@@ -524,6 +554,7 @@ def terminal_session(options, root, lease):
                         ],
                     )
                     transcript.append("Task: " + terminal_text(task) + "\n")
+                    documents.clear()
                     result = drive_run(run, write_activity, advice=advice,
                                        checkpoint=lambda event: history.checkpoint_goal(record, event))
                     history.finish(record, task, result)

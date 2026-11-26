@@ -25,7 +25,7 @@ class DocumentReader(QDialog):
         if path: QTimer.singleShot(0,lambda:self.open_document(path))
 
     def open_document(self, path=None):
-        if not path: path, _ = QFileDialog.getOpenFileName(self, self.tr('Open document'), '', 'Documents (*.txt *.md *.csv *.json *.log *.rst *.pdf *.docx *.xlsx)')
+        if not path: path, _ = QFileDialog.getOpenFileName(self, self.tr('Open document'), '', 'Documents (*.txt *.md *.csv *.json *.log *.rst *.pdf *.docx *.xlsx *.pptx)')
         if not path: return
         self.pdf_visual.setEnabled(False)
         self.preview.clear(); self.insert.setEnabled(False); self.open_button.setEnabled(False)
