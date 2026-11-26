@@ -2563,6 +2563,22 @@ class TerminalRunTests(unittest.TestCase):
                 finally:
                     store.db.close()
 
+    def test_latest_resume_stops_at_first_project_turn(self):
+        from unittest.mock import Mock
+        from agentnik.code_history import CodeHistory
+
+        ident = str(uuid4())
+        store, lease = Mock(), Mock()
+        def turns():
+            yield {"id": str(uuid4()), "path_snapshot": "other"}
+            yield {"id": str(uuid4()), "coding_terminal_session": ident, "path_snapshot": "local"}
+            self.fail("Latest should not consume older turns")
+
+        store.iter_sessions.return_value = turns()
+        with patch("agentnik.code_history.same_project", side_effect=lambda path, root: path == "local"):
+            self.assertEqual(CodeHistory(store, Path("local")).lease_for_resume("latest", lease), ident)
+        lease.select.assert_called_once_with(ident)
+
     def test_exact_resume_only_reads_one_matching_turn_before_taking_lease(self):
         from unittest.mock import Mock
         from agentnik.code_history import CodeHistory
@@ -2806,7 +2822,7 @@ class TerminalRunTests(unittest.TestCase):
 
         store = Mock()
         local, other = {"path_snapshot": "local"}, {"path_snapshot": "other"}
-        store.list_sessions.return_value = [local, other, local, other, local]
+        store.iter_sessions.side_effect = lambda **kwargs: (item for item in [local, other, local, other, local])
         history = CodeHistory(store, Path("local"))
         with patch("agentnik.code_history.same_project", side_effect=[True, False, False, True]) as match:
             self.assertEqual(history.list(), [local, local, local])

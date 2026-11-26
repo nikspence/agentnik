@@ -176,18 +176,10 @@ class CodeHistory:
         self.root = root
 
     def list(self, session_id=None):
-        records = self.store.list_sessions(mode="code", terminal_session=session_id)
-        matches = {}
-        result = []
-        for item in records:
-            path = item["path_snapshot"]
-            if path not in matches:
-                matches[path] = same_project(path, self.root)
-            if matches[path]:
-                result.append(item)
-        return result
+        with closing(self.iter_project_turns(session_id)) as records:
+            return list(records)
 
-    def iter_project_turns(self, session_id):
+    def iter_project_turns(self, session_id=None):
         matches = {}
         with closing(self.store.iter_sessions(mode="code", terminal_session=session_id)) as records:
             for record in records:
@@ -208,19 +200,34 @@ class CodeHistory:
 
     def sessions(self):
         latest = {}
-        for record in self.list():
-            latest.setdefault(self.session_id(record), record)
+        with closing(self.iter_project_turns()) as records:
+            for record in records:
+                latest.setdefault(self.session_id(record), record)
         return latest
 
     def session_summaries(self):
         """Summarize the latest turn and latest goal independently for each session."""
         latest, goals = {}, {}
-        for record in self.list():
-            ident = self.session_id(record)
-            latest.setdefault(ident, record)
-            if "coding_goal" in record:
-                goals.setdefault(ident, record["coding_goal"]["status"])
+        with closing(self.iter_project_turns()) as records:
+            for record in records:
+                ident = self.session_id(record)
+                latest.setdefault(ident, record)
+                if "coding_goal" in record:
+                    goals.setdefault(ident, record["coding_goal"]["status"])
         return {ident: (record, goals.get(ident)) for ident, record in latest.items()}
+
+    def resolve_session(self, selector):
+        """Resolve non-exact selectors without retaining session payloads."""
+        with closing(self.iter_project_turns()) as records:
+            if selector == "latest":
+                record = next(records, None)
+                return self.session_id(record) if record is not None else ""
+            if not selector:
+                return ""
+            candidates = dict.fromkeys(
+                ident for record in records if (ident := self.session_id(record)).startswith(selector)
+            )
+        return resolve_session_id(candidates, selector)
 
     def lease_for_resume(self, selector, lease):
         """Resolve the session and acquire its lease before reading resume state."""
@@ -236,7 +243,7 @@ class CodeHistory:
                 found = any(same_project(record["path_snapshot"], self.root) for record in records)
             ident = selector if found else ""
         else:
-            ident = resolve_session_id(self.sessions(), selector)
+            ident = self.resolve_session(selector)
         if ident:
             lease.select(ident)
         return ident
