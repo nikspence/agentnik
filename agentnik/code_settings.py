@@ -17,7 +17,7 @@ def configure_decision(store, arguments):
     binding = dict(settings.get("decision_model", {"connection": "", "model": ""}))
     enabled = settings.get("decision_advice_enabled", False)
     if not arguments:
-        return (f"Desktop shell advice: {'on' if enabled else 'off'}\n"
+        return (f"System One shell advice: {'on' if enabled else 'off'}\n"
                 f"Connection: {binding['connection']!r} · Model: {binding['model']!r}\n"
                 "Use /settings decision set to configure, or /settings decision on|off.")
     if arguments not in (["set"], ["on"], ["off"]):
@@ -39,7 +39,7 @@ def configure_decision(store, arguments):
         base_url(connection.get("url", ""))
     settings.update(decision_model=binding, decision_advice_enabled=enabled)
     store.flush()
-    return "Saved desktop shell advice settings. No model was contacted."
+    return "Saved shell advice settings. No model was contacted."
 
 
 def configure_image(store, arguments):
@@ -186,7 +186,7 @@ def configure_code(store, arguments):
             "Use /settings web access public_fetch|strict_public or /settings web priority provider|managed.",
             "Use /settings web providers to manage search provider credentials.",
             "Use /settings image to configure the image model.",
-            "Use /settings decision to configure desktop System One shell advice.",
+            "Use /settings decision to configure System One shell advice.",
         ))
         return "\n".join(lines)
 

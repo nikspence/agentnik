@@ -11,6 +11,25 @@ from agentnik.code_stream import visible_prefix
 
 
 class TerminalRunTests(unittest.TestCase):
+    def test_shell_advice_requires_disclosure_consent_and_skips_credentials(self):
+        from threading import Event
+        from agentnik.code_terminal import show_shell_advice
+
+        connection = {"url": "http://localhost:11434/v1", "model": "fixture", "api_key": "secret-key"}
+        proposal = {"command": "echo OK", "cwd": ".", "shell": "pwsh", "environment_keys": ["PATH"]}
+        messages = []
+        with patch("agentnik.decision_advice.request", return_value={
+            "answers": {"risk": {"choice": "safe", "confidence": 0.8}},
+        }) as request:
+            with patch("builtins.input", return_value=""):
+                show_shell_advice(connection, proposal, Event(), messages.append)
+            show_shell_advice(connection, dict(proposal, command="echo secret-key"), Event(), messages.append)
+            request.assert_not_called()
+            with patch("builtins.input", return_value="y"):
+                show_shell_advice(connection, proposal, Event(), messages.append)
+            request.assert_called_once()
+        self.assertIn("System One advice: SAFE · 80% confidence. You still decide.", messages)
+
     def test_decision_settings_require_a_binding_and_make_no_requests(self):
         from agentnik.code_settings import configure_code
         from agentnik.storage import Store, load_config

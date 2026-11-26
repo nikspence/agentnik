@@ -46,12 +46,42 @@ def load_run_settings(data_dir, name, model, web_enabled=False):
             options["image_config"] = {
                 "connection": image_connection, "model": image["model"], "endpoint": image["endpoint"],
             }
-        return connection, settings.get("coding_limits"), settings.get("coding_goal_limits"), options
+        binding = settings.get("decision_model", {})
+        advisor = connections.get(binding.get("connection")) if settings.get("decision_advice_enabled") else None
+        advice = dict(advisor, model=binding["model"]) if advisor and binding.get("model") else None
+        return connection, settings.get("coding_limits"), settings.get("coding_goal_limits"), options, advice
     finally:
         store.db.close()
 
 
-def drive_run(run, write=print):
+def show_shell_advice(connection, proposal, cancel, write):
+    from . import core, decision_advice
+
+    fields = [str(proposal.get(key, "")) for key in ("command", "cwd", "shell", "environment_keys")]
+    secret = connection.get("api_key")
+    if any("[redacted]" in value or (secret and secret in value) for value in fields):
+        write("Advice skipped because the proposal contains a configured credential.")
+        return
+    try:
+        destination = core.endpoint(connection, "decision")
+    except ValueError:
+        write("The configured System One endpoint is unavailable.")
+        return
+    write("Advice sends the command, directory, shell, and environment variable names to "
+          + terminal_text(destination) + ".")
+    if input("Send this proposal for advice? [y/N] ").strip().lower() != "y":
+        return
+    try:
+        result = decision_advice.parse_advice(decision_advice.request(connection, proposal, cancel))
+    except Exception:
+        write("System One advice unavailable. Review the command yourself.")
+        return
+    confidence = result["confidence"]
+    suffix = "" if confidence is None else f" · {confidence:.0%} confidence"
+    write(f"System One advice: {result['category'].upper()}{suffix}. You still decide.")
+
+
+def drive_run(run, write=print, advice=None):
     events = Queue()
     done = object()
 
@@ -115,7 +145,14 @@ def drive_run(run, write=print):
                 for field in fields:
                     if field in proposal:
                         write(f"{field}: {terminal_text(proposal[field])}")
-                approved = input("Approve once? [y/N] ").strip().lower() == "y"
+                if advice and proposal.get("operation") == "run_shell":
+                    response = input("Approve once? [y/N/a for System One advice] ").strip().lower()
+                    if response == "a":
+                        show_shell_advice(advice, proposal, run.cancel, write)
+                        response = input("Approve once? [y/N] ").strip().lower()
+                else:
+                    response = input("Approve once? [y/N] ").strip().lower()
+                approved = response == "y"
                 run.decide(event["fingerprint"], approved)
             elif kind in ("output", "model_response", "finished"):
                 if event.get("text") and not (kind == "finished" and event.get("response_shown")):

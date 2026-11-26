@@ -384,7 +384,7 @@ def main():
             if goal:
                 command = command.removeprefix("/goal ").strip()
             try:
-                connection, limits, goal_budget, research_options = load_run_settings(
+                connection, limits, goal_budget, research_options, advice = load_run_settings(
                     options.data_dir, connection_name, model, web_enabled
                 )
                 run = CodingRun(connection, root, command, context=context, limits=limits,
@@ -407,10 +407,11 @@ def main():
                         extra_secrets=[
                             *(item.get("key") for item in research_options["web_backends"]),
                             research_options.get("image_config", {}).get("connection", {}).get("api_key"),
+                            (advice or {}).get("api_key"),
                         ],
                     )
                     transcript.append("Task: " + terminal_text(task) + "\n")
-                    result = drive_run(run, write_activity)
+                    result = drive_run(run, write_activity, advice=advice)
                     history.finish(record, task, result)
                     context = record.get("coding_context")
                 finally:
