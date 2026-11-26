@@ -1199,6 +1199,15 @@ class TerminalRunTests(unittest.TestCase):
                             self.assertEqual(saved["code_state"], state)
                             self.assertEqual([item["text"] for item in saved["code_activity"]
                                               if item["kind"] == "prompt"], [task])
+                    newer, prompt = left_history.start("Fixture", {"model": "test"}, "Follow-up", first)
+                    left_history.finish(newer, prompt, {"status": "completed", "text": "Done"})
+                    summaries = right_history.session_summaries()
+                    self.assertEqual(list(summaries)[0], first)
+                    turn, goal_status = summaries[first]
+                    self.assertEqual(turn["code_state"], "completed")
+                    self.assertNotIn("coding_goal", turn)
+                    self.assertEqual(goal_status, "cancelled")
+                    self.assertEqual(summaries[second][1], "completed")
             finally:
                 left_store.db.close()
                 right_store.db.close()
@@ -2329,7 +2338,8 @@ class TerminalRunTests(unittest.TestCase):
         from agentnik import cli
 
         saved = {f"fixture-{i:02d}": {"title": f"Saved {i}", "code_state": "completed"} for i in range(21)}
-        saved["fixture-00"]["coding_goal"] = {"status": "completed"}
+        saved = {ident: (record, "completed" if ident == "fixture-00" else None)
+                 for ident, record in saved.items()}
         with TemporaryDirectory() as directory:
             base = Path(directory)
             composer = Mock()
@@ -2338,7 +2348,7 @@ class TerminalRunTests(unittest.TestCase):
             with patch("sys.argv", argv), patch("sys.stdin.isatty", return_value=True), \
                     patch("agentnik.cli.uuid4", return_value="fixture-00"), \
                     patch("agentnik.code_composer.create_composer", return_value=composer), \
-                    patch("agentnik.code_history.CodeHistory.sessions", return_value=saved), \
+                    patch("agentnik.code_history.CodeHistory.session_summaries", return_value=saved), \
                     patch("agentnik.code_history.CodeHistory.list") as read_records, \
                     contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(cli.main(), 0)

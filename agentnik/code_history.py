@@ -131,6 +131,16 @@ class CodeHistory:
             latest.setdefault(self.session_id(record), record)
         return latest
 
+    def session_summaries(self):
+        """Summarize the latest turn and latest goal independently for each session."""
+        latest, goals = {}, {}
+        for record in self.list():
+            ident = self.session_id(record)
+            latest.setdefault(ident, record)
+            if "coding_goal" in record:
+                goals.setdefault(ident, record["coding_goal"]["status"])
+        return {ident: (record, goals.get(ident)) for ident, record in latest.items()}
+
     def select_for_resume(self, selector, lease):
         """Attach to one saved session before recovering interrupted work."""
         try:

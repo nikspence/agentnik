@@ -696,7 +696,7 @@ def terminal_session(options, root, lease, images):
                 try:
                     history = CodeHistory(store, root)
                     if listing:
-                        sessions = history.sessions()
+                        sessions = history.session_summaries()
                     elif current_only:
                         records = history.list(session_id)
                     else:
@@ -711,12 +711,11 @@ def terminal_session(options, root, lease, images):
             if listing:
                 page = int(argument or 1)
                 offset = (page - 1) * 20
-                for ident, record in list(sessions.items())[offset:offset + 20]:
+                for ident, (record, goal_status) in list(sessions.items())[offset:offset + 20]:
                     label = next((e["text"].split("\n")[0][:80] for e in record.get("code_activity", [])
                                   if e["kind"] == "prompt"), record["title"])
                     scope = " [machine]" if record.get("coding_file_scope") == "machine" else ""
                     current = " [current]" if ident == session_id else ""
-                    goal_status = record.get("coding_goal", {}).get("status")
                     goal = f" [goal: {goal_status}]" if goal_status else ""
                     print(terminal_text(f"{ident}  {record.get('code_state', 'idle')}{scope}{current}{goal}  {label}"))
                 if not sessions:
