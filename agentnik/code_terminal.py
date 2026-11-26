@@ -127,7 +127,7 @@ def terminal_mcp_bridges(config, selection):
     return bridges
 
 
-def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None, mcp_selection=()):
+def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None, mcp_selection=(), root=None):
     from importlib.util import find_spec
     from . import core, tls
     from .code_research import code_research_options
@@ -167,6 +167,14 @@ def load_run_settings(data_dir, name, model, web_enabled=False, discovered=None,
         binding = settings.get("decision_model", {})
         advisor = connections.get(binding.get("connection")) if settings.get("decision_advice_enabled") else None
         advice = dict(advisor, model=binding["model"]) if advisor and binding.get("model") else None
+        if root is not None:
+            from .code_history import same_project
+            from .repositories import RepositoryRegistry
+
+            registry = RepositoryRegistry(store)
+            ident = next((row["id"] for row in registry.list() if same_project(row["path"], root)), None)
+            if ident:
+                options["git_author"] = registry.git_author(ident)
         return connection, settings.get("coding_limits"), settings.get("coding_goal_limits"), options, advice
     finally:
         store.db.close()

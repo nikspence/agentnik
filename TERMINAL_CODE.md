@@ -53,6 +53,7 @@ Two terminals can work in the same project using separate sessions. If another t
 | `/vision on` | Let the selected vision-capable model inspect supported project images. |
 | `/thinking on` | Show thinking returned by the provider, when available. |
 | `/settings decision set` / `/settings decision on` | Configure optional System One advice. At a shell approval prompt, press `a` to review and send the proposal for advice. You still approve or decline the command. |
+| `/settings git-author set` / `/settings git-author clear` | Set or clear this project's Agentnik Git author override without changing Git configuration files. |
 | `/settings mcp` | Manage desktop MCP profiles, access, tool priority, timeouts, and HTTPS bearer tokens. Setup does not start or contact a server. |
 | `/mcp` / `/mcp use NAME` / `/mcp add NAME` | List enabled local and HTTPS profiles and select up to five in priority order. Use `/mcp remove NAME` or `/mcp off` to deselect. Code asks before starting or connecting to a server and before tool and resource requests. |
 | `/status` | Show the project, session, model selection, and active switches. |

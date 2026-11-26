@@ -375,7 +375,37 @@ def appearance(settings, arguments):
     return None
 
 
-def configure_code(store, arguments):
+def configure_git_author(store, root, arguments):
+    from .code_history import same_project
+    from .repositories import RepositoryRegistry, validate_git_author
+
+    if root is None:
+        raise ValueError("Open a project to manage its Git author.")
+    registry = RepositoryRegistry(store)
+    ident = next((row["id"] for row in registry.list() if same_project(row["path"], root)), None)
+    author = registry.git_author(ident) if ident else None
+    if not arguments:
+        current = f"{author['name']!r} <{author['email']}>" if author else "No project override."
+        return current + "\nUse /settings git-author set or /settings git-author clear."
+    if arguments == ["clear"]:
+        if ident and author:
+            registry.set_git_author(ident, None)
+        return "Using the repository or user Git identity."
+    if arguments != ["set"]:
+        raise ValueError("Use /settings git-author set or /settings git-author clear.")
+    try:
+        name = input("Git author name: ")
+        email = input("Git author email: ")
+    except (EOFError, KeyboardInterrupt):
+        return "Git author unchanged."
+    author = validate_git_author({"name": name, "email": email})
+    if not author:
+        raise ValueError("Enter an author name and email, or use /settings git-author clear.")
+    registry.set_git_author(ident or registry.put(root), author)
+    return "Saved the Git author override for this project."
+
+
+def configure_code(store, arguments, root=None):
     """Apply a single validated setting change or describe current values."""
     settings = store.config["settings"]
     limits = coding_limits(settings.get("coding_limits"))
@@ -398,10 +428,13 @@ def configure_code(store, arguments):
             "Use /settings web providers to manage search provider credentials.",
             "Use /settings image to configure the image model.",
             "Use /settings decision to configure System One shell advice.",
+            "Use /settings git-author to manage the current project's Git author override.",
             "Use /settings mcp to manage desktop MCP preferences and saved servers.",
         ))
         return "\n".join(lines)
 
+    if arguments[0] == "git-author":
+        return configure_git_author(store, root, arguments[1:])
     if arguments[0] == "appearance":
         lines = appearance(settings, arguments[1:])
         if lines is not None:

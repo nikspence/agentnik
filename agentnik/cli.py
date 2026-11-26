@@ -462,7 +462,7 @@ def terminal_session(options, root, lease, images):
             try:
                 store = Store(options.data_dir)
                 try:
-                    print(configure_code(store, command.split()[1:]))
+                    print(configure_code(store, command.split()[1:], root=root))
                 finally:
                     store.db.close()
             except (OSError, ValueError, sqlite3.Error) as exc:
@@ -614,7 +614,7 @@ def terminal_session(options, root, lease, images):
                     raise ValueError("Enable /vision on or clear the queued image attachments first.")
                 connection, limits, goal_budget, research_options, advice = load_run_settings(
                     options.data_dir, connection_name, model, web_enabled,
-                    discovered=discovered, mcp_selection=mcp_selection,
+                    discovered=discovered, mcp_selection=mcp_selection, root=root,
                 )
                 run = CodingRun(connection, root, command, context=context if use_context and not resume else None,
                                 limits=limits,

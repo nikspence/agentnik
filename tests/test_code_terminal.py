@@ -944,6 +944,31 @@ class TerminalRunTests(unittest.TestCase):
             self.assertIn("No saved sessions on that page.", second)
             self.assertIn("positive whole page number", second)
 
+    def test_terminal_git_author_override_is_shared_and_project_scoped(self):
+        from agentnik.code_settings import configure_code
+        from agentnik.code_terminal import load_run_settings
+        from agentnik.storage import Store
+
+        with TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, other, data = (base / name for name in ("project", "other", "data"))
+            root.mkdir()
+            other.mkdir()
+            store = Store(data)
+            try:
+                store.save_connection("Fixture", {"url": "https://example.org/v1", "model": "fixture"})
+                with patch("builtins.input", side_effect=["Fixture Author", "author@example.org"]):
+                    configure_code(store, ["git-author", "set"], root=root)
+                self.assertIn("author@example.org", configure_code(store, ["git-author"], root=root))
+                self.assertEqual(load_run_settings(data, "Fixture", "", root=root)[3]["git_author"],
+                                 {"name": "Fixture Author", "email": "author@example.org"})
+                self.assertNotIn("git_author", load_run_settings(data, "Fixture", "", root=other)[3])
+                configure_code(store, ["git-author", "clear"], root=root)
+                self.assertIsNone(load_run_settings(data, "Fixture", "", root=root)[3]["git_author"])
+                self.assertEqual(list(root.iterdir()), [])
+            finally:
+                store.db.close()
+
     def test_connection_keyring_fallback_requires_explicit_consent(self):
         from keyring.errors import NoKeyringError
         from agentnik.cli import connection_menu

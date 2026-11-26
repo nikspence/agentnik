@@ -10,6 +10,7 @@ COMMANDS = (
     "/context", "/context on", "/context off", "/context clear", "/attach", "/attachments", "/attachments clear",
     "/settings", "/settings appearance", "/settings chat-limits", "/settings decision",
     "/settings decision set", "/settings decision on", "/settings decision off",
+    "/settings git-author", "/settings git-author set", "/settings git-author clear",
     "/settings goal", "/settings image", "/settings image set", "/settings image on",
     "/settings image off", "/settings limits", "/settings mcp", "/settings mcp add-https",
     "/settings mcp add-local", "/settings mcp enable", "/settings mcp disable",
