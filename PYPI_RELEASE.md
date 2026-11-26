@@ -2,6 +2,22 @@
 
 The first candidate is `0.12.0rc1`. The desktop ZIP release series is separate. Keep the candidate version in `pyproject.toml` and `agentnik/__init__.py` in sync before building.
 
+## GitHub Trusted Publishing
+
+While signed in to PyPI as `nikspence`, register a pending GitHub publisher with these values:
+
+| Field | Value |
+| --- | --- |
+| PyPI project name | `agentnik` |
+| GitHub owner | `nikspence` |
+| Repository name | `agentnik` |
+| Workflow name | `publish-to-pypi.yml` |
+| Environment name | `pypi` |
+
+Create a GitHub environment named `pypi`. Restrict it to release tags and configure required reviewers if your repository supports them. The workflow only runs when manually dispatched. Leave **Upload** unchecked for a build and artifact review. When the TUI is ready for testing, create the matching version tag on the verified commit, select that tag in the workflow dispatch, and explicitly enable **Upload**. The workflow checks that the tag and both version declarations match before publishing. It uses Trusted Publishing without a PyPI API token.
+
+## Local build and manual fallback
+
 From a clean checkout, use Python 3.11 or newer. Build into an empty output directory so checks and uploads apply to a single version:
 
 ```sh
@@ -24,4 +40,4 @@ After review, upload the same checked files to [PyPI](https://pypi.org/) using a
 python -m twine upload dist/pypi/*
 ```
 
-Sign in to PyPI as `nikspence` to manage the project. For Twine token uploads, use `__token__` as the username and the token as the password. Use Twine's credential prompt or a credential store. Do not commit credentials. An ongoing GitHub release workflow can use [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) instead of an API token. The GitHub repository is `nikspence/agentnik`. Publishing is not part of ordinary CI.
+For Twine token uploads, use `__token__` as the username and the token as the password. Use Twine's credential prompt or a credential store. Do not commit credentials. Publishing is not part of ordinary CI.
