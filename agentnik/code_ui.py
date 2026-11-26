@@ -1748,6 +1748,12 @@ class CodeTab(QWidget):
             self.close_approval_review()
             self.record('decision',self.tr('This approval is no longer active. Your answer was not applied.'))
 
+    def stop_code_worker(self,job):
+        worker=getattr(self,'worker',None)
+        return (worker.stop() if worker is not None and worker.run is job else job.stop()) or {
+            'undelivered':[], 'uncertain':[], 'delivered':[],
+        }
+
     def finish(self):
         self.goal_checkpoint_timer.stop()
         started=getattr(self,'_run_started_at',None)
@@ -1772,7 +1778,7 @@ class CodeTab(QWidget):
 
     def pause_goal(self):
         if not isinstance(self.job,CodingRun) or not self.job.goal:return
-        job=self.job;steering=job.stop()
+        job=self.job;steering=self.stop_code_worker(job)
         for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message,delivered=True)
         for message in steering['uncertain']:self.record_steering(self.tr('Steering delivery uncertain: '),message)
         for message in steering['undelivered']:self.record_steering(self.tr('Steering not delivered: '),message)
@@ -1788,7 +1794,7 @@ class CodeTab(QWidget):
             return
         if getattr(self,'_compaction_active',False):
             self.job.cancel.set();self._compaction_active=False;self._compaction_token=None;self.composer.setReadOnly(False);self.finish();self.record('output','Coding context compaction cancelled.');return
-        job=self.job;steering=job.stop()
+        job=self.job;steering=self.stop_code_worker(job)
         if isinstance(job,CodingRun):
             for message in steering['delivered']:self.record_steering(self.tr('Steering delivered: '),message,delivered=True)
             for message in steering['uncertain']:self.record_steering(self.tr('Steering delivery uncertain: '),message)

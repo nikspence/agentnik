@@ -325,7 +325,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
 
     events = Queue()
     done = object()
-    thread = start_code_worker(
+    worker = start_code_worker(
         run, events.put, finished=lambda: events.put(done),
         interruption_text="Code stopped before reporting a result. Check the project before continuing. "
                           "Agentnik will not replay the request.",
@@ -516,7 +516,7 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
         if result:
             # A late interrupt must not rewrite a result already delivered by the worker.
             return completed_result(result)
-        steering = run.stop()
+        steering = worker.stop()
         write("\nStopping Code run…")
         if isinstance(steering, dict):
             for outcome in ("delivered", "uncertain", "undelivered"):
@@ -527,5 +527,5 @@ def drive_run(run, write=print, advice=None, checkpoint=None):
         write(detail)
         return completed_result({"status": "cancelled", "text": detail, "last_goal_detail": goal_detail})
     finally:
-        run.stop()
-        thread.join()
+        worker.stop()
+        worker.join()

@@ -22,6 +22,31 @@ class CodeWorkerTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         return events
 
+    def test_worker_returns_one_cancellation_snapshot_across_cleanup_calls(self):
+        from threading import Event
+        from unittest.mock import Mock
+
+        run = Mock()
+        stopped = Event()
+        run.run.side_effect = lambda emit: stopped.wait(2)
+        snapshot = {"undelivered": ["Queued"], "uncertain": [], "delivered": []}
+
+        def stop():
+            stopped.set()
+            return snapshot
+
+        run.stop.side_effect = stop
+        worker = start_code_worker(run, lambda event: None, interruption_text="Stopped")
+        try:
+            self.assertIs(worker.run, run)
+            self.assertEqual(worker.stop(), snapshot)
+            self.assertIsNone(worker.stop())
+            run.stop.assert_called_once()
+        finally:
+            stopped.set()
+            worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+
     def test_client_checks_a_queued_approval_against_the_current_run(self):
         from unittest.mock import Mock
 
