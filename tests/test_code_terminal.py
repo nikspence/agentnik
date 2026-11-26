@@ -10,6 +10,23 @@ from agentnik.code_terminal import drive_run
 from agentnik.code_stream import visible_prefix
 
 
+def pdf_fixture():
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=300, height=200)
+    font = DictionaryObject({NameObject("/Type"): NameObject("/Font"),
+                             NameObject("/Subtype"): NameObject("/Type1"),
+                             NameObject("/BaseFont"): NameObject("/Helvetica")})
+    page[NameObject("/Resources")] = DictionaryObject({
+        NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})})
+    stream = DecodedStreamObject()
+    stream.set_data(b"BT /F1 12 Tf 20 100 Td (Headless PDF fixture) Tj ET")
+    page[NameObject("/Contents")] = stream
+    return writer
+
+
 class TerminalRunTests(unittest.TestCase):
     def test_headless_pdf_extracts_text_and_rejects_encryption(self):
         from importlib.util import find_spec
@@ -17,19 +34,7 @@ class TerminalRunTests(unittest.TestCase):
 
         if find_spec("pypdf") is None:
             self.skipTest("Terminal PDF extra is not installed")
-        from pypdf import PdfWriter
-        from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
-
-        writer = PdfWriter()
-        page = writer.add_blank_page(width=300, height=200)
-        font = DictionaryObject({NameObject("/Type"): NameObject("/Font"),
-                                 NameObject("/Subtype"): NameObject("/Type1"),
-                                 NameObject("/BaseFont"): NameObject("/Helvetica")})
-        page[NameObject("/Resources")] = DictionaryObject({
-            NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})})
-        stream = DecodedStreamObject()
-        stream.set_data(b"BT /F1 12 Tf 20 100 Td (Headless PDF fixture) Tj ET")
-        page[NameObject("/Contents")] = stream
+        writer = pdf_fixture()
         data = io.BytesIO()
         writer.write(data)
         self.assertIn("[Page 1]\nHeadless PDF fixture", read_document("fixture.pdf", data.getvalue(), headless=True))
@@ -808,6 +813,7 @@ class TerminalRunTests(unittest.TestCase):
         self.assertEqual(options["web_backends"], [{"kind": "brave"}])
 
     def test_full_cli_turn_applies_reviewed_edit_and_resumes_without_replay(self):
+        from importlib.util import find_spec
         from unittest.mock import Mock
         from agentnik import cli, core
         from agentnik.code_history import CodeHistory
@@ -820,6 +826,10 @@ class TerminalRunTests(unittest.TestCase):
             base = Path(directory).resolve()
             root, data = base / "project", base / "data"
             root.mkdir()
+            pdf_commands = []
+            if find_spec("pypdf") is not None:
+                pdf_fixture().write(root / "reference.pdf")
+                pdf_commands.append("/attach reference.pdf")
             asset = Path(cli.__file__).parent / "assets" / "agentnik-icon.png"
             (root / "visual.png").write_bytes(asset.read_bytes())
             (root / "discard.png").write_bytes(asset.read_bytes())
@@ -852,7 +862,7 @@ class TerminalRunTests(unittest.TestCase):
             first.prompt.side_effect = ["/connection Fixture", "/connection Fxture", "/skills add notes",
                                         f'/attach "{base / "outside.txt"}"', f'/attach "{brief}"',
                                         "/vision on", "/attach visual.png", "/attach discard.png",
-                                        "/attachments", "/attachments remove 3",
+                                        "/attachments", "/attachments remove 3", *pdf_commands,
                                         *[f"/settings limits {key} 0" for key in
                                           ("rounds", "requests", "calls", "turn_seconds")],
                                         "/settngs", "//notes is an example path. Create a note.", "/context", "/context clear",
@@ -880,6 +890,9 @@ class TerminalRunTests(unittest.TestCase):
             self.assertNotIn("/settngs", str(transport.call_args_list[0].args[2]))
             self.assertIn("Fixture note style.", str(transport.call_args_list[0].args[2]))
             self.assertIn("Presentation fixture brief.", str(transport.call_args_list[0].args[2]))
+            if pdf_commands:
+                self.assertIn("Headless PDF fixture", str(transport.call_args_list[0].args[2]))
+                self.assertNotIn("Headless PDF fixture", str(transport.call_args_list[2].args[2]))
             self.assertIn("Choose an attachment inside the current project.", errors.getvalue())
             self.assertNotIn("Outside project fixture", str(transport.call_args_list[0].args[2]))
             self.assertNotIn("Presentation fixture brief.", str(transport.call_args_list[2].args[2]))
