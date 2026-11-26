@@ -4,6 +4,8 @@ The automated suite uses mocked endpoints, temporary data and offscreen Qt. It d
 
 ## Scoped observations
 
+- The build-only `0.12.0rc1` artifact from `bba5392` matched its recorded SHA-256 checksums. Installed outside the checkout in a fresh Windows Python 3.11 environment without Qt, the launcher handled `/keys` and the empty-session `/transcript` case over ConPTY without using a model. The publish job was skipped. [Build-only artifact](https://github.com/nikspence/agentnik/actions/runs/45881078424)
+
 - A separate local Windows ConPTY probe resumed a synthetic saved session at `e0dc856`, opened the actual pager with `/transcript`, returned with Q, and ran `/status`. It used an isolated data directory and no provider request. This verifies the slash-command path, not the terminal emulator's handling of Ctrl+T or PageUp.
 
 - A Windows ConPTY smoke test sent simulated input to the real terminal composer. Ctrl+J inserted a newline, Enter submitted the two-line draft, and Up recalled the exact draft for resubmission. It passed locally and against the installed Qt-free wheel on the hosted Windows runner at `e2d7d8d`. Reproduce with `python tools/conpty_composer_smoke.py` in a Windows environment with the terminal extra and optional `pywinpty`. This does not qualify transcript shortcuts, terminal application bindings, or a physical keyboard. [Hosted Windows job](https://github.com/nikspence/agentnik/actions/runs/45879998897)
