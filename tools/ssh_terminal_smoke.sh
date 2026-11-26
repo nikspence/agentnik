@@ -166,6 +166,10 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding=
     session.expect_exact("SSH fixture completed the directory.")
     session.expect_exact("New tasks start in project scope.")
     session.expect_exact("code>")
+    session.send("/status\r")
+    session.expect(r"Session: ([a-f0-9-]{36})")
+    original_session = session.match.group(1)
+    session.expect_exact("code>")
     assert len(requests) == 4, "Resuming sent an unexpected request"
     session.send("Wait for a response that will be cancelled.\r")
     assert waiting.wait(timeout=8), "The fixture did not receive the cancellation test request"
@@ -173,18 +177,27 @@ with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding=
     session.expect_exact("Cancelled locally.")
     session.expect_exact("code>")
     release.set()
-    session.send("/exit\r")
-    session.expect(pexpect.EOF)
-    session.close()
-    assert session.exitstatus == 0, session.exitstatus
-with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume latest"], encoding="utf-8", timeout=12) as session:
-    session.expect_exact("Cancelled locally.")
+    session.send("/new\r")
+    session.expect(r"Started session ([a-f0-9-]{36})")
+    assert session.match.group(1) != original_session
+    session.expect_exact("code>")
+    session.send("Separate session marker.\r")
+    session.expect_exact("SSH fixture completed the edit.")
     session.expect_exact("code>")
     session.send("/exit\r")
     session.expect(pexpect.EOF)
     session.close()
     assert session.exitstatus == 0, session.exitstatus
-assert len(requests) == 5, "Reopening the cancelled session sent an unexpected request"
+with pexpect.spawn("ssh", [*args[:-1], args[-1] + " --resume " + original_session],
+                   encoding="utf-8", timeout=12) as session:
+    session.expect_exact("Cancelled locally.")
+    session.expect_exact(f"Resumed session {original_session}.")
+    session.expect_exact("code>")
+    session.send("/exit\r")
+    session.expect(pexpect.EOF)
+    session.close()
+    assert session.exitstatus == 0, session.exitstatus
+assert len(requests) == 6, "Reopening the cancelled session sent an unexpected request"
 assert (project / "note.txt").read_bytes() == b"reviewed\n"
 portable = json.loads((project / "portable settings.json").read_text(encoding="utf-8"))
 assert "api_key" not in portable["connections"]["SSH Fixture"]
@@ -208,7 +221,7 @@ with pexpect.spawn("ssh", import_args, encoding="utf-8", timeout=12) as session:
 imported = json.loads((project.parent / "imported-data/connections.json").read_text(encoding="utf-8"))
 assert "api_key" not in imported["connections"]["SSH Fixture"]
 assert "credential_id" not in imported["connections"]["SSH Fixture"]
-assert len(requests) == 5, "Connection transfer sent an unexpected model request"
+assert len(requests) == 6, "Connection transfer sent an unexpected model request"
 assert "machine_create_directory" not in {tool["function"]["name"] for tool in requests[4][2]["tools"]}
 print("Qt-free preview passed SSH setup, reviewed project and machine changes, cancellation, and no-replay resume.")
 PY
