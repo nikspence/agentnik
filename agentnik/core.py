@@ -18,6 +18,7 @@ PROVIDERS = [
     ('Anthropic', 'messages', ('ANTHROPIC_BASE_URL',), ('ANTHROPIC_API_KEY',), 'https://api.anthropic.com/v1', 'ANTHROPIC_MODEL'),
     ('LiteLLM', 'chat', ('LITELLM_BASE_URL', 'LITELLM_API_BASE', 'LITELLM_URL'), ('LITELLM_API_KEY', 'LITELLM_MASTER_KEY'), '', 'LITELLM_MODEL'),
     ('Ollama', 'chat', ('OLLAMA_HOST', 'OLLAMA_BASE_URL'), ('OLLAMA_API_KEY',), 'http://localhost:11434/v1', 'OLLAMA_MODEL'),
+    ('LM Studio', 'chat', ('LM_STUDIO_BASE_URL',), ('LM_STUDIO_API_KEY', 'LM_API_TOKEN'), 'http://localhost:1234/v1', 'LM_STUDIO_MODEL'),
     ('llama.cpp', 'chat', ('LLAMA_CPP_BASE_URL', 'LLAMA_CPP_URL', 'LLAMACPP_BASE_URL'), ('LLAMA_CPP_API_KEY', 'LLAMACPP_API_KEY'), '', 'LLAMA_CPP_MODEL'),
     *[(name, 'chat', (prefix+'_BASE_URL',), (prefix+'_API_KEY',), url, prefix+'_MODEL') for name, prefix, url in [
         ('OpenRouter', 'OPENROUTER', 'https://openrouter.ai/api/v1'), ('Groq', 'GROQ', 'https://api.groq.com/openai/v1'),
@@ -124,7 +125,7 @@ def models(c):
 
 def discover():
     found = {}
-    for name, ports in [('Ollama', (11434,)), ('llama.cpp', (9931, 8080)), ('FastFlowLM', (52625,)), ('LiteLLM', (4000,))]:
+    for name, ports in [('Ollama', (11434,)), ('LM Studio', (1234,)), ('llama.cpp', (9931, 8080)), ('FastFlowLM', (52625,)), ('LiteLLM', (4000,))]:
         for port in ports:
             host = None
             for address in ('127.0.0.1', '::1'):

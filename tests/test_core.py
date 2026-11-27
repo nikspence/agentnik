@@ -195,6 +195,32 @@ class Contracts(unittest.TestCase):
             found=core.discover()
             self.assertEqual(len(found),1); self.assertIn('authentication required',next(iter(found)))
 
+    def test_lm_studio_local_discovery(self):
+        def connect(address, timeout):
+            if address != ('127.0.0.1', 1234): raise OSError()
+            return unittest.mock.MagicMock()
+
+        with patch.object(core.socket, 'create_connection', side_effect=connect), patch.object(
+            core, 'get_json', return_value={'data': [{'id': 'z-model'}, {'id': 'a-model'}]}
+        ) as get_json:
+            found = core.discover()
+        name = 'local:LM Studio :1234 (compatible API)'
+        url = 'http://127.0.0.1:1234/v1'
+        self.assertEqual(found, {name: dict(url=url, protocol='chat', model='a-model')})
+        get_json.assert_called_once_with(dict(url=url, protocol='chat', model='a-model'), url+'/models')
+        self.assertEqual(core.endpoint(found[name]), url+'/chat/completions')
+
+    def test_lm_studio_environment_connection(self):
+        for settings, url, model in (
+            ({'LM_API_TOKEN': 'test-token'}, 'http://localhost:1234/v1', ''),
+            ({'LM_STUDIO_BASE_URL': 'http://localhost:8123/v1', 'LM_STUDIO_API_KEY': 'test-token',
+              'LM_STUDIO_MODEL': 'chosen'}, 'http://localhost:8123/v1', 'chosen'),
+        ):
+            with self.subTest(url=url), patch.dict('os.environ', settings, clear=True):
+                self.assertEqual(core.environment_connections(), {
+                    'env:LM Studio': dict(url=url, protocol='chat', model=model, api_key='test-token'),
+                })
+
 class History(unittest.TestCase):
     def test_saved_prompts_keep_shared_images_until_unreferenced(self):
         with tempfile.TemporaryDirectory() as root:
