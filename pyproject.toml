@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentnik"
-version = "0.13.0"
+version = "0.13.1"
 authors = [{name = "Nikolaus Spence"}]
 description = "Agentnik desktop chat and terminal coding with your chosen model"
 readme = "PYPI.md"

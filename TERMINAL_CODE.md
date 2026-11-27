@@ -3,7 +3,7 @@
 Agentnik Code is available as a terminal preview. It uses Agentnik's own coding engine and works on machines without a display or Qt. Install it from PyPI with Python 3.11 or newer:
 
 ```sh
-python -m pip install "agentnik[terminal]>=0.13.0"
+python -m pip install "agentnik[terminal]>=0.13.1"
 agentnik code --version
 ```
 
@@ -11,9 +11,9 @@ For development, install from a checkout with `python -m pip install ".[terminal
 
 From the folder you want to work in, run `agentnik code`. A Git repository is optional. Launching from a subfolder keeps the Code session rooted there. Native `/git` commands can still discover the enclosing Git repository. To work somewhere else, pass the folder as an argument. On a machine where you also use the desktop app, install `".[desktop,terminal]"` to use both. The clients share saved connections and application data. Use `--data-dir PATH` or `AGENTNIK_HOME` if you want a separate data store.
 
-This guide follows the current checkout. For the commands and behavior in the published v0.13.0 wheel, use the [v0.13.0 terminal guide](https://github.com/nikspence/agentnik/blob/v0.13.0/TERMINAL_CODE.md).
+This guide follows the current checkout. For the commands and behavior in the published v0.13.1 wheel, use the [v0.13.1 terminal guide](https://github.com/nikspence/agentnik/blob/v0.13.1/TERMINAL_CODE.md).
 
-On Windows, the [verified build-only onedir preview](https://github.com/nikspence/agentnik/actions/runs/45913137527) also lets you try the terminal without installing Python. Download the `agentnik-windows-onedir-preview` artifact, extract the inner ZIP, and keep both launchers alongside the `_internal` folder. From your project directory, run `& "C:\path\to\Agentnik\Agentnik-Terminal.exe" code` in PowerShell. The original v0.13.0 Windows ZIP has only the desktop launcher.
+On Windows, download the [v0.13.1 onedir ZIP](https://github.com/nikspence/agentnik/releases/tag/v0.13.1) to run without installing Python. Extract the complete ZIP and keep both launchers alongside the `_internal` folder. From your project directory, run `& "C:\path\to\Agentnik\Agentnik-Terminal.exe" code` in PowerShell.
 
 While a run is waiting for an approval, enter `/steer MESSAGE` at the approval prompt to redirect it without approving the proposed action. Delivery outcomes reported by the coding engine appear in `/history` and are never replayed as steering commands. The terminal does not accept steering while the model is streaming.
 

@@ -1,18 +1,17 @@
-# Agentnik v0.13.0
+# Agentnik v0.13.1
 
-This is the first public release with Agentnik Code in the terminal. The terminal interface is a preview and uses Agentnik's own coding engine with your configured model connection.
+Agentnik Code now has a Windows console launcher in the onedir ZIP. No separate Python installation is needed. Extract the complete archive and keep the `_internal` folder next to both executables. Open `Agentnik.exe` for the desktop, or invoke `Agentnik-Terminal.exe code` from your project terminal using the executable's full path. The ZIP is unsigned and includes a SHA-256 sidecar.
+
+For a Qt-free install on Windows, macOS, or Linux:
 
 ```sh
-python -m pip install "agentnik[terminal]==0.13.0"
+python -m pip install "agentnik[terminal]==0.13.1"
 agentnik code
 ```
 
-Run it from the folder you want to work in. Git and Qt are not required to start. Use `/help` to discover commands and `/connections add` to set up a model connection from the terminal.
+- Press F6 during a run to stop it and choose the next run's project or machine file scope. Use `/scope project` or `/scope machine` at an approval prompt to change scope without approving the pending action. Agentnik does not replay the task.
+- Use `/steer MESSAGE` at an approval prompt to redirect a run without approving the proposal.
+- Reopened sessions restore saved MCP profile choices, not approval grants. Reviewed Git and MCP grants are limited to the current run.
+- Desktop-only settings are grouped under `/settings desktop`. Existing settings commands still work over SSH.
 
-- **Independent sessions:** recall prompts, inspect saved activity, and explicitly reopen a session without replaying work.
-- **Review and scope:** choose when to approve project edits and commands, and switch between project and machine file scope. Shell commands run as your account and are not sandboxed.
-- **Coding tools:** cancel runs, pursue goals, review changes, run manual Git commands, and optionally inspect or generate images with compatible connections.
-
-The [terminal guide](https://github.com/nikspence/agentnik/blob/v0.13.0/TERMINAL_CODE.md) covers SSH setup, keyboard shortcuts, and the VS Code integrated terminal. This is not a native VS Code extension.
-
-The Windows x64 ZIP is the unsigned **desktop** onedir build. Verify the SHA-256 sidecar, extract the entire ZIP, and run `Agentnik/Agentnik.exe` with `_internal` beside it. Use the PyPI terminal installation above for `agentnik code`. The build manifest describes its startup test and limitations. See [validation](https://github.com/nikspence/agentnik/blob/v0.13.0/VALIDATION.md) for preview evidence and remaining platform and provider checks.
+The terminal remains a preview. The [terminal guide](https://github.com/nikspence/agentnik/blob/v0.13.1/TERMINAL_CODE.md) covers keyboard shortcuts, SSH setup, and the VS Code integrated terminal. There is no native VS Code extension yet.

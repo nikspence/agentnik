@@ -23,7 +23,7 @@ Research and coding workflows include preview features. Model listings do not es
 
 On a terminal-only machine, install from this checkout with `pip install ".[terminal]"`. This does not install Qt. For the desktop app, install `pip install ".[desktop]"` or use the desktop setup instructions below. Install both with `pip install ".[desktop,terminal]"`.
 
-Run `agentnik code` from any project folder for terminal coding, independent sessions, approvals, goals, research, and image generation. Install it from PyPI with `python -m pip install "agentnik[terminal]>=0.13.0"`. The [terminal guide](TERMINAL_CODE.md) covers preview downloads, SSH setup, and manual Git commands.
+Run `agentnik code` from any project folder for terminal coding, independent sessions, approvals, goals, research, and image generation. Install it from PyPI with `python -m pip install "agentnik[terminal]>=0.13.1"`. The [terminal guide](TERMINAL_CODE.md) covers preview downloads, SSH setup, and manual Git commands.
 
 ## What Agentnik is not
 
@@ -35,7 +35,7 @@ Agentnik requires Python 3.11 or newer. See [installation and launch](GETTING_ST
 
 ## Windows release
 
-The **v0.13.0** Windows x64 desktop build is an unsigned onedir ZIP. Extract the complete archive and run `Agentnik/Agentnik.exe`, keeping `_internal` beside it. Python is bundled. Verify the accompanying SHA-256 checksum. Build-host startup results are recorded in the archive. This release has not been separately qualified on a clean machine; macOS/Linux distribution validation remains outstanding. See [release notes](RELEASE_NOTES.md) and the archive's `BUILD-MANIFEST.json` for details.
+The **v0.13.1** Windows x64 build is an unsigned onedir ZIP. Extract the complete archive and run `Agentnik/Agentnik.exe` for the desktop, or invoke `Agentnik/Agentnik-Terminal.exe code` from a project terminal. Keep `_internal` beside it. Python is bundled. Verify the accompanying SHA-256 checksum. Build-host startup results are recorded in the archive. This release has not been separately qualified on a clean machine; macOS/Linux distribution validation remains outstanding. See [release notes](RELEASE_NOTES.md) and the archive's `BUILD-MANIFEST.json` for details.
 
 ## Screenshots
 
